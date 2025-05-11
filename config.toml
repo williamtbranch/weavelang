@@ -1,0 +1,6 @@
+# Configuration for Weavelang Tool
+
+# Path to the content project directory
+# Example for Windows: "E:\\Bill\\Documents\\development\\audiolingual"
+# Example for Linux/macOS: "/home/user/projects/audiolingual"
+content_project_dir = "E:\\Bill\\Documents\\development\\audiolingual"
