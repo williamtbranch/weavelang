@@ -8,7 +8,7 @@ This document, `Project_Documentation_V3.md`, is the primary specification for t
 
 ## 1. Project Overview & Goal
 
-*   **Name:** Biweave (Placeholder) - Spanish CI Learning Application
+*   **Name:** weavelang - Spanish CI Learning Application
 *   **Goal:** To facilitate Spanish language acquisition for learners starting from zero knowledge, using a Comprehensible Input (CI) methodology based on Stephen Krashen's i+1 hypothesis. This project initially focuses on creating a **prototype for self-testing** by the developer to validate the core mechanics and parameters.
 *   **Methodology:** The application provides learners with extensive listening input derived from public domain literary works. Input is carefully scaffolded using a static generation model, starting with mostly Simple English and gradually incorporating Spanish vocabulary and structures at a rate designed to remain comprehensible (targeting ~98% known vocabulary). Learning content is pre-generated in large batches or stages.
 *   **Content Source:** Public domain literary texts (e.g., Pride and Prejudice, Oliver Twist, etc.), ordered by calculated difficulty based on readability and vocabulary novelty.
