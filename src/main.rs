@@ -12,7 +12,7 @@ use clap::Parser;
 use eframe::{egui, App as EframeApp, NativeOptions};
 
 // --- Crate-Specific Imports (from our library `weavelang_rust_gui`) ---
-use weavelang_rust_gui::config::{self, Config}; // Import specific item and module
+use weavelang_rust_gui::config::{Config}; // Import specific item and module
 use weavelang_rust_gui::corpus_generator;
 // profile_io is used by corpus_generator
 
