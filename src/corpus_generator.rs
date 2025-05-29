@@ -14,7 +14,7 @@ use crate::profile::LemmaState; // For checking new words for activation list
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::error::Error;
 use std::io::BufRead; // For reading sequence file line by line
 

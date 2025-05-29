@@ -144,7 +144,7 @@ pub fn generate_final_text_block(
             // This requires diglot_map entries to be associated with original SimS_Segments implicitly by their order or explicitly.
             // The current s_sentence.diglot_map is Vec<DiglotSegmentMap>, one per SimS_Segment.
             for s_segment_map in &s_sentence.diglot_map {
-                let mut current_segment_text_portion = if substitutions_made_l4 == 0 && s_segment_map.segment_id == "S1" { // approximation
+                let current_segment_text_portion = if substitutions_made_l4 == 0 && s_segment_map.segment_id == "S1" { // approximation
                     l4_text_build.clone() // On first segment, work on whole sentence text
                 } else {
                     // More complex: need to find the SimE span corresponding to this s_segment_map.segment_id
