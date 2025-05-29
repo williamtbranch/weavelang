@@ -1,8 +1,9 @@
 //*** START FILE: src/simulation/dictionary.rs ***//
 use std::collections::HashMap;
 use crate::types::llm_data::ProcessedChapter; // To populate from a chapter
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct GlobalLemmaDictionary {
     pub str_to_id: HashMap<String, u32>,
     pub id_to_str: Vec<String>, // Index is the u32 ID

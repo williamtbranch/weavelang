@@ -1,9 +1,10 @@
 //*** START FILE: src/simulation/numerical_types.rs ***//
 use std::collections::HashMap;
 use crate::profile::{LearnerLemmaInfo, LemmaState}; // Using existing profile structs
+use serde::{Serialize, Deserialize};
 
 // --- Numerical Learner Profile ---
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NumericalLearnerProfile {
     pub vocabulary: HashMap<u32, LearnerLemmaInfo>, // Key is lemma_id (u32)
 }
