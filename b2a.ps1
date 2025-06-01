@@ -1,47 +1,67 @@
-# b2a.ps1
+# b2a.ps1 (Updated)
 
 Write-Host "Starting Text-to-Speech conversion..."
 
 # --- Configuration ---
-$ToolRootPath = "E:/Bill/development/weavelang"
+$ToolRootPath = "E:/Bill/development/weavelang" # Your actual path
 $PythonScriptPath = "$ToolRootPath/book_to_audio.py"
 $InputFileName = "Alice_In_Wonderland_inst01_lvl00_lvl00.txt" # Your test file
 
-# --- TTS Model Configuration ---
-$TtsModelName = "models/gemini-2.5-pro-preview-tts" # Your new default Pro model
+# --- TTS Service Selection ---
+$TtsService = "vertex" # "gemini" or "vertex"
+# $TtsService = "vertex" 
+
+# --- Gemini TTS Configuration (used if $TtsService is "gemini") ---
+$GeminiModelName = "models/gemini-1.5-flash-preview-tts" # Or your preferred Pro model
+$GeminiVoiceName = "Schedar" # Default Gemini voice
+$GeminiTtsPromptPrefix = "You have a Mexican Spanish accent. Narrate the following text in a clear, even voice, suitable for an audiobook at a moderate pace. You are telling a story. Be engaging:"
+
+# --- Vertex AI TTS Configuration (used if $TtsService is "vertex") ---
+$VertexVoiceName = "es-US-Chirp3-HD-Achernar" # Example Vertex voice, find more at Google Cloud docs
+$VertexLanguageCode = "es-US"      # Example, e.g., "es-MX"
 
 # --- Run Mode ---
 [bool]$RepairMode = $false # Set to $true to attempt a repair run
-# To run in repair mode from command line: .\b2a.ps1 -RepairMode $true
-# Or just change it here for a specific run.
 
-# --- Processing Parameters ---
-# These are defaults for a NORMAL run. In REPAIR mode, some of these might be
-# overridden by metadata (chunk_max_chars, tts_prompt_prefix, model_name, voice_name).
-$VoiceName = "Schedar"
+# --- Common Processing Parameters ---
+# In REPAIR mode, some of these might be overridden by metadata from the previous run.
 $OutputAudioFormat = "wav"
-$LogLevel = "INFO"       # Use DEBUG for detailed troubleshooting, INFO for normal runs
-$ConcurrentRequests = 3  # Adjust based on stability and API limits
+$LogLevel = "INFO"       # DEBUG, INFO, WARNING, ERROR, CRITICAL
+$ConcurrentRequests = 10  # Start with 1, increase cautiously
 $ChunkMaxChars = 1000    
-$MaxApiRetries = 10
+$MaxApiRetries = 4 
 $RetryDelay = 15          # Base delay in seconds
-$TtsPromptPrefix = "You have a Mexican Spanish accent. Narrate the following text in a clear, even voice, suitable for an audiobook at a moderate pace. You are telling a story. Be engaging:"
-
 
 # --- Construct Command Parameters ---
 $PythonParams = @(
-    "--input-filename", $InputFileName,  # Enclose in single quotes if names have spaces
+    "--input-filename", $InputFileName,
     "--tool-root-dir", $ToolRootPath,
-    "--model-name", $TtsModelName,
-    "--voice-name", $VoiceName,
-    "--tts-prompt-prefix", $TtsPromptPrefix, # Important for consistency
+    "--tts-service", $TtsService,
     "--output-audio-format", $OutputAudioFormat,
     "--log-level", $LogLevel,
     "--concurrent-requests", $ConcurrentRequests,
-    "--chunk-max-chars", $ChunkMaxChars,       # Crucial for consistency
+    "--chunk-max-chars", $ChunkMaxChars,
     "--max-api-retries", $MaxApiRetries,
     "--retry-delay", $RetryDelay
 )
+
+# Add service-specific parameters
+if ($TtsService -eq "gemini") {
+    $PythonParams += "--model-name", $GeminiModelName
+    $PythonParams += "--voice-name", $GeminiVoiceName
+    $PythonParams += "--tts-prompt-prefix", $GeminiTtsPromptPrefix
+    # API Key for Gemini can be in .env or passed via --api-key if needed
+    # $PythonParams += "--api-key", "YOUR_GEMINI_API_KEY_IF_NOT_IN_ENV" 
+    Write-Host "Using GEMINI TTS service."
+    Write-Host "Gemini Model (initial): $GeminiModelName"
+    Write-Host "Gemini Voice (initial): $GeminiVoiceName"
+} elseif ($TtsService -eq "vertex") {
+    $PythonParams += "--voice-name", $VertexVoiceName
+    $PythonParams += "--language-code", $VertexLanguageCode
+    Write-Host "Using VERTEX AI TTS service. Ensure ADC is configured ('gcloud auth application-default login')."
+    Write-Host "Vertex Voice (initial): $VertexVoiceName"
+    Write-Host "Vertex Language Code: $VertexLanguageCode"
+}
 
 if ($RepairMode) {
     $PythonParams += "--repair-mode"
@@ -50,14 +70,11 @@ if ($RepairMode) {
     Write-Host "--- NORMAL MODE ---"
 }
 
-# --- Display Parameters ---
+# --- Display Common Parameters ---
 Write-Host "Executing Python script: $PythonScriptPath"
 Write-Host "Input file: $InputFileName"
-Write-Host "TTS Model (initial): $TtsModelName" # Python script will log effective model
-Write-Host "Voice Name (initial): $VoiceName"
 Write-Host "Chunk Max Chars (initial): $ChunkMaxChars"
-Write-Host "Max API Retries: $MaxApiRetries"
-# ... add other params if desired ...
+# ... add other common params if desired ...
 
 # --- Run the Command ---
 Write-Host "Running: python $PythonScriptPath $($PythonParams -join ' ')"
@@ -66,7 +83,9 @@ python $PythonScriptPath $PythonParams
 $ExitCode = $LASTEXITCODE
 if ($ExitCode -eq 0) {
     Write-Host "Python script finished."
-    $ExpectedOutputFile = "E:/Bill/Documents/development/audiolingual/audio/$($InputFileName -replace '\.txt$', ".$OutputAudioFormat")"
+    # Adjust path if your content_project_dir in config.toml is different
+    $BaseAudioDir = "E:/Bill/Documents/development/audiolingual/audio" # Example base from your .ps1
+    $ExpectedOutputFile = "$BaseAudioDir/$($InputFileName -replace '\.txt$', ".$OutputAudioFormat")"
     Write-Host "Check for '$ExpectedOutputFile'"
 } else {
     Write-Host "Python script exited with error code: $ExitCode"
