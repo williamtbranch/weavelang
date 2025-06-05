@@ -1,0 +1,65 @@
+You are an expert linguist specializing in Spanish sentence segmentation and lemmatization.
+Your task is to process a list of "ADVANCED SPANISH SENTENCES" provided below. Each sentence is tagged with a unique "ID" and its "AdvS_TEXT_TO_SEGMENT" (previously translated advanced Spanish text, delimited by {{ and }}).
+For context, the "ORIGINAL ENGLISH TEXT" (also delimited by {{ and }}) from which the AdvS_TEXT was derived is also provided for each entry.
+
+For EACH input entry (ADVANCED SPANISH SENTENCE), you must:
+
+1.  **Segment the `AdvS_TEXT_TO_SEGMENT` (`AdvS_SEGMENTS`):**
+    *   Break down the input `AdvS_TEXT_TO_SEGMENT` (the content between {{ and }}) into a sequence of meaningful, consecutive phrase segments. Aim for natural phrase breaks.
+    *   Assign sequential IDs to these segments starting with "A1", then "A2", and so on.
+    *   **Crucial:** The concatenation of your generated segment texts (with single spaces between them) MUST perfectly reconstruct the original input `AdvS_TEXT_TO_SEGMENT`. Do not omit words or change phrasing from the input `AdvS_TEXT_TO_SEGMENT`; simply divide it.
+    *   Output each segment as `[SegmentID]::{{[Segment Text]}}`.
+
+2.  **Provide Lemmas for Each Segment (`AdvSL_PER_SEGMENT`):**
+    *   For each `AdvS_Segment` text you just created, extract all lemmatizable Spanish words from *that specific segment's text*.
+    *   Provide these as a space-separated list of lemmas, prefixed by the segment's ID (e.g., `A1:: lemma1 lemma2`).
+    *   Strictly adhere to these Lemmatization Rules:
+        *   Verbs: Infinitive.
+        *   Nouns: Singular, masculine (where applicable).
+        *   Adjectives: Singular, masculine (where applicable).
+        *   Clitic Pronouns: Own lemma form.
+        *   Reflexive Pronouns (attached): Separate infinitive verb and pronoun.
+        *   Articles & Common Prepositions: Own lemma forms.
+        *   Proper Nouns: EXCLUDE from lemma lists.
+        *   Each lemma: single canonical word.
+
+--- EXAMPLE OF TASK ---
+IF THE INPUT ENTRY IS:
+--- INPUT (ID: example_id_001) ---
+ORIGINAL_ENGLISH_TEXT: {{"The man was limping intently on towards this latter, as if he were the pirate come to life, and come down, and going back to hook himself up again."}}
+AdvS_TEXT_TO_SEGMENT: {{El hombre cojeaba con determinación hacia este último, como si fuera el pirata que había cobrado vida, y había bajado, y regresaba para colgarse de nuevo.}}
+
+YOUR EXPECTED OUTPUT FOR THIS ENTRY WOULD BE:
+--- OUTPUT FOR ID: example_id_001 ---
+AdvS_SEGMENTS_START::
+A1::{{El hombre}}
+A2::{{cojeaba con determinación}}
+A3::{{hacia este último,}}
+A4::{{como si fuera el pirata}}
+A5::{{que había cobrado vida,}}
+A6::{{y había bajado,}}
+A7::{{y regresaba}}
+A8::{{para colgarse de nuevo.}}
+AdvS_SEGMENTS_END::
+
+AdvSL_PER_SEGMENT_START::
+A1::el hombre
+A2::cojear con determinación
+A3::hacia este último
+A4::como si ser el pirata
+A5::que haber cobrar vida
+A6::y haber bajar
+A7::y regresar
+A8::para colgar se de nuevo
+AdvSL_PER_SEGMENT_END::
+--- END OF EXAMPLE ---
+
+--- START OF INPUT SENTENCES TO PROCESS ---
+
+{batched_input_advs_sentences_with_ids_and_eng_context}
+
+--- END OF INPUT SENTENCES TO PROCESS ---
+
+For EACH input sentence, provide your output in the structured format shown in the example's "YOUR EXPECTED OUTPUT" section.
+Begin your response directly with the output for the first ID.
+Ensure a blank line after AdvSL_PER_SEGMENT_END:: before the next "--- OUTPUT FOR ID: ..." marker or the end of your response.

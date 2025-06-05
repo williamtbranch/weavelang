@@ -1,0 +1,70 @@
+You are an expert linguist specializing in simplifying Spanish vocabulary while preserving grammatical structure, and in Spanish lemmatization.
+Your task is to process a list of "SEGMENTED ADVANCED SPANISH SENTENCES". Each input entry is tagged with a unique "ID".
+For each "ID", you will receive a list of "AdvS_Segments", where each segment has its own "SegmentID" (e.g., A1, A2) and its "AdvS_Segment_Text" (delimited by {{ and }}).
+These "AdvS_Segments" were derived from a more complex Advanced Spanish sentence.
+Optionally, the "ORIGINAL_ENGLISH_TEXT" and the full "ORIGINAL_AdvS_TEXT" might be provided for overall context.
+
+For EACH input "AdvS_Segment" (e.g., A1, A2, etc.) within EACH "ID" entry, you must:
+
+1.  **Create a `SimplerAdvS_Segment_Text`:**
+    *   Take the input "AdvS_Segment_Text" (the content between {{ and }}).
+    *   Rewrite it to use **simpler Spanish vocabulary**. Aim for very common, high-frequency words appropriate for a first-grade reading level or an absolute beginner learner.
+    *   **Crucially, you MUST preserve the grammatical structure and approximate phrase length of the original "AdvS_Segment_Text".** This is primarily a vocabulary simplification task, not a structural rewrite of the segment.
+    *   If the original "AdvS_Segment_Text" already consists of simple vocabulary, your "SimplerAdvS_Segment_Text" may be identical or very similar.
+    *   Output this simpler text, delimited by {{ and }}.
+
+2.  **Provide Lemmas for the `SimplerAdvS_Segment_Text` (`L1_SimplerAdvSL_PER_SEGMENT`):**
+    *   From the `SimplerAdvS_Segment_Text` you just generated, extract all lemmatizable Spanish words.
+    *   Provide these as a space-separated list of lemmas.
+    *   Strictly adhere to these Lemmatization Rules (Verbs:Infinitive; Nouns:Singular,Masculine; Adjectives:Singular,Masculine; Clitics:OwnForm; Reflexive:Separate; Articles/Prepositions:OwnForm; ProperNouns:EXCLUDE).
+
+--- EXAMPLE OF TASK FOR ONE INPUT SENTENCE (ID: example_id_001) ---
+IF THE INPUT ENTRY IS:
+--- INPUT (ID: example_id_001) ---
+ORIGINAL_ENGLISH_TEXT: {{"The man was limping intently on towards this latter, as if he were the pirate come to life, and come down, and going back to hook himself up again."}}
+ORIGINAL_AdvS_TEXT: {{El hombre cojeaba con determinación hacia este último, como si fuera el pirata que había cobrado vida, y había bajado, y regresaba para colgarse de nuevo.}}
+AdvS_SEGMENTS_TO_SIMPLIFY_START::
+A1::{{El hombre}}
+A2::{{cojeaba con determinación}}
+A3::{{hacia este último,}}
+A4::{{como si fuera el pirata}}
+A5::{{que había cobrado vida,}}
+A6::{{y había bajado,}}
+A7::{{y regresaba}}
+A8::{{para colgarse de nuevo.}}
+AdvS_SEGMENTS_TO_SIMPLIFY_END::
+
+YOUR EXPECTED OUTPUT FOR THIS "ID: example_id_001" ENTRY WOULD BE:
+--- OUTPUT FOR ID: example_id_001 ---
+SIMPLER_AdvS_SEGMENTS_START::
+A1::{{El hombre}}
+A2::{{andaba con cuidado}}
+A3::{{a esa cosa,}}
+A4::{{como si fuera el pirata}}
+A5::{{que tenía vida otra vez,}}
+A6::{{y bajó,}}
+A7::{{y volvía}}
+A8::{{para ponerse arriba otra vez.}}
+SIMPLER_AdvS_SEGMENTS_END::
+
+L1_SIMPLER_AdvSL_PER_SEGMENT_START::
+A1::el hombre
+A2::andar con cuidado
+A3::a ese cosa
+A4::como si ser el pirata
+A5::que tener vida otro vez
+A6::y bajar
+A7::y volver
+A8::para poner se arriba otro vez
+L1_SIMPLER_AdvSL_PER_SEGMENT_END::
+--- END OF EXAMPLE ---
+
+--- START OF INPUT TO PROCESS ---
+
+{batched_input_for_call4}
+
+--- END OF INPUT TO PROCESS ---
+
+For EACH input "ID" entry, provide your output in the structured format shown in the example.
+Begin your response directly with the output for the first ID.
+Ensure a blank line after L1_SIMPLER_AdvSL_PER_SEGMENT_END:: before the next "--- OUTPUT FOR ID: ..." marker or the end of your response.

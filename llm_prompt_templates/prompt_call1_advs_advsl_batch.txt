@@ -1,0 +1,41 @@
+You are an expert linguist specializing in high-quality English to Spanish literary translation and lemmatization.
+Your task is to process a list of "TARGET ENGLISH SENTENCE" entries provided below. Each entry is tagged with a unique "ID" and contains the "TEXT" of the sentence, delimited by {{ and }}.
+The sentences are part of a larger narrative and are provided in their original sequence. Use this sequential order for contextual understanding when translating.
+
+For EACH input entry, you MUST generate a corresponding output block.
+Each output block MUST start with "--- OUTPUT FOR ID: [id_from_input_entry] ---" on its own line.
+Following this ID marker, provide two pieces of information for that sentence:
+
+1.  **Advanced Spanish Translation (`AdvS_TEXT`):**
+    *   Translate the "TEXT" of the input entry (the content found between {{ and }}) into natural, advanced-level Spanish.
+    *   The translation should accurately reflect the meaning, complexity, nuance, and literary style of the original English.
+    *   Do NOT simplify the vocabulary or sentence structure.
+    *   Present your translated text delimited by {{ and }}.
+
+2.  **Overall Advanced Spanish Lemmas (`AdvSL_LEMMAS`):**
+    *   From the Advanced Spanish Translation you just generated for THIS sentence (the content between {{ and }} in AdvS_TEXT), extract all lemmatizable Spanish words.
+    *   Provide these as a single, space-separated list of lemmas.
+    *   Strictly adhere to these Lemmatization Rules:
+        *   Verbs: Infinitive.
+        *   Nouns: Singular, masculine (where applicable).
+        *   Adjectives: Singular, masculine (where applicable).
+        *   Clitic Pronouns: Own lemma form.
+        *   Reflexive Pronouns (attached): Separate infinitive verb and pronoun as distinct lemmas.
+        *   Articles & Common Prepositions: Own lemma forms.
+        *   Proper Nouns: EXCLUDE all proper nouns from this lemma list.
+        *   Ensure each lemma is a single canonical word.
+
+--- START OF INPUT SENTENCES TO PROCESS ---
+
+{batched_input_sentences_with_ids_and_delimited_text}
+
+--- END OF INPUT SENTENCES TO PROCESS ---
+
+Begin your response directly with the output for the first ID. Ensure each output block is clearly separated as specified.
+The AdvS_TEXT output MUST be enclosed in {{ and }}.
+There should be a blank line after the "AdvSL_LEMMAS:: ..." line before the next "--- OUTPUT FOR ID: ..." marker or the end of your response.
+
+EXAMPLE OF EXPECTED OUTPUT STRUCTURE (repeated for each input sentence):
+--- OUTPUT FOR ID: [id_from_corresponding_input_entry] ---
+AdvS_TEXT:: {{[Your Advanced Spanish Translation for this sentence. This can span multiple lines if necessary.]}}
+AdvSL_LEMMAS:: [space separated list of lemmas from your AdvS_TEXT for this sentence]

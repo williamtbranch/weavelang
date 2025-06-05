@@ -1,0 +1,75 @@
+You are an expert linguist specializing in creating structurally aligned translations for language learning and in Spanish lemmatization.
+Your task is to process a list of "TARGET ENGLISH SENTENCES". Each input entry is tagged with a unique "ID" and its "ENG_TEXT" (original English text, delimited by {{ and }}).
+
+For EACH input "ID" and its "ENG_TEXT", you must perform the following three related tasks:
+
+1.  **Generate Simple Spanish Segments (`SimS_L3_SEGMENTS`) Aligned to English:**
+    *   Analyze the input `ENG_TEXT` (content between {{ and }}) to understand its phrasal structure.
+    *   Translate the `ENG_TEXT` into **simple Spanish**, outputting this translation as a sequence of phrase segments.
+    *   **Vocabulary:** Use very common, high-frequency Spanish words (first-grade reading level).
+    *   **Structural Alignment:** Each generated simple Spanish segment MUST correspond in meaning and phrase boundary to a conceptual phrase in the input `ENG_TEXT`.
+    *   **Completeness:** The concatenation of your generated simple Spanish segment texts (with single spaces) MUST form a complete, grammatically correct simple Spanish sentence that accurately translates the entire input `ENG_TEXT`.
+    *   Assign sequential IDs to these segments (S1, S2, S3...).
+    *   Output each segment as `[SegmentID]::{{[Simple Spanish Segment Text]}}`.
+
+2.  **Align Segments to English Spans (`PHRASE_ALIGN_SimS_L3_TO_ENG`):**
+    *   For each simple Spanish segment you created in Task 1 (e.g., S1, S2):
+        *   Identify the exact span of text from the original input `ENG_TEXT` that this Spanish segment corresponds to.
+        *   Output this alignment as `[SegmentID] ~ {{[Your Simple Spanish Segment Text from Task 1]}} ~ {{[Corresponding Span from Original ENG_TEXT]}}`.
+
+3.  **Provide Lemmas for Simple Spanish Segments (`L3_SimSL_PER_SEGMENT`):**
+    *   For each simple Spanish segment text you created in Task 1:
+        *   Extract all lemmatizable Spanish words from *that specific segment's text*.
+        *   Provide these as a space-separated list of lemmas, prefixed by the segment's ID (e.g., `S1:: lemma1 lemma2`).
+    *   Strictly adhere to standard Lemmatization Rules (Verbs:Infinitive; Nouns:Singular,Masculine; Adjectives:Singular,Masculine; Clitics:OwnForm; Reflexive:Separate; Articles/Prepositions:OwnForm; ProperNouns:EXCLUDE).
+
+--- EXAMPLE OF TASK FOR ONE INPUT SENTENCE (ID: example_id_001) ---
+IF THE INPUT ENTRY IS:
+--- INPUT (ID: example_id_001) ---
+ENG_TEXT: {{"The man was limping carefully towards the gibbet, as if he were the pirate come to life, and come down, and going back to hook himself up again."}}
+
+YOUR EXPECTED OUTPUT FOR THIS "ID: example_id_001" ENTRY WOULD BE:
+--- OUTPUT FOR ID: example_id_001 ---
+SimS_L3_SEGMENTS_START::
+S1::{{El hombre}}
+S2::{{caminaba con cuidado}}
+S3::{{a la horca,}}
+S4::{{como si fuera el pirata}}
+S5::{{que tenía vida otra vez,}}
+S6::{{y bajó,}}
+S7::{{y volvía}}
+S8::{{para ponerse arriba otra vez.}}
+SimS_L3_SEGMENTS_END::
+
+PHRASE_ALIGN_SimS_L3_TO_ENG_START::
+S1 ~ {{El hombre}} ~ {{The man}}
+S2 ~ {{caminaba con cuidado}} ~ {{was limping carefully}}
+S3 ~ {{a la horca,}} ~ {{towards the gibbet,}}
+S4 ~ {{como si fuera el pirata}} ~ {{as if he were the pirate}}
+S5 ~ {{que tenía vida otra vez,}} ~ {{come to life,}}
+S6 ~ {{y bajó,}} ~ {{and come down,}}
+S7 ~ {{y volvía}} ~ {{and going back}}
+S8 ~ {{para ponerse arriba otra vez.}} ~ {{to hook himself up again.}}
+PHRASE_ALIGN_SimS_L3_TO_ENG_END::
+
+L3_SimSL_PER_SEGMENT_START::
+S1::el hombre
+S2::caminar con cuidado
+S3::a el horca
+S4::como si ser el pirata
+S5::que tener vida otro vez
+S6::y bajar
+S7::y volver
+S8::para poner se arriba otro vez
+L3_SimSL_PER_SEGMENT_END::
+--- END OF EXAMPLE ---
+
+--- START OF INPUT TO PROCESS ---
+
+{batched_input_eng_sentences_with_ids}
+
+--- END OF INPUT TO PROCESS ---
+
+For EACH input "ID" entry, provide your output in the structured format shown in the example.
+Begin your response directly with the output for the first ID.
+Ensure a blank line after L3_SimSL_PER_SEGMENT_END:: before the next "--- OUTPUT FOR ID: ..." marker or the end of your response.
