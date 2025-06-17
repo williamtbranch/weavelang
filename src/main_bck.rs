@@ -1,5 +1,6 @@
+
 // src/main.rs
-// #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // Keep commented for debugging
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // Keep for release builds
 
 // --- Standard Library Imports ---
 use std::path::PathBuf;
@@ -55,8 +56,6 @@ struct GenerateCliArgs {
     target_ct_threshold: f32,
     #[arg(long, default_value_t = 3)]
     max_words_to_activate_per_regen: usize,
-     #[arg(long, default_value_t = 100)]
-    words_per_level: u32,
 }
 
 // --- GUI Application (Unchanged) ---
@@ -210,22 +209,27 @@ impl EframeApp for WeaveLangApp {
     }
 }
 
-// --- Main Function ---
+
+// --- Main Function (MODIFIED WITH DEBUG PRINTS) ---
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("[RUST_DEBUG] main() started."); // <-- DEBUG PRINT 1
+    
     let cli = Cli::parse();
+    println!("[RUST_DEBUG] CLI arguments parsed: {:?}", cli); // <-- DEBUG PRINT 2
 
     let project_app_config_result = config::load_config_from_file(
         cli.config.to_str().unwrap_or("config.toml"),
     );
+    println!("[RUST_DEBUG] Config load attempt finished."); // <-- DEBUG PRINT 3
 
     let (app_config_for_gui, config_error_msg_for_gui, config_for_generate_mode) = 
         match project_app_config_result {
             Ok(loaded_config) => {
-                println!("Successfully loaded project configuration from: {:?}", cli.config);
+                println!("[RUST_DEBUG] Config loaded successfully: {:?}", loaded_config); // <-- DEBUG PRINT 4
                 (Some(loaded_config.clone()), None, Some(loaded_config))
             }
             Err(err_msg) => {
-                eprintln!("Error loading project configuration from {:?}: {}", cli.config, err_msg);
+                eprintln!("[RUST_DEBUG] Error loading config: {}", err_msg); // <-- DEBUG PRINT 5 (Error case)
                 if matches!(cli.command, Some(Commands::Generate(_))) {
                     return Err(Box::new(std::io::Error::new(
                         std::io::ErrorKind::NotFound,
@@ -236,9 +240,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
     };
     
+    // Use unwrap_or(Commands::Gui) to handle the case where no command is given
     match cli.command.unwrap_or(Commands::Gui) {
         Commands::Gui => {
-            println!("Launching GUI mode...");
+            println!("[RUST_DEBUG] Launching GUI mode...");
             let options = NativeOptions {
                 viewport: egui::ViewportBuilder::default()
                     .with_inner_size([1200.0, 800.0])
@@ -253,13 +258,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )?;
         }
         Commands::Generate(generate_cli_args) => {
-            println!("Starting Corpus Generation mode...");
-            println!("  Sequence: {:?}", generate_cli_args.sequence);
-            println!("  Input JSON Dir: {:?}", generate_cli_args.input_json_dir);
+            println!("[RUST_DEBUG] Entering Generate command logic..."); // <-- DEBUG PRINT 6
+            println!("[RUST_DEBUG]   Generate CLI Args: {:?}", generate_cli_args);
 
             let final_config_for_generate = config_for_generate_mode.ok_or_else(|| {
                 "Project config is required for generate mode but was not available.".to_string() 
             })?;
+            println!("[RUST_DEBUG]   Config for generate mode confirmed.");
 
             let corpus_gen_args = GenerationArgs {
                 sequence_path: generate_cli_args.sequence,
@@ -271,16 +276,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 max_regen_attempts_per_block: generate_cli_args.max_regen_attempts_per_block,
                 target_ct_threshold: generate_cli_args.target_ct_threshold,
                 max_words_to_activate_per_regen: generate_cli_args.max_words_to_activate_per_regen,
-                words_per_level: generate_cli_args.words_per_level,
             };
+            println!("[RUST_DEBUG]   GenerationArgs struct created.");
+            println!("[RUST_DEBUG]   Calling run_corpus_generation...");
 
             if let Err(e) = run_corpus_generation(&final_config_for_generate, &corpus_gen_args) {
-                eprintln!("Corpus generation failed: {}", e);
+                eprintln!("[RUST_DEBUG] run_corpus_generation returned an error: {}", e);
                 std::process::exit(1);
             } else {
-                println!("Corpus generation completed successfully.");
+                println!("[RUST_DEBUG] run_corpus_generation completed without error.");
             }
         }
     }
+    println!("[RUST_DEBUG] main() finished successfully.");
     Ok(())
 }

@@ -3,3 +3,7 @@ __pycache__
 target
 mono.in
 mono.out
+.vscode
+*.err
+*.log
+voices.txt

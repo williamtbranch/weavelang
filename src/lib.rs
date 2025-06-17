@@ -1,29 +1,48 @@
-//*** START FILE: src/lib.rs ***//
+// src/lib.rs
 
-// Declare all modules that are part of this library
+// --- Declare all top-level modules ---
 pub mod config;
-pub mod types {
-    pub mod llm_data;
-}
-pub mod parsing {
-    pub mod llm_parser;
-}
-pub mod simulation {
-    pub mod dictionary;
-    pub mod numerical_types;
-    pub mod preprocessor;
-    pub mod core_algo;
-    pub mod text_generator;
-}
+pub mod parsing;
 pub mod profile;
-pub mod profile_io;       // We added this
-pub mod corpus_generator; // We added this
+pub mod profile_io;
+pub mod simulation;
+pub mod types;
+pub mod corpus_generator; // For CLI mode
 
-// You might also choose to re-export key items for convenience if main.rs
-// or other external crates were to use this library, e.g.:
-// pub use config::Config;
-// pub use types::llm_data::ProcessedChapter;
-// etc.
-// For now, just declaring the modules should be enough for internal use.
+// --- Re-exports for easier access from main.rs or other crates ---
 
-//*** END FILE: src/lib.rs ***//
+// Config
+pub use config::Config;
+
+// Core data types (from JSON)
+pub use types::json_types::{
+    JsonChapter,
+    JsonContentBlock,
+    JsonSentenceBlock,
+};
+
+// Parser function
+pub use parsing::json_parser::parse_chapter_from_json;
+
+// Core profile types
+pub use profile::{LearnerLemmaInfo, LemmaState};
+pub use profile_io::{load_profile_snapshot, save_profile_snapshot, ProfileSnapshot};
+
+// Simulation components
+pub use simulation::dictionary::GlobalLemmaDictionary;
+pub use simulation::numerical_types::{
+    NumericalLearnerProfile,
+    NumericalChapter,
+    NumericalProcessedSentence,
+};
+pub use simulation::preprocessor::json_chapter_to_numerical;
+pub use simulation::core_algo::{
+    run_simulation_numerical, 
+    SimulationBlockResult, 
+    ChosenLevelOutput,
+    OutputLevel,
+};
+pub use simulation::text_generator::generate_final_text_for_block_from_levels;
+
+// Corpus generator function for CLI
+pub use corpus_generator::{run_corpus_generation, GenerationArgs};

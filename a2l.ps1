@@ -1,98 +1,63 @@
 <#
 .SYNOPSIS
-    Wrapper script to run stage2llm.py with predefined or passed parameters.
+    Launches the WeaveLang LLM processing pipeline orchestrator.
 .DESCRIPTION
-    This script simplifies running the Python LLM processing script by setting
-    default parameters. It's configured by default to use the Claude LLM provider.
-    API keys should be set in a .env file or as environment variables:
-    GOOGLE_API_KEY for Gemini
-    ANTHROPIC_API_KEY for Claude
+    This script runs orchestrate_pipeline.py, which manages the entire
+    multi-stage, depth-first processing of books.
 .NOTES
-    Version: 1.1.0 (Adapted for synchronous stage2llm.py and multi-call pipeline)
+    Version: 3.3.1 (Re-added StartAtStage)
     Author: Bill Branch
 #>
 
 # --- Script Configuration ---
 $PythonExecutable = "python" # Or "python3", or full path to python.exe/venv python
-# Script name changed from stage2llm_async.py to stage2llm.py
-$ScriptPath = Join-Path $PSScriptRoot "stage2llm.py" # Assumes script is in the same dir
+$ScriptPath = Join-Path $PSScriptRoot "llm2books\orchestrate_pipeline.py" 
 
 # --- LLM Provider and Model Configuration ---
-$LLMProvider = "claude" # "gemini" or "claude" (Note: stage2llm.py currently has Gemini SDK example)
-                        # You will need to adapt stage2llm.py's make_llm_api_call for Claude if using Claude
+$LLMProvider = "claude" # "gemini" or "claude"
+$ClaudeModelName = "claude-3-5-haiku-20241022"
+#$ClaudeModelName = "claude-3-haiku-20240307"
+#$ClaudeModelName = "claude-3-7-sonnet-20250219"
+$ClaudeFallbackModelName = "claude-3-7-sonnet-20250219" # More capable model for difficult cases
 
-# Gemini Model (if $LLMProvider is "gemini")
-$GeminiModelName = "models/gemini-1.5-flash-latest" 
+# --- Batching Configuration ---
+$MaxSentencesPerBatch = 5     # Max sentences per batch (for most stages)
+$MaxBatchTokens = 2000        # Not currently used by the worker, but good to keep for future use
 
-# Claude Model (if $LLMProvider is "claude")
-# $ClaudeModelName = "claude-3-5-sonnet-20240620" # Claude 3.5 Sonnet (Recommended for balance)
-$ClaudeModelName = "claude-3-haiku-20240307"   # Using the specified Haiku model
-# $ClaudeModelName = "claude-3-opus-20240229"    # Opus for highest quality
-$ClaudeMaxTokens = 4096 # Max output tokens for Claude (Haiku and Sonnet generally support up to 4096 output)
+# --- Execution Control ---
+$BookToProcess = $null  # e.g., "AW"
+#$ForceBook = "AW"       # e.g., "AW"
+$StartAtStage = 1      # e.g., 3. Set to $null or remove line to start from 1.
 
-# --- API Key Configuration (CLI args override .env/env vars if stage2llm.py supports them directly) ---
-# The new stage2llm.py uses argparse, so API keys passed here will be picked up if defined in its parser.
-# $GeminiAPIKey = "your_gemini_key_here_if_not_in_env" 
-# $AnthropicAPIKey = "your_anthropic_key_here_if_not_in_env"
+# --- Pass-through arguments for the worker script ---
+$MaxValidationRetries = 4
 
-# --- File and Directory Paths ---
-$ProjectConfig = "config.toml" # Relative to where this script is run, or use absolute path
-$InputStagedSubdir = "Staged"  # For bookname.txt files
-$OutputLLMSubdir = "stage"     # For final .llm.txt files
-
-# --- Processing Control for stage2llm.py ---
-$ForceProcessing = $false      # $true to force reprocess, $false to resume (resume logic in stage2llm.py is basic)
-$BatchSize = 10                # Number of sentences per batch for each LLM call stage
-$MaxApiRetriesPerBatch = 3     # Retries for a failing batch API call
-$RetryDelaySeconds = 7         # Delay between retries for a batch
-
-# $LimitItems is NOT a direct argument for the new stage2llm.py in the same way.
-# The new script processes whole books. If limiting is needed, it's usually per book for testing specific parts.
-# For now, removing $LimitItems as a direct pass-through argument.
-# If you need to process only N sentences from a book, that logic would be inside stage2llm.py or by preparing a smaller input Staged file.
-
-# --- Build the command arguments for stage2llm.py ---
+# --- Build the command arguments for orchestrate_pipeline.py ---
 $CmdArgs = New-Object System.Collections.ArrayList
 
-# LLM Model configuration (stage2llm.py currently uses a single --llm_model argument)
-# The Python script will need to be adapted if you want to specify different models for Gemini/Claude
-# or select provider logic within the Python script. For now, pass the chosen one.
-if ($LLMProvider -eq "gemini") {
-    [void]$CmdArgs.Add("--llm_model")
-    [void]$CmdArgs.Add($GeminiModelName)
-    if ($PSBoundParameters.ContainsKey('GeminiAPIKey') -and $GeminiAPIKey) {
-        [void]$CmdArgs.Add("--api_key"); [void]$CmdArgs.Add($GeminiAPIKey)
-    }
+# --- Add arguments for the orchestrator ---
+[void]$CmdArgs.Add("--project_config"); [void]$CmdArgs.Add("config.toml")
+
+if ($BookToProcess) {
+    [void]$CmdArgs.Add("--book_to_process"); [void]$CmdArgs.Add($BookToProcess)
 }
-elseif ($LLMProvider -eq "claude") {
-    [void]$CmdArgs.Add("--llm_model") # stage2llm.py needs to know which model string to use
-    [void]$CmdArgs.Add($ClaudeModelName)
-    if ($PSBoundParameters.ContainsKey('AnthropicAPIKey') -and $AnthropicAPIKey) {
-        [void]$CmdArgs.Add("--api_key"); [void]$CmdArgs.Add($AnthropicAPIKey)
-    }
-    # Note: stage2llm.py's make_llm_api_call needs to be updated to handle Claude SDK
-    # and use $ClaudeMaxTokens. This argument is not directly in the Python script's argparser yet.
-    # You might need to add a --claude_max_tokens arg to stage2llm.py if it's specific.
-    # For now, this PowerShell var isn't passed.
+if ($ForceBook) {
+    [void]$CmdArgs.Add("--force_book"); [void]$CmdArgs.Add($ForceBook)
 }
-
-
-# Add paths
-[void]$CmdArgs.Add("--project_config");          [void]$CmdArgs.Add($ProjectConfig)
-[void]$CmdArgs.Add("--input_staged_subdir");    [void]$CmdArgs.Add($InputStagedSubdir)
-[void]$CmdArgs.Add("--output_llm_subdir");      [void]$CmdArgs.Add($OutputLLMSubdir)
-
-# Add processing controls
-if ($ForceProcessing) {
-    [void]$CmdArgs.Add("--force")
+if ($StartAtStage) { # <<< ADDED THIS BLOCK
+    [void]$CmdArgs.Add("--start_at_stage"); [void]$CmdArgs.Add($StartAtStage.ToString())
 }
-[void]$CmdArgs.Add("--batch_size");              [void]$CmdArgs.Add($BatchSize.ToString())
-[void]$CmdArgs.Add("--max_api_retries");         [void]$CmdArgs.Add($MaxApiRetriesPerBatch.ToString())
-[void]$CmdArgs.Add("--retry_delay");             [void]$CmdArgs.Add($RetryDelaySeconds.ToString())
+    
+# --- Add pass-through arguments for the worker ---
+[void]$CmdArgs.Add("--llm_provider"); [void]$CmdArgs.Add($LLMProvider)
+[void]$CmdArgs.Add("--llm_model"); [void]$CmdArgs.Add($ClaudeModelName)
+[void]$CmdArgs.Add("--llm_fallback_model"); [void]$CmdArgs.Add($ClaudeFallbackModelName) 
 
+[void]$CmdArgs.Add("--max_sentences_per_batch"); [void]$CmdArgs.Add($MaxSentencesPerBatch.ToString())
+[void]$CmdArgs.Add("--max_validation_retries"); [void]$CmdArgs.Add($MaxValidationRetries.ToString())
 
 # --- Execute the Python script ---
-Write-Host "Running stage2llm.py with parameters for LLM Provider: $LLMProvider"
+Write-Host "Running WeaveLang Pipeline Orchestrator..."
 $DebugCmdArgsString = $CmdArgs -join ' '
 Write-Host "Command: $PythonExecutable `"$ScriptPath`" $DebugCmdArgsString"
 Write-Host "---"
@@ -105,5 +70,5 @@ Write-Host "---"
 Write-Host "Python script execution finished with exit code: $ExitCode"
 
 if ($ExitCode -ne 0) {
-    Write-Warning "Python script exited with an error code."
+    Write-Warning "Python orchestrator exited with an error code. Check pipeline_orchestrator.log and pipeline_orchestrator.err for details."
 }

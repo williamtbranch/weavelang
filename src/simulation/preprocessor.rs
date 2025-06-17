@@ -1,126 +1,97 @@
-//*** START FILE: src/simulation/preprocessor.rs ***//
-use crate::types::llm_data::{
-    ProcessedChapter as StringProcessedChapter,
-    // The sub-structs like ProcessedSentence, SegmentData etc. from llm_data
-    // are implicitly used via field access on StringProcessedChapter and its sentences.
-    // We don't need to explicitly import their type names here unless we were
-    // creating them or using their type names in function signatures within this file.
-};
+// src/simulation/preprocessor.rs
+
+// --- ADDED: All necessary imports for this file ---
+use crate::types::json_types::{JsonChapter, JsonContentBlock, JsonSentenceBlock};
 use super::dictionary::GlobalLemmaDictionary;
 use super::numerical_types::{
-    NumericalChapter,
-    NumericalProcessedSentence,
-    NumericalSegmentData,
-    NumericalPhraseAlignment,
-    NumericalSegmentLemmas,
-    NumericalDiglotSegmentMap,
-    NumericalDiglotEntry,
+    NumericalAdvSegmentBundle, NumericalChapter, NumericalDiglotEntry, NumericalDiglotSegmentMap,
+    NumericalPhraseAlignmentToEng, NumericalProcessedSentence,
+    NumericalSegmentData, NumericalSegmentLemmas,
 };
+use std::collections::HashMap;
 
-pub fn to_numerical_chapter(
-    string_chapter: &StringProcessedChapter,
-    dictionary: &mut GlobalLemmaDictionary, // Mutable to insert new lemma IDs if encountered
+/// Converts a `JsonChapter` (deserialized from input) into a `NumericalChapter` for simulation.
+pub fn json_chapter_to_numerical(
+    json_chapter: &JsonChapter,
+    dictionary: &mut GlobalLemmaDictionary,
 ) -> NumericalChapter {
-    let mut sentences_numerical = Vec::with_capacity(string_chapter.sentences.len());
-
-    for s_sentence in &string_chapter.sentences { // s_sentence is &llm_data::ProcessedSentence
-        let adv_s_lemma_ids: Vec<u32> = s_sentence
-            .adv_s_lemmas
-            .iter()
-            .filter_map(|lemma_str| { // Filter out empty strings before getting ID
-                let cleaned = lemma_str.trim();
-                if !cleaned.is_empty() {
-                    Some(dictionary.get_id_or_insert(cleaned))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        let sim_s_lemmas_numerical: Vec<NumericalSegmentLemmas> = s_sentence
-            .sim_s_lemmas
-            .iter()
-            .map(|s_seg_lemmas| NumericalSegmentLemmas { // s_seg_lemmas is &llm_data::SegmentLemmas
-                segment_id_str: s_seg_lemmas.segment_id.clone(),
-                lemma_ids: s_seg_lemmas
-                    .lemmas
-                    .iter()
-                    .filter_map(|lemma_str| {
-                        let cleaned = lemma_str.trim();
-                        if !cleaned.is_empty() {
-                            Some(dictionary.get_id_or_insert(cleaned))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect(),
-            })
-            .collect();
-        
-        let diglot_map_numerical: Vec<NumericalDiglotSegmentMap> = s_sentence
-            .diglot_map
-            .iter()
-            .map(|s_diglot_map| NumericalDiglotSegmentMap { // s_diglot_map is &llm_data::DiglotSegmentMap
-                segment_id_str: s_diglot_map.segment_id.clone(),
-                entries: s_diglot_map
-                    .entries
-                    .iter()
-                    .filter_map(|s_entry| { // s_entry is &llm_data::DiglotEntry
-                        let cleaned_spa_lemma = s_entry.spa_lemma.trim();
-                        if !cleaned_spa_lemma.is_empty() {
-                            Some(NumericalDiglotEntry {
-                                eng_word_original: s_entry.eng_word.clone(),
-                                spa_lemma_id: dictionary.get_id_or_insert(cleaned_spa_lemma),
-                                exact_spa_form_original: s_entry.exact_spa_form.clone(),
-                                viable: s_entry.viable,
-                            })
-                        } else {
-                            // Optionally log if a diglot entry has an empty spa_lemma
-                            // eprintln!("Warning: Diglot entry for Eng '{}' has empty SpaLemma in sentence {}", s_entry.eng_word, s_sentence.sentence_id_str);
-                            None
-                        }
-                    })
-                    .collect(),
-            })
-            .collect();
-
-        let sim_s_segments_numerical: Vec<NumericalSegmentData> = s_sentence
-            .sim_s_segments
-            .iter()
-            .map(|s_seg_data| NumericalSegmentData { // s_seg_data is &llm_data::SegmentData
-                id_str: s_seg_data.id.clone(),
-                text_original: s_seg_data.text.clone(),
-            })
-            .collect();
-
-        let phrase_alignments_numerical: Vec<NumericalPhraseAlignment> = s_sentence
-            .phrase_alignments
-            .iter()
-            .map(|s_pa| NumericalPhraseAlignment { // s_pa is &llm_data::PhraseAlignment
-                segment_id_str: s_pa.segment_id.clone(),
-                adv_s_span_original: s_pa.adv_s_span.clone(),
-                sim_e_span_original: s_pa.sim_e_span.clone(),
-            })
-            .collect();
-
-        let n_sentence = NumericalProcessedSentence {
-            sentence_id_str: s_sentence.sentence_id.clone(),
-            adv_s_original: s_sentence.adv_s.clone(),
-            sim_s_original: s_sentence.sim_s.clone(),
-            sim_e_original: s_sentence.sim_e.clone(),
-            sim_s_segments_numerical,
-            phrase_alignments_numerical,
-            sim_s_lemmas_numerical,
-            adv_s_lemma_ids,
-            diglot_map_numerical,
-            locked_phrase_segment_id_strs: s_sentence.locked_phrases.clone(),
-        };
-        sentences_numerical.push(n_sentence);
-    }
+    let sentences_numerical: Vec<NumericalProcessedSentence> = json_chapter
+        .content_blocks
+        .iter()
+        .filter_map(|block| match block {
+            JsonContentBlock::Sentence(s) => Some(json_sentence_to_numerical(s, dictionary)),
+            JsonContentBlock::ChapterMarker(_) => None,
+        })
+        .collect();
 
     NumericalChapter {
-        source_file_name_original: string_chapter.source_file_name.clone(),
+        source_file_name_original: json_chapter.book_name.clone(),
         sentences_numerical,
     }
 }
-//*** END FILE: src/simulation/preprocessor.rs ***//
+
+/// Helper function to convert a single `JsonSentenceBlock` to `NumericalProcessedSentence`.
+fn json_sentence_to_numerical(
+    s_sentence: &JsonSentenceBlock,
+    dictionary: &mut GlobalLemmaDictionary,
+) -> NumericalProcessedSentence {
+    
+    let string_lemmas_to_ids = |lemmas: &[String], dict: &mut GlobalLemmaDictionary| -> Vec<u32> {
+        lemmas
+            .iter()
+            .map(|s| dict.get_id_or_insert(s))
+            .collect()
+    };
+
+    // L1 Data
+    let adv_segment_bundles_numerical: Vec<NumericalAdvSegmentBundle> = s_sentence
+        .adv_spanish_segments
+        .iter()
+        .map(|s_bundle| NumericalAdvSegmentBundle {
+            a_id_str: s_bundle.segment_id.clone(),
+            adv_text_original: s_bundle.advanced_text.clone(),
+            adv_lemma_ids: string_lemmas_to_ids(&s_bundle.advanced_lemmas, dictionary),
+            simpler_text_original: s_bundle.simpler_text.clone(),
+            simpler_lemma_ids: string_lemmas_to_ids(&s_bundle.simpler_lemmas, dictionary),
+        })
+        .collect();
+
+    // L4 Data
+    let sims_l3_segments_numerical: Vec<NumericalSegmentData> = s_sentence.simple_spanish_l3_segments.iter().map(|s| NumericalSegmentData { id_str: s.segment_id.clone(), text_original: s.simple_text.clone() }).collect();
+    let phrase_alignments_l3_to_eng_numerical: Vec<NumericalPhraseAlignmentToEng> = s_sentence.phrase_alignments_l3_to_english.iter().map(|pa| NumericalPhraseAlignmentToEng { s_segment_id_str: pa.segment_id.clone(), sims_l3_segment_text_original: pa.simple_spanish_text.clone(), eng_span_text_original: pa.english_span_text.clone() }).collect();
+    let l3_simsl_per_segment_numerical: Vec<NumericalSegmentLemmas> = s_sentence.simple_spanish_l3_lemmas_per_segment.iter().map(|(id, lemmas)| NumericalSegmentLemmas { segment_id_str: id.clone(), lemma_ids: string_lemmas_to_ids(lemmas, dictionary) }).collect();
+
+    // L5 Data (Diglot)
+    let mut diglot_map_by_segment: HashMap<String, Vec<NumericalDiglotEntry>> = HashMap::new();
+    for entry in &s_sentence.diglot_map_entries {
+        diglot_map_by_segment.entry(entry.segment_id.clone()).or_default().push(NumericalDiglotEntry {
+                eng_word_original: entry.english_word.clone(),
+                spa_lemma_id: dictionary.get_id_or_insert(&entry.spanish_lemma),
+                exact_spa_form_original: entry.exact_spanish_form.clone(),
+                viable: entry.is_viable_for_substitution,
+        });
+    }
+    let diglot_map_numerical: Vec<NumericalDiglotSegmentMap> = diglot_map_by_segment.into_iter().map(|(s_id, entries)| NumericalDiglotSegmentMap { s_segment_id_str: s_id, entries }).collect();
+
+    NumericalProcessedSentence {
+        sentence_id_str: s_sentence.original_sentence_s_id.clone(),
+        eng_text_original: s_sentence.english_text.clone(),
+        // L0
+        adv_s_text_original: s_sentence.adv_spanish_full.text.clone(),
+        adv_sl_overall_lemma_ids: string_lemmas_to_ids(&s_sentence.adv_spanish_full.lemmas, dictionary),
+        // L1
+        adv_segment_bundles_numerical,
+        // L2
+        simpler_adv_s_text_original: s_sentence.simpler_adv_spanish_full.text.clone(),
+        simpler_adv_sl_overall_lemma_ids: string_lemmas_to_ids(&s_sentence.simpler_adv_spanish_full.lemmas, dictionary),
+        // L3
+        l3_sim_s_text_original: s_sentence.simple_spanish_l3_full.text.clone(),
+        l3_sim_sl_overall_lemma_ids: string_lemmas_to_ids(&s_sentence.simple_spanish_l3_full.lemmas, dictionary),
+        // L4
+        sims_l3_segments_numerical,
+        phrase_alignments_l3_to_eng_numerical,
+        l3_simsl_per_segment_numerical,
+        // L5
+        diglot_map_numerical,
+    }
+}

@@ -1,0 +1,25 @@
+You are an expert Spanish linguist. Your task is to perform precise, token-for-token lemmatization on simple Spanish phrase segments.
+
+For EACH input segment, you must provide the lemmas for the given SIMPLE_SPANISH_TEXT.
+
+**CRITICAL: Lemmatization Rules**
+1.  **Strict Token-for-Token Alignment:** Your output MUST contain the exact same number of space-separated tokens as the input text has words.
+2.  **Lemmatize Standard Words:** For standard words, provide the lemma (infinitive verbs; singular, masculine nouns/adjectives).
+3.  **Use `_IGNORE_` for Non-Words:** For any token that is a proper noun, punctuation, or a number, you MUST output the special token `_IGNORE_`.
+4.  **Handle Attached Punctuation:** If a token has attached punctuation (e.g., "cuidado,"), treat it as a single unit and lemmatize the word part ("cuidado," -> "cuidado").
+5.  **Reflexive Verbs:** For reflexive verbs (e.g., "colgarse"), the output should be the single infinitive form ("colgar").
+6.  **Low Confidence:** If you are unsure about the correct lemma for a word, make your best guess. Do not leave it blank.
+7.  **No Commentary:** Your entire response must consist only of lines in the format `id XXX_SYY: [lemmas]`.
+
+--- EXAMPLE ---
+
+Input:
+id 201_S1: SIMPLE_SPANISH_TEXT: El hombre caminaba con cuidado,
+id 201_S6: SIMPLE_SPANISH_TEXT: para colgarse otra vez.
+
+Expected Output:
+id 201_S1: el hombre caminar con cuidado _IGNORE_
+id 201_S6: para colgar otro vez _IGNORE_
+
+---
+Now, process the following batch of segments.

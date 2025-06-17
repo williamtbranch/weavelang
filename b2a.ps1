@@ -1,20 +1,25 @@
-# b2a.ps1 (Updated)
+# b2a.ps1 (Updated for Gemini 2.5 Pro Support)
 
 Write-Host "Starting Text-to-Speech conversion..."
 
 # --- Configuration ---
 $ToolRootPath = "E:/Bill/development/weavelang" # Your actual path
 $PythonScriptPath = "$ToolRootPath/book_to_audio.py"
-$InputFileName = "Alice_In_Wonderland_inst01_lvl00_lvl00.txt" # Your test file
+$InputFileName = "Alice_In_Wonderland.txt" # Your test file
 
 # --- TTS Service Selection ---
-$TtsService = "vertex" # "gemini" or "vertex"
+$TtsService = "vertex" # "gemini" or "vertex". Select "gemini" to use the new 2.5 Pro voices.
 # $TtsService = "vertex" 
 
 # --- Gemini TTS Configuration (used if $TtsService is "gemini") ---
-$GeminiModelName = "models/gemini-1.5-flash-preview-tts" # Or your preferred Pro model
+# New Gemini 2.5 Pro and Flash models are supported.
+$GeminiModelName = "models/gemini-2.5-pro-preview-tts"  # <<< CHANGED: New default Pro model
+# $GeminiModelName = "models/gemini-2.5-flash-preview-tts" # Alternative Flash model
+# $GeminiModelName = "models/gemini-1.5-flash-preview-tts" # Older model
+
+# The voice names (e.g., Schedar, Puck, Kore) are compatible with the new models.
 $GeminiVoiceName = "Schedar" # Default Gemini voice
-$GeminiTtsPromptPrefix = "You have a Mexican Spanish accent. Narrate the following text in a clear, even voice, suitable for an audiobook at a moderate pace. You are telling a story. Be engaging:"
+$GeminiTtsPromptPrefix = "You are a professional voice actor with a Mexican Spanish accent."
 
 # --- Vertex AI TTS Configuration (used if $TtsService is "vertex") ---
 $VertexVoiceName = "es-US-Chirp3-HD-Achernar" # Example Vertex voice, find more at Google Cloud docs
@@ -27,8 +32,8 @@ $VertexLanguageCode = "es-US"      # Example, e.g., "es-MX"
 # In REPAIR mode, some of these might be overridden by metadata from the previous run.
 $OutputAudioFormat = "wav"
 $LogLevel = "INFO"       # DEBUG, INFO, WARNING, ERROR, CRITICAL
-$ConcurrentRequests = 10  # Start with 1, increase cautiously
-$ChunkMaxChars = 1000    
+$ConcurrentRequests = 1  # Start with 1, increase cautiously
+$ChunkMaxChars = 4000    
 $MaxApiRetries = 4 
 $RetryDelay = 15          # Base delay in seconds
 

@@ -1,280 +1,362 @@
-// Current src/simulation/core_algo.rs for context before modification
+// src/simulation/core_algo.rs
+use super::dictionary::GlobalLemmaDictionary;
+use super::numerical_types::{NumericalLearnerProfile, NumericalProcessedSentence};
+use crate::profile::LemmaState;
+use std::collections::{HashMap, HashSet};
 
-use super::numerical_types::{
-    NumericalLearnerProfile,
-    NumericalProcessedSentence, 
-};
-use crate::profile::LemmaState; 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum OutputLevel {
+    L0, // AdvS
+    L1, // Woven AdvS / SimplerAdvS
+    L2, // Simpler AdvS Full
+    L3, // Simple Spanish L3 Full
+    L4, // Woven SimS L3 / English
+    L5, // Diglot
+    L6, // English
+}
+
+// --- Detailed information for text construction ---
+#[derive(Debug, Clone)]
+pub enum L1SegmentChoice {
+    Adv(String), // The advanced segment text
+    SimplerAdv(String), // The simpler advanced segment text
+}
+
+#[derive(Debug, Clone)]
+pub enum L4PartChoice {
+    // The segment is fully known in simple Spanish.
+    Spanish(String),
+    // The segment is not fully known, but we found a viable diglot word to substitute.
+    Hybrid {
+        base_english_phrase: String,
+        substitution: L5Substitution,
+    },
+    // The segment is not fully known, and no viable diglot words were found either.
+    English(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct L5Substitution {
+    // The English word from the original phrase that will be replaced.
+    pub eng_word_to_replace: String,
+    // The exact Spanish form (e.g., "la", "abrió") that will replace it.
+    pub spa_form_to_insert: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ChosenLevelOutput {
+    pub level: OutputLevel,
+    pub lemma_ids: Vec<u32>, // Spanish lemma IDs used in the chosen output level
+    pub l1_segment_choices: Option<Vec<L1SegmentChoice>>,
+    pub l4_part_choices: Option<Vec<L4PartChoice>>,
+    pub l5_substitutions: Option<Vec<L5Substitution>>,
+}
 
 #[derive(Debug, Clone)]
 pub struct SimulationBlockResult {
     pub profile_state_for_text_generation: NumericalLearnerProfile,
     pub profile_state_after_block_exposure: NumericalLearnerProfile,
-    pub output_lemma_ids_for_block: Vec<u32>, 
+    pub chosen_level_outputs_for_sentences: Vec<ChosenLevelOutput>,
     pub simulation_log_entries: Vec<String>,
     pub final_ct_for_block: f32,
-    pub known_lemmas_in_block: usize,
+    pub known_and_active_lemmas_in_block: usize,
     pub total_spanish_lemmas_in_block: usize,
+    pub activated_lemma_ids_this_block_run: HashSet<u32>,
+    pub level_stats: HashMap<OutputLevel, usize>,
 }
 
-// THIS IS THE FUNCTION WE WILL REFINE:
-fn determine_sentence_output_lemma_ids(
+fn determine_output_for_sentence(
     n_sentence: &NumericalProcessedSentence,
     profile: &NumericalLearnerProfile,
-) -> Vec<u32> {
-    let mut sentence_output_ids: Vec<u32> = Vec::new();
-    let mut level_determined = false; // This variable helps structure the L1-L5 fallback
+) -> ChosenLevelOutput {
+    // --- L0: Full Advanced Spanish ---
+    if !n_sentence.adv_sl_overall_lemma_ids.is_empty()
+        && n_sentence
+            .adv_sl_overall_lemma_ids
+            .iter()
+            .all(|&id| profile.is_lemma_known_or_active(id))
+    {
+        return ChosenLevelOutput {
+            level: OutputLevel::L0,
+            lemma_ids: n_sentence.adv_sl_overall_lemma_ids.clone(),
+            l1_segment_choices: None, l4_part_choices: None, l5_substitutions: None,
+        };
+    }
 
-    // L1
-    if !n_sentence.adv_s_lemma_ids.is_empty() {
-        if n_sentence.adv_s_lemma_ids.iter().all(|&id| profile.is_lemma_known_or_active(id)) {
-            sentence_output_ids.extend(&n_sentence.adv_s_lemma_ids);
-            level_determined = true;
+    // --- L1: Woven AdvS / SimplerAdvS ---
+    if !n_sentence.adv_segment_bundles_numerical.is_empty() {
+        let mut l1_collected_lemma_ids: Vec<u32> = Vec::new();
+        let mut l1_text_segment_choices: Vec<L1SegmentChoice> = Vec::new();
+        let mut l1_can_be_fully_constructed = true;
+        let mut l1_produced_any_spanish = false;
+
+        for bundle in &n_sentence.adv_segment_bundles_numerical {
+            let adv_part_viable =
+                bundle.adv_lemma_ids.is_empty() || bundle.adv_lemma_ids.iter().all(|&id| profile.is_lemma_known_or_active(id));
+
+            if adv_part_viable {
+                l1_text_segment_choices.push(L1SegmentChoice::Adv(bundle.adv_text_original.clone()));
+                l1_collected_lemma_ids.extend(&bundle.adv_lemma_ids);
+                if !bundle.adv_lemma_ids.is_empty() {
+                    l1_produced_any_spanish = true;
+                }
+            } else {
+                let simpler_part_viable = bundle.simpler_lemma_ids.is_empty() || bundle.simpler_lemma_ids.iter().all(|&id| profile.is_lemma_known_or_active(id));
+                if simpler_part_viable {
+                    l1_text_segment_choices.push(L1SegmentChoice::SimplerAdv(bundle.simpler_text_original.clone()));
+                    l1_collected_lemma_ids.extend(&bundle.simpler_lemma_ids);
+                    if !bundle.simpler_lemma_ids.is_empty() {
+                        l1_produced_any_spanish = true;
+                    }
+                } else {
+                    l1_can_be_fully_constructed = false;
+                    break;
+                }
+            }
+        }
+
+        if l1_can_be_fully_constructed && l1_produced_any_spanish {
+            return ChosenLevelOutput {
+                level: OutputLevel::L1,
+                lemma_ids: l1_collected_lemma_ids,
+                l1_segment_choices: Some(l1_text_segment_choices),
+                l4_part_choices: None, l5_substitutions: None,
+            };
         }
     }
 
-    // L2
-    if !level_determined && !n_sentence.sim_s_original.trim().is_empty() { // SimS text must exist
-        let mut can_do_l2 = true;
-        // If sim_s_lemmas_numerical is empty, it means all words in SimS are non-trackable or too simple.
-        // L2 is possible if all *trackable* lemmas are K/A. If no trackable lemmas, it's vacuously true for L2.
-        if n_sentence.sim_s_lemmas_numerical.is_empty() && !n_sentence.sim_s_segments_numerical.is_empty() {
-            // This state: segments exist, but no overall lemmas for them based on sim_s_lemmas_numerical.
-            // This could happen if all segments are proper nouns, or SimSL was empty for those segments.
-            // This implies we cannot verify L2 based on lemmas for these segments.
-            can_do_l2 = false; 
-        }
-        
-        if can_do_l2 { // Only proceed if L2 still potentially viable
-            for seg_lemmas_num in &n_sentence.sim_s_lemmas_numerical {
-                // An empty seg_lemmas_num.lemma_ids means that specific segment has no trackable lemmas.
-                // This does not automatically disqualify L2 for the *whole sentence* if other segments are fine.
-                for &lemma_id in &seg_lemmas_num.lemma_ids {
-                    if !profile.is_lemma_known_or_active(lemma_id) {
-                        can_do_l2 = false; 
-                        break; // Break from inner lemma loop
-                    }
-                }
-                if !can_do_l2 { 
-                    break; // Break from outer segment loop
-                }
-            }
-        }
-
-        if can_do_l2 { // If, after checking all segments, L2 is still viable
-            // Collect all lemma IDs from all sim_s_lemmas_numerical segments
-            for seg_lemmas_num in &n_sentence.sim_s_lemmas_numerical {
-                sentence_output_ids.extend(&seg_lemmas_num.lemma_ids);
-            }
-            level_determined = true;
-        }
+    // --- L2: Full Simpler Advanced Spanish ---
+    if !n_sentence.simpler_adv_sl_overall_lemma_ids.is_empty() && n_sentence
+            .simpler_adv_sl_overall_lemma_ids
+            .iter()
+            .all(|&id| profile.is_lemma_known_or_active(id))
+    {
+        return ChosenLevelOutput {
+            level: OutputLevel::L2,
+            lemma_ids: n_sentence.simpler_adv_sl_overall_lemma_ids.clone(),
+            l1_segment_choices: None, l4_part_choices: None, l5_substitutions: None,
+        };
     }
     
-    // L3
-    if !level_determined && !n_sentence.sim_s_segments_numerical.is_empty() {
-        let mut temp_l3_ids = Vec::new();
-        let mut l3_produced_any_spanish = false;
-        let mut l3_possible_to_construct = true;
-        for segment_num_data in &n_sentence.sim_s_segments_numerical {
-            if let Some(seg_lemmas_num) = n_sentence.sim_s_lemmas_numerical.iter()
-                .find(|sl_num| sl_num.segment_id_str == segment_num_data.id_str) {
-                let mut use_sim_s_phrase_for_segment = true;
-                if seg_lemmas_num.lemma_ids.is_empty() { 
-                    // Segment has no trackable lemmas, use SimS part (which is text, contributes 0 IDs here)
-                    use_sim_s_phrase_for_segment = true; 
+    // --- L3: Full Simple Spanish (L3 structure) ---
+    if !n_sentence.l3_sim_sl_overall_lemma_ids.is_empty() && n_sentence
+            .l3_sim_sl_overall_lemma_ids
+            .iter()
+            .all(|&id| profile.is_lemma_known_or_active(id))
+    {
+        return ChosenLevelOutput {
+            level: OutputLevel::L3,
+            lemma_ids: n_sentence.l3_sim_sl_overall_lemma_ids.clone(),
+            l1_segment_choices: None, l4_part_choices: None, l5_substitutions: None,
+        };
+    }
+
+    // --- L4: RECURSIVE/HYBRID Woven SimS_L3 / English ---
+    if !n_sentence.sims_l3_segments_numerical.is_empty() {
+        let mut l4_collected_lemma_ids: Vec<u32> = Vec::new();
+        let mut l4_part_choices: Vec<L4PartChoice> = Vec::new();
+        let mut l4_can_be_fully_constructed = true;
+        let mut l4_produced_any_spanish = false;
+
+        for s_seg_data_num in &n_sentence.sims_l3_segments_numerical {
+            if let Some(seg_lemmas_obj_num) = n_sentence
+                .l3_simsl_per_segment_numerical
+                .iter()
+                .find(|sl_num| sl_num.segment_id_str == s_seg_data_num.id_str)
+            {
+                let use_spanish_part = seg_lemmas_obj_num.lemma_ids.is_empty() || seg_lemmas_obj_num.lemma_ids.iter().all(|&id| profile.is_lemma_known_or_active(id));
+                
+                if use_spanish_part {
+                    l4_part_choices.push(L4PartChoice::Spanish(s_seg_data_num.text_original.clone()));
+                    l4_collected_lemma_ids.extend(&seg_lemmas_obj_num.lemma_ids);
+                    if !seg_lemmas_obj_num.lemma_ids.is_empty() {
+                        l4_produced_any_spanish = true;
+                    }
                 } else {
-                    for &lemma_id in &seg_lemmas_num.lemma_ids {
-                        if !profile.is_lemma_known_or_active(lemma_id) {
-                            use_sim_s_phrase_for_segment = false; 
-                            break;
+                    if let Some(alignment) = n_sentence
+                        .phrase_alignments_l3_to_eng_numerical
+                        .iter()
+                        .find(|pa| pa.s_segment_id_str == s_seg_data_num.id_str)
+                    {
+                        let mut substitution_found: Option<L5Substitution> = None;
+                        if let Some(diglot_map_for_segment) = n_sentence
+                            .diglot_map_numerical
+                            .iter()
+                            .find(|dm| dm.s_segment_id_str == s_seg_data_num.id_str)
+                        {
+                            for entry in &diglot_map_for_segment.entries {
+                                if entry.viable && profile.is_lemma_known_or_active(entry.spa_lemma_id) {
+                                    substitution_found = Some(L5Substitution {
+                                        eng_word_to_replace: entry.eng_word_original.clone(),
+                                        spa_form_to_insert: entry.exact_spa_form_original.clone(),
+                                    });
+                                    l4_collected_lemma_ids.push(entry.spa_lemma_id);
+                                    l4_produced_any_spanish = true;
+                                    break;
+                                }
+                            }
                         }
+
+                        if let Some(sub) = substitution_found {
+                            l4_part_choices.push(L4PartChoice::Hybrid {
+                                base_english_phrase: alignment.eng_span_text_original.clone(),
+                                substitution: sub,
+                            });
+                        } else {
+                            l4_part_choices.push(L4PartChoice::English(
+                                alignment.eng_span_text_original.clone(),
+                            ));
+                        }
+                    } else {
+                        l4_can_be_fully_constructed = false;
+                        break;
                     }
                 }
-                if use_sim_s_phrase_for_segment {
-                    temp_l3_ids.extend(&seg_lemmas_num.lemma_ids); 
-                    if !seg_lemmas_num.lemma_ids.is_empty() { 
-                        l3_produced_any_spanish = true; 
-                    }
-                } // Else: SimE part chosen (0 IDs added to temp_l3_ids)
-            } else { 
-                l3_possible_to_construct = false; 
-                // eprintln!("[Core L3 Warn] No SimSL for SimS Segment {} in Sent {}", segment_num_data.id_str, n_sentence.sentence_id_str);
-                break; 
+            } else {
+                l4_can_be_fully_constructed = false;
+                break;
             }
         }
-        if l3_possible_to_construct && l3_produced_any_spanish {
-            sentence_output_ids = temp_l3_ids; 
-            level_determined = true;
+
+        if l4_can_be_fully_constructed && l4_produced_any_spanish {
+            return ChosenLevelOutput {
+                level: OutputLevel::L4,
+                lemma_ids: l4_collected_lemma_ids,
+                l1_segment_choices: None,
+                l4_part_choices: Some(l4_part_choices),
+                l5_substitutions: None,
+            };
         }
     }
 
-    // L4
-    if !level_determined && !n_sentence.diglot_map_numerical.is_empty() {
-        let mut temp_l4_ids = Vec::new();
-        let mut substitutions_made_l4 = false;
-        for seg_map_num in &n_sentence.diglot_map_numerical {
-            // L4 logic: substitute *one* "best" (e.g. lowest exposure active, or just first viable active)
-            // word per original SimE segment/phrase boundary that the diglot map corresponds to.
-            // The current diglot_map_numerical is a Vec<NumericalDiglotSegmentMap>, one per original SimS_Segment.
-            let mut best_candidate_for_this_segment: Option<u32> = None;
-            // For this simplified version, we just find *if* any substitution is possible in this segment.
-            // A more advanced version would pick the "best" one if multiple are available.
+    // --- L5: Diglot (one word per sentence) - This is now simpler. ---
+    if !n_sentence.diglot_map_numerical.is_empty() {
+        let mut l5_collected_lemma_ids: Vec<u32> = Vec::new();
+        let mut l5_actual_substitutions: Vec<L5Substitution> = Vec::new();
+
+        'outer: for seg_map_num in &n_sentence.diglot_map_numerical {
             for entry_num in &seg_map_num.entries {
                 if entry_num.viable && profile.is_lemma_known_or_active(entry_num.spa_lemma_id) {
-                    best_candidate_for_this_segment = Some(entry_num.spa_lemma_id);
-                    substitutions_made_l4 = true; 
-                    break; // Found one viable substitution for this segment, move to next segment
+                    l5_collected_lemma_ids.push(entry_num.spa_lemma_id);
+                    l5_actual_substitutions.push(L5Substitution {
+                        eng_word_to_replace: entry_num.eng_word_original.clone(),
+                        spa_form_to_insert: entry_num.exact_spa_form_original.clone(),
+                    });
+                    break 'outer; 
                 }
             }
-            if let Some(lemma_id_to_add) = best_candidate_for_this_segment {
-                temp_l4_ids.push(lemma_id_to_add);
-            }
         }
-        if substitutions_made_l4 { // If any substitutions were made across all segments
-            temp_l4_ids.sort_unstable(); // Sort before dedup
-            temp_l4_ids.dedup();         // Deduplicate, as same lemma might be chosen for diff segments
-            sentence_output_ids = temp_l4_ids;
-            // level_determined = true; // Last assignment for this, not strictly needed to set if no L5 follows
+
+        if !l5_actual_substitutions.is_empty() {
+            return ChosenLevelOutput {
+                level: OutputLevel::L5,
+                lemma_ids: l5_collected_lemma_ids,
+                l1_segment_choices: None, 
+                l4_part_choices: None,
+                l5_substitutions: Some(l5_actual_substitutions),
+            };
         }
     }
-    sentence_output_ids
-}
-// ... (rest of run_simulation_numerical as it was in the last correct version)
-// Make sure to copy the entire run_simulation_numerical function below this point from your working version.
-// The changes below are only for run_simulation_numerical, assuming determine_sentence_output_lemma_ids is now refined.
 
+    // L6: Full Eng (ultimate fallback)
+    ChosenLevelOutput {
+        level: OutputLevel::L6,
+        lemma_ids: Vec::new(),
+        l1_segment_choices: None, l4_part_choices: None, l5_substitutions: None,
+    }
+}
+
+// NOTE: The run_simulation_numerical function starts below.
+// This block provides everything *above* it in the file.
 pub fn run_simulation_numerical(
-    block_sentences_numerical: &[&NumericalProcessedSentence], 
+    block_sentences_numerical: &[&NumericalProcessedSentence],
     initial_profile_for_block_run: NumericalLearnerProfile,
-    available_new_lemma_ids_for_activation: &[(u32, u32)], 
+    dictionary: &GlobalLemmaDictionary,
+    available_new_lemma_ids_for_activation: &[(u32, u32)],
     max_regeneration_attempts_per_block: u32,
     target_ct_comprehensible_threshold: f32,
     max_words_to_activate_per_regen_attempt: usize,
 ) -> Result<SimulationBlockResult, String> {
-
-    let mut simulation_log_entries: Vec<String> = Vec::new();
-    simulation_log_entries.push(format!(
-        "Core Algo: Processing block of {} sentences. Max regen attempts: {}. Target CT: {:.2}%. Profile K: {}, A: {}",
+    let mut simulation_log_entries: Vec<String> = vec![format!(
+        "Core Algo: Block of {} sentences. Max regen: {}. Target CT: {:.2}%. Initial Profile K: {}, A: {}",
         block_sentences_numerical.len(), max_regeneration_attempts_per_block, target_ct_comprehensible_threshold * 100.0,
         initial_profile_for_block_run.count_known(), initial_profile_for_block_run.count_active_only()
-    ));
+    )];
 
     let mut profile_being_refined_for_block = initial_profile_for_block_run.clone();
-    
-    for regen_attempt in 1..=max_regeneration_attempts_per_block {
-        simulation_log_entries.push(format!(
-            "  Regen Attempt: {}/{}",
-            regen_attempt, max_regeneration_attempts_per_block
-        ));
+    let mut activated_ids_in_this_refinement_cycle: HashSet<u32> = HashSet::new();
 
+    for regen_attempt in 1..=max_regeneration_attempts_per_block {
+        simulation_log_entries.push(format!("  Regen Attempt: {}", regen_attempt));
         let profile_for_this_pass = profile_being_refined_for_block.clone();
         
-        let mut lemma_ids_for_current_pass: Vec<u32> = Vec::new(); 
-        for n_sentence_ref in block_sentences_numerical.iter() { 
-            let n_sentence = *n_sentence_ref; 
-            let sentence_ids = determine_sentence_output_lemma_ids(&n_sentence, &profile_for_this_pass); 
-            lemma_ids_for_current_pass.extend(sentence_ids);
+        let mut current_chosen_outputs_for_block: Vec<ChosenLevelOutput> = Vec::new();
+        let mut all_lemma_ids_for_pass_output: Vec<u32> = Vec::new();
+        let mut level_stats_for_pass: HashMap<OutputLevel, usize> = HashMap::new();
+
+        for n_sentence_ref in block_sentences_numerical.iter() {
+            let chosen_output = determine_output_for_sentence(n_sentence_ref, &profile_for_this_pass);
+            *level_stats_for_pass.entry(chosen_output.level.clone()).or_insert(0) += 1;
+            all_lemma_ids_for_pass_output.extend(&chosen_output.lemma_ids);
+            current_chosen_outputs_for_block.push(chosen_output);
         }
 
-        let total_spanish_lemmas_this_pass = lemma_ids_for_current_pass.len();
-        let known_lemmas_this_pass = if total_spanish_lemmas_this_pass > 0 {
-            lemma_ids_for_current_pass.iter()
-                .filter(|&&id| profile_for_this_pass.get_lemma_info(id).map_or(false, |info| info.state == LemmaState::Known))
-                .count()
-        } else {
-            0
-        };
+        let total_spanish_lemmas_this_pass = all_lemma_ids_for_pass_output.len();
+        
+        // --- THIS IS THE CORRECTED CT CALCULATION ---
+        let known_and_active_lemmas_this_pass = all_lemma_ids_for_pass_output.iter()
+            .filter(|&&id| profile_for_this_pass.is_lemma_known_or_active(id))
+            .count();
+        
         let actual_ct_this_pass = if total_spanish_lemmas_this_pass > 0 {
-            known_lemmas_this_pass as f32 / total_spanish_lemmas_this_pass as f32
-        } else { 
-            0.0 
-        };
+            known_and_active_lemmas_this_pass as f32 / total_spanish_lemmas_this_pass as f32
+        } else { 1.0 }; 
 
         simulation_log_entries.push(format!(
-            "    Pass CT: {:.2}% ({}K / {}Total). Profile for pass: K={}, A={}",
-            actual_ct_this_pass * 100.0, known_lemmas_this_pass, total_spanish_lemmas_this_pass,
+            "    Pass CT (K+A): {:.2}% ({}K+A / {}Total). Profile for pass: K={}, A={}",
+            actual_ct_this_pass * 100.0, known_and_active_lemmas_this_pass, total_spanish_lemmas_this_pass,
             profile_for_this_pass.count_known(), profile_for_this_pass.count_active_only()
         ));
 
-        let block_is_too_easy = actual_ct_this_pass >= target_ct_comprehensible_threshold && total_spanish_lemmas_this_pass > 0;
-        let block_has_no_spanish = total_spanish_lemmas_this_pass == 0;
+        let block_is_too_easy = actual_ct_this_pass >= target_ct_comprehensible_threshold;
         let is_final_regen_attempt = regen_attempt == max_regeneration_attempts_per_block;
+        let no_more_new_words_to_activate_from_source = available_new_lemma_ids_for_activation.iter()
+            .all(|(id, _)| !profile_being_refined_for_block.get_lemma_info(*id).map_or(true, |info| info.state == LemmaState::New));
 
-        // Refined finalization condition
-        let should_finalize = (!block_is_too_easy && !block_has_no_spanish) || // CT good and has Spanish
-                              is_final_regen_attempt ||                      // Last chance
-                              (block_has_no_spanish && regen_attempt > 1 && available_new_lemma_ids_for_activation.is_empty()); // No Spanish, tried activating, but no new words left to try
-
-        if should_finalize {
-            let mut message = "    Finalizing block: ".to_string();
-            if is_final_regen_attempt && (block_is_too_easy || (block_has_no_spanish && regen_attempt == 1 && !available_new_lemma_ids_for_activation.is_empty())) {
-                 message.push_str("Max regen attempts reached (or was too easy/no_spanish on last try).");
-            } else if !block_has_no_spanish {
-                 message.push_str(&format!("CT {:.2}% acceptable or final attempt with Spanish.", actual_ct_this_pass * 100.0));
-            } else if block_has_no_spanish && available_new_lemma_ids_for_activation.is_empty() {
-                 message.push_str("No Spanish content and no new words left to activate.");
-            } else { // Default finalization message if other specific conditions weren't met for logging
-                 message.push_str("Conditions met for finalization.");
-            }
-            simulation_log_entries.push(message);
+        if !block_is_too_easy || is_final_regen_attempt || no_more_new_words_to_activate_from_source {
+            let mut reason_msg = "    Finalizing block: ".to_string();
+            if !block_is_too_easy { reason_msg.push_str("CT acceptable. "); }
+            if is_final_regen_attempt { reason_msg.push_str("Max regen attempts reached. "); }
+            if no_more_new_words_to_activate_from_source { reason_msg.push_str("No new words to activate. "); }
+            simulation_log_entries.push(reason_msg);
             
-            let final_profile_state_for_text_generation_val = profile_for_this_pass; 
-            
-            let mut profile_after_exposure = final_profile_state_for_text_generation_val.clone();
-            profile_after_exposure.record_exposures(&lemma_ids_for_current_pass); 
+            let mut profile_after_final_exposure = profile_for_this_pass.clone();
+            profile_after_final_exposure.record_exposures(&all_lemma_ids_for_pass_output, dictionary); 
             
             return Ok(SimulationBlockResult {
-                profile_state_for_text_generation: final_profile_state_for_text_generation_val, 
-                profile_state_after_block_exposure: profile_after_exposure,
-                output_lemma_ids_for_block: lemma_ids_for_current_pass, 
+                profile_state_for_text_generation: profile_for_this_pass,
+                profile_state_after_block_exposure: profile_after_final_exposure,
+                chosen_level_outputs_for_sentences: current_chosen_outputs_for_block,
                 simulation_log_entries,
                 final_ct_for_block: actual_ct_this_pass,
-                known_lemmas_in_block: known_lemmas_this_pass,
+                known_and_active_lemmas_in_block: known_and_active_lemmas_this_pass,
                 total_spanish_lemmas_in_block: total_spanish_lemmas_this_pass,
+                activated_lemma_ids_this_block_run: activated_ids_in_this_refinement_cycle,
+                level_stats: level_stats_for_pass,
             });
-        } else { // Activation needed
-            let mut activation_needed_message = "    Activation Triggered: ".to_string();
-            if block_has_no_spanish { 
-                 activation_needed_message.push_str("No Spanish content on first try (or subsequent tries if new words are available).");
-            } else { // block_is_too_easy
-                 activation_needed_message.push_str(&format!("CT {:.2}% is too easy.", actual_ct_this_pass * 100.0));
-            }
-            simulation_log_entries.push(activation_needed_message);
-
-            let mut words_activated_count = 0;
-            // Ensure we only try to activate from the *provided list* of available new words for *this block's context*
+        } else { 
+            simulation_log_entries.push("    Activation Triggered.".to_string());
+            let mut words_activated_this_attempt = 0;
             for (lemma_id, freq) in available_new_lemma_ids_for_activation.iter() {
-                // The list available_new_lemma_ids_for_activation should already contain only 'New' words.
-                // We just need to check if it's already been activated *in this current refinement cycle for the block*.
                 if profile_being_refined_for_block.get_lemma_info(*lemma_id).map_or(true, |info| info.state == LemmaState::New) {
                     profile_being_refined_for_block.set_lemma_state(*lemma_id, LemmaState::Active);
-                    simulation_log_entries.push(format!("      Activated Lemma ID: {} (SourceFreq: {}) to Active.", lemma_id, freq));
-                    words_activated_count += 1;
-                    if words_activated_count >= max_words_to_activate_per_regen_attempt { break; }
-                } else if profile_being_refined_for_block.get_lemma_info(*lemma_id).map_or(false, |info| info.state == LemmaState::Active) {
-                    // Already active (perhaps from a previous regen attempt for this same block), skip.
+                    activated_ids_in_this_refinement_cycle.insert(*lemma_id);
+                    simulation_log_entries.push(format!("      Activated Lemma ID: {} (Freq: {})", lemma_id, freq));
+                    words_activated_this_attempt += 1;
+                    if words_activated_this_attempt >= max_words_to_activate_per_regen_attempt { break; }
                 }
             }
-
-            if words_activated_count == 0 {
-                simulation_log_entries.push("    No 'New' words were available from the pre-filtered activation list OR all suitable ones already activated in this block's refinement. Finalizing block.".to_string());
-                
-                let final_profile_state_for_text_generation_val = profile_for_this_pass;
-                let mut profile_after_exposure = final_profile_state_for_text_generation_val.clone();
-                profile_after_exposure.record_exposures(&lemma_ids_for_current_pass);
-
-                return Ok(SimulationBlockResult {
-                    profile_state_for_text_generation: final_profile_state_for_text_generation_val,
-                    profile_state_after_block_exposure: profile_after_exposure,
-                    output_lemma_ids_for_block: lemma_ids_for_current_pass,
-                    simulation_log_entries,
-                    final_ct_for_block: actual_ct_this_pass,
-                    known_lemmas_in_block: known_lemmas_this_pass,
-                    total_spanish_lemmas_in_block: total_spanish_lemmas_this_pass,
-                });
-            }
         }
-    } 
-    
-    Err("Core algo loop completed without finalizing a block result (should be unreachable).".to_string())
+    }
+    Err("Core algo: Max regen attempts loop finished unexpectedly.".to_string())
 }

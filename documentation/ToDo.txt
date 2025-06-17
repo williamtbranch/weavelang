@@ -1,0 +1,52 @@
+Project Plan: Creating the Unified WeaveLang Pipeline Orchestrator (v2)
+The current pipeline consists of a series of standalone Python scripts (stage2_lemmatizer.py, stage3_segmenter.py, etc.). While effective for development and testing, this is cumbersome for full runs. The goal is to reintegrate this logic into a single, intelligent orchestrator, similar to the original a2l.ps1 and single_stage_processor.py, but built on our new, more robust components.
+1. Core Principles of the New Orchestrator
+Single Point of Entry: The user should only need to run one command (e.g., .\a2l.ps1) to execute the entire data generation pipeline from start to finish.
+Centralized Configuration: All key parameters (API keys, model names, file paths, batch sizes) should be configured in one place, either in the PowerShell script or a central config file.
+Stage-Aware Logic: The orchestrator must understand the sequence of stages and the specific tool (SpaCy or LLM) required for each.
+True Resumability: The pipeline must be interruptible at any point. Upon re-run, it should intelligently detect the last successfully completed stage for a given book and resume from the next one.
+Robust Error Handling: The system should incorporate retries for transient API errors and a fallback to a more powerful model for persistent validation/parsing failures.
+2. Proposed Architecture
+We will create a new primary Python script, let's call it pipeline_v2.py, which will contain the logic for all stages. The a2l.ps1 script will be updated to call this new master script.
+a2l.ps1 (Updated):
+This script remains the "launcher."
+It will hold user-configurable variables:
+$LLMProvider (claude/gemini)
+$ClaudeModelName, $ClaudeFallbackModelName
+$BookToProcess, $ForceBook (for targeting specific books)
+$BatchSize_Simplifier, $BatchSize_Translator, etc.
+Its primary job is to build the command-line arguments and execute python llm2books/pipeline_v2.py.
+pipeline_v2.py (New Orchestrator Script):
+This script will contain the logic for the entire pipeline.
+A. Initialization and Setup:
+Argument Parsing (argparse): It will accept all parameters passed from a2l.ps1.
+Client Initialization: It will create a single, shared anthropic or gemini client and load both SpaCy models (en and es) once at the start to be used by all stages.
+Book Discovery: It will scan the Staged directory to find all books to be processed.
+B. Main Processing Loop:
+The script will have a primary loop that iterates through each book. Inside this loop, it will execute the stages sequentially.
+# Pseudocode for pipeline_v2.py main loop
+for book_stem in all_books:
+    print(f"--- Starting Pipeline for Book: {book_stem} ---")
+    
+    run_stage_1(book_stem, llm_client, ...)
+    run_stage_2(book_stem, spacy_es_model, ...)
+    run_stage_3a_segmenter(book_stem, spacy_es_model, ...)
+    run_stage_3b_simplifier(book_stem, llm_client, ...)
+    run_stage_4(book_stem, spacy_es_model, ...)
+    run_stage_5a_segmenter(book_stem, spacy_en_model, ...)
+    run_stage_5b_translator(book_stem, llm_client, ...)
+    run_stage_6(book_stem, spacy_es_model, ...)
+    run_stage_7(book_stem, spacy_en_model, spacy_es_model, llm_client, ...)
+Use code with caution.
+Python
+C. Stage Function Design:
+Each run_stage_X function will be a self-contained unit responsible for a single task.
+Resumability Check: The first thing each function will do is check if its target output file already exists and has a "processing_status": "COMPLETED" or a status indicating this stage is done. If so, it will log a "Skipping" message and return immediately.
+Read Input / Write Output: Each function will know its specific input file (e.g., stage2.json) and output file (e.g., stage3.json).
+Robust Saving: For the LLM-based stages, the logic will be to read the input, process all batches, and write the output once at the end. This is a simplification from our last change. Since each LLM stage now only has one "job" (e.g., simplify phrases), a failure is less catastrophic. We can re-add per-batch saving if needed, but a "whole file at once" approach is simpler to start.
+Error Handling and Fallback: The LLM-based functions (run_stage_3b_simplifier, run_stage_5b_translator, run_stage_7) will contain the retry and fallback model logic we developed in the original single_stage_processor.py. If a batch fails even with the fallback model, it should raise a critical exception to halt the pipeline for that book.
+3. Refactoring Plan: Merging the Scripts
+The process will involve copying the core logic from our new standalone scripts into functions within pipeline_v2.py.
+The process_file_for_stage2 logic from stage2_lemmatizer.py will become the body of the run_stage_2 function.
+The logic from stage3_segmenter.py and stage3_simplifier.py will be combined into run_stage_3a... and run_stage_3b....
+And so on for all stages.
