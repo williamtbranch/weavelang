@@ -104,3 +104,17 @@ The data generation process is a multi-stage pipeline that strategically combine
     *   **Output:** `diglot_map_entries`.
 
 This hybrid approach makes the pipeline more robust, cost-effective, and produces higher-quality, consistent data for the Rust simulation engine. The Python `single_stage_processor.py` script is being refactored to implement this new workflow.
+
+New stages
+
+Stage #	Proposed Class Name	Inherits From	Filename
+1	GenerateAdvSpanish	LLMStage	generate_adv_spanish.py
+2	LemmatizeAdvSpanish	SpaCyStage	lemmatize_adv_spanish.py
+3a	SegmentAdvSpanish	SpaCyStage	segment_adv_spanish.py
+3b	SimplifyAdvSpanish	LLMStage	simplify_adv_spanish.py
+4	(e.g., FinalizeSimplerSpanish)	SpaCyStage	(e.g., finalize_simpler_spanish.py)
+5a	SegmentEnglish	SpaCyStage	segment_english.py
+5b	GenerateSimpleSpanish	LLMStage	generate_simple_spanish.py
+6	LemmatizeSimpleSpanish	SpaCyStage	lemmatize_simple_spanish.py
+7	GenerateDiglotMap	LLMStage	generate_diglot_map.py
+8	LemmatizeDiglotMap	SpaCyStage	lemmatize_diglot_map.py

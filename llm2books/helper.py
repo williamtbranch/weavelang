@@ -1,123 +1,156 @@
-import os
-import sys
-import argparse
+# llm2books/helper.py
+#
+# Contains genuinely reusable, high-level functions and constants for the
+# WeaveLang data generation pipeline.
 import re
-import json
+import argparse
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
-from dotenv import load_dotenv
-from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional, Tuple
+from typing import List
 
+from dotenv import load_dotenv
+from spacy.tokens import Doc, Span
+
+# --- Attempt to import optional libraries ---
 try:
     import anthropic
 except ImportError:
     anthropic = None
 
-class Helper:
-    _instance = None
+# --- Global Constants ---
+MAX_STAGES = 8
+SPANISH_CONJUNCTIONS = ["y", "o", "pero", "que", "si", "cuando", "pues"]
+ENGLISH_CONJUNCTIONS = ["and", "or", "but", "so", "that", "if", "when", "as"]
 
-    # Constants
-    MAX_STAGES = 7
-    SENTENCE_LINE_REGEX = re.compile(r"^{S(\d+):\s*(.*)}$")
-    CHAPTER_MARKER_REGEX = re.compile(r"^%%CHAPTER_MARKER%%\s*(.*)$")
-    PROMPT_DIR = Path(__file__).parent / "llm_prompt_templates"
-    DEFAULT_CLAUDE_MAX_TOKENS_OUTPUT = 4096
+TITLE_SENTENCE_REGEX = re.compile(
+    r"^\s*(chapter|book|part|section|preface|epilogue|prologue|contents|author|by)\b",
+    re.IGNORECASE
+)
 
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
+# Get the pipeline's logger
+logger = logging.getLogger("pipeline")
 
-        return cls._instance
 
-    def __init__(self):
-        log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
-        logger = logging.getLogger(__name__)
-        logger.setLevel(logging.INFO)
+# --- General Utility Functions ---
 
-        if logger.hasHandlers():
-            logger.handlers.clear()
 
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(logging.INFO)
-        console_handler.setFormatter(log_formatter)
-        logger.addHandler(console_handler)
+def get_iso_timestamp() -> str:
+    """Returns the current UTC time in ISO 8601 format."""
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-        file_handler = logging.FileHandler('pipeline_orchestrator.log', mode='w', encoding='utf-8')
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(log_formatter)
-        logger.addHandler(file_handler)
 
-        error_file_handler = logging.FileHandler('pipeline_orchestrator.err', mode='w', encoding='utf-8')
-        error_file_handler.setLevel(logging.ERROR)
-        error_file_handler.setFormatter(log_formatter)
-        logger.addHandler(error_file_handler)
+def initialize_llm_client(args: argparse.Namespace) -> any:
+    """
+    Initializes and returns an LLM client based on the provider specified in args.
+    """
+    # Load environment variables from a .env file if it exists
+    load_dotenv(dotenv_path=Path.cwd() / ".env")
 
-        self.logger = logger
+    if args.llm_provider == "claude":
+        if not anthropic:
+            logger.critical(
+                "Anthropic provider selected, but SDK not installed. Run `pip install anthropic`"
+            )
+            return None
 
-    def get_iso_timestamp():
-        return datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z') 
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            logger.critical("ANTHROPIC_API_KEY not found in environment or .env file.")
+            return None
 
-    def initialize_llm_client(args: argparse.Namespace) -> any:
-        load_dotenv(dotenv_path=Path('.') / '.env')
-        if args.llm_provider == 'claude':
-            if not anthropic:
-                Helper.logger.critical("Anthropic provider selected, but SDK not installed. `pip install anthropic`"); return None
-            api_key = os.getenv("ANTHROPIC_API_KEY")
-            if not api_key:
-                Helper.logger.critical("ANTHROPIC_API_KEY not found in environment or .env file."); return None
-            return anthropic.Anthropic(api_key=api_key)
-        return None
+        return anthropic.Anthropic(api_key=api_key)
 
-    def _load_prompt_template(filename: str) -> Optional[str]:
-        file_path = Helper.PROMPT_DIR / filename
-        if not file_path.exists():
-            Helper.logger.error(f"Prompt template file not found: {file_path}"); return None
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f: return f.read()
-        except Exception as e:
-            Helper.logger.error(f"Could not read prompt template file {file_path}: {e}"); return None
+    # Add other providers like 'gemini' here in the future
+    logger.critical(f"LLM provider '{args.llm_provider}' is not supported.")
+    return None
 
-    def _make_llm_api_call(llm_client: Any, provider: str, system_prompt: str, user_prompt: str, model_name: str, attempt_num: int, max_attempts: int, max_tokens: int) -> Tuple[Optional[str], Optional[str]]:
-        if not llm_client or not user_prompt.strip(): return None, "LLM call skipped: Client not init or user_message is empty."
-        try:
-            if provider == "claude":
-                Helper.logger.info(f"        Making API call to Claude model: {model_name} (Attempt {attempt_num}/{max_attempts})")
-                response = llm_client.messages.create(model=model_name, max_tokens=max_tokens, system=system_prompt, messages=[{"role": "user", "content": user_prompt}])
-                return response.content[0].text if response.content else None, None
-            else: return None, f"Provider '{provider}' not implemented."
-        except Exception as e: return None, f"LLM API Error ({provider}, Attempt {attempt_num}/{max_attempts}): {e}"
 
-    def _parse_llm_response_blocks(raw_text: str, expected_ids: List[str]) -> Tuple[Dict[str, str], List[str]]:
-        parsed_data, errors = {}, []
-        id_pattern = re.compile(r"^(id\s+[\d_A-Za-z]+)\s*:\s*(.*)$", re.IGNORECASE)
-        for line in raw_text.splitlines():
-            if match := id_pattern.match(line.strip()):
-                response_id = " ".join(match.group(1).lower().split())
-                if response_id in expected_ids:
-                    if response_id in parsed_data: errors.append(f"Duplicate ID found: {response_id}")
-                    parsed_data[response_id] = match.group(2).strip().strip('"')
-                else: errors.append(f"Received unexpected ID from LLM: {response_id}")
-        missing_ids = [eid for eid in expected_ids if eid not in parsed_data]
-        if missing_ids: errors.append(f"Missing output for IDs: {', '.join(missing_ids)}")
-        return parsed_data, errors
+# --- Text Segmentation Logic ---
 
-    def _write_error_debug_file(book_stem: str, stage_number: str, error_dir: Path, batch_info: str, last_prompt: str, last_response: str, error_reason: str):
-        error_dir.mkdir(parents=True, exist_ok=True)
-        file_path = error_dir / f"{book_stem}.stage{stage_number}.err.txt"
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(f"// WeaveLang Pipeline Error Dump\n// Timestamp: {Helper.get_iso_timestamp()}\n// Book: {book_stem}\n// Stage: {stage_number}\n\n// --- BATCH INFO ---\n{batch_info}\n\n// --- ERROR SUMMARY ---\n{error_reason}\n\n// --- LAST PROMPT SENT TO LLM ---\n{last_prompt}\n\n// --- LAST RAW RESPONSE FROM LLM ---\n{last_response}\n")
-        Helper.logger.critical(f"Wrote fatal error details to: {file_path}")
 
-    def get_input_path_for_stage(book_stem: str, stage_num: int, staged_dir: Path, llm_output_base_dir: Path) -> Path:
-        if stage_num == 1: return staged_dir / f"{book_stem}.txt"
-        else: return llm_output_base_dir / f"stage{stage_num - 1}" / f"{book_stem}.stage{stage_num - 1}.json"
+def segment_text(doc: Doc, language: str) -> List[str]:
+    """
+    A generic text segmenter that chunks a SpaCy Doc and merges short fragments.
 
-    def is_stage_complete(book_stem: str, stage_num: int, llm_output_base_dir: Path) -> bool:
-        json_path = llm_output_base_dir / f"stage{stage_num}" / f"{book_stem}.stage{stage_num}.json"
-        if not json_path.exists(): return False
-        try:
-            with open(json_path, 'r', encoding='utf-8') as f: data = json.load(f)
-            return data.get("processing_status") == "COMPLETED"
-        except (json.JSONDecodeError, IOError): return False
+    Args:
+        doc (Doc): The SpaCy Doc object to segment.
+        language (str): The language of the text ('es' or 'en').
+
+    Returns:
+        A list of string segments.
+    """
+    if language == "es":
+        conjunctions = SPANISH_CONJUNCTIONS
+    elif language == "en":
+        conjunctions = ENGLISH_CONJUNCTIONS
+    else:
+        # Default to no special conjunction merging if language is unknown
+        conjunctions = []
+    syntactic_chunks = _get_syntactic_chunks(doc)
+    merged_phrases = _merge_short_chunks(syntactic_chunks, conjunctions)
+    return merged_phrases
+
+
+def _get_syntactic_chunks(doc: Doc) -> List[Span]:
+    """(Private) Identifies split points based on syntactic dependencies."""
+    split_points = set()
+    for token in doc:
+        if token.dep_ == "cc":
+            split_points.add(token.i)
+        if token.dep_ == "mark":
+            split_points.add(token.i)
+        if token.pos_ == "ADP" and token.head.pos_ in ["VERB", "NOUN", "PROPN"]:
+            if token.i > 0 and len([t for t in doc[0 : token.i] if not t.is_punct]) > 1:
+                split_points.add(token.i)
+
+    sorted_split_points = sorted(list(split_points))
+    final_chunks = []
+    start = 0
+    for point in sorted_split_points:
+        if start < point:
+            final_chunks.append(doc[start:point])
+        start = point
+    if start < len(doc):
+        final_chunks.append(doc[start:])
+
+    return final_chunks
+
+
+def _merge_short_chunks(
+    chunks: List[Span], conjunctions: List[str], min_words: int = 2
+) -> List[str]:
+    """(Private) Merges overly short chunks into preceding chunks for better coherence."""
+    if not chunks:
+        return []
+
+    texts = [chunk.text.strip() for chunk in chunks]
+
+    # First pass: merge tiny conjunctions forward
+    i = 0
+    while i < len(texts) - 1:
+        cleaned_chunk = "".join(c for c in texts[i] if c.isalnum()).lower()
+        if cleaned_chunk in conjunctions:
+            texts[i + 1] = f"{texts[i]} {texts[i + 1]}"
+            texts.pop(i)
+        else:
+            i += 1
+
+    # Second pass: merge chunks that are too short by word count
+    made_a_merge = True
+    while made_a_merge:
+        made_a_merge = False
+        i = 1
+        if len(texts) <= 1:
+            break
+        while i < len(texts):
+            if len(texts[i].split()) < min_words:
+                texts[i - 1] = f"{texts[i - 1]} {texts[i]}"
+                texts.pop(i)
+                made_a_merge = True
+                break
+            else:
+                i += 1
+
+    return texts
