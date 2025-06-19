@@ -1,6 +1,3 @@
-Of course. You are absolutely right—a high-level reference to "Price and Cost" is not sufficient. A developer would need an unambiguous, detailed explanation of the mechanic to implement it correctly.
-I will integrate a new, dedicated section describing the Price and Cost (P&C) mechanic in detail, ensuring it covers its calculation, its role in the upgrade cycle, and how it enables the system's efficiency. I will place this section logically within the overall algorithm description.
-Here is the revised, complete document with the detailed P&C section added.
 The WeaveLang System Algorithm: A Comprehensive Description
 1. Core Goal and Principles
 The WeaveLang system is designed to generate highly tailored language learning content based on the principles of Comprehensible Input (CI). Its primary goal is to take a literary work and transform it into a sequence of text that is challenging but not overwhelming for a learner.
@@ -65,22 +62,23 @@ After each book is processed, its final profile state is saved and used as the s
 B. The Block Loop (Middle):
 Each book is divided into large, statistically stable blocks of sentences (default size is 200).
 Block Division Rule: If the final block of a book is smaller than the block size, it is merged with the preceding block. The sentences from these two final blocks are then divided as evenly as possible between them.
-Efficiency: Upon loading a book, the system pre-calculates the word count for all English sentences and phrases, storing this integer to avoid repeated string processing. A word-frequency map for the entire book is also generated at this stage to guide vocabulary injection.
+Pre-calculation for Efficiency: To avoid expensive recalculations, the system performs two key pre-processing steps at the start of each book:
+English Word Counting: It iterates through every deep sentence and counts the words in every English phrase/segment, storing this integer (english_count) directly in the deep sentence data structure. This expensive parsing is done only once.
+Book-Level Frequency Map: It creates a frequency map of all lemmas within the current book to guide the vocabulary injection process.
 C. The Upgrade Cycle (Inner):
-Generation & P&C Pass: For a given block, the system generates an expressed sentence for every deep sentence and, in the same pass, calculates and stores the P&C data for all potential upgrade paths.
+Generation & P&C Pass: For a given block, the system generates an expressed sentence for every deep sentence. It uses the pre-calculated english_count values for any expressed English parts, simply subtracting 1 for each diglot substitution. In the same pass, it calculates and stores the P&C data for all potential upgrade paths.
 CT Measurement: After the pass, the CT score for the entire block is calculated using the formula:
 CT = (Known Word Count) / (Known Word Count + Active Word Count)
-(Note: "Known Word Count" includes all expressed English words and Spanish lemmas with 'Known' state.)
+(Note: "Known Word Count" includes the total english_count from all expressed sentences and Spanish lemmas with 'Known' state.)
 Decision: If CT <= 97%, the block is finalized. If CT > 97%, the Upgrade Cycle begins.
 Vocabulary Injection:
-The system scans the P&C data across all sentences in the block and collects the "Costs" (lemma sets) from every upgrade path with a "Price" of 1.
-From this combined pool of candidate lemmas, it selects the single lemma that has the highest frequency within the current book.
-This chosen lemma's state is promoted from Inactive to Active.
+The system consults the stored P&C data and collects the "Costs" (lemma sets) from every upgrade path with a "Price" of 1.
+From this pool of candidate lemmas, it selects the single lemma that has the highest frequency within the current book and promotes its state from Inactive to Active. (In case of a frequency tie, the first lemma encountered is chosen).
 Targeted Re-processing: The system creates an "upgrade queue" containing only the sentences whose P&C data included the newly activated lemma. It then re-runs the Generation & P&C Pass (Step 1) for only these sentences, updating their expressed form, P&C data, and the block's overall CT score.
 Repeat: The cycle (Steps 2-5) repeats, adding one new word at a time, until the CT score falls below the target threshold or a maximum number of words have been added for the block.
 7. State Management Rules
 To ensure consistency and stability, the following rules are strictly enforced:
 Profile Locking: The master Learner Profile is locked at the beginning of a block's processing.
-Side Tally: A temporary "side tally" tracks lemma exposures that occur within a block's cycles. This ensures exposure counts are accurate for the duration of the block's processing without modifying the locked master profile.
-Delayed Promotion to "Known": A lemma's state is only promoted from Active to Known after a block is fully finalized. This prevents the CT calculation from shifting unpredictably mid-cycle.
+Side Tally: A temporary "side tally" is used to track lemma exposures that occur within a block's cycles. This ensures exposure counts are accurate for the duration of the block's processing without modifying the locked master profile.
+Delayed Promotion to "Known": A lemma's state is only promoted from Active to Known after a block is fully finalized and all its upgrade cycles are complete. This prevents the CT calculation from changing unpredictably mid-cycle.
 Final Merge: Once a block is finalized, the exposure counts from the side tally are merged into the master Learner Profile, which is then ready for the next block.
