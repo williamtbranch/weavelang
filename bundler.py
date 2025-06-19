@@ -3,8 +3,8 @@ import argparse
 
 # --- Configuration ---
 DEFAULT_OUTPUT_FILE = "mono.out"
-#DEFAULT_EXTENSIONS = ['.zig', '.py', '.md', '.txt', '.rs', '.ps1', '.toml'] # Added .rs and .toml
-DEFAULT_EXTENSIONS = ['.py','.txt','.ps1', '.toml'] # Added .rs and .toml
+DEFAULT_EXTENSIONS = ['.zig', '.py', '.md', '.txt', '.rs', '.ps1', '.toml'] # Added .rs and .toml
+#DEFAULT_EXTENSIONS = ['.py','.txt','.ps1', '.toml'] # Added .rs and .toml
 DEFAULT_IGNORE_PATHS_OR_NAMES = [
     '.git', '__pycache__', 'zig-cache', 'zig-out', 'stage', 'data', 'output_audio', '.venv',
     DEFAULT_OUTPUT_FILE, 'mono.in', '.DS_Store',
