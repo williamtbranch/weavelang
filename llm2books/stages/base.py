@@ -319,23 +319,20 @@ class LLMStage(Stage, ABC):
 
         prompt_parts = []
         expected_ids = []
-        block_to_inputs_map = {}
-
+        
         for s_idx, block in enumerate(batch_blocks):
             prepared_items = self.prepare_llm_input(block, s_idx)
             if prepared_items:
-                block_to_inputs_map[id(block)] = prepared_items
                 for item in prepared_items:
                     prompt_parts.append(item["prompt_text"])
                     expected_ids.append(item["llm_id"])
 
         if not prompt_parts:
-            logger.info(
-                "      -> Batch resulted in no items for the LLM. Skipping and saving progress."
-            )
+            logger.info("      -> Batch resulted in no items for the LLM. Skipping and saving progress.")
             return self._save_progress(data, "PARTIAL")
 
         user_prompt = "\n".join(prompt_parts)
+        
         parsed_data = self._make_api_call_with_retries(
             user_prompt, expected_ids, batch_blocks
         )
@@ -344,19 +341,14 @@ class LLMStage(Stage, ABC):
             self._save_progress(data, "FAILED")
             return False
 
+        # --- THIS IS THE FIX ---
+        # REMOVE the complex filtering.
+        # SIMPLY loop through the blocks and pass the ENTIRE parsed_data dictionary.
+        # The individual stage's `process_llm_response` will be responsible
+        # for looking up the specific IDs it needs from the batch's data.
         for block in batch_blocks:
-            if helper.TITLE_SENTENCE_REGEX.match(block.get("english_text", "")):
-                continue
-
-            response_for_this_block = {}
-            if id(block) in block_to_inputs_map:
-                for item in block_to_inputs_map[id(block)]:
-                    llm_id = item["llm_id"]
-                    if llm_id in parsed_data:
-                        response_for_this_block[llm_id] = parsed_data[llm_id]
-
-            if response_for_this_block:
-                self.process_llm_response(block, response_for_this_block)
+            self.process_llm_response(block, parsed_data)
+        # --- END FIX ---
 
         return self._save_progress(data, "PARTIAL")
 

@@ -57,10 +57,17 @@ pub struct JsonDiglotMapEntry {
     pub spanish_lemma: String,
     pub exact_spanish_form: String,
     pub is_viable_for_substitution: bool,
+    // --- FIELD ADDED ---
+    pub note: String,
 }
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct JsonSentenceBlock {
+    // --- FIELDS ADDED ---
+    pub source_index_in_original_file: u64, // Using u64 for flexibility
+    pub llm_block_id: String,
+    // --- END ADDED FIELDS ---
+
     pub original_sentence_s_id: String,
     pub english_text: String,
     
@@ -79,4 +86,9 @@ pub struct JsonSentenceBlock {
     
     // L5 Data (Diglot)
     pub diglot_map_entries: Vec<JsonDiglotMapEntry>,
+    
+    // --- FIELDS ADDED ---
+    pub llm_call_status: HashMap<String, String>,
+    pub processing_notes: Vec<String>,
+    // --- END ADDED FIELDS ---
 }

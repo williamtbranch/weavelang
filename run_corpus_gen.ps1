@@ -22,13 +22,14 @@ $ExecutablePath = ".\target\release\weavelang_rust_gui.exe"
 $CommandArgs = @(
     "generate",
     "--sequence", "sequence.txt",
-    "--input-json-dir", "stage/stage7",
+    "--input-json-dir", "stage/stage8",
     "--tts-output-dir", "E:/Bill/Documents/development/audiolingual/generated_tts_input",
     "--profiles-dir", "E:/Bill/Documents/development/audiolingual/generated_profiles",
     "--sentences-per-block", "200",
-    "--max-regen-attempts-per-block", "5",
+    #"--max-regen-attempts-per-block", "5",
+    "--max-words-to-add-per-block", "50", # <<< FIX: ADDED COMMA HERE
     "--target-ct-threshold", "0.97",
-    "--max-words-to-activate-per-regen", "2",
+    #"--max-words-to-activate-per-regen", "2",
     "--words-per-level", "20"
 )
 

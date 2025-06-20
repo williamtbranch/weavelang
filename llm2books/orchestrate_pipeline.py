@@ -161,44 +161,37 @@ def main():
     for book_stem in book_stems:
         logger.info(f"--- Starting Pipeline for Book: [{book_stem}] ---")
         pipeline_ok = True
-        # --- Resumability Logic ---
-        # Start with the value from the command line (which defaults to 1).
+
+        # --- START REPLACEMENT for Resumability Logic ---
         effective_start_stage = args.start_at_stage
 
-        # If we are NOT forcing a book, try to find the last completed stage.
         if args.force_book != book_stem:
-            latest_complete_stage = 0
-            # Loop backwards through the defined stages to find the last completed one.
-            for i in range(len(PIPELINE_STAGES), 0, -1):
-                StageToCheck = PIPELINE_STAGES[i-1] # Get the class for the stage
-                # Temporarily instantiate it to use its completion check method
+            # Find the first INCOMPLETE stage by checking from the beginning.
+            first_incomplete_stage = 1
+            for StageToCheck in PIPELINE_STAGES:
                 instance_to_check = StageToCheck(book_stem, args, common_resources)
-                if instance_to_check._is_stage_complete():
-                    latest_complete_stage = instance_to_check.stage_number
-                    break # Found the last completed stage, no need to check earlier ones
+                if not instance_to_check._is_stage_complete():
+                    # We found the first stage that isn't done. This is where we should start.
+                    first_incomplete_stage = instance_to_check.stage_number
+                    break
+                # If we get to the end of the loop and all are complete,
+                # first_incomplete_stage will be the last stage number + 1
+                first_incomplete_stage = instance_to_check.stage_number + 1
             
-            # If we found a completed stage, we should start at the *next* one.
-            if latest_complete_stage > 0:
-                calculated_start = latest_complete_stage + 1
-                # Only use the calculated start if it's further along than a manually passed-in start_at_stage
-                if calculated_start > effective_start_stage:
-                    effective_start_stage = calculated_start
+            # The effective start is the later of the user's request or our calculation
+            if first_incomplete_stage > effective_start_stage:
+                effective_start_stage = first_incomplete_stage
         
         logger.info(f"Effective start stage for '{book_stem}' is Stage {effective_start_stage}.")
+        
+        # This is the corrected execution loop
         for StageClass in PIPELINE_STAGES:
-            # Add a check for start_at_stage here
-            # We need to instantiate to get the stage_number, which is a bit awkward but works.
-            temp_instance = StageClass(book_stem, args, common_resources)
-            if temp_instance.stage_number < effective_start_stage:
-                logger.info(f"Skipping stage {temp_instance.stage_number} ({temp_instance.stage_name}) due to resumability check.")
-                logger.info(f"Skipping stage {temp_instance.stage_number} ({temp_instance.stage_name}) due to --start_at_stage setting.")
+            stage_instance = StageClass(book_stem, args, common_resources)
+
+            if stage_instance.stage_number < effective_start_stage:
+                logger.info(f"Skipping stage {stage_instance.stage_number} ({stage_instance.stage_name}) due to resumability check.")
                 continue
 
-            stage_instance = temp_instance # Reuse the instance we just created
-
-            # The resumability and completion check is now handled inside the stage's run() method.
-            # The orchestrator's job is just to call them in order.
-            
             # Run the stage
             pipeline_ok = stage_instance.run()
 
@@ -206,16 +199,17 @@ def main():
                 logger.error(f"Halting pipeline for '{book_stem}' due to failure in stage: {stage_instance.stage_name}.")
                 overall_success = False
                 break
+        # --- END REPLACEMENT ---
         
         if pipeline_ok:
             logger.info(f"--- Successfully Finished Pipeline for Book: [{book_stem}] ---\n")
         else:
             logger.error(f"--- Pipeline FAILED for Book: [{book_stem}]. See logs for details. ---\n")
+
     if overall_success:
         sys.exit(0)
     else:
         logger.info("Orchestrator finished, but one or more books failed processing.")
         sys.exit(1)
-
 if __name__ == "__main__":
     main()

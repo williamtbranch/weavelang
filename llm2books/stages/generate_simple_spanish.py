@@ -18,7 +18,7 @@ class GenerateSimpleSpanish(LLMStage):
             stage_number=5,
             stage_name="GenerateSimpleSpanish",
             batch_size=2,
-            parser_type="block", # The prompt asks for output in blocks per ID
+            parser_type="line", # The prompt asks for output in blocks per ID
         )
 
     # --- LLMStage Abstract Method Implementations ---

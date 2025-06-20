@@ -2,12 +2,12 @@
 
 // --- Declare all top-level modules ---
 pub mod config;
+pub mod corpus_generator; // For CLI mode
 pub mod parsing;
 pub mod profile;
 pub mod profile_io;
 pub mod simulation;
 pub mod types;
-pub mod corpus_generator; // For CLI mode
 
 // --- Re-exports for easier access from main.rs or other crates ---
 
@@ -15,11 +15,7 @@ pub mod corpus_generator; // For CLI mode
 pub use config::Config;
 
 // Core data types (from JSON)
-pub use types::json_types::{
-    JsonChapter,
-    JsonContentBlock,
-    JsonSentenceBlock,
-};
+pub use types::json_types::{JsonChapter, JsonContentBlock, JsonSentenceBlock};
 
 // Parser function
 pub use parsing::json_parser::parse_chapter_from_json;
@@ -31,17 +27,18 @@ pub use profile_io::{load_profile_snapshot, save_profile_snapshot, ProfileSnapsh
 // Simulation components
 pub use simulation::dictionary::GlobalLemmaDictionary;
 pub use simulation::numerical_types::{
-    NumericalLearnerProfile,
-    NumericalChapter,
-    NumericalProcessedSentence,
+    NumericalLearnerProfile, NumericalChapter, NumericalProcessedSentence,
 };
 pub use simulation::preprocessor::json_chapter_to_numerical;
+
+// --- UPDATED EXPORTS FROM core_algo.rs ---
 pub use simulation::core_algo::{
-    run_simulation_numerical, 
-    SimulationBlockResult, 
-    ChosenLevelOutput,
+    determine_and_annotate_sentence_expression, // NEW function
+    ChosenLevelOutput, // NEW struct
     OutputLevel,
 };
+// --- END UPDATED EXPORTS ---
+
 pub use simulation::text_generator::generate_final_text_for_block_from_levels;
 
 // Corpus generator function for CLI

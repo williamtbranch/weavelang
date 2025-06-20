@@ -18,7 +18,7 @@ class SimplifyAdvSpanish(LLMStage):
             stage_number=3,
             stage_name="SimplifyAdvSpanish",
             batch_size=2,
-            parser_type="block", # The prompt asks for output in blocks per ID
+            parser_type="line", # The prompt asks for output in blocks per ID
         )
 
     # --- LLMStage Abstract Method Implementations ---

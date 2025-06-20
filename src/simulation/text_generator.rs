@@ -1,7 +1,8 @@
 // src/simulation/text_generator.rs
+use super::core_algo::{ChosenLevelOutput, L0SegmentChoice, L1PartChoice, OutputLevel};
 use crate::types::json_types::JsonSentenceBlock;
-use super::core_algo::{ChosenLevelOutput, L1SegmentChoice, L4PartChoice, L5Substitution, OutputLevel};
-use regex::Regex;
+
+/// Takes the results of the simulation for a block and generates the final text.
 pub fn generate_final_text_for_block_from_levels(
     block_string_sentences: &[&JsonSentenceBlock],
     chosen_level_outputs: &[ChosenLevelOutput],
@@ -19,85 +20,80 @@ pub fn generate_final_text_for_block_from_levels(
     for (idx, s_sentence_ref) in block_string_sentences.iter().enumerate() {
         let s_sentence = *s_sentence_ref;
         let chosen_output = &chosen_level_outputs[idx];
-        let mut current_sentence_text: String;
 
-        match chosen_output.level {
-            OutputLevel::L0 => {
-                current_sentence_text = s_sentence.adv_spanish_full.text.clone();
-            }
-            OutputLevel::L1 => {
-                if let Some(segment_choices) = &chosen_output.l1_segment_choices {
-                    let parts: Vec<String> = segment_choices.iter().map(|choice| match choice {
-                            L1SegmentChoice::Adv(text) => text.clone(),
-                            L1SegmentChoice::SimplerAdv(text) => text.clone(),
-                        }).collect();
-                    current_sentence_text = parts.join(" ");
+        let mut current_sentence_text = match chosen_output.level {
+            OutputLevel::AdvancedWeave => {
+                if let Some(segment_choices) = &chosen_output.l0_segment_choices {
+                    let parts: Vec<String> = segment_choices
+                        .iter()
+                        .enumerate() // --- ADDED enumerate ---
+                        .map(|(seg_idx, choice)| { // --- ADDED seg_idx ---
+                            match choice {
+                                L0SegmentChoice::Adv(text) => text.clone(),
+                                // --- MODIFIED: Added fallback logic ---
+                                L0SegmentChoice::SimplerAdv(text) => {
+                                    if !text.trim().is_empty() {
+                                        text.clone()
+                                    } else {
+                                        // Fallback to the original advanced text for this segment if simpler is empty
+                                        s_sentence.adv_spanish_segments.get(seg_idx)
+                                            .map_or_else(|| text.clone(), |seg| seg.advanced_text.clone())
+                                    }
+                                }
+                            }
+                        })
+                        .collect();
+                    parts.join(" ")
                 } else {
-                    return Err(format!("TextGen L1 Error: No segment choices for sentence {}", s_sentence.original_sentence_s_id));
+                    return Err(format!(
+                        "TextGen L0 Error: No segment choices for sentence {}",
+                        s_sentence.original_sentence_s_id
+                    ));
                 }
             }
-            OutputLevel::L2 => {
-                current_sentence_text = s_sentence.simpler_adv_spanish_full.text.clone();
-            }
-            OutputLevel::L3 => {
-                current_sentence_text = s_sentence.simple_spanish_l3_full.text.clone();
-            }
-            OutputLevel::L4 => {
-                // Logic to handle the new L4PartChoice enum
-                if let Some(part_choices) = &chosen_output.l4_part_choices {
-                    let mut parts: Vec<String> = Vec::new();
-                    for choice in part_choices {
+            OutputLevel::SimpleHybrid => {
+                if let Some(part_choices) = &chosen_output.l1_part_choices {
+                    let parts: Vec<String> = part_choices.iter().map(|choice| {
                         match choice {
-                            L4PartChoice::Spanish(text) => {
-                                parts.push(text.clone());
+                            L1PartChoice::Spanish(text) => text.clone(),
+                            L1PartChoice::Hybrid {
+                                base_english_phrase,
+                                substitution,
+                            } => {
+                                base_english_phrase.replacen(
+                                    &substitution.eng_word_to_replace,
+                                    &substitution.spa_form_to_insert,
+                                    1,
+                                )
                             }
-                            L4PartChoice::Hybrid { base_english_phrase, substitution } => {
-                                // Perform the single-word substitution on the English phrase
-                                let hybrid_phrase = base_english_phrase.replacen(
-                                    &substitution.eng_word_to_replace, 
-                                    &substitution.spa_form_to_insert, 
-                                    1
-                                );
-                                parts.push(hybrid_phrase);
-                            }
-                            L4PartChoice::English(text) => {
-                                parts.push(text.clone());
-                            }
+                            L1PartChoice::English(text) => text.clone(),
                         }
-                    }
-                    current_sentence_text = parts.join(" ");
+                    }).collect();
+                    parts.join(" ")
                 } else {
-                    return Err(format!("TextGen L4 Error: No part choices for sentence {}", s_sentence.original_sentence_s_id));
+                    return Err(format!(
+                        "TextGen L1 Error: No part choices for sentence {}",
+                        s_sentence.original_sentence_s_id
+                    ));
                 }
             }
-            OutputLevel::L5 => {
-                // This logic is now simpler, as it only handles one substitution per sentence
-                let mut l5_text_build = s_sentence.english_text.clone();
-                if let Some(substitutions) = &chosen_output.l5_substitutions {
-                    // There will only be one substitution in the list for L5
-                    if let Some(sub) = substitutions.first() {
-                        if !sub.eng_word_to_replace.is_empty() {
-                            // Use replacen to only replace the first occurrence
-                            l5_text_build = l5_text_build.replacen(
-                                &sub.eng_word_to_replace, 
-                                &sub.spa_form_to_insert, 
-                                1
-                            );
-                        }
-                    }
-                }
-                current_sentence_text = l5_text_build;
-            }
-            OutputLevel::L6 => {
-                current_sentence_text = s_sentence.english_text.clone();
-            }
-        }
+        };
 
         if current_sentence_text.trim().is_empty() {
-             eprintln!("TextGen Warning: Generated empty text for {}. Using original Eng text as fallback.", s_sentence.original_sentence_s_id);
-             current_sentence_text = s_sentence.english_text.clone();
+            let truncated_eng = if s_sentence.english_text.len() > 70 {
+                format!("{}...", &s_sentence.english_text[..67])
+            } else {
+                s_sentence.english_text.clone()
+            };
+            
+            eprintln!(
+                "TextGen Warning: Generated empty text for sentence {} (\"{}\"). Using original Eng text as fallback.",
+                s_sentence.original_sentence_s_id,
+                truncated_eng
+            );
+            current_sentence_text = s_sentence.english_text.clone();
         }
-        
+
         woven_block_text_parts.push(current_sentence_text);
     }
 
