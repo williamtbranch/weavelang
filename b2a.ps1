@@ -5,7 +5,7 @@ Write-Host "Starting Text-to-Speech conversion..."
 # --- Configuration ---
 $ToolRootPath = "E:/Bill/development/weavelang" # Your actual path
 $PythonScriptPath = "$ToolRootPath/book_to_audio.py"
-$InputFileName = "Alice_In_Wonderland.txt" # Your test file
+$InputFileName = "Alice_In_Wonderland_inst01.txt" # Your test file
 
 # --- TTS Service Selection ---
 $TtsService = "vertex" # "gemini" or "vertex". Select "gemini" to use the new 2.5 Pro voices.
@@ -22,7 +22,8 @@ $GeminiVoiceName = "Schedar" # Default Gemini voice
 $GeminiTtsPromptPrefix = "You are a professional voice actor with a Mexican Spanish accent."
 
 # --- Vertex AI TTS Configuration (used if $TtsService is "vertex") ---
-$VertexVoiceName = "es-US-Chirp3-HD-Achernar" # Example Vertex voice, find more at Google Cloud docs
+#$VertexVoiceName = "es-US-Chirp3-HD-Achernar" # Example Vertex voice, find more at Google Cloud docs
+$VertexVoiceName = "es-US-Chirp3-HD-Algieba" # Example Vertex voice, find more at Google Cloud docs
 $VertexLanguageCode = "es-US"      # Example, e.g., "es-MX"
 
 # --- Run Mode ---
@@ -33,7 +34,7 @@ $VertexLanguageCode = "es-US"      # Example, e.g., "es-MX"
 $OutputAudioFormat = "wav"
 $LogLevel = "INFO"       # DEBUG, INFO, WARNING, ERROR, CRITICAL
 $ConcurrentRequests = 1  # Start with 1, increase cautiously
-$ChunkMaxChars = 4000    
+$ChunkMaxChars = 3000    
 $MaxApiRetries = 4 
 $RetryDelay = 15          # Base delay in seconds
 

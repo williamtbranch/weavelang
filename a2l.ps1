@@ -16,11 +16,12 @@ $ModulePath = "llm2books.orchestrate_pipeline"
 
 # --- LLM Provider and Model Configuration ---
 $LLMProvider = "claude" # "gemini" or "claude"
-$ClaudeModelName = "claude-3-5-haiku-20241022"
-$ClaudeFallbackModelName = "claude-3-7-sonnet-20250219" # More capable model for difficult cases
+$ClaudeModelName = "claude-sonnet-4-20250514"
+#$ClaudeFallbackModelName = "claude-3-7-sonnet-20250219" # More capable model for difficult cases
+$ClaudeFallbackModelName = "claude-opus-4-20250514" # More capable model for difficult cases
 
 # --- Batching Configuration ---
-$MaxSentencesPerBatch = 5     # Max sentences per batch (for most stages)
+$MaxSentencesPerBatch = 20     # Max sentences per batch (for most stages)
 #$MaxBatchTokens = 2000        # Not currently used by the worker, but good to keep for future use
 
 # --- Execution Control ---
