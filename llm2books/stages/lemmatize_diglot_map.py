@@ -8,11 +8,10 @@ class LemmatizeDiglotMap(SpaCyStage):
     Stage 8: Lemmatizes the 'exact_spanish_form' in each diglot map entry to
     populate the final 'spanish_lemma' field.
     """
-
-    def __init__(self, book_stem: str, config: Any, common_resources: Dict[str, Any]):
+    def __init__(self, book_stem: str, cli_args: Any, common_resources: Dict[str, Any]):
         super().__init__(
             book_stem=book_stem,
-            config=config,
+            cli_args=cli_args,
             common_resources=common_resources,
             stage_number=8,
             stage_name="LemmatizeDiglotMap",

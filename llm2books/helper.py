@@ -20,7 +20,7 @@ except ImportError:
     anthropic = None
 
 # --- Global Constants ---
-MAX_STAGES = 8
+MAX_STAGES = 8 # This is now deprecated, pipeline stages are dynamically counted.
 SPANISH_CONJUNCTIONS = ["y", "o", "pero", "que", "si", "cuando", "pues"]
 ENGLISH_CONJUNCTIONS = ["and", "or", "but", "so", "that", "if", "when", "as"]
 
@@ -41,14 +41,14 @@ def get_iso_timestamp() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def initialize_llm_client(args: argparse.Namespace) -> any:
+def initialize_llm_client(provider: str) -> any:
     """
-    Initializes and returns an LLM client based on the provider specified in args.
+    Initializes and returns an LLM client based on the provider string.
     """
     # Load environment variables from a .env file if it exists
     load_dotenv(dotenv_path=Path.cwd() / ".env")
 
-    if args.llm_provider == "claude":
+    if provider == "claude":
         if not anthropic:
             logger.critical(
                 "Anthropic provider selected, but SDK not installed. Run `pip install anthropic`"
@@ -63,9 +63,8 @@ def initialize_llm_client(args: argparse.Namespace) -> any:
         return anthropic.Anthropic(api_key=api_key)
 
     # Add other providers like 'gemini' here in the future
-    logger.critical(f"LLM provider '{args.llm_provider}' is not supported.")
+    logger.critical(f"LLM provider '{provider}' is not supported.")
     return None
-
 
 # --- Text Segmentation Logic ---
 

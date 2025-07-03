@@ -1,48 +1,85 @@
-// In src/simulation/frequency_manager.rs
+// src/simulation/frequency_manager.rs
 
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use once_cell::sync::Lazy; // Add `once_cell` to Cargo.toml
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::Path;
+use std::sync::Mutex;
 
-// Lazy static map of lemma -> corpus frequency (in millions for simplicity)
-static HIGH_FREQ_WORDS: Lazy<HashMap<&'static str, f32>> = Lazy::new(|| {
-    let mut m = HashMap::new();
-    m.insert("de", 9.999518);
-    m.insert("la", 6.277560);
-    m.insert("que", 4.681839);
-    m.insert("el", 4.569652);
-    m.insert("en", 4.234281);
-    m.insert("y", 4.180279);
-    m.insert("a", 3.260939);
-    m.insert("los", 2.618657);
-    m.insert("se", 2.022514);
-    m.insert("del", 1.857225); // from the
-    m.insert("las", 1.686741);
-    m.insert("un", 1.659827);
-    m.insert("por", 1.561904);
-    m.insert("con", 1.481607);
-    m.insert("no", 1.465503);
-    m.insert("una", 1.347603);
-    m.insert("su", 1.103617);
-    // Note: "es" is a verb form. The lemma is "ser".
-    // We should probably map the lemma.
-    m.insert("ser", 1.019669); // Mapping the lemma for "es"
-    m
-});
+// --- Data Structures ---
 
-const DEFAULT_EXPOSURE_THRESHOLD: u32 = 20;
+// Holds the master frequency data, loaded once.
+struct FrequencyData {
+    lemma_to_rank: HashMap<String, u32>,
+    rank_to_lemma: Vec<String>,
+}
 
-/// Calculates the required exposure threshold for a given lemma string.
-/// It applies a special formula for high-frequency words and returns a default otherwise.
-pub fn get_exposure_threshold_for_lemma(lemma: &str) -> u32 {
-    if let Some(frequency_in_millions) = HIGH_FREQ_WORDS.get(lemma) {
-        // Your formula: (Freq / 1M) * (2/3) * 20
-        // Since we stored Freq/1M directly, it's simpler:
-        let new_threshold = frequency_in_millions * (2.0 / 3.0) * (DEFAULT_EXPOSURE_THRESHOLD as f32);
-        
-        // Clamp the value to a reasonable range, e.g., at least 1.
-        // Round to nearest u32.
-        (new_threshold.round() as u32).max(1)
-    } else {
-        DEFAULT_EXPOSURE_THRESHOLD
+// --- Global Static Variable ---
+
+// Use a Mutex to allow for safe, one-time initialization.
+static FREQUENCY_DATA: Lazy<Mutex<Option<FrequencyData>>> = Lazy::new(|| Mutex::new(None));
+
+// --- Public Functions ---
+
+/// Loads the master frequency list from the specified asset path.
+/// This MUST be called once at the start of the application.
+pub fn load_master_frequency_list(asset_path: &Path) -> Result<(), String> {
+    let mut guard = FREQUENCY_DATA.lock().unwrap();
+    if guard.is_some() {
+        return Ok(()); // Already loaded
     }
+
+    println!("[INFO] Loading master frequency list from: {}", asset_path.display());
+    let file = File::open(asset_path)
+        .map_err(|e| format!("Failed to open frequency list at '{}': {}", asset_path.display(), e))?;
+    let reader = BufReader::new(file);
+
+    let mut temp_rank_to_lemma: Vec<(u32, String)> = Vec::new();
+
+    for line_result in reader.lines() {
+        let line = line_result.map_err(|e| format!("Failed to read line from frequency list: {}", e))?;
+        
+        let parts: Vec<&str> = line.split('\t').collect();
+        if parts.len() >= 3 {
+            let lemma_str = parts[0].trim().to_lowercase();
+            if let Ok(rank) = parts[1].parse::<u32>() {
+                if !lemma_str.is_empty() {
+                    temp_rank_to_lemma.push((rank, lemma_str));
+                }
+            }
+        }
+    }
+    
+    // Sort by the rank column to ensure correct order, just in case
+    temp_rank_to_lemma.sort_by_key(|k| k.0);
+
+    let rank_to_lemma: Vec<String> = temp_rank_to_lemma.into_iter().map(|(_, s)| s).collect();
+
+    let mut lemma_to_rank = HashMap::new();
+    for (i, lemma) in rank_to_lemma.iter().enumerate() {
+        lemma_to_rank.insert(lemma.clone(), (i + 1) as u32);
+    }
+    
+    if rank_to_lemma.is_empty() {
+        return Err("Frequency list is empty or could not be parsed.".to_string());
+    }
+
+    println!("[INFO] Loaded {} unique lemmas into frequency manager.", rank_to_lemma.len());
+    *guard = Some(FrequencyData { lemma_to_rank, rank_to_lemma });
+    Ok(())
+}
+
+/// Retrieves the master frequency list ordered by rank.
+/// Panics if the list has not been loaded.
+pub fn get_ordered_lemmas() -> Vec<String> {
+    let guard = FREQUENCY_DATA.lock().unwrap();
+    guard.as_ref().expect("Master frequency list has not been loaded.").rank_to_lemma.clone()
+}
+
+/// Gets the rank for a given lemma string.
+/// Panics if the list has not been loaded.
+pub fn get_rank_for_lemma(lemma: &str) -> Option<u32> {
+    let guard = FREQUENCY_DATA.lock().unwrap();
+    guard.as_ref().expect("Master frequency list has not been loaded.").lemma_to_rank.get(lemma).copied()
 }

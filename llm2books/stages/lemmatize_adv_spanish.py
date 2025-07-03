@@ -8,10 +8,10 @@ class LemmatizeAdvSpanish(SpaCyStage):
     Stage 2: Lemmatizes the 'adv_spanish_full' text for each sentence block.
     """
 
-    def __init__(self, book_stem: str, config: Any, common_resources: Dict[str, Any]):
+    def __init__(self, book_stem: str, cli_args: Any, common_resources: Dict[str, Any]):
         super().__init__(
             book_stem=book_stem,
-            config=config,
+            cli_args=cli_args,
             common_resources=common_resources,
             stage_number=2,
             stage_name="LemmatizeAdvSpanish",
@@ -32,20 +32,16 @@ class LemmatizeAdvSpanish(SpaCyStage):
             logger.critical(
                 "      -> CRITICAL: Spanish SpaCy model not found in common_resources."
             )
-            # We should probably halt here, but for now we'll just return the data unmodified.
-            # A more robust solution might raise an exception.
             return data
 
         for block in data.get("content_blocks", []):
             if block.get("block_type") == "sentence":
-                # Ensure the adv_spanish_full object and lemmas list exist
                 adv_spanish_obj = block.setdefault("adv_spanish_full", {})
                 adv_spanish_obj.setdefault("lemmas", [])
 
                 source_text = adv_spanish_obj.get("text", "")
                 if source_text.strip():
                     doc = spacy_es(source_text)
-                    # Create a list of lowercase lemmas, excluding punctuation, spaces, and proper nouns
                     lemmas = [
                         token.lemma_.lower()
                         for token in doc
@@ -55,10 +51,8 @@ class LemmatizeAdvSpanish(SpaCyStage):
                     ]
                     adv_spanish_obj["lemmas"] = lemmas
                 else:
-                    # If there's no source text, ensure the lemmas list is empty
                     adv_spanish_obj["lemmas"] = []
 
-            # Mark this block as processed for this stage
             block.setdefault("llm_call_status", {})[f"stage{self.stage_number}"] = (
                 "COMPLETED_SPACY"
             )

@@ -22,7 +22,6 @@ except ImportError:
 
 # --- Local Module Imports ---
 from . import helper
-#from .stages.base import Stage # We only need the base for type hinting
 # Import all the concrete stage classes
 from .stages.generate_adv_spanish import GenerateAdvSpanish
 from .stages.lemmatize_adv_spanish import LemmatizeAdvSpanish
@@ -36,8 +35,6 @@ from .stages.generate_diglot_map import GenerateDiglotMap
 from .stages.lemmatize_diglot_map import LemmatizeDiglotMap
 
 # --- The Pipeline Stage Registry ---
-# This list defines the entire pipeline. To reorder, add, or remove a stage,
-# you only need to modify this list.
 PIPELINE_STAGES = [
     GenerateAdvSpanish,
     LemmatizeAdvSpanish,
@@ -55,10 +52,10 @@ PIPELINE_STAGES = [
 def get_logger() -> logging.Logger:
     logger = logging.getLogger("pipeline")
     if logger.hasHandlers():
-        return logger # Avoid adding duplicate handlers
+        return logger
 
     log_formatter = logging.Formatter(
-        "%(asctime)s - %(levelname)s - %(module)s.%(funcName)s - %(message)s"
+        "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
     )
     logger.setLevel(logging.INFO)
 
@@ -67,7 +64,6 @@ def get_logger() -> logging.Logger:
     console_handler.setFormatter(log_formatter)
     logger.addHandler(console_handler)
 
-    # ... (add file handlers if desired) ...
     return logger
 
 # --- Main Orchestration Entry Point ---
@@ -79,36 +75,30 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     
-    # --- Argument Parsing ---
-    parser.add_argument("--project_config", default="config.toml")
-    parser.add_argument("--input_staged_subdir", default="Staged")
-    parser.add_argument("--output_llm_subdir", default="stage")
-    parser.add_argument("--force_book", type=str, default=None)
-    parser.add_argument("--book_to_process", type=str, default=None)
+    # --- MODIFIED: Argument Parsing ---
+    # Arguments are now minimal. Most settings come from the config file.
+    parser.add_argument("--project_config", default="config.toml", help="Path to the main TOML configuration file.")
+    parser.add_argument("--version", default="7.0.0", help="Pipeline version for metadata.")
+    parser.add_argument("--input_staged_subdir", default="Staged") # Can be overridden if needed
+    parser.add_argument("--output_llm_subdir", default="pipeline")   # Can be overridden if needed
+    # Execution control arguments
+    parser.add_argument("--force_book", type=str, default=None, help="Force reprocessing of a specific book, ignoring existing progress.")
+    parser.add_argument("--book_to_process", type=str, default=None, help="Process only a single specified book.")
     parser.add_argument(
-        "--start_at_stage", type=int, default=1, choices=range(1, helper.MAX_STAGES + 1)
+        "--start_at_stage", type=int, default=1, choices=range(1, len(PIPELINE_STAGES) + 2), help="Start processing from a specific stage number."
     )
-    parser.add_argument(
-        "--llm_provider", default="claude", choices=["gemini", "claude"]
-    )
-    parser.add_argument("--llm_model", help="Primary LLM model name.")
-    parser.add_argument("--llm_fallback_model", help="Fallback LLM model name.")
-    parser.add_argument("--max_sentences_per_batch", type=int, default=5)
-    parser.add_argument("--max_api_retries", type=int, default=3)
-    parser.add_argument("--max_validation_retries", type=int, default=4)
-    parser.add_argument("--retry_delay", type=int, default=7)
-    # The version argument was added twice, let's fix that.
-    parser.add_argument("--version", default="6.0.0", help="Pipeline version for metadata.")
     args = parser.parse_args()
 
     logger.info(f"--- WeaveLang Pipeline Orchestrator v{args.version} Initializing ---")
 
-
-    # --- Configuration and Resource Loading ---
+    # --- NEW: Configuration and Resource Loading ---
     try:
         with open(args.project_config, "rb") as f:
-            config_data = tomllib.load(f)
-        content_project_dir_str = config_data.get("content_project_dir")
+            config = tomllib.load(f)
+        content_project_dir_str = config.get("content_project_dir")
+        pipeline_config = config.get("pipeline", {})
+        models_config = config.get("models", {})
+        stages_config = config.get("stages", {})
     except Exception as e:
         logger.critical(f"Failed to load or parse config file '{args.project_config}': {e}")
         sys.exit(1)
@@ -118,7 +108,10 @@ def main():
         sys.exit(1)
 
     logger.info("Initializing shared resources (LLM Client & SpaCy Models)...")
-    llm_client = helper.initialize_llm_client(args)
+    
+    # Note: Currently supports one provider for the whole run. Could be extended.
+    llm_provider = pipeline_config.get("llm_provider", "claude")
+    llm_client = helper.initialize_llm_client(llm_provider)
     if llm_client is None:
         sys.exit(1)
         
@@ -131,18 +124,19 @@ def main():
         logger.critical(f"SpaCy model not found. Have you run 'python -m spacy download ...' for en_core_web_lg and es_core_news_lg? Error: {e}")
         sys.exit(1)
 
-    # This defines common_resources
     common_resources = {
         'llm_client': llm_client,
         'spacy_models': spacy_models,
-        'content_project_dir': content_project_dir_str
+        'content_project_dir': content_project_dir_str,
+        'models_config': models_config,
+        'pipeline_config': pipeline_config,
+        'stages_config': stages_config
     }
 
     # --- Book Discovery ---
     content_project_root = Path(content_project_dir_str)
     staged_dir = content_project_root / args.input_staged_subdir
     
-    # This defines book_stems
     book_stems = (
         [args.book_to_process] if args.book_to_process 
         else sorted([f.stem for f in staged_dir.glob("*.txt") if not f.name.endswith(".junk.txt")])
@@ -154,37 +148,29 @@ def main():
 
     logger.info(f"Orchestrator starting. Found {len(book_stems)} book(s) to process.")
 
-
     # --- Main Processing Loop ---
-    
     overall_success = True
     for book_stem in book_stems:
         logger.info(f"--- Starting Pipeline for Book: [{book_stem}] ---")
         pipeline_ok = True
 
-        # --- START REPLACEMENT for Resumability Logic ---
         effective_start_stage = args.start_at_stage
 
         if args.force_book != book_stem:
-            # Find the first INCOMPLETE stage by checking from the beginning.
             first_incomplete_stage = 1
-            for StageToCheck in PIPELINE_STAGES:
-                instance_to_check = StageToCheck(book_stem, args, common_resources)
+            for StageClass in PIPELINE_STAGES:
+                # We only need the book stem and common resources to check completion status
+                instance_to_check = StageClass(book_stem, args, common_resources)
                 if not instance_to_check._is_stage_complete():
-                    # We found the first stage that isn't done. This is where we should start.
                     first_incomplete_stage = instance_to_check.stage_number
                     break
-                # If we get to the end of the loop and all are complete,
-                # first_incomplete_stage will be the last stage number + 1
                 first_incomplete_stage = instance_to_check.stage_number + 1
             
-            # The effective start is the later of the user's request or our calculation
             if first_incomplete_stage > effective_start_stage:
                 effective_start_stage = first_incomplete_stage
         
         logger.info(f"Effective start stage for '{book_stem}' is Stage {effective_start_stage}.")
         
-        # This is the corrected execution loop
         for StageClass in PIPELINE_STAGES:
             stage_instance = StageClass(book_stem, args, common_resources)
 
@@ -192,14 +178,12 @@ def main():
                 logger.info(f"Skipping stage {stage_instance.stage_number} ({stage_instance.stage_name}) due to resumability check.")
                 continue
 
-            # Run the stage
             pipeline_ok = stage_instance.run()
 
             if not pipeline_ok:
                 logger.error(f"Halting pipeline for '{book_stem}' due to failure in stage: {stage_instance.stage_name}.")
                 overall_success = False
                 break
-        # --- END REPLACEMENT ---
         
         if pipeline_ok:
             logger.info(f"--- Successfully Finished Pipeline for Book: [{book_stem}] ---\n")

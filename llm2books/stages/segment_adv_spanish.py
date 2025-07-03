@@ -13,19 +13,15 @@ class SegmentAdvSpanish(SpaCyStage):
     This prepares the data for the simplification LLM call in Stage 3b.
     """
 
-    def __init__(self, book_stem: str, config: Any, common_resources: Dict[str, Any]):
+    def __init__(self, book_stem: str, cli_args: Any, common_resources: Dict[str, Any]):
         super().__init__(
             book_stem=book_stem,
-            config=config,
+            cli_args=cli_args,
             common_resources=common_resources,
             stage_number=3,
             stage_name="SegmentAdvSpanish",
         )
-        # This is a multipart stage, so the output is marked as partial.
-        # The next class in the pipeline (SimplifyAdvSpanish) will read this
-        # file and overwrite it with a 'COMPLETED' status.
         self.is_part_a = True
-
 
     def _process_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """

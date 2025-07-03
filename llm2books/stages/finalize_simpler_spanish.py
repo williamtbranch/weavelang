@@ -8,11 +8,10 @@ class FinalizeSimplerSpanish(SpaCyStage):
     Stage 4: Lemmatizes both advanced and simpler segments, and aggregates the
     simpler segments into a full sentence text and lemma list.
     """
-
-    def __init__(self, book_stem: str, config: Any, common_resources: Dict[str, Any]):
+    def __init__(self, book_stem: str, cli_args: Any, common_resources: Dict[str, Any]):
         super().__init__(
             book_stem=book_stem,
-            config=config,
+            cli_args=cli_args,
             common_resources=common_resources,
             stage_number=4,
             stage_name="FinalizeSimplerSpanish",

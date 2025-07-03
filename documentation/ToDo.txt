@@ -1,52 +1,70 @@
-Project Plan: Creating the Unified WeaveLang Pipeline Orchestrator (v2)
-The current pipeline consists of a series of standalone Python scripts (stage2_lemmatizer.py, stage3_segmenter.py, etc.). While effective for development and testing, this is cumbersome for full runs. The goal is to reintegrate this logic into a single, intelligent orchestrator, similar to the original a2l.ps1 and single_stage_processor.py, but built on our new, more robust components.
-1. Core Principles of the New Orchestrator
-Single Point of Entry: The user should only need to run one command (e.g., .\a2l.ps1) to execute the entire data generation pipeline from start to finish.
-Centralized Configuration: All key parameters (API keys, model names, file paths, batch sizes) should be configured in one place, either in the PowerShell script or a central config file.
-Stage-Aware Logic: The orchestrator must understand the sequence of stages and the specific tool (SpaCy or LLM) required for each.
-True Resumability: The pipeline must be interruptible at any point. Upon re-run, it should intelligently detect the last successfully completed stage for a given book and resume from the next one.
-Robust Error Handling: The system should incorporate retries for transient API errors and a fallback to a more powerful model for persistent validation/parsing failures.
-2. Proposed Architecture
-We will create a new primary Python script, let's call it pipeline_v2.py, which will contain the logic for all stages. The a2l.ps1 script will be updated to call this new master script.
-a2l.ps1 (Updated):
-This script remains the "launcher."
-It will hold user-configurable variables:
-$LLMProvider (claude/gemini)
-$ClaudeModelName, $ClaudeFallbackModelName
-$BookToProcess, $ForceBook (for targeting specific books)
-$BatchSize_Simplifier, $BatchSize_Translator, etc.
-Its primary job is to build the command-line arguments and execute python llm2books/pipeline_v2.py.
-pipeline_v2.py (New Orchestrator Script):
-This script will contain the logic for the entire pipeline.
-A. Initialization and Setup:
-Argument Parsing (argparse): It will accept all parameters passed from a2l.ps1.
-Client Initialization: It will create a single, shared anthropic or gemini client and load both SpaCy models (en and es) once at the start to be used by all stages.
-Book Discovery: It will scan the Staged directory to find all books to be processed.
-B. Main Processing Loop:
-The script will have a primary loop that iterates through each book. Inside this loop, it will execute the stages sequentially.
-# Pseudocode for pipeline_v2.py main loop
-for book_stem in all_books:
-    print(f"--- Starting Pipeline for Book: {book_stem} ---")
-    
-    run_stage_1(book_stem, llm_client, ...)
-    run_stage_2(book_stem, spacy_es_model, ...)
-    run_stage_3a_segmenter(book_stem, spacy_es_model, ...)
-    run_stage_3b_simplifier(book_stem, llm_client, ...)
-    run_stage_4(book_stem, spacy_es_model, ...)
-    run_stage_5a_segmenter(book_stem, spacy_en_model, ...)
-    run_stage_5b_translator(book_stem, llm_client, ...)
-    run_stage_6(book_stem, spacy_es_model, ...)
-    run_stage_7(book_stem, spacy_en_model, spacy_es_model, llm_client, ...)
-Use code with caution.
-Python
-C. Stage Function Design:
-Each run_stage_X function will be a self-contained unit responsible for a single task.
-Resumability Check: The first thing each function will do is check if its target output file already exists and has a "processing_status": "COMPLETED" or a status indicating this stage is done. If so, it will log a "Skipping" message and return immediately.
-Read Input / Write Output: Each function will know its specific input file (e.g., stage2.json) and output file (e.g., stage3.json).
-Robust Saving: For the LLM-based stages, the logic will be to read the input, process all batches, and write the output once at the end. This is a simplification from our last change. Since each LLM stage now only has one "job" (e.g., simplify phrases), a failure is less catastrophic. We can re-add per-batch saving if needed, but a "whole file at once" approach is simpler to start.
-Error Handling and Fallback: The LLM-based functions (run_stage_3b_simplifier, run_stage_5b_translator, run_stage_7) will contain the retry and fallback model logic we developed in the original single_stage_processor.py. If a batch fails even with the fallback model, it should raise a critical exception to halt the pipeline for that book.
-3. Refactoring Plan: Merging the Scripts
-The process will involve copying the core logic from our new standalone scripts into functions within pipeline_v2.py.
-The process_file_for_stage2 logic from stage2_lemmatizer.py will become the body of the run_stage_2 function.
-The logic from stage3_segmenter.py and stage3_simplifier.py will be combined into run_stage_3a... and run_stage_3b....
-And so on for all stages.
+Project Plan: Pedagogical Enhancements (V7 Post-Refactor)
+Objective: Based on direct user testing, the current transition from word-level support (ED segments) to phrase-level comprehension (SS segments) can be jarring for a true beginner. The following enhancements aim to smooth this learning curve by improving the scaffolding for foundational vocabulary and syntactic processing.
+1. Implement "Full Diglotting" Option
+Rationale: The current rule of substituting only one "best" word per English phrase creates a large cognitive leap when the system switches to showing a full, multi-word simple Spanish phrase. Allowing for more substitutions within a single English phrase will create a smoother, more granular ramp. This will help the learner's brain get accustomed to processing adjacent Spanish words, even if they are in an English grammatical structure.
+Implementation Plan:
+Add a CLI Argument: In src/main.rs, add a new boolean flag to the GenerateCliArgs struct, e.g., --full-diglotting.
+Pass the Setting: Pass this new boolean setting from main.rs down through corpus_generator.rs into the core_algo.rs determine_and_annotate_sentence_expression function.
+Modify Core Algorithm:
+Inside determine_and_annotate_sentence_expression, when generating L1PartChoice::Hybrid, the logic needs to change.
+If full_diglotting is true: Instead of finding the single best_sub_candidate and stopping, the algorithm must iterate through all words in the base_english_phrase. For each word, if a viable substitution exists in the diglot map and the corresponding lemma is Known or Active in the profile, the substitution should be made.
+If full_diglotting is false: The existing logic of finding only the single best substitution should be used.
+Acknowledge Trade-off: The documentation should note that "full diglotting" will produce grammatically unnatural "Spanglish" as a temporary and explicit learning scaffold.
+2. Implement Variable Exposure Threshold for Core Vocabulary
+Rationale: Foundational vocabulary (the first ~2000 words) needs to be learned to the point of automaticity to reduce cognitive load when learning new words. Requiring more exposures for these core words will ensure they are more deeply internalized before being considered "Known."
+Implementation Plan:
+Acquire New Asset: Obtain a ranked Spanish lemma frequency list (e.g., from a corpus linguistics project). This should be a simple text file with one lemma per line, ordered from most frequent to least frequent. This will be added to the project (e.g., assets/es_frequency_list.txt).
+Create Loading Logic: In src/simulation/frequency_manager.rs, create a new loader function that is called once at startup. This function will read the frequency list and create a Lazy static HashMap<String, u32> mapping each lemma to its rank (line number, 1-indexed).
+Rewrite Threshold Logic: The get_exposure_threshold_for_lemma function in frequency_manager.rs will be rewritten.
+It will take a lemma string as input.
+It will look up the lemma's rank in the new frequency map.
+If a rank r is found within the core vocabulary size c (e.g., 2000): It will apply the formula e = 20 + m where m = x - ((x * r) / c). All parameters (x, c, baseline) should be configurable constants.
+If the lemma is not found in the core list: It will return the default baseline exposure count (e.g., 20).
+No Other Changes Needed: The GlobalLemmaDictionary already calls this function when a new word is discovered, so no changes are needed there. The new, variable threshold will be automatically stored with each lemma.
+
+Project Plan: WeaveLang V2 - The Curriculum-Based Model
+Objective: To refactor the WeaveLang engine from a path-dependent simulation model to a standardized, curriculum-based model. This will dramatically simplify the core generation logic, enhance user choice, and introduce more sophisticated pedagogical scaffolding for the intermediate learning phase.
+Phase 1: Foundational Asset Creation & Core Simplification
+1.1. Create a Project-Specific Corpus & Master Frequency List
+Rationale: The order of vocabulary introduction should be based on a standardized, objective measure derived from literature, not on the random chance of word encounters in a fixed book sequence.
+Implementation Plan:
+Action (Data Gathering): Download a large and diverse collection of Spanish-language public domain fiction from sources like Project Gutenberg.
+Action (Scripting): Create a new, standalone Rust or Python utility script (corpus_analyzer).
+Script Logic: This utility will iterate through the directory of raw Spanish texts, use SpaCy (es_core_news_lg) to tokenize and lemmatize all content, aggregate the counts for every unique lemma, and ignore punctuation and proper nouns.
+Final Asset: The script's output will be a single text file: es_master_frequency_list.txt. Each line will contain one lemma, sorted from most frequent to least frequent. This file becomes a foundational, static asset for the entire project.
+1.2. Refactor Rust Engine to a Vocabulary Level & Ramp Rate Model
+Rationale: Replace the complex, stateful, and inefficient CT-based simulation loop with a simpler, faster, and more predictable model based on the master frequency list.
+Implementation Plan (Code Removal):
+Delete the side_tally_profile logic from corpus_generator.rs.
+Delete the PriceAndCost struct and all related logic for calculating upgrade costs.
+Delete the exposure_count field from LearnerLemmaInfo. The concept is now implicit in the frequency list.
+Implementation Plan (New Logic):
+Update CLI Arguments (main.rs):
+Remove --target-ct-threshold and --max-words-to-add-per-block.
+Add --start-vocab-level <N> (e.g., 200).
+Add --end-vocab-level <N> (e.g., 400).
+Add --ramp-rate <R> (e.g., 10, for 10 new words per hour).
+Update corpus_generator.rs:
+At the start of a generation task, load the es_master_frequency_list.txt.
+Initialize the LearnerProfile by adding the top N lemmas from the list, where N is --start-vocab-level.
+The "target vocabulary" is the list of lemmas from rank N+1 to M (where M is --end-vocab-level).
+The New "Loop": As the generator processes sentences, it will keep a running count of total words in the generated output. Based on the --ramp-rate (and the tapering logic for core words), it will activate the next word from the target vocabulary list after a certain number of output words has been generated (e.g., every 900 words for R10).
+Tapering Logic: Implement the ramp-up for the core vocabulary (e.g., first 2000 words). The number of output words required to activate a new word will be higher for the most frequent lemmas and will linearly decrease to the baseline set by the ramp rate.
+Phase 2: Advanced Intermediate Scaffolding
+2.1. Implement "Inverse Diglotting" for Level 0
+Rationale: To bridge the syntactic gap between English-structured simple Spanish (L1) and authentic Spanish grammar (L0), we need a scaffolding layer that presents correct Spanish sentence structure while providing word-level support for difficult vocabulary.
+Implementation Plan (Data Pipeline):
+Add New LLM Call (Stage 3c): In orchestrate_pipeline.py, add a new stage after the advanced segments are simplified.
+New Prompt: This stage's prompt will instruct the LLM to take a Spanish phrase and return a mapping of its key content lemmas to their concise English equivalents (e.g., {"castaño": "chestnut-colored"}). The LLM must be instructed to use a NO_SUB marker for words that cannot be meaningfully substituted.
+Update JSON Structure: Add a new field inverse_diglot_map: HashMap<String, String> to the JsonAdvSpanishSegment struct in types/json_types.rs.
+Update Preprocessor: The preprocessor.rs must be updated to parse this new map and convert it to a numerical format (e.g., HashMap<u32, String>) in the NumericalAdvSegmentBundle.
+Implementation Plan (Rust Engine):
+Modify core_algo.rs: The logic for Level 0 Advanced Weave will be expanded. For each segment, it will attempt generation in the following order:
+Full AS (Advanced Spanish): If all lemmas known.
+Full MS (Moderate Spanish): If all lemmas known.
+Inverse Diglot MS: If the segment meets specific criteria (see below).
+Fail: If none of the above are possible, the entire L0 weave fails for the sentence.
+Inverse Diglot Rules: The new Inverse Diglot option (3) will only be attempted if ALL of the following conditions are met:
+Activation Trigger: A minimum percentage of the Spanish lemmas in the segment must already be known (e.g., >50%). This is a new configurable parameter.
+Sensibility Threshold: The number of required English substitutions must not exceed a maximum limit (e.g., max(1, 33% of total words)). This is a new configurable parameter.
+No "Unsubstitutable" Blockers: None of the unknown lemmas are marked with NO_SUB in the inverse diglot map.

@@ -1,16 +1,12 @@
 // src/corpus_generator.rs
 use crate::config::Config;
-use crate::profile::LemmaState;
-use crate::profile_io::{load_profile_snapshot, save_profile_snapshot};
-// --- START FIX: Import PriceAndCost directly ---
 use crate::simulation::{
-    core_algo::{self, ChosenLevelOutput, L0SegmentChoice, L1PartChoice, OutputLevel},
+    core_algo::{self, L0SegmentChoice, L1PartChoice, OutputLevel},
     dictionary::GlobalLemmaDictionary,
-    numerical_types::PriceAndCost, // This line brings it into scope
+    frequency_manager,
     numerical_types::NumericalLearnerProfile,
     preprocessor, text_generator,
 };
-// --- END FIX ---
 use crate::{parsing::json_parser, types::json_types::JsonContentBlock};
 use std::collections::HashMap;
 use std::error::Error;
@@ -27,19 +23,13 @@ enum SegmentType {
     English,
 }
 
-#[derive(Debug)]
-struct BlockInfo {
-    start_index: usize,
-    end_index: usize,
-}
-
 fn log_analysis_to_file(
     log_file_path: &Path,
     book_instance_unique_id: &str,
     level_stats: &HashMap<OutputLevel, usize>,
     segment_stats: &HashMap<SegmentType, usize>,
     total_sentences: usize,
-    profile_after_book: &NumericalLearnerProfile,
+    final_profile: &NumericalLearnerProfile,
 ) -> Result<(), std::io::Error> {
     let mut file = OpenOptions::new().create(true).append(true).open(log_file_path)?;
     let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
@@ -69,10 +59,8 @@ fn log_analysis_to_file(
         writeln!(file, "    ED (English Diglot):   {:>5} segments ({:>6.2}%)", ed_count, (ed_count as f32 / total_segments_float) * 100.0)?;
         writeln!(file, "    EN (English):          {:>5} segments ({:>6.2}%)", en_count, (en_count as f32 / total_segments_float) * 100.0)?;
     }
-    writeln!(file, "  Profile State at End:")?;
-    writeln!(file, "    Known Lemmas: {}", profile_after_book.count_known())?;
-    writeln!(file, "    Active Lemmas: {}", profile_after_book.count_active_only())?;
-    writeln!(file, "    Total K/A:     {}", profile_after_book.count_total_known_or_active())?;
+    writeln!(file, "  Final Profile State:")?;
+    writeln!(file, "    Activated Lemmas: {}", final_profile.vocabulary.len())?;
     writeln!(file, "---------------------------------------------------------\n")?;
     Ok(())
 }
@@ -83,240 +71,252 @@ pub struct GenerationArgs {
     pub input_json_dir: PathBuf,
     pub tts_output_dir: PathBuf,
     pub profiles_dir: PathBuf,
-    pub start_profile_path: Option<PathBuf>,
-    pub sentences_per_block: usize,
-    pub max_words_to_add_per_block: u32,
-    pub target_ct_threshold: f32,
+    pub start_level: u32,
+    pub ramp_rate: f32,
     pub words_per_level: u32,
+    pub core_vocab_size: u32,
+    pub stretch_threshold: f32,
+    pub max_compression_ratio: f32,
+    pub debug_markers: bool,
+}
+
+struct ProcessingState {
+    current_start_level: u32,
+    current_ramp_rate: f32,
+}
+
+fn calculate_words_to_introduce(
+    total_words: usize,
+    words_per_new_lemma_baseline: f32,
+    core_vocab_size: u32,
+    start_vocab_idx: u32,
+) -> u32 {
+    let mut words_remaining = total_words as f32;
+    let mut words_introduced = 0;
+    let mut current_vocab_idx = start_vocab_idx;
+
+    if words_per_new_lemma_baseline <= 0.0 || words_per_new_lemma_baseline == f32::MAX { return 0; }
+
+    loop {
+        let cost_of_next_word = if current_vocab_idx < core_vocab_size {
+            let taper_start_multiplier = 3.0;
+            let progress_through_core = current_vocab_idx as f32 / core_vocab_size as f32;
+            let current_multiplier =
+                taper_start_multiplier - (progress_through_core * (taper_start_multiplier - 1.0));
+            words_per_new_lemma_baseline * current_multiplier
+        } else {
+            words_per_new_lemma_baseline
+        };
+
+        if words_remaining >= cost_of_next_word {
+            words_remaining -= cost_of_next_word;
+            words_introduced += 1;
+            current_vocab_idx += 1;
+        } else {
+            break;
+        }
+    }
+    words_introduced
 }
 
 pub fn run_corpus_generation(
-    _project_config: &Config,
+    project_config: &Config,
     args: &GenerationArgs,
 ) -> Result<(), Box<dyn Error>> {
-    println!("[DEBUG] Entered run_corpus_generation.");
+    let freq_list_path = PathBuf::from(&project_config.content_project_dir)
+        .join("assets")
+        .join("es_master_frequency_list.txt");
 
-    let (mut learner_profile, mut global_lemma_dictionary) =
-        if let Some(start_profile_path) = &args.start_profile_path {
-            load_profile_snapshot(start_profile_path).unwrap_or_else(|e| {
-                eprintln!("[DEBUG] Error loading profile: {}. Starting new.", e);
-                (NumericalLearnerProfile::new(), GlobalLemmaDictionary::new())
-            })
-        } else {
-            (NumericalLearnerProfile::new(), GlobalLemmaDictionary::new())
-        };
+    frequency_manager::load_master_frequency_list(&freq_list_path)?;
+    let ordered_lemmas = frequency_manager::get_ordered_lemmas();
 
     fs::create_dir_all(&args.tts_output_dir)?;
     fs::create_dir_all(&args.profiles_dir)?;
-
-    let corpus_sequence: Vec<String> = BufReader::new(File::open(&args.sequence_path)?)
-        .lines()
-        .filter_map(Result::ok)
-        .map(|l| l.trim().to_string())
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .collect();
     
-    if corpus_sequence.is_empty() { return Ok(()); }
-    println!("[DEBUG] Found {} books in sequence: {:?}", corpus_sequence.len(), corpus_sequence);
-
     let analysis_log_path = args.profiles_dir.join("corpus_analysis_log.txt");
-    let mut book_instance_counter: HashMap<String, usize> = HashMap::new();
 
-    for book_stem in &corpus_sequence {
-        let count = book_instance_counter.entry(book_stem.clone()).or_insert(0);
-        *count += 1;
-        let book_instance_unique_id = format!("{}_inst{:02}", book_stem, *count);
-        println!("\n[DEBUG] --- Processing book instance: {} ---", book_instance_unique_id);
+    let mut state = ProcessingState {
+        current_start_level: args.start_level,
+        current_ramp_rate: args.ramp_rate,
+    };
 
-        let base_content_path = PathBuf::from(&_project_config.content_project_dir);
-        let json_file_path = base_content_path
+    println!("[INFO] Starting batch generation job.");
+    println!("[INFO] Default Start Level: {}, Default Ramp Rate: {}", state.current_start_level, state.current_ramp_rate);
+    
+    let sequence_file = File::open(&args.sequence_path)?;
+    for line_result in BufReader::new(sequence_file).lines() {
+        let line = line_result?.trim().to_string();
+        if line.is_empty() || line.starts_with('#') { continue; }
+
+        if line.starts_with('%') {
+            let parts: Vec<&str> = line[1..].trim().split_whitespace().collect();
+            if parts.len() >= 2 {
+                match parts[0].to_lowercase().as_str() {
+                    "level" => {
+                        if let Ok(n) = parts[1].parse::<u32>() {
+                            state.current_start_level = n;
+                            println!("[CMD] Set Start Level for next book to: {}", n);
+                        }
+                    },
+                    "ramp" => {
+                        if let Ok(r) = parts[1].parse::<f32>() {
+                            state.current_ramp_rate = r;
+                            println!("[CMD] Set Ramp Rate for subsequent books to: {}", r);
+                        }
+                    },
+                    _ => eprintln!("[WARN] Unknown command in sequence file: {}", line),
+                }
+            }
+            continue;
+        }
+        
+        let book_stem = line;
+        println!("\n--- Processing Book: {} ---", book_stem);
+        println!("  Using Start Level: {}, Ramp Rate: {}", state.current_start_level, state.current_ramp_rate);
+
+        let mut learner_profile = NumericalLearnerProfile::new();
+        let mut global_lemma_dictionary = GlobalLemmaDictionary::new();
+
+        let start_vocab_size = (state.current_start_level * args.words_per_level) as usize;
+        if start_vocab_size > 0 {
+            for lemma_str in ordered_lemmas.iter().take(start_vocab_size) {
+                let lemma_id = global_lemma_dictionary.get_id_or_insert(lemma_str);
+                learner_profile.activate_lemma(lemma_id);
+            }
+        }
+
+        let json_file_path = PathBuf::from(&project_config.content_project_dir)
             .join(&args.input_json_dir)
             .join(format!("{}.stage8.json", book_stem));
         
-        println!("[DEBUG] Attempting to read JSON file: {}", json_file_path.display());
-        
-        let json_content_str = match fs::read_to_string(&json_file_path) {
-            Ok(content) => content,
-            Err(e) => { eprintln!("[DEBUG] FAILED to read JSON file: {}. Skipping book.", e); continue; }
-        };
-        println!("[DEBUG] Successfully read JSON file.");
-
-        let json_chapter = json_parser::parse_chapter_from_json(&json_content_str)?;
+        let json_chapter = json_parser::parse_chapter_from_json(&fs::read_to_string(&json_file_path)?)?;
         global_lemma_dictionary.populate_from_json_chapter(&json_chapter);
-        let (mut numerical_chapter, book_frequency_map) = preprocessor::json_chapter_to_numerical(&json_chapter, &mut global_lemma_dictionary);
+        let (numerical_chapter, precalculated_english_word_counts) = preprocessor::json_chapter_to_numerical(&json_chapter, &mut global_lemma_dictionary);
+        if numerical_chapter.sentences_numerical.is_empty() {
+            eprintln!("[WARN] No sentences found in {}. Skipping.", book_stem);
+            continue;
+        }
         
-        let num_sentences_in_book = numerical_chapter.sentences_numerical.len();
-        if num_sentences_in_book == 0 { eprintln!("[DEBUG] No sentences found in {}. Skipping.", book_stem); continue; }
-        println!("[DEBUG] Parsed {} sentences.", num_sentences_in_book);
+        let total_english_word_count: usize = precalculated_english_word_counts.iter().sum();
+        let estimated_output_words = (total_english_word_count as f32 * 1.1) as usize;
+        let words_per_new_lemma_baseline = if state.current_ramp_rate > 0.0 { 9000.0 / state.current_ramp_rate } else { f32::MAX };
 
-        let mut blocks: Vec<BlockInfo> = Vec::new();
-        if num_sentences_in_book > 0 {
-            let mut start_idx = 0;
-            while start_idx < num_sentences_in_book {
-                let end_idx = (start_idx + args.sentences_per_block).min(num_sentences_in_book);
-                blocks.push(BlockInfo { start_index: start_idx, end_index: end_idx });
-                start_idx = end_idx;
-            }
-            if blocks.len() > 1 && (blocks.last().unwrap().end_index - blocks.last().unwrap().start_index) < args.sentences_per_block / 2 {
-                if let Some(last_block) = blocks.pop() {
-                    if let Some(second_last_block) = blocks.last_mut() {
-                        second_last_block.end_index = last_block.end_index;
+        let naturally_introduced = calculate_words_to_introduce(estimated_output_words, words_per_new_lemma_baseline, args.core_vocab_size, start_vocab_size as u32);
+        let natural_final_vocab = start_vocab_size as u32 + naturally_introduced;
+        let natural_final_level = natural_final_vocab / args.words_per_level;
+        
+        let progress_into_next = (natural_final_vocab % args.words_per_level) as f32 / args.words_per_level as f32;
+
+        let mut target_final_level = if state.current_ramp_rate > 0.0 && progress_into_next >= args.stretch_threshold {
+            natural_final_level + 1
+        } else {
+            natural_final_level
+        };
+        
+        let final_target_vocab_size = target_final_level * args.words_per_level;
+        let final_words_to_introduce = final_target_vocab_size.saturating_sub(start_vocab_size as u32);
+        
+        let adjusted_words_per_lemma = if final_words_to_introduce > 0 { total_english_word_count as f32 / final_words_to_introduce as f32 } else { f32::MAX };
+        let compression = if words_per_new_lemma_baseline == f32::MAX { 0.0 } else { (words_per_new_lemma_baseline - adjusted_words_per_lemma).abs() / words_per_new_lemma_baseline };
+
+        if compression > args.max_compression_ratio {
+            println!("[WARN] Stretch compression ({:.1}%) exceeds max ({}%). Reverting to rounding down.", compression * 100.0, args.max_compression_ratio * 100.0);
+            target_final_level = natural_final_level;
+        }
+        
+        let final_target_vocab_size = target_final_level * args.words_per_level;
+        let final_words_to_introduce = final_target_vocab_size.saturating_sub(start_vocab_size as u32);
+
+        println!("  Target End Level: {}. Will introduce {} new words.", target_final_level, final_words_to_introduce);
+        
+        // --- THIS IS THE FINAL, CORRECTED PRE-CALCULATION LOOP ---
+        let mut activation_map: HashMap<usize, Vec<u32>> = HashMap::new();
+        if final_words_to_introduce > 0 {
+            // Use large integers to avoid floating point issues entirely.
+            let mut credit: u64 = 0;
+            let total_words_u64 = total_english_word_count as u64;
+            let words_to_add_u64 = final_words_to_introduce as u64;
+            let mut words_activated = 0;
+
+            for (sentence_idx, &eng_word_count) in precalculated_english_word_counts.iter().enumerate() {
+                credit += (eng_word_count as u64) * words_to_add_u64;
+
+                while credit >= total_words_u64 && words_activated < final_words_to_introduce {
+                    let next_idx = start_vocab_size as u32 + words_activated;
+                    if let Some(lemma_str) = ordered_lemmas.get(next_idx as usize) {
+                        let lemma_id = global_lemma_dictionary.get_id_or_insert(lemma_str);
+                        activation_map.entry(sentence_idx).or_default().push(lemma_id);
+                        // This debug message can be noisy, so it's commented out, but useful for deep debugging.
+                        // println!("[DEBUG] Pre-calculated activation of word #{}: '{}' at sentence index {}", next_idx + 1, lemma_str, sentence_idx);
                     }
+                    words_activated += 1;
+                    credit -= total_words_u64;
                 }
             }
         }
-        
-        if blocks.is_empty() { println!("[DEBUG] Calculated 0 blocks to process. Skipping book."); continue; }
-        println!("[DEBUG] Calculated {} blocks to process.", blocks.len());
-        
-        let mut book_level_stats: HashMap<OutputLevel, usize> = HashMap::new();
-        let mut book_segment_stats: HashMap<SegmentType, usize> = HashMap::new();
-        let mut final_book_text_parts: Vec<String> = Vec::new();
+        // --- END OF THE FIX ---
 
-        for (block_idx, block_info) in blocks.iter().enumerate() {
-            println!("[DEBUG]   Processing block {} (sentences {}-{})", block_idx + 1, block_info.start_index, block_info.end_index - 1);
+        let mut final_text_parts = Vec::new();
+        let mut book_level_stats = HashMap::new();
+        let mut book_segment_stats = HashMap::new();
+
+        for (sentence_idx, n_sentence) in numerical_chapter.sentences_numerical.iter().enumerate() {
+            if let Some(lemmas_to_activate) = activation_map.get(&sentence_idx) {
+                for &lemma_id in lemmas_to_activate {
+                    learner_profile.activate_lemma(lemma_id);
+                }
+            }
+
+            let mut n_sentence_clone = n_sentence.clone();
+            let output = core_algo::determine_and_annotate_sentence_expression(&mut n_sentence_clone, &learner_profile, &global_lemma_dictionary);
             
-            let mut side_tally_profile = learner_profile.clone();
-            let mut words_added_this_block = 0;
+            let s_sentence_json = json_chapter.content_blocks.iter().find_map(|cb| match cb {
+                JsonContentBlock::Sentence(s) if s.original_sentence_s_id == n_sentence.sentence_id_str => Some(s), _ => None,
+            }).ok_or("Mismatch between numerical and json sentences")?;
+            let generated_text = text_generator::generate_final_text_for_block_from_levels(&[s_sentence_json], &[output.clone()], args.debug_markers)?;
 
-            loop {
-                let mut block_outputs: Vec<ChosenLevelOutput> = Vec::new();
-                // --- FIX: Use the imported type directly ---
-                //let mut all_possible_upgrades: Vec<PriceAndCost> = Vec::new();
-                let mut all_possible_upgrades: Vec<crate::simulation::numerical_types::PriceAndCost> = Vec::new();
-                let mut expressed_lemmas_this_pass: Vec<u32> = Vec::new();
-                let mut expressed_english_words_this_pass = 0;
-
-                let block_sentences_slice = &mut numerical_chapter.sentences_numerical[block_info.start_index..block_info.end_index];
-                
-                for sentence in block_sentences_slice.iter_mut() {
-                    let output = core_algo::determine_and_annotate_sentence_expression(sentence, &side_tally_profile, &global_lemma_dictionary);
-                    expressed_lemmas_this_pass.extend(&output.lemma_ids);
-                    expressed_english_words_this_pass += output.english_word_count;
-                    block_outputs.push(output);
-
-                    if sentence.l0_upgrade_pc.price > 0 {
-                        all_possible_upgrades.push(sentence.l0_upgrade_pc.clone());
+            final_text_parts.push(generated_text);
+            
+            *book_level_stats.entry(output.level).or_insert(0) += 1;
+             match output.level {
+                OutputLevel::AdvancedWeave => if let Some(choices) = &output.l0_segment_choices {
+                    for choice in choices {
+                        *book_segment_stats.entry(match choice {
+                            L0SegmentChoice::Adv(_) => SegmentType::AdvancedSpanish,
+                            L0SegmentChoice::SimplerAdv(_) => SegmentType::ModerateSpanish,
+                        }).or_insert(0) += 1;
                     }
-                    for pc in sentence.l1_segment_upgrade_pcs.values() {
-                        if pc.price > 0 {
-                            all_possible_upgrades.push(pc.clone());
-                        }
+                },
+                OutputLevel::SimpleHybrid => if let Some(choices) = &output.l1_part_choices {
+                    for choice in choices {
+                         *book_segment_stats.entry(match choice {
+                            L1PartChoice::Spanish(_) => SegmentType::SimpleSpanish,
+                            L1PartChoice::Woven(_, _) => SegmentType::EnglishDiglot,
+                            L1PartChoice::English(_) => SegmentType::English,
+                        }).or_insert(0) += 1;
                     }
-                }
-
-                let mut known_lemmas = 0;
-                let mut active_lemmas = 0;
-                for &id in &expressed_lemmas_this_pass {
-                    if let Some(info) = side_tally_profile.get_lemma_info(id) {
-                        if info.state == LemmaState::Known { known_lemmas += 1; }
-                        else if info.state == LemmaState::Active { active_lemmas += 1; }
-                    }
-                }
-                
-                let numerator = expressed_english_words_this_pass + known_lemmas;
-                let denominator = expressed_english_words_this_pass + known_lemmas + active_lemmas;
-                let ct_score = if denominator > 0 { numerator as f32 / denominator as f32 } else { 1.0 };
-                
-                println!("[DEBUG]     CT Pass: {:.2}%. (Num: {}, Denom: {}). Words Added: {}/{}", ct_score * 100.0, numerator, denominator, words_added_this_block, args.max_words_to_add_per_block);
-
-                let finalize_block_and_break = |
-                    final_book_text_parts: &mut Vec<String>,
-                    book_level_stats: &mut HashMap<OutputLevel, usize>,
-                    book_segment_stats: &mut HashMap<SegmentType, usize>,
-                    learner_profile: &mut NumericalLearnerProfile
-                | -> Result<(), Box<dyn Error>> {
-                    let all_string_sentence_blocks: Vec<_> = json_chapter.content_blocks.iter().filter_map(|cb| match cb {
-                        JsonContentBlock::Sentence(s) => Some(s),
-                        _ => None,
-                    }).collect();
-                    let string_sentences_slice = &all_string_sentence_blocks[block_info.start_index..block_info.end_index];
-                    let final_block_text = text_generator::generate_final_text_for_block_from_levels(string_sentences_slice, &block_outputs)?;
-                    final_book_text_parts.push(final_block_text);
-
-                    for output in &block_outputs {
-                        *book_level_stats.entry(output.level).or_insert(0) += 1;
-                        match output.level {
-                            OutputLevel::AdvancedWeave => if let Some(choices) = &output.l0_segment_choices {
-                                for choice in choices {
-                                    let seg_type = match choice {
-                                        L0SegmentChoice::Adv(_) => SegmentType::AdvancedSpanish,
-                                        L0SegmentChoice::SimplerAdv(_) => SegmentType::ModerateSpanish,
-                                    };
-                                    *book_segment_stats.entry(seg_type).or_insert(0) += 1;
-                                }
-                            },
-                            OutputLevel::SimpleHybrid => if let Some(choices) = &output.l1_part_choices {
-                                for choice in choices {
-                                    let seg_type = match choice {
-                                        L1PartChoice::Spanish(_) => SegmentType::SimpleSpanish,
-                                        L1PartChoice::Hybrid {..} => SegmentType::EnglishDiglot,
-                                        L1PartChoice::English(_) => SegmentType::English,
-                                    };
-                                    *book_segment_stats.entry(seg_type).or_insert(0) += 1;
-                                }
-                            },
-                        }
-                    }
-                    learner_profile.record_exposures(&expressed_lemmas_this_pass, &global_lemma_dictionary);
-                    Ok(())
-                };
-
-                if ct_score <= args.target_ct_threshold || words_added_this_block >= args.max_words_to_add_per_block {
-                    println!("[DEBUG]     CT threshold met or max words added. Finalizing block.");
-                    finalize_block_and_break(&mut final_book_text_parts, &mut book_level_stats, &mut book_segment_stats, &mut learner_profile)?;
-                    break;
-                }
-
-                if all_possible_upgrades.is_empty() {
-                    println!("[DEBUG]     No more upgrades of any price available. Finalizing block.");
-                    finalize_block_and_break(&mut final_book_text_parts, &mut book_level_stats, &mut book_segment_stats, &mut learner_profile)?;
-                    break;
-                }
-
-                let min_price = all_possible_upgrades.iter().map(|pc| pc.price).min().unwrap_or(0);
-                
-                if min_price == 0 {
-                     println!("[DEBUG]     No upgrades with price > 0 found. Finalizing block.");
-                     finalize_block_and_break(&mut final_book_text_parts, &mut book_level_stats, &mut book_segment_stats, &mut learner_profile)?;
-                     break;
-                }
-
-                if (words_added_this_block + min_price) > args.max_words_to_add_per_block {
-                    println!("[DEBUG]     Next cheapest upgrade (Price {}) would exceed max words per block. Finalizing.", min_price);
-                    finalize_block_and_break(&mut final_book_text_parts, &mut book_level_stats, &mut book_segment_stats, &mut learner_profile)?;
-                    break;
-                }
-
-                let best_candidate_to_activate = all_possible_upgrades
-                    .iter()
-                    .filter(|pc| pc.price == min_price)
-                    .max_by_key(|pc| pc.cost.iter().map(|id| book_frequency_map.get(id).cloned().unwrap_or(0)).sum::<u32>());
-
-                if let Some(candidate) = best_candidate_to_activate {
-                    let cost_lemmas = &candidate.cost;
-                    println!("[DEBUG]     -> Activating Price-{} upgrade. Lemma IDs: {:?}", min_price, cost_lemmas);
-                    for &lemma_id in cost_lemmas {
-                        side_tally_profile.set_lemma_state(lemma_id, LemmaState::Active);
-                    }
-                    words_added_this_block += cost_lemmas.len() as u32;
-                } else {
-                    println!("[DEBUG]     Could not select a best candidate. Finalizing block.");
-                    finalize_block_and_break(&mut final_book_text_parts, &mut book_level_stats, &mut book_segment_stats, &mut learner_profile)?;
-                    break;
-                }
+                },
             }
-        }
 
-        log_analysis_to_file(&analysis_log_path, &book_instance_unique_id, &book_level_stats, &book_segment_stats, num_sentences_in_book, &learner_profile)?;
-        let tts_output_file_path = args.tts_output_dir.join(format!("{}.txt", book_instance_unique_id));
-        fs::write(&tts_output_file_path, final_book_text_parts.join("\n\n"))?;
-        println!("[DEBUG]   Saved TTS input to: {}", tts_output_file_path.display());
-        let out_profile_path = args.profiles_dir.join(format!("{}_out.profile.json", book_instance_unique_id));
-        save_profile_snapshot(&learner_profile, &global_lemma_dictionary, &out_profile_path)?;
-        println!("[DEBUG]   Saved out-profile to: {}", out_profile_path.display());
+        }
+        
+        let filename = if state.current_ramp_rate == 0.0 {
+            format!("{}_L{}.txt", book_stem, state.current_start_level)
+        } else if state.current_start_level == target_final_level {
+            format!("{}_L{}_{}.txt", book_stem, state.current_start_level, target_final_level)
+        } else {
+            format!("{}_L{}_{}_R{}.txt", book_stem, state.current_start_level, target_final_level, state.current_ramp_rate)
+        };
+        
+        let tts_output_file_path = args.tts_output_dir.join(&filename);
+        fs::write(&tts_output_file_path, final_text_parts.join("\n\n"))?;
+        println!("  Saved TTS file to: {}", filename);
+        
+        log_analysis_to_file(&analysis_log_path, &filename, &book_level_stats, &book_segment_stats, numerical_chapter.sentences_numerical.len(), &learner_profile)?;
+
+        state.current_start_level = target_final_level;
     }
 
-    println!("\n[DEBUG] Corpus generation run finished.");
+    println!("\n[INFO] Batch generation job finished.");
     Ok(())
 }

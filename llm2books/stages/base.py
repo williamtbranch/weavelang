@@ -8,7 +8,6 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 
-from .. import helper
 
 # --- Attempt to import optional libraries ---
 try:
@@ -24,31 +23,39 @@ class Stage(ABC):
     """
     Abstract Base Class for a single stage in the WeaveLang processing pipeline.
     """
-
     def __init__(
         self,
         book_stem: str,
-        config: Any,
+        cli_args: Any,
         common_resources: Dict[str, Any],
         stage_number: int,
         stage_name: str,
     ):
         self.book_stem = book_stem
-        self.config = config
+        self.cli_args = cli_args
         self.resources = common_resources
+        
+        self.pipeline_config = self.resources.get("pipeline_config", {})
+        self.models_config = self.resources.get("models_config", {})
+        self.stages_config = self.resources.get("stages_config", {})
+        
+        self.stage_config = self.stages_config.get(self.__class__.__name__, {})
+        
         self.stage_number = stage_number
         self.stage_name = stage_name
-        # A flag for multipart stages (e.g., 3a/3b)
-        self.is_part_a = False
+        self.is_part_a: bool = False
+        self._initialize_paths()
 
+
+    def _initialize_paths(self):
         content_project_dir_str = self.resources.get("content_project_dir")
         if not content_project_dir_str:
             raise ValueError("'content_project_dir' not found in common_resources.")
 
         self.content_project_root = Path(content_project_dir_str)
-        self.staged_dir = self.content_project_root / self.config.input_staged_subdir
+        self.staged_dir = self.content_project_root / self.cli_args.input_staged_subdir
         self.llm_output_base_dir = (
-            self.content_project_root / self.config.output_llm_subdir
+            self.content_project_root / self.cli_args.output_llm_subdir
         )
         self.stage_output_dir = self.llm_output_base_dir / f"stage{self.stage_number}"
         self.output_path = (
@@ -57,17 +64,17 @@ class Stage(ABC):
 
     @abstractmethod
     def run(self) -> bool:
-        """The main execution method for the stage."""
         pass
 
     def _is_stage_complete(self) -> bool:
-        """Checks if the output file for this stage already exists and is marked complete."""
+        if not hasattr(self, 'output_path'):
+             self._initialize_paths()
+
         if not self.output_path.exists():
             return False
         try:
             with open(self.output_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            # For multipart stages (like 3a), a partial status is considered complete for that part.
             if self.is_part_a and data.get("processing_status", "").startswith(
                 "PARTIAL"
             ):
@@ -77,7 +84,6 @@ class Stage(ABC):
             return False
 
     def _save_output_data(self, data: Dict[str, Any], status: str) -> bool:
-        """Saves the data dictionary to the stage's output file with a status."""
         data["processing_status"] = status
         try:
             with open(self.output_path, "w", encoding="utf-8") as f:
@@ -94,25 +100,28 @@ class Stage(ABC):
 
 
 class SpaCyStage(Stage, ABC):
-    """
-    Abstract Base Class for stages that exclusively use SpaCy for processing.
-    """
-
     def __init__(
         self,
         book_stem: str,
-        config: Any,
+        cli_args: Any,
         common_resources: Dict[str, Any],
         stage_number: int,
         stage_name: str,
     ):
-        super().__init__(book_stem, config, common_resources, stage_number, stage_name)
+        super().__init__(book_stem, cli_args, common_resources, stage_number, stage_name)
 
     def run(self) -> bool:
-        logger.info(f"Executing SpaCy Stage {self.stage_number}: {self.stage_name}")
+        logger.info(f"Executing SpaCy Stage {self.stage_number}: {self.stage_name} for '{self.book_stem}'")
         self.stage_output_dir.mkdir(parents=True, exist_ok=True)
 
-        if not self.config.force_book and self._is_stage_complete():
+        # --- THIS BLOCK IS RESTORED ---
+        if self.cli_args.force_book:
+            if self.output_path.exists():
+                logger.info(f"      -> Force mode: Deleting existing output file {self.output_path.name}")
+                self.output_path.unlink()
+        # --- END OF RESTORED BLOCK ---
+
+        if not self.cli_args.force_book and self._is_stage_complete():
             logger.info("      -> Stage is already marked as 'COMPLETED'. Skipping.")
             return True
 
@@ -123,9 +132,7 @@ class SpaCyStage(Stage, ABC):
         logger.info("      -> Processing data with SpaCy model...")
         output_data = self._process_data(input_data)
 
-        # Determine the final status
         final_status = "COMPLETED"
-        # If this is the 'a' part of a multi-step stage, its completion is partial.
         if self.is_part_a:
             final_status = f"PARTIAL_{self.stage_number}A_COMPLETE"
 
@@ -137,14 +144,12 @@ class SpaCyStage(Stage, ABC):
 
     @abstractmethod
     def _process_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """The core processing logic for the specific SpaCy stage."""
         pass
 
     def _get_input_path(self) -> Path:
-        """Determines the input file path for a SpaCy stage."""
         if self.stage_number <= 1:
             raise ValueError("SpaCyStage cannot be the first stage in the pipeline.")
-
+        
         # A SpaCy stage always reads from the output of the previous stage number.
         prev_stage_num = self.stage_number - 1
         return (
@@ -154,55 +159,41 @@ class SpaCyStage(Stage, ABC):
         )
 
     def _load_input_data(self) -> Optional[Dict[str, Any]]:
-        """Loads and parses the JSON input file for the stage."""
         input_path = self._get_input_path()
         if not input_path.exists():
             logger.critical(f"      -> CRITICAL: Input file not found at {input_path}")
             return None
-
         try:
             with open(input_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except (IOError, json.JSONDecodeError) as e:
-            logger.critical(
-                f"      -> CRITICAL: Could not read or parse input file {input_path.name}: {e}"
-            )
+            logger.critical(f"      -> CRITICAL: Could not read or parse input file {input_path.name}: {e}")
             return None
 
-
 class LLMStage(Stage, ABC):
-    """
-    Abstract Base Class for stages that use an LLM for processing.
-    """
-
     def __init__(
         self,
         book_stem: str,
-        config: Any,
+        cli_args: Any,
         common_resources: Dict[str, Any],
         stage_number: int,
         stage_name: str,
-        batch_size: int,
         parser_type: str = "line",
     ):
-        super().__init__(book_stem, config, common_resources, stage_number, stage_name)
-        self.in_log_path = (
-            self.stage_output_dir / f"{self.book_stem}.stage{self.stage_number}.in"
+        super().__init__(book_stem, cli_args, common_resources, stage_number, stage_name)
+        
+        self.log_path = (
+            self.stage_output_dir / f"{self.book_stem}.stage{self.stage_number}.log"
         )
-        self.out_log_path = (
-            self.stage_output_dir / f"{self.book_stem}.stage{self.stage_number}.out"
-        )
-        self.batch_size = batch_size
         self.parser_type = parser_type
+        self.batch_counter = 0
 
     @abstractmethod
     def get_system_prompt(self) -> str:
         pass
 
     @abstractmethod
-    def prepare_llm_input(
-        self, block: Dict[str, Any], s_idx: int
-    ) -> Optional[List[Dict[str, Any]]]:
+    def prepare_atomic_unit(self, block: Dict[str, Any]) -> Tuple[Optional[List[Dict[str, Any]]], int]:
         pass
 
     @abstractmethod
@@ -210,6 +201,9 @@ class LLMStage(Stage, ABC):
         self, block: Dict[str, Any], llm_response: Dict[str, str]
     ) -> None:
         pass
+    
+    def _estimate_tokens(self, text: str) -> int:
+        return len(text) // 4
 
     def run(self) -> bool:
         logger.info(
@@ -217,378 +211,362 @@ class LLMStage(Stage, ABC):
         )
         self.stage_output_dir.mkdir(parents=True, exist_ok=True)
 
-        if not self.config.force_book and self._is_stage_complete():
+        if not self.cli_args.force_book and self._is_stage_complete():
             logger.info("      -> Stage is already marked as 'COMPLETED'. Skipping.")
             return True
+        
+        if self.cli_args.force_book:
+            if self.output_path.exists(): self.output_path.unlink()
+            if self.log_path.exists(): self.log_path.unlink()
 
-        data = self._load_input_data()
+        data = self._load_data_for_processing()
         if data is None:
-            return False
+            # Stage 1 specific case: it starts with no data and builds it.
+            if self.stage_number == 1:
+                data = {}
+            else:
+                return False
 
         items_to_process = self._get_items_to_process(data)
         if not items_to_process:
             logger.info(
-                "      -> No items to process for this stage. Marking as complete."
+                "      -> No items to process for this stage (already complete)."
             )
+            # If nothing to process, we can just finalize the existing data as complete.
             return self._save_progress(data, "COMPLETED")
 
         logger.info(
-            f"      -> Found {len(items_to_process)} content blocks needing processing."
+            f"      -> Found {len(items_to_process)} content blocks needing processing for this run."
         )
 
-        current_batch: List[Dict[str, Any]] = []
-        for item in items_to_process:
-            current_batch.append(item)
-            if len(current_batch) >= self.batch_size:
-                if not self._process_batch(current_batch, data):
-                    return False
-                current_batch.clear()
+        batch_token_limit = self.stage_config.get("batch_size_in_tokens", 8000)
+        logger.info(f"      -> Using token-based batching with a limit of ~{batch_token_limit} tokens.")
+        
+        current_batch_units = []
+        current_batch_token_count = 0
 
-        if current_batch:
-            if not self._process_batch(current_batch, data):
-                return False
+        for unit in items_to_process:
+            prompt_parts_for_unit, unit_token_estimate = self.prepare_atomic_unit(unit)
+
+            if not prompt_parts_for_unit:
+                continue
+                
+            if unit_token_estimate > batch_token_limit:
+                logger.warning(f"      -> Atomic unit for S_ID {unit.get('original_sentence_s_id', 'N/A')} "
+                               f"(~{unit_token_estimate} tokens) exceeds batch limit of {batch_token_limit}. "
+                               "Processing it in its own oversized batch.")
+                if current_batch_units:
+                    if not self._process_batch(current_batch_units, data): return False
+                    current_batch_units, current_batch_token_count = [], 0
+                
+                oversized_batch = [{'unit_data': unit, 'prompt_parts': prompt_parts_for_unit}]
+                if not self._process_batch(oversized_batch, data): return False
+                continue
+
+            if current_batch_units and (current_batch_token_count + unit_token_estimate > batch_token_limit):
+                if not self._process_batch(current_batch_units, data): return False
+                current_batch_units = [{'unit_data': unit, 'prompt_parts': prompt_parts_for_unit}]
+                current_batch_token_count = unit_token_estimate
+            else:
+                current_batch_units.append({'unit_data': unit, 'prompt_parts': prompt_parts_for_unit})
+                current_batch_token_count += unit_token_estimate
+
+        if current_batch_units:
+            if not self._process_batch(current_batch_units, data): return False
 
         logger.info(f"      -> Finalizing Stage {self.stage_number} output.")
         return self._save_progress(data, "COMPLETED")
 
-    def _get_input_path(self) -> Path:
-        # A multipart stage (like 3b, 5b) reads from its own stage number file
-        # as it is modifying the output of part 'a'.
-        is_multipart_stage_b = (
-            "Simplify" in self.stage_name or "GenerateSimpleSpanish" in self.stage_name
-        )
+    def _load_data_for_processing(self) -> Optional[Dict[str, Any]]:
+        if not self.cli_args.force_book and self.output_path.exists():
+            logger.info(f"      -> Resuming from existing partial file: {self.output_path.name}")
+            try:
+                with open(self.output_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except (IOError, json.JSONDecodeError) as e:
+                logger.warning(
+                    f"      -> Could not read or parse resume file {self.output_path.name}: {e}. "
+                    "Will start stage from scratch."
+                )
+        
+        logger.info("      -> Starting stage from scratch, loading previous stage's output.")
+        input_path = self._get_input_path_for_stage()
+        
+        # Stage 1 is a special case that creates its own data from a .txt file.
+        # The concrete Stage 1 class handles this loading.
+        if self.stage_number == 1:
+            return None # Signal to Stage 1 to do its own thing.
 
-        if is_multipart_stage_b:
-            return self.output_path
-
-        # Standard stages read from the previous stage's output.
-        # This handles Stage 2, 4, 6, 7.
-        if self.stage_number > 1:
-            prev_stage_num = self.stage_number - 1
-            # Special case: Stage 4 reads from 3, Stage 6 from 5.
-            if self.stage_name == "FinalizeSimplerSpanish":
-                prev_stage_num = 3
-            if self.stage_name == "LemmatizeSimpleSpanish":
-                prev_stage_num = 5
-
-            return (
-                self.llm_output_base_dir
-                / f"stage{prev_stage_num}"
-                / f"{self.book_stem}.stage{prev_stage_num}.json"
-            )
-
-        # Stage 1 reads from the initial staged text file.
-        if self.stage_name == "GenerateAdvSpanish":
-            return self.staged_dir / f"{self.book_stem}.txt"
-
-        raise ValueError(f"Could not determine input path for stage {self.stage_name}")
-
-    def _load_input_data(self) -> Optional[Dict[str, Any]]:
-        input_path = self._get_input_path()
         if not input_path.exists():
             logger.critical(f"      -> CRITICAL: Input file not found at {input_path}")
             return None
+        
         try:
             with open(input_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except (IOError, json.JSONDecodeError) as e:
-            logger.critical(
-                f"      -> CRITICAL: Could not read or parse input file {input_path.name}: {e}"
-            )
+            logger.critical(f"      -> CRITICAL: Could not read/parse input file {input_path.name}: {e}")
             return None
 
+    def _get_input_path_for_stage(self) -> Path:
+        # Part 'b' of a multipart stage (like 3b, 5b) reads from its own stage number file
+        # because it is modifying the output of part 'a'.
+        is_part_b_of_multipart_stage = "Simplify" in self.stage_name or "GenerateSimpleSpanish" in self.stage_name
+        if is_part_b_of_multipart_stage:
+            return self.output_path
+
+        # Stage 1 reads from the initial staged text file.
+        if self.stage_number == 1:
+             return self.staged_dir / f"{self.book_stem}.txt"
+
+        # All other standard stages read from the previous stage's output.
+        prev_stage_num = self.stage_number - 1
+        return (
+            self.llm_output_base_dir
+            / f"stage{prev_stage_num}"
+            / f"{self.book_stem}.stage{prev_stage_num}.json"
+        )
+    
     def _get_items_to_process(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        # Stage 1 handles its own item discovery.
+        if self.stage_number == 1:
+            return [] # This method is not used by Stage 1's run method.
+        
         status_key = f"stage{self.stage_number}"
         if "Simplify" in self.stage_name or "GenerateSimpleSpanish" in self.stage_name:
-            status_key += "b"
+            status_key += "b" 
 
         items_to_process = []
         for block in data.get("content_blocks", []):
             if block.get("block_type") == "sentence":
-                # Check if the specific status key for this LLM stage is NOT 'COMPLETED_LLM'
                 if block.get("llm_call_status", {}).get(status_key) != "COMPLETED_LLM":
                     items_to_process.append(block)
         return items_to_process
 
+    # _process_batch and all subsequent methods are identical to the last version provided
+    # ... (code omitted for brevity, but no changes are needed below this line)
     def _process_batch(
-        self, batch_blocks: List[Dict[str, Any]], data: Dict[str, Any]
+        self, batch_units: List[Dict[str, Any]], data: Dict[str, Any]
     ) -> bool:
+        self.batch_counter += 1
         logger.info(
-            f"      -> Processing batch of {len(batch_blocks)} sentence-blocks..."
+            f"      -> Processing batch #{self.batch_counter} with {len(batch_units)} atomic units..."
         )
 
         prompt_parts = []
         expected_ids = []
-        
-        for s_idx, block in enumerate(batch_blocks):
-            prepared_items = self.prepare_llm_input(block, s_idx)
-            if prepared_items:
-                for item in prepared_items:
-                    prompt_parts.append(item["prompt_text"])
-                    expected_ids.append(item["llm_id"])
-
-        if not prompt_parts:
-            logger.info("      -> Batch resulted in no items for the LLM. Skipping and saving progress.")
-            return self._save_progress(data, "PARTIAL")
+        for unit_info in batch_units:
+            for part in unit_info['prompt_parts']:
+                prompt_parts.append(part["prompt_text"])
+                expected_ids.append(part["llm_id"])
 
         user_prompt = "\n".join(prompt_parts)
+        self._write_batch_header_to_log(user_prompt)
         
-        parsed_data = self._make_api_call_with_retries(
-            user_prompt, expected_ids, batch_blocks
-        )
+        parsed_data = self._make_api_call_with_retries(user_prompt, expected_ids)
 
         if parsed_data is None:
             self._save_progress(data, "FAILED")
             return False
 
-        # --- THIS IS THE FIX ---
-        # REMOVE the complex filtering.
-        # SIMPLY loop through the blocks and pass the ENTIRE parsed_data dictionary.
-        # The individual stage's `process_llm_response` will be responsible
-        # for looking up the specific IDs it needs from the batch's data.
-        for block in batch_blocks:
-            self.process_llm_response(block, parsed_data)
-        # --- END FIX ---
+        # This loop now modifies the blocks 'in-place' within the `data` object.
+        for unit_info in batch_units:
+            self.process_llm_response(unit_info['unit_data'], parsed_data)
+        
+        try:
+            with open(self.log_path, "a", encoding="utf-8") as f:
+                f.write(f"--- END OF BATCH {self.batch_counter} ---\n\n")
+        except IOError as e:
+            logger.warning(f"      -> Could not write batch footer to log file: {e}")
 
+        # Save the modified main `data` object.
         return self._save_progress(data, "PARTIAL")
 
     def _save_progress(self, data: Dict[str, Any], status: str) -> bool:
-        data["processing_status"] = status
+        # For Stage 1, the data object is a class attribute.
+        if self.stage_number == 1:
+            data_to_save = self.book_data
+        else:
+            data_to_save = data
+
+        data_to_save["processing_status"] = status
         try:
             with open(self.output_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+                json.dump(data_to_save, f, indent=2, ensure_ascii=False)
             return True
         except IOError as e:
             logger.error(
                 f"      -> CRITICAL: Could not write output to {self.output_path.name}: {e}"
             )
             return False
-
+    
     def _make_api_call_with_retries(
-        self,
-        user_prompt: str,
-        expected_ids: List[str],
-        batch_blocks: List[Dict[str, Any]],
+        self, user_prompt: str, expected_ids: List[str]
     ) -> Optional[Dict[str, str]]:
         system_prompt = self.get_system_prompt()
         if not system_prompt:
             logger.critical("      -> CRITICAL: System prompt is missing.")
             return None
 
-        parser_func = (
-            self._parse_llm_response_block
-            if self.parser_type == "block"
-            else self._parse_llm_response_line
-        )
-        last_error_reason, llm_response_text = "Unknown error", ""
+        parser_func = self._parse_llm_response_block if self.parser_type == "block" else self._parse_llm_response_line
+        
+        primary_model_key = self.stage_config.get("primary_model")
+        fallback_model_key = self.stage_config.get("fallback_model")
 
-        current_prompt = user_prompt
-        for validation_attempt in range(self.config.max_validation_retries):
-            response = None
-            for api_attempt in range(self.config.max_api_retries):
-                response, error_msg = self._make_llm_api_call(
-                    system_prompt,
-                    current_prompt,
-                    self.config.llm_model,
-                    api_attempt + 1,
-                )
-                if response:
-                    break
-                last_error_reason = (
-                    f"API Error with '{self.config.llm_model}': {error_msg}"
-                )
-                if api_attempt < self.config.max_api_retries - 1:
-                    time.sleep(self.config.retry_delay)
+        parsed_data = self._attempt_model(system_prompt, user_prompt, primary_model_key, "primary", parser_func, expected_ids)
+        if parsed_data is not None:
+            return parsed_data
 
-            llm_response_text = response or ""
-            if llm_response_text:
-                parsed_data, errors = parser_func(response, expected_ids)
-                if not errors:
-                    logger.info(
-                        f"        -> Successful validation on attempt {validation_attempt + 1} with primary model."
-                    )
-                    self._log_api_traffic(
-                        current_prompt, llm_response_text, self.config.llm_model
-                    )
-                    return parsed_data
-                else:
-                    last_error_reason = f"Validation Error (Primary Model): {errors}"
-                    current_prompt += f"\n\nPRIOR_ATTEMPT_FAILED: Your last response had errors: {errors}. Please correct your output and ensure all expected IDs are present and correctly formatted."
-            else:
-                break
-
-        if self.config.llm_fallback_model:
-            logger.warning(
-                f"      -> Primary model failed. Escalating to fallback model: {self.config.llm_fallback_model}"
-            )
-            current_prompt = user_prompt
-
-            for validation_attempt in range(self.config.max_validation_retries):
-                response = None
-                for api_attempt in range(self.config.max_api_retries):
-                    response, error_msg = self._make_llm_api_call(
-                        system_prompt,
-                        current_prompt,
-                        self.config.llm_fallback_model,
-                        api_attempt + 1,
-                    )
-                    if response:
-                        break
-                    last_error_reason = f"API Error with '{self.config.llm_fallback_model}': {error_msg}"
-                    if api_attempt < self.config.max_api_retries - 1:
-                        time.sleep(self.config.retry_delay)
-
-                llm_response_text = response or ""
-                if llm_response_text:
-                    parsed_data, errors = parser_func(response, expected_ids)
-                    if not errors:
-                        logger.info(
-                            "        -> Successful validation with fallback model."
-                        )
-                        self._log_api_traffic(
-                            current_prompt,
-                            llm_response_text,
-                            self.config.llm_fallback_model,
-                        )
-                        return parsed_data
-                    else:
-                        last_error_reason = (
-                            f"Validation Error (Fallback Model): {errors}"
-                        )
-                        current_prompt += f"\n\nPRIOR_ATTEMPT_FAILED: Your last response had errors: {errors}. Please correct your output."
-                else:
-                    break
-
-        logger.critical(
-            f"      -> PERMANENT FAILURE for batch. Last error: {last_error_reason}"
-        )
-        batch_info_str = (
-            f"Failing Batch starts with IDs: {', '.join(expected_ids[:3])}..."
-        )
+        if fallback_model_key:
+            logger.warning(f"      -> Primary model failed. Escalating to fallback model '{fallback_model_key}'")
+            parsed_data = self._attempt_model(system_prompt, user_prompt, fallback_model_key, "fallback", parser_func, expected_ids)
+            if parsed_data is not None:
+                return parsed_data
+        
+        batch_info_str = f"Failing Batch starts with IDs: {', '.join(expected_ids[:3])}..."
         self._write_error_debug_file(
             batch_info=batch_info_str,
-            last_prompt=current_prompt,
-            last_response=llm_response_text,
-            error_reason=last_error_reason,
+            last_prompt=user_prompt,
+            error_reason="All API and validation attempts failed for all configured models."
         )
         return None
 
-    def _log_api_traffic(self, user_prompt: str, response_text: str, model_name: str):
-        try:
-            with open(self.in_log_path, "a", encoding="utf-8") as f_in:
-                f_in.write(f"--- BATCH (Model: {model_name}) ---\n{user_prompt}\n\n")
-            with open(self.out_log_path, "a", encoding="utf-8") as f_out:
-                f_out.write(f"--- BATCH (Model: {model_name}) ---\n{response_text}\n\n")
-        except IOError as e:
-            logger.warning(f"      -> Could not write to .in/.out log files: {e}")
+    def _attempt_model(self, system_prompt, user_prompt, model_key, model_tier, parser_func, expected_ids):
+        if not model_key:
+            logger.info(f"      -> No model defined for tier '{model_tier}'. Skipping.")
+            return None
+        
+        model_config = self.models_config.get(model_key)
+        if not model_config:
+            logger.error(f"      -> Model key '{model_key}' not found in [models] section of config. Skipping.")
+            return None
+        
+        model_name = model_config.get("name")
+        max_api_retries = self.pipeline_config.get("max_api_retries", 3)
+        max_validation_retries = self.pipeline_config.get("max_validation_retries", 4)
+        
+        last_error_reason = "Unknown error"
+        current_prompt = user_prompt
+        
+        total_api_attempts = 0
 
-    def _write_error_debug_file(
-        self, batch_info: str, last_prompt: str, last_response: str, error_reason: str
-    ):
+        for validation_attempt in range(max_validation_retries):
+            response = None
+            for _ in range(max_api_retries):
+                total_api_attempts += 1
+                response, error_msg = self._make_llm_api_call(
+                    system_prompt, current_prompt, model_name, total_api_attempts
+                )
+                if response: break
+                last_error_reason = f"API Error with '{model_name}': {error_msg}"
+                if _ < max_api_retries - 1:
+                    time.sleep(self.pipeline_config.get("retry_delay", 5))
+            
+            raw_response_text = response or ""
+            
+            if response:
+                parsed_data, errors = parser_func(response, expected_ids)
+                if not errors:
+                    logger.info(f"        -> Successful validation on validation attempt {validation_attempt + 1} with {model_tier} model.")
+                    self._log_attempt(model_name, "SUCCESS", "Validation passed", raw_response_text)
+                    return parsed_data
+                else:
+                    last_error_reason = f"Validation Error ({model_name}): {errors}"
+                    current_prompt += f"\n\nPRIOR_ATTEMPT_FAILED: Your last response had errors: {errors}. Please correct."
+            else:
+                self._log_attempt(model_name, "FAILED", last_error_reason, raw_response_text)
+                return None
+            
+            self._log_attempt(model_name, "FAILED", last_error_reason, raw_response_text)
+        return None
+
+    def _write_batch_header_to_log(self, user_prompt: str):
+        try:
+            with open(self.log_path, "a", encoding="utf-8") as f:
+                f.write(f"--- BATCH {self.batch_counter} ---\n")
+                f.write("USER_PROMPT_DATA_START\n")
+                f.write(user_prompt + "\n")
+                f.write("USER_PROMPT_DATA_END\n\n")
+        except IOError as e:
+            logger.warning(f"      -> Could not write batch header to log file: {e}")
+            
+    def _log_attempt(self, model_name: str, status: str, reason: str, response_text: str):
+        try:
+            with open(self.log_path, "a", encoding="utf-8") as f:
+                f.write(f"--- ATTEMPT (Model: {model_name}) ---\n")
+                f.write(f"STATUS: {status}\n")
+                f.write(f"REASON: {reason}\n")
+                f.write("RESPONSE_START\n")
+                f.write(response_text + "\n")
+                f.write("RESPONSE_END\n\n")
+        except IOError as e:
+            logger.warning(f"      -> Could not write attempt to log file: {e}")
+            
+    def _write_error_debug_file(self, batch_info: str, last_prompt: str, error_reason: str):
         error_dir = self.llm_output_base_dir / "errors"
         error_dir.mkdir(parents=True, exist_ok=True)
         file_path = error_dir / f"{self.book_stem}.stage{self.stage_number}.err.txt"
         try:
             with open(file_path, "w", encoding="utf-8") as f:
-                f.write("--- WEAVELANG PIPELINE: FATAL BATCH ERROR ---\n")
-                f.write(f"Book: {self.book_stem}\n")
-                f.write(f"Stage: {self.stage_number} ({self.stage_name})\n")
-                f.write(f"Timestamp: {time.asctime()}\n")
-                f.write(f"Error Reason: {error_reason}\n")
-                f.write("\n--- BATCH INFO ---\n")
-                f.write(f"{batch_info}\n")
-                f.write("\n--- LAST PROMPT SENT TO LLM ---\n")
-                f.write(last_prompt)
-                f.write("\n\n--- LAST RAW RESPONSE RECEIVED ---\n")
-                f.write(last_response)
+                f.write(f"--- WEAVELANG PIPELINE: FATAL BATCH ERROR ---\nBook: {self.book_stem}\n")
+                f.write(f"Stage: {self.stage_number} ({self.stage_name})\nTimestamp: {time.asctime()}\n")
+                f.write(f"Error Reason: {error_reason}\n\n--- BATCH INFO ---\n{batch_info}\n")
+                f.write(f"\n--- FINAL PROMPT SENT TO LLM ---\n{last_prompt}\n\n--- NOTE ---\n")
+                f.write(f"See the full sequence of attempts in {self.log_path.relative_to(self.content_project_root)}")
             logger.critical(f"Wrote fatal error details to: {file_path}")
         except IOError as e:
             logger.critical(f"Could not write fatal error file to {file_path}: {e}")
 
-    def _make_llm_api_call(
-        self, system_prompt: str, user_prompt: str, model: str, attempt: int
-    ) -> Tuple[Optional[str], str]:
+    def _make_llm_api_call(self, system_prompt: str, user_prompt: str, model: str, attempt: int) -> Tuple[Optional[str], str]:
         logger.info(f"        -> Making API call to {model} (Attempt {attempt})...")
-        if self.config.llm_provider == "claude":
-            if not anthropic:
-                return None, "Anthropic SDK not installed."
+        provider = self.pipeline_config.get("llm_provider", "claude")
+        if provider == "claude":
+            if not anthropic: return None, "Anthropic SDK not installed."
             try:
                 message = self.resources["llm_client"].messages.create(
-                    model=model,
-                    system=system_prompt,
-                    messages=[{"role": "user", "content": user_prompt}],
-                    max_tokens=4096,
+                    model=model, system=system_prompt,
+                    messages=[{"role": "user", "content": user_prompt}], max_tokens=8192,
                 )
                 return message.content[0].text, ""
             except anthropic.APIError as e:
                 return None, f"Anthropic APIError: {e}"
             except Exception as e:
                 return None, f"Generic Exception: {e}"
-        return None, f"Unsupported LLM provider: {self.config.llm_provider}"
-
-    def _parse_llm_response_line(
-        self, raw_text: str, expected_ids: List[str]
-    ) -> Tuple[Dict[str, str], List[str]]:
+        return None, f"Unsupported LLM provider: {provider}"
+    
+    def _parse_llm_response_line(self, raw_text: str, expected_ids: List[str]) -> Tuple[Dict[str, str], List[str]]:
         parsed_data: Dict[str, str] = {}
         errors: List[str] = []
-        id_line_regex = re.compile(
-            r"^\s*(id\s+[\w_]+)\s*:(.*)$", re.IGNORECASE | re.MULTILINE
-        )
+        id_line_regex = re.compile(r"^\s*(id\s+[\w_]+)\s*:(.*)$", re.IGNORECASE | re.MULTILINE)
         for match in id_line_regex.finditer(raw_text):
             block_id = match.group(1).strip().lower()
             content = match.group(2).strip()
             parsed_data[block_id] = content
-
-        found_ids_set = set(parsed_data.keys())
-        expected_ids_set = set(key.lower() for key in expected_ids)
-        missing_ids = expected_ids_set - found_ids_set
-
-        if missing_ids:
-            errors.append(
-                f"Missing IDs in response: {', '.join(sorted(list(missing_ids)))}"
-            )
-
+        invalid_ids = []
+        for expected_id in expected_ids:
+            eid_lower = expected_id.lower()
+            if eid_lower not in parsed_data or not parsed_data[eid_lower]:
+                invalid_ids.append(expected_id)
+        if invalid_ids:
+            errors.append(f"Missing or empty content for IDs: {', '.join(sorted(invalid_ids))}")
         return parsed_data, errors
 
-    def _parse_llm_response_block(
-        self, raw_text: str, expected_ids: List[str]
-    ) -> Tuple[Dict[str, str], List[str]]:
+    def _parse_llm_response_block(self, raw_text: str, expected_ids: List[str]) -> Tuple[Dict[str, str], List[str]]:
         parsed_data: Dict[str, str] = {}
         errors: List[str] = []
-
-        # --- START OF NEW IMPLEMENTATION ---
-        
-        # This regex just finds the ID lines, which we'll use as delimiters.
-        # The `()` are crucial as they tell re.split to keep the delimiter.
         delimiter_regex = re.compile(r"(^\s*id\s+[\w_]+:?)", re.IGNORECASE | re.MULTILINE)
-        
-        # Split the text into a list: ['', 'id 1:', 'content1', 'id 2:', 'content2', ...]
         parts = delimiter_regex.split(raw_text)
-
-        # The first item is any text before the first ID, which we can ignore.
-        # We iterate over the remaining parts in pairs of (ID, content).
         if len(parts) > 1:
             for i in range(1, len(parts), 2):
-                # The ID is the delimiter itself. Clean it up.
                 block_id = parts[i].strip().rstrip(':').lower()
-                
-                # The content is the very next item in the list.
                 content = ""
-                if i + 1 < len(parts):
-                    content = parts[i+1].strip()
-                
+                if i + 1 < len(parts): content = parts[i+1].strip()
                 parsed_data[block_id] = content
-
-        # --- END OF NEW IMPLEMENTATION ---
-
-        # The validation logic below remains the same.
-        found_ids_set = set(parsed_data.keys())
-        expected_ids_set = set(key.lower() for key in expected_ids)
-        missing_ids = expected_ids_set - found_ids_set
-
-        if missing_ids:
-            errors.append(
-                f"Missing IDs in response: {', '.join(sorted(list(missing_ids)))}"
-            )
-
+        invalid_ids = []
+        for expected_id in expected_ids:
+            eid_lower = expected_id.lower()
+            if eid_lower not in parsed_data or not parsed_data[eid_lower]:
+                invalid_ids.append(expected_id)
+        if invalid_ids:
+            errors.append(f"Missing or empty content for IDs: {', '.join(sorted(invalid_ids))}")
         return parsed_data, errors

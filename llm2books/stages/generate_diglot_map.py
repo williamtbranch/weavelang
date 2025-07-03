@@ -1,6 +1,5 @@
 import re
-from typing import Any, Dict, List, Optional
-
+from typing import Any, Dict, List, Optional, Tuple
 from .base import LLMStage
 from .. import llm_prompts
 
@@ -10,15 +9,13 @@ class GenerateDiglotMap(LLMStage):
     Stage 7: Generates a word-for-word mapping (Diglot Map) from English to
     simple Spanish using an LLM.
     """
-
-    def __init__(self, book_stem: str, config: Any, common_resources: Dict[str, Any]):
+    def __init__(self, book_stem: str, cli_args: Any, common_resources: Dict[str, Any]):
         super().__init__(
             book_stem=book_stem,
-            config=config,
+            cli_args=cli_args,
             common_resources=common_resources,
             stage_number=7,
             stage_name="GenerateDiglotMap",
-            batch_size=1,  # Process one full sentence (all its segments) at a time
             parser_type="block",
         )
 
@@ -28,31 +25,44 @@ class GenerateDiglotMap(LLMStage):
         """Loads and returns the system prompt for generating the diglot map."""
         return llm_prompts.load_prompt_template("new_stage7_diglot_prompt.txt")
 
-    def prepare_llm_input(
-        self, block: Dict[str, Any], s_idx: int
-    ) -> Optional[List[Dict[str, Any]]]:
+    def prepare_atomic_unit(self, block: Dict[str, Any]) -> Tuple[Optional[List[Dict[str, Any]]], int]:
+        """
+        Prepares all English segments from one sentence as an atomic unit for diglot mapping.
+        Returns the prompt parts and the total estimated tokens for this unit.
+        """
         alignments = block.get("phrase_alignments_l3_to_english", [])
         if not alignments:
-            return None
+            return None, 0
 
         prepared_items = []
+        full_prompt_text_for_unit = []
         s_id_num = block["original_sentence_s_id"].replace("S", "")
 
         for align in alignments:
             english_text = align.get("english_span_text", "")
-            if english_text.strip():
-                cleaned_eng_text = re.sub(r"[^\w\s-]", "", english_text).strip()
-                if not cleaned_eng_text:
-                    continue
-                
-                llm_id = f"id {s_id_num}_{align['segment_id']}".lower()
-                prepared_items.append({
-                    "llm_id": llm_id,
-                    "prompt_text": f"{llm_id}:\n{cleaned_eng_text}"
-                })
+            if not english_text.strip():
+                continue
 
-        return prepared_items
+            # Clean punctuation from the text before sending to the LLM
+            cleaned_eng_text = re.sub(r"[^\w\s-]", "", english_text).strip()
+            if not cleaned_eng_text:
+                continue
+            
+            llm_id = f"id {s_id_num}_{align['segment_id']}".lower()
+            prompt_block = f"{llm_id}:\n{cleaned_eng_text}"
+            
+            prepared_items.append({
+                "llm_id": llm_id,
+                "prompt_text": prompt_block
+            })
+            full_prompt_text_for_unit.append(prompt_block)
 
+        if not prepared_items:
+            return None, 0
+            
+        token_estimate = self._estimate_tokens("\n".join(full_prompt_text_for_unit))
+        
+        return prepared_items, token_estimate
     def process_llm_response(
         self, block: Dict[str, Any], llm_response: Dict[str, str]
     ) -> None:

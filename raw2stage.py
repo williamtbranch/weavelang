@@ -47,43 +47,51 @@ except Exception as e:
 # --- End NLTK Setup ---
 
 # --- Regexes for Chapter/Section Detection ---
-
-# For [ <number> ] style chapters - check on raw paragraph text
 BRACKETED_ARABIC_CHAPTER_REGEX = re.compile(r"^\s*\[\s*(\d+)\s*\]\s*$")
 BRACKETED_ROMAN_CHAPTER_REGEX = re.compile(r"^\s*\[\s*([IVXLCDM]+)\s*\]\s*$", re.IGNORECASE)
-
-# For — I — style sections (currently junked) - check on cleaned paragraph text
 EM_DASH_SECTION_REGEX = re.compile(r"^\s*—\s*([IVXLCDM]+)\s*—\s*$", re.IGNORECASE)
-
-# For "CHAPTER X: Title" or "CHAPTER NOTICE"
-# Group 1: "CHAPTER" (keyword)
-# Group 2: Potential number/numeral (e.g., "I", "1", "ONE") OR first word of a title (e.g. "NOTICE")
-# Group 3: Rest of the title if group 2 was a number/numeral
 CHAPTER_MAIN_REGEX = re.compile(
     r"^\s*(CHAPTER)\s+([IVXLCDM\d]+(?:st|nd|rd|th)?|[A-ZÀ-ÖØ-ÞĀ-ĒĪ-ŌŪ-Ž'-]+)\s*[:.]?\s*(.*)$",
     re.IGNORECASE
 )
-# Known word numbers (can be expanded)
 KNOWN_WORD_NUMBERS = {
     "ZERO", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE", "TEN",
     "ELEVEN", "TWELVE", "THIRTEEN", "FOURTEEN", "FIFTEEN", "SIXTEEN", "SEVENTEEN", "EIGHTEEN", "NINETEEN",
     "TWENTY", "THIRTY", "FORTY", "FIFTY", "SIXTY", "SEVENTY", "EIGHTY", "NINETY", "HUNDRED", "THOUSAND",
     "FIRST", "SECOND", "THIRD", "FOURTH", "FIFTH", "SIXTH", "SEVENTH", "EIGHTH", "NINTH", "TENTH"
 }
-
-
-# For standalone Roman/Arabic numerals "II", "2." (short lines)
 SHORT_LINE_NUMERAL_CHAPTER_REGEX = re.compile(
-    r"^\s*([IVXLCDM\d]+)\s*[:.]?\s*$", # Only Roman (IVXLCDM) and Arabic (d) numerals
-    re.IGNORECASE
+    r"^\s*([IVXLCDM\d]+)\s*[:.]?\s*$", re.IGNORECASE
 )
-
-# For special sections like PREFACE, INTRODUCTION, etc. (no "CHAPTER" keyword)
 SPECIAL_SECTION_REGEX = re.compile(
     r"^\s*(PREFACE|INTRODUCTION|EPILOGUE|PROLOGUE|CONTENTS|APPENDIX|GLOSSARY|FORWARD|FOREWORD)(?:[:.\s]|$)",
     re.IGNORECASE
 )
 # --- End Regexes for Chapter/Section Detection ---
+
+# --- NEW: Regexes for cleaning italics/underscores ---
+# This regex finds a word surrounded by underscores, but not touching other word characters.
+# It captures the word itself in group 1. e.g., matches `_word_` in `a _word_ here`.
+ITALICS_REGEX = re.compile(r"\b_([^_]+)_\b")
+# This regex finds any remaining underscores and replaces them with a space.
+UNDERSCORE_REGEX = re.compile(r"_")
+
+def clean_italics_and_underscores(text: str) -> str:
+    """
+    Intelligently cleans text containing underscores used for italics.
+    Handles cases where punctuation is attached to the closing underscore.
+    """
+    # Pattern 1: _word_ followed by punctuation. e.g., "_Why_!" -> "Why!"
+    # Captures the word in group 1 and the punctuation in group 2.
+    text = re.sub(r'\b_([^_]+)_([.,!?;:])', r'\1\2', text)
+    
+    # Pattern 2: Standard _word_ with word boundaries. e.g., "a _word_ here" -> "a word here"
+    text = re.sub(r'\b_([^_]+)_\b', r'\1', text)
+    
+    # Pattern 3: Any remaining underscores are treated as accidental separators.
+    text = re.sub(r'_', ' ', text)
+    
+    return text
 
 def load_config(config_path_str="config.toml"):
     config_path = Path(config_path_str)
@@ -174,7 +182,6 @@ def process_text_to_staged_format(text_content: str, initial_sentence_counter: i
         chapter_display_text = ""
         paragraph_fully_handled = False
 
-        # Priority 1: Check for bracketed chapter markers like [1] or [I] on the raw paragraph
         match_bracket_arabic = BRACKETED_ARABIC_CHAPTER_REGEX.match(raw_para_text)
         if match_bracket_arabic:
             is_chapter_heading = True
@@ -191,33 +198,34 @@ def process_text_to_staged_format(text_content: str, initial_sentence_counter: i
         
         cleaned_para_text_for_processing = ""
         if not paragraph_fully_handled:
-            # If not a bracketed chapter, then filter for other brackets (illustrations, etc.)
-            original_lines = raw_para_text_unstripped.splitlines() # Use unstripped to preserve original junk lines
+            original_lines = raw_para_text_unstripped.splitlines()
             cleaned_para_text_for_processing, junk_from_filter = filter_paragraph_lines_for_bracket_content(original_lines)
             if junk_from_filter.strip():
                 collected_junk_text_parts.append(f"--- Junk from bracket filtering (Para {raw_para_idx + 1}) ---\n{junk_from_filter}")
-
-            if not cleaned_para_text_for_processing: # If paragraph became empty after this filtering
-                paragraph_fully_handled = True # Nothing left to process
+            cleaned_para_text_for_processing = clean_italics_and_underscores(cleaned_para_text_for_processing)
+            # --- NEW: UNDERSCORE CLEANING ---
+            # Step 1: Replace `_word_` with just `word`
+            cleaned_para_text_for_processing = ITALICS_REGEX.sub(r'\1', cleaned_para_text_for_processing)
+            # Step 2: Replace any remaining underscores with a space.
+            cleaned_para_text_for_processing = UNDERSCORE_REGEX.sub(' ', cleaned_para_text_for_processing)
+            # --- END NEW ---
+            
+            if not cleaned_para_text_for_processing:
+                paragraph_fully_handled = True
 
         if not paragraph_fully_handled:
-            # Priority 2: Check for em-dash sections like — I — on the cleaned text
             match_em_dash_section = EM_DASH_SECTION_REGEX.match(cleaned_para_text_for_processing)
             if match_em_dash_section:
-                # Currently, we junk these. Could be promoted to %%PART_MARKER%% later.
                 numeral = match_em_dash_section.group(1).strip().upper()
                 collected_junk_text_parts.append(f"--- Junk from identified em-dash section marker: Part {numeral} (Para {raw_para_idx + 1}) ---\n{cleaned_para_text_for_processing}")
                 paragraph_fully_handled = True
             
         if not paragraph_fully_handled:
-            # Priority 3: Standard Chapter/Section Detection on cleaned_para_text_for_processing
             match_main = CHAPTER_MAIN_REGEX.match(cleaned_para_text_for_processing)
             if match_main:
                 is_chapter_heading = True
                 potential_num_or_title_word = match_main.group(2).strip().upper()
                 rest_of_title = match_main.group(3).strip()
-
-                # Try to determine if potential_num_or_title_word is a number/numeral
                 is_actual_numeral = bool(re.fullmatch(r"[IVXLCDM\d]+(?:ST|ND|RD|TH)?", potential_num_or_title_word, re.IGNORECASE))
                 is_known_word_number = potential_num_or_title_word in KNOWN_WORD_NUMBERS
                 
@@ -228,7 +236,7 @@ def process_text_to_staged_format(text_content: str, initial_sentence_counter: i
                             rest_of_title = rest_of_title[:-1].strip()
                         if rest_of_title:
                             chapter_display_text += f": {rest_of_title}"
-                else: # Treat as a title like "CHAPTER NOTICE"
+                else:
                     full_title_part = f"{potential_num_or_title_word} {rest_of_title}".strip()
                     chapter_display_text = f"Chapter {full_title_part}"
             
@@ -239,7 +247,6 @@ def process_text_to_staged_format(text_content: str, initial_sentence_counter: i
                     chapter_display_text = match_special.group(1).strip().title()
 
             if not is_chapter_heading:
-                # Increased length heuristic for short line numerals
                 if len(cleaned_para_text_for_processing) < 30: 
                     match_short_numeral = SHORT_LINE_NUMERAL_CHAPTER_REGEX.match(cleaned_para_text_for_processing)
                     if match_short_numeral:
@@ -247,9 +254,8 @@ def process_text_to_staged_format(text_content: str, initial_sentence_counter: i
                         numeral = match_short_numeral.group(1).strip().upper()
                         chapter_display_text = f"Chapter {numeral}"
             
-            paragraph_fully_handled = is_chapter_heading # If it's a chapter, it's handled
+            paragraph_fully_handled = is_chapter_heading
 
-        # --- Output if chapter heading was identified (from any method) ---
         if is_chapter_heading:
             chapter_display_text = re.sub(r'\s+', ' ', chapter_display_text).strip()
             if not chapter_display_text:
@@ -259,7 +265,7 @@ def process_text_to_staged_format(text_content: str, initial_sentence_counter: i
                 staged_output_lines.append(f"{{S{current_sentence_counter}: {chapter_display_text}}}")
                 current_sentence_counter += 1
         
-        elif not paragraph_fully_handled and cleaned_para_text_for_processing: # Process as regular sentences
+        elif not paragraph_fully_handled and cleaned_para_text_for_processing:
             try:
                 sentences_in_para = nltk.sent_tokenize(cleaned_para_text_for_processing)
             except Exception as e:
@@ -293,7 +299,7 @@ def main():
     content_project_path = Path(content_project_dir_str)
     input_dir_name = "RawText"
     raw_files_dir = content_project_path / input_dir_name 
-    staged_output_dir = content_project_path / "Staged"
+    staged_output_dir = content_project_path / "StagedWaiting"
 
     if not raw_files_dir.is_dir():
         print(f"Error: Input directory for raw files not found at '{raw_files_dir}'")

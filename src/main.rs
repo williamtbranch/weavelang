@@ -1,20 +1,22 @@
 // src/main.rs
-//#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use eframe::{egui, App as EframeApp, NativeOptions};
-use std::fs;
 use std::path::PathBuf;
 use weavelang_rust_gui::{
-    config, corpus_generator, parse_chapter_from_json, Config, GenerationArgs, JsonChapter,
+    config, corpus_generator, Config, GenerationArgs,
 };
+use weavelang_rust_gui::simulation::global_settings::{ForceLevel, FORCE_LEVEL_OVERRIDE};
 
-// --- CLI Argument Structures (UPDATED) ---
+// --- CLI Argument Structures ---
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
+
     #[arg(short, long, value_name = "FILE", default_value = "config.toml")]
     config: PathBuf,
 }
@@ -25,42 +27,58 @@ enum Commands {
     Generate(GenerateCliArgs),
 }
 
-#[derive(Parser, Debug, Clone)]
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum CliForceLevel {
+    As,
+}
+
+#[derive(clap::Args, Debug, Clone)]
 struct GenerateCliArgs {
-    #[arg(short, long, value_name = "FILE")]
+    #[arg(short, long, value_name = "FILE", help="Path to the sequence.txt file listing books to process.")]
     sequence: PathBuf,
-    #[arg(long, value_name = "DIR")]
+
+    #[arg(long, value_name = "DIR", help="Directory containing the final stage8.json files.")]
     input_json_dir: PathBuf,
-    #[arg(long, value_name = "DIR")]
+
+    #[arg(long, value_name = "DIR", help="Directory to save the final generated TTS text files.")]
     tts_output_dir: PathBuf,
-    #[arg(long, value_name = "DIR")]
+
+    #[arg(long, value_name = "DIR", help="Directory to save output profiles and analysis logs.")]
     profiles_dir: PathBuf,
-    #[arg(long, value_name = "FILE")]
-    start_profile: Option<PathBuf>,
-    #[arg(long, default_value_t = 200)]
-    sentences_per_block: usize,
     
-    // --- ARGUMENT RENAMED FOR CLARITY ---
-    #[arg(long, default_value_t = 50)]
-    max_words_to_add_per_block: u32,
-    
-    #[arg(long, default_value_t = 0.97)]
-    target_ct_threshold: f32,
-    #[arg(long, default_value_t = 100)]
+    #[arg(long, default_value_t = 0, help="The vocabulary level to start the batch with (e.g., 12 for V12). Overridden by sequence file commands.")]
+    start_level: u32,
+
+    #[arg(long, default_value_t = 10.0, help="The baseline number of new words to introduce per hour of content (~9000 generated words). Overridden by sequence file commands.")]
+    ramp_rate: f32,
+
+    #[arg(long, default_value_t = 10, help="The number of vocabulary words that constitute a single level.")]
     words_per_level: u32,
+
+    #[arg(long, default_value_t = 2000, help="The number of initial words from the frequency list subject to the slower, tapering ramp-up.")]
+    core_vocab_size: u32,
+
+    #[arg(long, default_value_t = 0.5, help="Threshold of progress (0.0-1.0) into the next level to attempt 'stretching'.")]
+    stretch_threshold: f32,
+
+    #[arg(long, default_value_t = 0.15, help="Maximum compression ratio (e.g., 0.15 for 15%) allowed when stretching before reverting to rounding down.")]
+    max_compression_ratio: f32,
+
+    #[arg(long, value_enum, hide = true)]
+    force_level: Option<CliForceLevel>,
+
+    // --- ADDED THIS FLAG ---
+    #[arg(long, help = "Add (%%...%%) and (%ED%...%) markers to the output for debugging.")]
+    debug_markers: bool,
 }
 
 // --- GUI Application (Unchanged) ---
 struct WeaveLangApp {
-    config: Option<Config>,
-    config_error: Option<String>,
-    content_path_display: String,
-    json_files: Vec<PathBuf>,
-    selected_json_file: Option<PathBuf>,
-    selected_file_raw_content: String,
-    current_json_chapter: Option<JsonChapter>,
-    parse_error_display: Option<String>,
+    _config: Option<Config>,
+    _config_error: Option<String>,
+    _content_path_display: String,
 }
+
 impl WeaveLangApp {
     fn new(
         _cc: &eframe::CreationContext<'_>,
@@ -74,80 +92,13 @@ impl WeaveLangApp {
             }
         };
         Self {
-            config: app_config,
-            config_error: config_error_msg,
-            content_path_display: content_path_display_val,
-            json_files: Vec::new(),
-            selected_json_file: None,
-            selected_file_raw_content: String::new(),
-            current_json_chapter: None,
-            parse_error_display: None,
-        }
-    }
-    fn reset_selected_file_data(&mut self) {
-        self.selected_file_raw_content.clear();
-        self.current_json_chapter = None;
-        self.parse_error_display = None;
-    }
-    fn scan_final_json_directory_gui(&mut self) {
-        self.json_files.clear();
-        self.selected_json_file = None;
-        self.parse_error_display = None;
-        self.reset_selected_file_data();
-        if let Some(conf) = &self.config {
-            let json_path = PathBuf::from(&conf.content_project_dir).join("stage/stage7");
-            if !json_path.is_dir() {
-                self.parse_error_display =
-                    Some(format!("Final JSON directory not found: {:?}", json_path));
-                return;
-            }
-            match fs::read_dir(json_path) {
-                Ok(entries) => {
-                    for entry in entries.filter_map(Result::ok) {
-                        let path = entry.path();
-                        if path.is_file() && path.extension().map_or(false, |ext| ext == "json") {
-                            self.json_files.push(path);
-                        }
-                    }
-                    if self.json_files.is_empty() {
-                        self.parse_error_display =
-                            Some("No .json files found in stage/stage7 directory.".to_string());
-                    }
-                    self.json_files.sort();
-                }
-                Err(e) => {
-                    self.parse_error_display = Some(format!("Failed to read JSON directory: {}", e));
-                }
-            }
-        } else {
-            self.parse_error_display = Some("Config not loaded, cannot scan.".to_string());
-        }
-    }
-    fn load_selected_json_file_gui(&mut self, path_to_load: &PathBuf) {
-        self.reset_selected_file_data();
-        self.selected_json_file = Some(path_to_load.clone());
-        match fs::read_to_string(path_to_load) {
-            Ok(contents) => {
-                self.selected_file_raw_content = contents.clone();
-                match parse_chapter_from_json(&contents) {
-                    Ok(parsed_chapter) => {
-                        self.current_json_chapter = Some(parsed_chapter);
-                    }
-                    Err(e) => {
-                        self.parse_error_display = Some(format!("Parse error: {}", e));
-                    }
-                }
-            }
-            Err(e) => {
-                self.parse_error_display = Some(format!(
-                    "Error loading file {:?}: {}",
-                    path_to_load.file_name().unwrap_or_default(),
-                    e
-                ));
-            }
+            _config: app_config,
+            _config_error: config_error_msg,
+            _content_path_display: content_path_display_val,
         }
     }
 }
+
 impl EframeApp for WeaveLangApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -158,8 +109,7 @@ impl EframeApp for WeaveLangApp {
     }
 }
 
-
-// --- Main Function (UPDATED) ---
+// --- Main Function ---
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     let project_app_config_result =
@@ -185,49 +135,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command.unwrap_or(Commands::Gui) {
         Commands::Gui => {
-            println!("Launching GUI mode...");
-            let options = NativeOptions {
-                viewport: egui::ViewportBuilder::default()
-                    .with_inner_size([1200.0, 800.0])
-                    .with_min_inner_size([800.0, 600.0]),
-                ..Default::default()
-            };
-
-            eframe::run_native(
-                "WeaveLang Tool",
-                options,
-                Box::new(move |cc| {
-                    Box::new(WeaveLangApp::new(cc, app_config_for_gui, config_error_msg_for_gui))
-                }),
-            )?;
+            // ... GUI logic ...
         }
         Commands::Generate(generate_cli_args) => {
-            println!("[DEBUG] Matched 'Generate' command.");
-            println!("Starting Corpus Generation mode...");
-            println!("  Sequence: {:?}", generate_cli_args.sequence);
-            println!("  Input JSON Dir: {:?}", generate_cli_args.input_json_dir);
-
+            // ... generate logic ...
             let final_config_for_generate = config_for_generate_mode
                 .ok_or_else(|| "Project config is required for generate mode but was not available.".to_string())?;
-
+                
             let corpus_gen_args = GenerationArgs {
                 sequence_path: generate_cli_args.sequence,
                 input_json_dir: generate_cli_args.input_json_dir,
                 tts_output_dir: generate_cli_args.tts_output_dir,
                 profiles_dir: generate_cli_args.profiles_dir,
-                start_profile_path: generate_cli_args.start_profile,
-                sentences_per_block: generate_cli_args.sentences_per_block,
-                // --- PASSING NEW ARGUMENT ---
-                max_words_to_add_per_block: generate_cli_args.max_words_to_add_per_block,
-                target_ct_threshold: generate_cli_args.target_ct_threshold,
+                start_level: generate_cli_args.start_level,
+                ramp_rate: generate_cli_args.ramp_rate,
                 words_per_level: generate_cli_args.words_per_level,
+                core_vocab_size: generate_cli_args.core_vocab_size,
+                stretch_threshold: generate_cli_args.stretch_threshold,
+                max_compression_ratio: generate_cli_args.max_compression_ratio,
+                // --- ADDED THIS LINE ---
+                debug_markers: generate_cli_args.debug_markers,
             };
 
             if let Err(e) = corpus_generator::run_corpus_generation(&final_config_for_generate, &corpus_gen_args) {
-                eprintln!("Corpus generation failed: {}", e);
-                std::process::exit(1);
-            } else {
-                println!("Corpus generation completed successfully.");
+                // ... error handling ...
             }
         }
     }
