@@ -35,10 +35,13 @@ class Stage(ABC):
         self.cli_args = cli_args
         self.resources = common_resources
         
+        # All stages get access to the full config dictionaries
         self.pipeline_config = self.resources.get("pipeline_config", {})
         self.models_config = self.resources.get("models_config", {})
         self.stages_config = self.resources.get("stages_config", {})
         
+        # Each stage will look up its own specific config.
+        # This will be overridden in child classes like LLMStage.
         self.stage_config = self.stages_config.get(self.__class__.__name__, {})
         
         self.stage_number = stage_number
@@ -75,10 +78,12 @@ class Stage(ABC):
         try:
             with open(self.output_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
+            # A 'part a' stage is complete if it's marked as such
             if self.is_part_a and data.get("processing_status", "").startswith(
-                "PARTIAL"
+                f"PARTIAL_{self.stage_number}A"
             ):
                 return True
+            # Any other stage is complete only if marked fully COMPLETED
             return data.get("processing_status") == "COMPLETED"
         except (json.JSONDecodeError, IOError):
             return False
@@ -114,12 +119,10 @@ class SpaCyStage(Stage, ABC):
         logger.info(f"Executing SpaCy Stage {self.stage_number}: {self.stage_name} for '{self.book_stem}'")
         self.stage_output_dir.mkdir(parents=True, exist_ok=True)
 
-        # --- THIS BLOCK IS RESTORED ---
-        if self.cli_args.force_book:
+        if self.cli_args.force_book == self.book_stem:
             if self.output_path.exists():
                 logger.info(f"      -> Force mode: Deleting existing output file {self.output_path.name}")
                 self.output_path.unlink()
-        # --- END OF RESTORED BLOCK ---
 
         if not self.cli_args.force_book and self._is_stage_complete():
             logger.info("      -> Stage is already marked as 'COMPLETED'. Skipping.")
@@ -150,7 +153,6 @@ class SpaCyStage(Stage, ABC):
         if self.stage_number <= 1:
             raise ValueError("SpaCyStage cannot be the first stage in the pipeline.")
         
-        # A SpaCy stage always reads from the output of the previous stage number.
         prev_stage_num = self.stage_number - 1
         return (
             self.llm_output_base_dir
@@ -171,6 +173,7 @@ class SpaCyStage(Stage, ABC):
             return None
 
 class LLMStage(Stage, ABC):
+    # --- THIS IS THE NEW, CORRECT CONSTRUCTOR ---
     def __init__(
         self,
         book_stem: str,
@@ -180,13 +183,27 @@ class LLMStage(Stage, ABC):
         stage_name: str,
         parser_type: str = "line",
     ):
+        # First, call the parent constructor to set up paths, etc.
         super().__init__(book_stem, cli_args, common_resources, stage_number, stage_name)
         
+        # Now, perform the LLM-specific initialization, including getting its own config.
+        # This overrides the self.stage_config set by the parent.
+        self.stage_config = self.stages_config.get(self.__class__.__name__, {})
+        
+        # Optional: Keep the debug lines for one more run to confirm the fix.
+        # You can remove these after it's confirmed to be working.
+        class_name_str = self.__class__.__name__
+        print(f"--- DEBUG FOR STAGE: {class_name_str} (Stage {self.stage_number}) ---")
+        print(f"DEBUG_DATA: self.stages_config = {self.stages_config}")
+        print(f"DEBUG_RESULT: Config for '{class_name_str}' is: {self.stage_config}")
+        print(f"--- END DEBUG ---")
+
         self.log_path = (
             self.stage_output_dir / f"{self.book_stem}.stage{self.stage_number}.log"
         )
         self.parser_type = parser_type
         self.batch_counter = 0
+    # --- END OF NEW CONSTRUCTOR ---
 
     @abstractmethod
     def get_system_prompt(self) -> str:
@@ -215,13 +232,12 @@ class LLMStage(Stage, ABC):
             logger.info("      -> Stage is already marked as 'COMPLETED'. Skipping.")
             return True
         
-        if self.cli_args.force_book:
+        if self.cli_args.force_book == self.book_stem:
             if self.output_path.exists(): self.output_path.unlink()
             if self.log_path.exists(): self.log_path.unlink()
 
         data = self._load_data_for_processing()
         if data is None:
-            # Stage 1 specific case: it starts with no data and builds it.
             if self.stage_number == 1:
                 data = {}
             else:
@@ -232,8 +248,9 @@ class LLMStage(Stage, ABC):
             logger.info(
                 "      -> No items to process for this stage (already complete)."
             )
-            # If nothing to process, we can just finalize the existing data as complete.
-            return self._save_progress(data, "COMPLETED")
+            # Finalize the existing data as complete for this stage
+            self._save_progress(data, "COMPLETED")
+            return True
 
         logger.info(
             f"      -> Found {len(items_to_process)} content blocks needing processing for this run."
@@ -278,7 +295,7 @@ class LLMStage(Stage, ABC):
         return self._save_progress(data, "COMPLETED")
 
     def _load_data_for_processing(self) -> Optional[Dict[str, Any]]:
-        if not self.cli_args.force_book and self.output_path.exists():
+        if not self.cli_args.force_book == self.book_stem and self.output_path.exists():
             logger.info(f"      -> Resuming from existing partial file: {self.output_path.name}")
             try:
                 with open(self.output_path, "r", encoding="utf-8") as f:
@@ -292,10 +309,8 @@ class LLMStage(Stage, ABC):
         logger.info("      -> Starting stage from scratch, loading previous stage's output.")
         input_path = self._get_input_path_for_stage()
         
-        # Stage 1 is a special case that creates its own data from a .txt file.
-        # The concrete Stage 1 class handles this loading.
         if self.stage_number == 1:
-            return None # Signal to Stage 1 to do its own thing.
+            return None
 
         if not input_path.exists():
             logger.critical(f"      -> CRITICAL: Input file not found at {input_path}")
@@ -309,17 +324,13 @@ class LLMStage(Stage, ABC):
             return None
 
     def _get_input_path_for_stage(self) -> Path:
-        # Part 'b' of a multipart stage (like 3b, 5b) reads from its own stage number file
-        # because it is modifying the output of part 'a'.
         is_part_b_of_multipart_stage = "Simplify" in self.stage_name or "GenerateSimpleSpanish" in self.stage_name
         if is_part_b_of_multipart_stage:
             return self.output_path
 
-        # Stage 1 reads from the initial staged text file.
         if self.stage_number == 1:
              return self.staged_dir / f"{self.book_stem}.txt"
 
-        # All other standard stages read from the previous stage's output.
         prev_stage_num = self.stage_number - 1
         return (
             self.llm_output_base_dir
@@ -328,9 +339,8 @@ class LLMStage(Stage, ABC):
         )
     
     def _get_items_to_process(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
-        # Stage 1 handles its own item discovery.
         if self.stage_number == 1:
-            return [] # This method is not used by Stage 1's run method.
+            return []
         
         status_key = f"stage{self.stage_number}"
         if "Simplify" in self.stage_name or "GenerateSimpleSpanish" in self.stage_name:
@@ -343,8 +353,6 @@ class LLMStage(Stage, ABC):
                     items_to_process.append(block)
         return items_to_process
 
-    # _process_batch and all subsequent methods are identical to the last version provided
-    # ... (code omitted for brevity, but no changes are needed below this line)
     def _process_batch(
         self, batch_units: List[Dict[str, Any]], data: Dict[str, Any]
     ) -> bool:
@@ -369,7 +377,6 @@ class LLMStage(Stage, ABC):
             self._save_progress(data, "FAILED")
             return False
 
-        # This loop now modifies the blocks 'in-place' within the `data` object.
         for unit_info in batch_units:
             self.process_llm_response(unit_info['unit_data'], parsed_data)
         
@@ -379,11 +386,9 @@ class LLMStage(Stage, ABC):
         except IOError as e:
             logger.warning(f"      -> Could not write batch footer to log file: {e}")
 
-        # Save the modified main `data` object.
         return self._save_progress(data, "PARTIAL")
 
     def _save_progress(self, data: Dict[str, Any], status: str) -> bool:
-        # For Stage 1, the data object is a class attribute.
         if self.stage_number == 1:
             data_to_save = self.book_data
         else:
@@ -396,7 +401,7 @@ class LLMStage(Stage, ABC):
             return True
         except IOError as e:
             logger.error(
-                f"      -> CRITICAL: Could not write output to {self.output_path.name}: {e}"
+                f"      -> CRITICAL: Could not write progress to {self.output_path.name}: {e}"
             )
             return False
     

@@ -3,8 +3,6 @@ use crate::profile::{LearnerLemmaInfo, LemmaState};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-// The PriceAndCost struct is no longer needed for the new model.
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NumericalLearnerProfile {
     pub vocabulary: HashMap<u32, LearnerLemmaInfo>,
@@ -17,8 +15,6 @@ impl NumericalLearnerProfile {
     pub fn is_lemma_active(&self, lemma_id: u32) -> bool {
         self.vocabulary.contains_key(&lemma_id)
     }
-
-    /// Activates a new lemma for the learner.
     pub fn activate_lemma(&mut self, lemma_id: u32) {
         if lemma_id != u32::MAX {
             self.vocabulary.insert(lemma_id, LearnerLemmaInfo::default());
@@ -36,8 +32,6 @@ impl NumericalLearnerProfile {
             info.state = new_state;
         }
     }
-    // The record_exposures and related state promotion logic are no longer needed here.
-    // The corpus_generator will now handle state changes directly.
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -81,6 +75,8 @@ pub struct NumericalAdvSegmentBundle {
     pub adv_lemma_ids: Vec<u32>,
     pub simpler_text_original: String,
     pub simpler_lemma_ids: Vec<u32>,
+    // --- NEW FIELD ---
+    pub inverse_diglot_map_numerical: HashMap<u32, String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -99,7 +95,6 @@ pub struct NumericalProcessedSentence {
     pub phrase_alignments_l3_to_eng_numerical: Vec<NumericalPhraseAlignmentToEng>,
     pub l3_simsl_per_segment_numerical: Vec<NumericalSegmentLemmas>,
     pub diglot_map_numerical: Vec<NumericalDiglotSegmentMap>,
-    // The PriceAndCost fields are removed, as they are no longer part of the simulation model.
 }
 
 #[derive(Debug, Clone, Default)]

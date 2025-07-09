@@ -39,7 +39,7 @@ pub use simulation::core_algo::{
 };
 // --- END UPDATED EXPORTS ---
 
-pub use simulation::text_generator::generate_final_text_for_block_from_levels;
+pub use simulation::text_generator::generate_raw_text_from_levels;
 
 // Corpus generator function for CLI
 pub use corpus_generator::{run_corpus_generation, GenerationArgs};

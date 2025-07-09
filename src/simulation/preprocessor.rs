@@ -19,7 +19,7 @@ fn count_words(text: &str) -> usize {
 pub fn json_chapter_to_numerical(
     json_chapter: &JsonChapter,
     dictionary: &mut GlobalLemmaDictionary,
-) -> (NumericalChapter, Vec<usize>) { // Return type changed
+) -> (NumericalChapter, Vec<usize>) {
     
     let mut english_word_counts: Vec<usize> = Vec::new();
 
@@ -41,10 +41,9 @@ pub fn json_chapter_to_numerical(
         sentences_numerical,
     };
 
-    (numerical_chapter, english_word_counts) // Return the list of counts
+    (numerical_chapter, english_word_counts)
 }
 
-// --- The rest of the file is unchanged, but included for completeness ---
 fn json_sentence_to_numerical(
     s_sentence: &JsonSentenceBlock,
     dictionary: &mut GlobalLemmaDictionary,
@@ -61,12 +60,26 @@ fn json_sentence_to_numerical(
     let adv_segment_bundles_numerical: Vec<NumericalAdvSegmentBundle> = s_sentence
         .adv_spanish_segments
         .iter()
-        .map(|s_bundle| NumericalAdvSegmentBundle {
-            a_id_str: s_bundle.segment_id.clone(),
-            adv_text_original: s_bundle.advanced_text.clone(),
-            adv_lemma_ids: string_lemmas_to_ids(&s_bundle.advanced_lemmas, dictionary),
-            simpler_text_original: s_bundle.simpler_text.clone(),
-            simpler_lemma_ids: string_lemmas_to_ids(&s_bundle.simpler_lemmas, dictionary),
+        .map(|s_bundle| {
+            // --- NEW: Convert the inverse diglot map ---
+            let inverse_diglot_map_numerical: HashMap<u32, String> = s_bundle
+                .inverse_diglot_map
+                .iter()
+                .map(|(spa_lemma, eng_sub)| {
+                    (dictionary.get_id_or_insert(spa_lemma), eng_sub.clone())
+                })
+                .collect();
+            // --- END NEW ---
+
+            NumericalAdvSegmentBundle {
+                a_id_str: s_bundle.segment_id.clone(),
+                adv_text_original: s_bundle.advanced_text.clone(),
+                adv_lemma_ids: string_lemmas_to_ids(&s_bundle.advanced_lemmas, dictionary),
+                simpler_text_original: s_bundle.simpler_text.clone(),
+                simpler_lemma_ids: string_lemmas_to_ids(&s_bundle.simpler_lemmas, dictionary),
+                // --- NEW: Initialize the field ---
+                inverse_diglot_map_numerical,
+            }
         })
         .collect();
 

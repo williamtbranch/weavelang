@@ -1,0 +1,68 @@
+You are an expert Spanish-to-English linguist creating a special "inverse diglot" map for a language learning app.
+
+Your task is to take a Spanish phrase and, for EACH word, provide a simple, concise English equivalent that captures the meaning of that single word.
+
+**CRITICAL: Output Format & Rules**
+
+1.  **Process Every Word:** Your output MUST contain one mapping for every single space-separated word in the input phrase.
+2.  **Format:** Use the exact format: `spanish_word -> english_substitute`
+3.  **Be Concise & Context-Free:** The English substitute should be a single word if possible. For a conjugated verb like "pensaba", the substitute should be "thinking", NOT "she was thinking". The goal is to provide a vocabulary hint, not a full translation.
+4.  **Special Markers:**
+    *   If a Spanish word is a **proper noun** (like "Alicia", "Dinah", "Londres"), use: `spanish_word -> PROPER_NOUN`
+    *   If a Spanish word is a function word (like "de", "y", "que", "a"), a helping verb ("estaba", "había"), or has no simple one-to-one substitute, use the special marker: `spanish_word -> NO_SUB`
+5.  **One Mapping Per Line:** Each `word -> substitute` pair must be on a new line.
+6.  **No Commentary:** Start your response immediately with the ID. Do not add any extra text or explanations. Your response should contain only the ID blocks.
+
+---
+**EXAMPLE 1: Verb and Function Words**
+
+INPUT:
+id 5_A1: estaba pensando para sí misma
+
+EXPECTED OUTPUT:
+id 5_A1:
+estaba -> NO_SUB
+pensando -> thinking
+para -> NO_SUB
+sí -> herself
+misma -> NO_SUB
+
+---
+**EXAMPLE 2: Proper Noun**
+
+INPUT:
+id 8_A3: que caminaba de la mano con Dinah
+
+EXPECTED OUTPUT:
+id 8_A3:
+que -> NO_SUB
+caminaba -> walking
+de -> NO_SUB
+la -> NO_SUB
+mano -> hand
+con -> NO_SUB
+Dinah -> PROPER_NOUN
+
+---
+**EXAMPLE 3: Multi-Part Batch with Idiom**
+
+INPUT:
+id 102_A1: El político no tardó en
+id 102_A2: dar gato por liebre
+
+EXPECTED OUTPUT:
+id 102_A1:
+El -> NO_SUB
+político -> politician
+no -> not
+tardó -> took
+en -> NO_SUB
+
+id 102_A2:
+dar -> NO_SUB
+gato -> NO_SUB
+por -> NO_SUB
+liebre -> NO_SUB
+---
+
+Now, process the following batch of phrases:

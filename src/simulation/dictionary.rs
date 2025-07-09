@@ -3,21 +3,30 @@ use crate::types::json_types::{JsonChapter, JsonContentBlock};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-// --- ROBUST NORMALIZATION FUNCTION ---
-// This function now handles multi-word lemmas from SpaCy like "cansar él"
-// by taking the first word, in addition to removing accents.
+/// Normalizes a lemma string to be consistent with the master frequency list.
+/// This logic MUST be kept in sync with the Python script that generates the list.
 fn normalize_lemma(lemma_str: &str) -> String {
-    // First, take only the first word if there are spaces.
-    let first_word = lemma_str.split_whitespace().next().unwrap_or(lemma_str);
+    // 1. Convert to lowercase and trim whitespace.
+    let s = lemma_str.trim().to_lowercase();
     
-    // Then, perform the accent normalization on that word.
-    first_word
+    // 2. Take only the first word if there are spaces (e.g., "mostrar yo" -> "mostrar").
+    let first_word = s.split_whitespace().next().unwrap_or(&s);
+    
+    // 3. Perform accent stripping to match the frequency list's format.
+    // This is the crucial step that was missing.
+    let normalized = first_word
         .replace('á', "a")
         .replace('é', "e")
         .replace('í', "i")
         .replace('ó', "o")
         .replace('ú', "u")
+        .replace('ü', "u"); // Also handle diaeresis
+
+    // Return a cleaned string, ensuring no invalid characters remain.
+    // This simple filter is sufficient given the controlled input.
+    normalized.chars().filter(|c| c.is_alphanumeric() || *c == '-').collect()
 }
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LemmaDictEntry {
@@ -37,7 +46,7 @@ impl GlobalLemmaDictionary {
     }
 
     pub fn get_id_or_insert(&mut self, lemma_str: &str) -> u32 {
-        let cleaned_lemma = normalize_lemma(lemma_str.trim().to_lowercase().as_str());
+        let cleaned_lemma = normalize_lemma(lemma_str);
 
         if cleaned_lemma.is_empty() {
             return u32::MAX;
@@ -52,7 +61,7 @@ impl GlobalLemmaDictionary {
     }
 
     pub fn get_id(&self, lemma_str: &str) -> Option<u32> {
-        let cleaned_lemma = normalize_lemma(lemma_str.trim().to_lowercase().as_str());
+        let cleaned_lemma = normalize_lemma(lemma_str);
         self.str_to_id.get(&cleaned_lemma).copied()
     }
 

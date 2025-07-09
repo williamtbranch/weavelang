@@ -83,3 +83,8 @@ retry_delay = 7
     primary_model = "sonnet"
     fallback_model = "sonnet"
     batch_size_in_tokens = 1000
+
+    [stages.GenerateInverseDiglotMap]
+    primary_model = "sonnet"
+    fallback_model = "sonnet"
+    batch_size_in_tokens = 1000

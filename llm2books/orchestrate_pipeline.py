@@ -1,4 +1,4 @@
-# Filename: orchestrate_pipeline.py
+# Filename: llm2books/orchestrate_pipeline.py
 # Purpose: Main entry point for the WeaveLang data generation pipeline.
 # Description: This script uses a class-based, stage-driven architecture to
 # process books. It initializes shared resources and then runs a sequence of
@@ -13,7 +13,11 @@ from pathlib import Path
 try:
     import tomllib
 except ImportError:
-    import toml as tomllib
+    try:
+        import toml as tomllib
+    except ImportError:
+        print("CRITICAL: 'toml' library not found. Please run `pip install toml` for Python < 3.11.", file=sys.stderr)
+        sys.exit(1)
 try:
     import spacy
 except ImportError:
@@ -33,19 +37,26 @@ from .stages.generate_simple_spanish import GenerateSimpleSpanish
 from .stages.lemmatize_simple_spanish import LemmatizeSimpleSpanish
 from .stages.generate_diglot_map import GenerateDiglotMap
 from .stages.lemmatize_diglot_map import LemmatizeDiglotMap
+# --- NEW IMPORTS FOR NEW STAGES ---
+from .stages.generate_inverse_diglot_map import GenerateInverseDiglotMap
+from .stages.lemmatize_inverse_diglot_map import LemmatizeInverseDiglotMap
+
 
 # --- The Pipeline Stage Registry ---
 PIPELINE_STAGES = [
-    GenerateAdvSpanish,
-    LemmatizeAdvSpanish,
-    SegmentAdvSpanish,
-    SimplifyAdvSpanish,
-    FinalizeSimplerSpanish,
-    SegmentEnglish,
-    GenerateSimpleSpanish,
-    LemmatizeSimpleSpanish,
-    GenerateDiglotMap,
-    LemmatizeDiglotMap,
+    GenerateAdvSpanish,          # Stage 1
+    LemmatizeAdvSpanish,         # Stage 2
+    SegmentAdvSpanish,           # Stage 3a
+    SimplifyAdvSpanish,          # Stage 3b
+    FinalizeSimplerSpanish,      # Stage 4
+    SegmentEnglish,              # Stage 5a
+    GenerateSimpleSpanish,       # Stage 5b
+    LemmatizeSimpleSpanish,      # Stage 6
+    GenerateDiglotMap,           # Stage 7
+    LemmatizeDiglotMap,          # Stage 8
+    # --- APPENDED NEW STAGES ---
+    GenerateInverseDiglotMap,    # Stage 9 (NEW)
+    LemmatizeInverseDiglotMap,   # Stage 10 (NEW)
 ]
 
 # --- Logging Setup ---
@@ -75,13 +86,12 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     
-    # --- MODIFIED: Argument Parsing ---
-    # Arguments are now minimal. Most settings come from the config file.
+    # --- Argument Parsing ---
     parser.add_argument("--project_config", default="config.toml", help="Path to the main TOML configuration file.")
-    parser.add_argument("--version", default="7.0.0", help="Pipeline version for metadata.")
-    parser.add_argument("--input_staged_subdir", default="Staged") # Can be overridden if needed
-    parser.add_argument("--output_llm_subdir", default="pipeline")   # Can be overridden if needed
-    # Execution control arguments
+    parser.add_argument("--version", default="7.1.0-inverse-diglot", help="Pipeline version for metadata.")
+    parser.add_argument("--input_staged_subdir", default="Staged", help="Subdirectory for initial staged text files.")
+    parser.add_argument("--output_llm_subdir", default="pipeline", help="Base subdirectory for intermediate pipeline stage outputs.")
+    # --- Execution control arguments ---
     parser.add_argument("--force_book", type=str, default=None, help="Force reprocessing of a specific book, ignoring existing progress.")
     parser.add_argument("--book_to_process", type=str, default=None, help="Process only a single specified book.")
     parser.add_argument(
@@ -91,7 +101,7 @@ def main():
 
     logger.info(f"--- WeaveLang Pipeline Orchestrator v{args.version} Initializing ---")
 
-    # --- NEW: Configuration and Resource Loading ---
+    # --- Configuration and Resource Loading ---
     try:
         with open(args.project_config, "rb") as f:
             config = tomllib.load(f)
@@ -109,7 +119,6 @@ def main():
 
     logger.info("Initializing shared resources (LLM Client & SpaCy Models)...")
     
-    # Note: Currently supports one provider for the whole run. Could be extended.
     llm_provider = pipeline_config.get("llm_provider", "claude")
     llm_client = helper.initialize_llm_client(llm_provider)
     if llm_client is None:
@@ -156,10 +165,10 @@ def main():
 
         effective_start_stage = args.start_at_stage
 
+        # Resumability check for non-forced books
         if args.force_book != book_stem:
             first_incomplete_stage = 1
             for StageClass in PIPELINE_STAGES:
-                # We only need the book stem and common resources to check completion status
                 instance_to_check = StageClass(book_stem, args, common_resources)
                 if not instance_to_check._is_stage_complete():
                     first_incomplete_stage = instance_to_check.stage_number
@@ -191,9 +200,10 @@ def main():
             logger.error(f"--- Pipeline FAILED for Book: [{book_stem}]. See logs for details. ---\n")
 
     if overall_success:
+        logger.info("Orchestrator finished successfully for all books.")
         sys.exit(0)
     else:
-        logger.info("Orchestrator finished, but one or more books failed processing.")
+        logger.error("Orchestrator finished, but one or more books failed processing.")
         sys.exit(1)
 if __name__ == "__main__":
     main()

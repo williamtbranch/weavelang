@@ -1,15 +1,39 @@
 // src/simulation/text_generator.rs
 use super::core_algo::{L0SegmentChoice, L1PartChoice, OutputLevel};
-use crate::types::json_types::JsonSentenceBlock;
 use crate::simulation::core_algo::ChosenLevelOutput;
-use regex::Regex;
+use crate::types::json_types::JsonSentenceBlock;
 use once_cell::sync::Lazy;
+use regex::{Captures, Regex};
+use std::collections::HashMap;
 
-
+// This regex finds a word surrounded by underscores, like _word_, and captures just the word.
 static ITALIC_CLEANER_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"_([^_[:space:]]+)_").unwrap());
 
-/// Takes the results of the simulation for a block and generates the final text.
-pub fn generate_final_text_for_block_from_levels(
+/// **NEW FUNCTION:** Takes any generated text and cleans it for production/TTS output.
+/// This is the function the REAL application will call just before saving the file.
+pub fn clean_text_for_tts(text: &str) -> String {
+    // Step 1: Handle italics like _word_ -> word
+    let italics_cleaned = ITALIC_CLEANER_REGEX.replace_all(text, "$1");
+    // Step 2: Globally replace all remaining underscores with spaces for the TTS.
+    italics_cleaned.replace('_', " ")
+}
+
+/// Helper to perform whole-word replacement for inverse diglots.
+fn replace_words(text: &str, substitutions: &HashMap<String, String>) -> String {
+    if substitutions.is_empty() {
+        return text.to_string();
+    }
+    let keys: Vec<String> = substitutions.keys().map(|k| regex::escape(k)).collect();
+    let pattern = format!(r"\b({})\b", keys.join("|"));
+    let re = Regex::new(&pattern).unwrap();
+    re.replace_all(text, |caps: &Captures| {
+        let matched_word = &caps[0];
+        format!("[{}]", substitutions.get(matched_word).unwrap_or(&"ERROR".to_string()))
+    }).to_string()
+}
+
+/// **RENAMED FUNCTION:** Generates the raw text, preserving underscores for testing.
+pub fn generate_raw_text_from_levels(
     block_string_sentences: &[&JsonSentenceBlock],
     chosen_level_outputs: &[ChosenLevelOutput],
     add_debug_markers: bool,
@@ -30,13 +54,20 @@ pub fn generate_final_text_for_block_from_levels(
 
         let mut assembled_sentence_text = match chosen_output.level {
             OutputLevel::AdvancedWeave => {
-                // --- THIS IS THE CORRECTED BLOCK ---
                 if let Some(segment_choices) = &chosen_output.l0_segment_choices {
                     let parts: Vec<String> = segment_choices
                         .iter()
                         .map(|choice| match choice {
                             L0SegmentChoice::Adv(text) => text.clone(),
                             L0SegmentChoice::SimplerAdv(text) => text.clone(),
+                            L0SegmentChoice::InverseDiglot { original_text, substitutions } => {
+                                let final_text = replace_words(original_text, substitutions);
+                                if add_debug_markers {
+                                    format!("(%ID% {} %)", final_text)
+                                } else {
+                                    final_text.replace(['[', ']'], "")
+                                }
+                            }
                         })
                         .collect();
                     parts.join(" ")
@@ -46,7 +77,6 @@ pub fn generate_final_text_for_block_from_levels(
                         s_sentence.original_sentence_s_id
                     ));
                 }
-                // --- END OF CORRECTION ---
             }
             OutputLevel::SimpleHybrid => {
                 if let Some(part_choices) = &chosen_level_outputs[idx].l1_part_choices {
@@ -83,24 +113,12 @@ pub fn generate_final_text_for_block_from_levels(
         };
 
         if assembled_sentence_text.trim().is_empty() {
-            let truncated_eng = if s_sentence.english_text.len() > 70 {
-                format!("{}...", &s_sentence.english_text[..67])
-            } else {
-                s_sentence.english_text.clone()
-            };
-            
-            eprintln!(
-                "TextGen Warning: Generated empty text for sentence {} (\"{}\"). Using original Eng text as fallback.",
-                s_sentence.original_sentence_s_id,
-                truncated_eng
-            );
             assembled_sentence_text = s_sentence.english_text.clone();
         }
         
-        let cleaned_sentence = ITALIC_CLEANER_REGEX.replace_all(&assembled_sentence_text, "$1").to_string();
-        let final_sentence = cleaned_sentence.replace('_', " ");
-
-        woven_block_text_parts.push(final_sentence);
+        // Return the raw text, leaving underscores for the test runner.
+        // The separate cleaning function will handle italics.
+        woven_block_text_parts.push(assembled_sentence_text);
     }
 
     Ok(woven_block_text_parts.join("\n\n").trim().to_string())

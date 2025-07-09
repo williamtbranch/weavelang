@@ -37,7 +37,7 @@ struct GenerateCliArgs {
     #[arg(short, long, value_name = "FILE", help="Path to the sequence.txt file listing books to process.")]
     sequence: PathBuf,
 
-    #[arg(long, value_name = "DIR", help="Directory containing the final stage8.json files.")]
+    #[arg(long, value_name = "DIR", help="Directory containing the final stage json files. Should be stage10 after this update.")]
     input_json_dir: PathBuf,
 
     #[arg(long, value_name = "DIR", help="Directory to save the final generated TTS text files.")]
@@ -64,10 +64,17 @@ struct GenerateCliArgs {
     #[arg(long, default_value_t = 0.15, help="Maximum compression ratio (e.g., 0.15 for 15%) allowed when stretching before reverting to rounding down.")]
     max_compression_ratio: f32,
 
+    // --- NEW ARGUMENTS FOR INVERSE DIGLOTTING ---
+    #[arg(long, default_value_t = 0.4, help="Max ratio of substitutions to total words in an L0 sentence to be considered a valid inverse diglot.")]
+    inverse_diglot_threshold: f32,
+
+    #[arg(long, hide = true, help="[DEPRECATED] This argument is no longer used.")]
+    inverse_diglot_max_substitutions: Option<u32>, // Set as Option to avoid parse errors if present
+    // --- END NEW ARGUMENTS ---
+
     #[arg(long, value_enum, hide = true)]
     force_level: Option<CliForceLevel>,
 
-    // --- ADDED THIS FLAG ---
     #[arg(long, help = "Add (%%...%%) and (%ED%...%) markers to the output for debugging.")]
     debug_markers: bool,
 }
@@ -135,10 +142,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command.unwrap_or(Commands::Gui) {
         Commands::Gui => {
-            // ... GUI logic ...
+            let options = NativeOptions {
+                viewport: egui::ViewportBuilder::default()
+                    .with_inner_size([1200.0, 800.0])
+                    .with_min_inner_size([800.0, 600.0]),
+                ..Default::default()
+            };
+            eframe::run_native(
+                "WeaveLang Tool",
+                options,
+                Box::new(move |cc| {
+                    Box::new(WeaveLangApp::new(cc, app_config_for_gui, config_error_msg_for_gui))
+                }),
+            )?;
         }
         Commands::Generate(generate_cli_args) => {
-            // ... generate logic ...
+            if let Some(force_level_cli) = generate_cli_args.force_level {
+                let level = match force_level_cli {
+                    CliForceLevel::As => ForceLevel::Advanced,
+                };
+                FORCE_LEVEL_OVERRIDE.set(level).expect("Could not set force_level override");
+            }
+                
             let final_config_for_generate = config_for_generate_mode
                 .ok_or_else(|| "Project config is required for generate mode but was not available.".to_string())?;
                 
@@ -153,12 +178,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 core_vocab_size: generate_cli_args.core_vocab_size,
                 stretch_threshold: generate_cli_args.stretch_threshold,
                 max_compression_ratio: generate_cli_args.max_compression_ratio,
-                // --- ADDED THIS LINE ---
                 debug_markers: generate_cli_args.debug_markers,
+                inverse_diglot_threshold: generate_cli_args.inverse_diglot_threshold,
             };
 
             if let Err(e) = corpus_generator::run_corpus_generation(&final_config_for_generate, &corpus_gen_args) {
-                // ... error handling ...
+                eprintln!("[ERROR] Corpus generation failed: {}", e);
+                std::process::exit(1);
             }
         }
     }

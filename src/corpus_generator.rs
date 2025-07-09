@@ -21,6 +21,7 @@ enum SegmentType {
     SimpleSpanish,
     EnglishDiglot,
     English,
+    InverseDiglot, // Added for more detailed analysis
 }
 
 fn log_analysis_to_file(
@@ -49,12 +50,14 @@ fn log_analysis_to_file(
         let get_segment_count = |seg_type: SegmentType| -> usize { *segment_stats.get(&seg_type).unwrap_or(&0) };
         let as_count = get_segment_count(SegmentType::AdvancedSpanish);
         let ms_count = get_segment_count(SegmentType::ModerateSpanish);
+        let id_count = get_segment_count(SegmentType::InverseDiglot);
         let ss_count = get_segment_count(SegmentType::SimpleSpanish);
         let ed_count = get_segment_count(SegmentType::EnglishDiglot);
         let en_count = get_segment_count(SegmentType::English);
         let total_segments_float = total_segments as f32;
         writeln!(file, "    AS (Advanced Spanish): {:>5} segments ({:>6.2}%)", as_count, (as_count as f32 / total_segments_float) * 100.0)?;
         writeln!(file, "    MS (Moderate Spanish): {:>5} segments ({:>6.2}%)", ms_count, (ms_count as f32 / total_segments_float) * 100.0)?;
+        writeln!(file, "    ID (Inverse Diglot):   {:>5} segments ({:>6.2}%)", id_count, (id_count as f32 / total_segments_float) * 100.0)?;
         writeln!(file, "    SS (Simple Spanish):   {:>5} segments ({:>6.2}%)", ss_count, (ss_count as f32 / total_segments_float) * 100.0)?;
         writeln!(file, "    ED (English Diglot):   {:>5} segments ({:>6.2}%)", ed_count, (ed_count as f32 / total_segments_float) * 100.0)?;
         writeln!(file, "    EN (English):          {:>5} segments ({:>6.2}%)", en_count, (en_count as f32 / total_segments_float) * 100.0)?;
@@ -78,6 +81,8 @@ pub struct GenerationArgs {
     pub stretch_threshold: f32,
     pub max_compression_ratio: f32,
     pub debug_markers: bool,
+    // --- NEW FIELD ---
+    pub inverse_diglot_threshold: f32,
 }
 
 struct ProcessingState {
@@ -187,9 +192,9 @@ pub fn run_corpus_generation(
 
         let json_file_path = PathBuf::from(&project_config.content_project_dir)
             .join(&args.input_json_dir)
-            .join(format!("{}.stage8.json", book_stem));
+            .join(format!("{}.stage10.json", book_stem)); // <-- IMPORTANT: Pointing to stage10
         
-        let json_chapter = json_parser::parse_chapter_from_json(&fs::read_to_string(&json_file_path)?)?;
+        let json_chapter = json_parser::parse_chapter_from_json(&fs::read_to_string(&json_file_path).map_err(|e| format!("Could not read final JSON file {:?}: {}", &json_file_path, e))?)?;
         global_lemma_dictionary.populate_from_json_chapter(&json_chapter);
         let (numerical_chapter, precalculated_english_word_counts) = preprocessor::json_chapter_to_numerical(&json_chapter, &mut global_lemma_dictionary);
         if numerical_chapter.sentences_numerical.is_empty() {
@@ -229,10 +234,8 @@ pub fn run_corpus_generation(
 
         println!("  Target End Level: {}. Will introduce {} new words.", target_final_level, final_words_to_introduce);
         
-        // --- THIS IS THE FINAL, CORRECTED PRE-CALCULATION LOOP ---
         let mut activation_map: HashMap<usize, Vec<u32>> = HashMap::new();
         if final_words_to_introduce > 0 {
-            // Use large integers to avoid floating point issues entirely.
             let mut credit: u64 = 0;
             let total_words_u64 = total_english_word_count as u64;
             let words_to_add_u64 = final_words_to_introduce as u64;
@@ -246,15 +249,12 @@ pub fn run_corpus_generation(
                     if let Some(lemma_str) = ordered_lemmas.get(next_idx as usize) {
                         let lemma_id = global_lemma_dictionary.get_id_or_insert(lemma_str);
                         activation_map.entry(sentence_idx).or_default().push(lemma_id);
-                        // This debug message can be noisy, so it's commented out, but useful for deep debugging.
-                        // println!("[DEBUG] Pre-calculated activation of word #{}: '{}' at sentence index {}", next_idx + 1, lemma_str, sentence_idx);
                     }
                     words_activated += 1;
                     credit -= total_words_u64;
                 }
             }
         }
-        // --- END OF THE FIX ---
 
         let mut final_text_parts = Vec::new();
         let mut book_level_stats = HashMap::new();
@@ -268,12 +268,17 @@ pub fn run_corpus_generation(
             }
 
             let mut n_sentence_clone = n_sentence.clone();
-            let output = core_algo::determine_and_annotate_sentence_expression(&mut n_sentence_clone, &learner_profile, &global_lemma_dictionary);
+            let output = core_algo::determine_and_annotate_sentence_expression(
+                &mut n_sentence_clone, 
+                &learner_profile, 
+                &global_lemma_dictionary,
+                args.inverse_diglot_threshold,
+            );
             
             let s_sentence_json = json_chapter.content_blocks.iter().find_map(|cb| match cb {
                 JsonContentBlock::Sentence(s) if s.original_sentence_s_id == n_sentence.sentence_id_str => Some(s), _ => None,
             }).ok_or("Mismatch between numerical and json sentences")?;
-            let generated_text = text_generator::generate_final_text_for_block_from_levels(&[s_sentence_json], &[output.clone()], args.debug_markers)?;
+            let generated_text = text_generator::generate_raw_text_from_levels(&[s_sentence_json], &[output.clone()], args.debug_markers)?;
 
             final_text_parts.push(generated_text);
             
@@ -284,6 +289,7 @@ pub fn run_corpus_generation(
                         *book_segment_stats.entry(match choice {
                             L0SegmentChoice::Adv(_) => SegmentType::AdvancedSpanish,
                             L0SegmentChoice::SimplerAdv(_) => SegmentType::ModerateSpanish,
+                            L0SegmentChoice::InverseDiglot { .. } => SegmentType::InverseDiglot,
                         }).or_insert(0) += 1;
                     }
                 },

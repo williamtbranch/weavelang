@@ -1,0 +1,102 @@
+; ==============================================================================
+; WeaveLang Generation Test Suite (V3 - Final, Future-Proof)
+; ==============================================================================
+
+(#max-lemmas 80000)
+
+; --- Segment Definitions ---
+; Format: (#define-segment <name> (part-list) (lemma-list) )
+
+; CORRECTED: Poison markers are now `-i` and `-x`
+(#define-segment ad-p-1 (adword01 adword02) (lem1 lem2))
+(#define-segment ad-p-2 (adword03 adword04) (lem3 lem4))
+(#define-segment ad-f-unknown (adword05-x adword06) (lem21 lem6))
+(#define-segment ad-f-unknown-2 (adword07-x adword08) (lem22 lem8))
+(#define-segment ad-i-poison (adword08-i adword09-i) (lem8 lem9))
+
+(#define-segment mod-p-1 (msword01 msword02) (lem10 lem11))
+(#define-segment mod-p-2 (msword03 msword04) (lem12 lem13))
+(#define-segment mod-f-unknown (msword05-x msword06) (lem23 lem15))
+(#define-segment mod-i-poison (msword07-i msword08-i) (lem16 lem17))
+
+(#define-segment ss-p-1 (ssword01 ssword02) (lem1 lem2))
+(#define-segment ss-p-2 (ssword03 ssword04) (lem3 lem4))
+(#define-segment ss-f-unknown (ssword05-x ssword06) (lem24 lem6))
+(#define-segment ss-i-poison (ssword07-i ssword08-i) (lem8 lem9))
+
+(#define-segment en-p-1 (enword01 enword02))
+(#define-segment en-p-2 (enword03 enword04))
+(#define-segment en-i-poison (enword05-i enword06-i))
+
+; Diglot segment for L1 fallback
+(#define-segment ss-f-for-diglot (ssword01-x) (lem25))
+; This is an english span that defines its diglot relationship internally
+; CORRECTED: Marker is now `-i`
+(#define-segment en-p-for-diglot-clean (enword01 (#di enword02-i lem2 ssword02)))
+
+; Special Segments
+(#define-segment pnoun-seg (Alice) ())
+; NOTE: This word now uses a hyphen instead of an underscore for its name.
+(#define-segment italics-seg (adword01-italicized adword02) (lem1 lem2))
+
+; --- Test Cases ---
+
+(#test-case "L0_passes_with_proper_noun"
+  (#level 20)
+  (sentence 
+    (adv-segments pnoun-seg)
+    (ms-segments mod-i-poison)
+    (ss-segments ss-i-poison)
+    (en-segments en-i-poison)
+  )
+  (assert-level AdvancedWeave)
+  (assert-text "Alice")
+)
+
+(#test-case "L0_full_advanced_spanish"
+  (#level 20)
+  (sentence 
+    (adv-segments ad-p-1 ad-p-2)
+    (ms-segments mod-i-poison mod-i-poison)
+    (ss-segments ss-i-poison ss-i-poison)
+    (en-segments en-i-poison en-i-poison)
+  )
+  (assert-level AdvancedWeave)
+  (assert-text "adword01 adword02 adword03 adword04")
+)
+
+(#test-case "L0_falls_back_to_moderate"
+  (#level 20)
+  (sentence 
+    (adv-segments ad-f-unknown ad-p-2)
+    (ms-segments mod-p-1 mod-i-poison)
+    (ss-segments ss-i-poison ss-i-poison)
+    (en-segments en-i-poison en-i-poison)
+  )
+  (assert-level AdvancedWeave)
+  (assert-text "msword01 msword02 adword03 adword04")
+)
+
+(#test-case "L1_falls_back_to_english"
+  (#level 20)
+  (sentence
+    (adv-segments ad-f-unknown)
+    (ms-segments mod-f-unknown)
+    (ss-segments ss-f-unknown)
+    (en-segments en-p-1)
+  )
+  (assert-level SimpleHybrid)
+  (assert-text "enword01 enword02")
+)
+
+(#test-case "L1_uses_diglot"
+  (#level 20)
+  (sentence
+    (adv-segments ad-f-unknown)
+    (ms-segments mod-f-unknown)
+    (ss-segments ss-f-for-diglot)
+    (en-segments en-p-for-diglot-clean)
+  )
+  (assert-level SimpleHybrid)
+  (assert-text "enword01 ssword02")
+)

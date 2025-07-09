@@ -3,6 +3,7 @@
 # Contains genuinely reusable, high-level functions and constants for the
 # WeaveLang data generation pipeline.
 import re
+import unicodedata # NEW IMPORT
 import argparse
 import logging
 import os
@@ -20,7 +21,6 @@ except ImportError:
     anthropic = None
 
 # --- Global Constants ---
-MAX_STAGES = 8 # This is now deprecated, pipeline stages are dynamically counted.
 SPANISH_CONJUNCTIONS = ["y", "o", "pero", "que", "si", "cuando", "pues"]
 ENGLISH_CONJUNCTIONS = ["and", "or", "but", "so", "that", "if", "when", "as"]
 
@@ -35,7 +35,6 @@ logger = logging.getLogger("pipeline")
 
 # --- General Utility Functions ---
 
-
 def get_iso_timestamp() -> str:
     """Returns the current UTC time in ISO 8601 format."""
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -45,47 +44,59 @@ def initialize_llm_client(provider: str) -> any:
     """
     Initializes and returns an LLM client based on the provider string.
     """
-    # Load environment variables from a .env file if it exists
     load_dotenv(dotenv_path=Path.cwd() / ".env")
-
     if provider == "claude":
         if not anthropic:
-            logger.critical(
-                "Anthropic provider selected, but SDK not installed. Run `pip install anthropic`"
-            )
+            logger.critical("Anthropic provider selected, but SDK not installed. Run `pip install anthropic`")
             return None
-
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
             logger.critical("ANTHROPIC_API_KEY not found in environment or .env file.")
             return None
-
         return anthropic.Anthropic(api_key=api_key)
-
-    # Add other providers like 'gemini' here in the future
     logger.critical(f"LLM provider '{provider}' is not supported.")
     return None
 
-# --- Text Segmentation Logic ---
+# --- NEW: Centralized Lemma Normalization Function ---
+def normalize_spanish_lemma(lemma_str: str) -> str:
+    """
+    Applies a series of cleaning and normalization steps to a raw lemma string.
+    This logic MUST be kept in sync with the frequency list generator.
+    
+    Returns a cleaned lemma string or an empty string if it's invalid.
+    """
+    # 1. Start with the raw string and convert to lowercase
+    s = lemma_str.lower().strip()
 
+    # 2. Handle specific, known replacements first.
+    s = s.replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
+
+    # 3. Strip any leading or trailing non-alphabetic characters.
+    s = re.sub(r'^[^\w]+|[^\w]+$', '', s)
+    if not s:
+        return ""
+        
+    # 4. Normalize Unicode to NFC (Normalization Form C).
+    s = unicodedata.normalize('NFC', s)
+    
+    # 5. Final check: ensure the resulting string doesn't contain invalid characters.
+    # We only want letters and internal hyphens.
+    if re.search(r'[^a-z-]', s):
+        return ""
+        
+    return s
+
+# --- Text Segmentation Logic ---
 
 def segment_text(doc: Doc, language: str) -> List[str]:
     """
     A generic text segmenter that chunks a SpaCy Doc and merges short fragments.
-
-    Args:
-        doc (Doc): The SpaCy Doc object to segment.
-        language (str): The language of the text ('es' or 'en').
-
-    Returns:
-        A list of string segments.
     """
     if language == "es":
         conjunctions = SPANISH_CONJUNCTIONS
     elif language == "en":
         conjunctions = ENGLISH_CONJUNCTIONS
     else:
-        # Default to no special conjunction merging if language is unknown
         conjunctions = []
     syntactic_chunks = _get_syntactic_chunks(doc)
     merged_phrases = _merge_short_chunks(syntactic_chunks, conjunctions)
@@ -103,7 +114,6 @@ def _get_syntactic_chunks(doc: Doc) -> List[Span]:
         if token.pos_ == "ADP" and token.head.pos_ in ["VERB", "NOUN", "PROPN"]:
             if token.i > 0 and len([t for t in doc[0 : token.i] if not t.is_punct]) > 1:
                 split_points.add(token.i)
-
     sorted_split_points = sorted(list(split_points))
     final_chunks = []
     start = 0
@@ -113,7 +123,6 @@ def _get_syntactic_chunks(doc: Doc) -> List[Span]:
         start = point
     if start < len(doc):
         final_chunks.append(doc[start:])
-
     return final_chunks
 
 
@@ -123,10 +132,7 @@ def _merge_short_chunks(
     """(Private) Merges overly short chunks into preceding chunks for better coherence."""
     if not chunks:
         return []
-
     texts = [chunk.text.strip() for chunk in chunks]
-
-    # First pass: merge tiny conjunctions forward
     i = 0
     while i < len(texts) - 1:
         cleaned_chunk = "".join(c for c in texts[i] if c.isalnum()).lower()
@@ -135,8 +141,6 @@ def _merge_short_chunks(
             texts.pop(i)
         else:
             i += 1
-
-    # Second pass: merge chunks that are too short by word count
     made_a_merge = True
     while made_a_merge:
         made_a_merge = False
@@ -151,5 +155,4 @@ def _merge_short_chunks(
                 break
             else:
                 i += 1
-
     return texts

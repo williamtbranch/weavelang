@@ -14,3 +14,12 @@ clap = { version = "4.4", features = ["derive"] }
 # lazy_static = "1.4" // Can add if regex performance becomes an issue
 once_cell = "1"
 chrono = "0.4"
+rand = "0.8"
+
+
+[dev-dependencies]
+regex = "1.10"
+once_cell = "1.19"
+itertools = "0.12"
+pest = "2.7"       
+pest_derive = "2.7" 
