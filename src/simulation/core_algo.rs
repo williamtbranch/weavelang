@@ -1,32 +1,15 @@
 // src/simulation/core_algo.rs
 use super::numerical_types::{NumericalLearnerProfile, NumericalProcessedSentence};
 use crate::simulation::dictionary::GlobalLemmaDictionary;
-use crate::simulation::frequency_manager; // We need this now
 use std::collections::HashMap;
 
 /// Helper function to check if a slice of lemma IDs are all known to the learner.
 fn are_lemmas_active(
     lemma_ids: &[u32],
     profile: &NumericalLearnerProfile,
-    dictionary: &GlobalLemmaDictionary,
+    _dictionary: &GlobalLemmaDictionary, // Signature kept for consistency
 ) -> bool {
-    lemma_ids.iter().all(|&id| {
-        // Condition 1: Is the word in the learner's active vocabulary?
-        if profile.is_lemma_active(id) {
-            return true;
-        }
-
-        // Condition 2: Is it a proper noun or other non-learnable word?
-        // We determine this by checking its absence from our master list of learnable words.
-        if let Some(lemma_str) = dictionary.get_str(id) {
-            if frequency_manager::get_rank_for_lemma(lemma_str).is_none() {
-                return true; // Not in frequency list, treat as a "free" word.
-            }
-        }
-        
-        // If neither is true, it's a learnable word the user doesn't know yet.
-        false
-    })
+    lemma_ids.iter().all(|&id| profile.is_lemma_active(id))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -46,8 +29,7 @@ pub enum L0SegmentChoice {
     Adv(String),
     SimplerAdv(String),
     InverseDiglot {
-        original_text: String,
-        substitutions: HashMap<String, String>, // {Spanish_Token -> English_Substitute}
+        final_words: Vec<String>,
     },
 }
 
@@ -71,18 +53,14 @@ pub fn determine_and_annotate_sentence_expression(
     n_sentence: &mut NumericalProcessedSentence,
     profile: &NumericalLearnerProfile,
     dictionary: &GlobalLemmaDictionary,
-    inverse_diglot_threshold: f32,
+    _inverse_diglot_threshold: f32,
 ) -> ChosenLevelOutput {
-    // --- L0: Advanced Weave Attempt (Holistic Approach) ---
     let mut l0_candidate_choices: Vec<L0SegmentChoice> = Vec::new();
-    let mut l0_is_salvageable = true;
-    let mut sentence_level_substitution_count = 0;
-    let mut sentence_level_total_ms_words = 0;
+    let mut l0_is_viable = true;
     let mut l0_collected_lemma_ids: Vec<u32> = Vec::new();
 
     if !n_sentence.adv_segment_bundles_numerical.is_empty() {
         for bundle in &n_sentence.adv_segment_bundles_numerical {
-            sentence_level_total_ms_words += bundle.simpler_text_original.split_whitespace().count();
             if are_lemmas_active(&bundle.adv_lemma_ids, profile, dictionary) {
                 l0_candidate_choices.push(L0SegmentChoice::Adv(bundle.adv_text_original.clone()));
                 l0_collected_lemma_ids.extend(&bundle.adv_lemma_ids);
@@ -90,68 +68,56 @@ pub fn determine_and_annotate_sentence_expression(
                 l0_candidate_choices.push(L0SegmentChoice::SimplerAdv(bundle.simpler_text_original.clone()));
                 l0_collected_lemma_ids.extend(&bundle.simpler_lemma_ids);
             } else {
-                // Attempt to "save" this segment with inverse diglotting
-                let mut subs_for_this_segment = HashMap::new();
-                let mut all_unknowns_are_substitutable = true;
-                
-                // Find only the lemmas the user does not know
-                let unknown_lemmas: Vec<u32> = bundle
-                    .simpler_lemma_ids
-                    .iter()
-                    .filter(|&&id| !profile.is_lemma_active(id))
-                    .copied()
-                    .collect();
+                // --- START OF CORRECTED INVERSE DIGLOT LOGIC ---
+                let mut is_segment_salvageable = true;
+                let inverse_map_entries = &bundle.inverse_diglot_map_numerical;
 
-                for &lemma_id in &unknown_lemmas {
-                    if let Some(eng_sub) = bundle.inverse_diglot_map_numerical.get(&lemma_id) {
-                         if let Some(spa_lemma_str) = dictionary.get_str(lemma_id) {
-                            subs_for_this_segment.insert(spa_lemma_str.clone(), eng_sub.clone());
-                         }
-                    } else {
-                        // If even one unknown word has no substitution, the entire L0 weave fails.
-                        all_unknowns_are_substitutable = false;
-                        break;
+                // **NEW SALVAGEABILITY RULE:** A segment is ONLY unsalvageable if it contains
+                // a word marked `NO_SUB` whose lemma is UNKNOWN to the learner.
+                for (_spanish_word, lemma_id, substitute) in inverse_map_entries.iter() {
+                    if substitute == "NO_SUB" && !profile.is_lemma_active(*lemma_id) {
+                        is_segment_salvageable = false;
+                        break; // This is the only instant-fail condition.
                     }
                 }
-                
-                if all_unknowns_are_substitutable {
-                    l0_candidate_choices.push(L0SegmentChoice::InverseDiglot {
-                        original_text: bundle.simpler_text_original.clone(),
-                        substitutions: subs_for_this_segment.clone(),
-                    });
-                    sentence_level_substitution_count += subs_for_this_segment.len();
-                    // Add the known lemmas from this MS segment to the list
-                    l0_collected_lemma_ids.extend(
-                        bundle.simpler_lemma_ids.iter().filter(|&&id| profile.is_lemma_active(id))
-                    );
+
+                if is_segment_salvageable {
+                    let mut final_words = Vec::new();
+                    let mut temp_collected_lemmas = Vec::new();
+
+                    for (spanish_word, lemma_id, english_sub) in inverse_map_entries.iter() {
+                        // Use the Spanish word if the lemma is known OR it's a proper noun.
+                        if profile.is_lemma_active(*lemma_id) || english_sub == "PROPER_NOUN" {
+                            final_words.push(spanish_word.clone());
+                            temp_collected_lemmas.push(*lemma_id);
+                        } else {
+                            // Otherwise, it must have an English substitute (since we passed the salvage check).
+                            final_words.push(english_sub.clone());
+                        }
+                    }
+                    l0_candidate_choices.push(L0SegmentChoice::InverseDiglot { final_words });
+                    l0_collected_lemma_ids.extend(temp_collected_lemmas);
                 } else {
-                    l0_is_salvageable = false;
+                    // If not salvageable, the entire L0 path fails.
+                    l0_is_viable = false;
                     break;
                 }
+                // --- END OF CORRECTED INVERSE DIGLOT LOGIC ---
             }
-            sentence_level_total_ms_words += bundle.simpler_text_original.split_whitespace().count();
         }
-
-        // --- Post-Weave Evaluation ---
-        if l0_is_salvageable {
-            let substitution_ratio = if sentence_level_total_ms_words > 0 {
-                sentence_level_substitution_count as f32 / sentence_level_total_ms_words as f32
-            } else { 0.0 };
-
-            if substitution_ratio <= inverse_diglot_threshold {
-                return ChosenLevelOutput {
-                    level: OutputLevel::AdvancedWeave,
-                    lemma_ids: l0_collected_lemma_ids,
-                    english_word_count: 0,
-                    l0_segment_choices: Some(l0_candidate_choices),
-                    l1_part_choices: None,
-                };
-            }
+        
+        if l0_is_viable {
+            return ChosenLevelOutput {
+                level: OutputLevel::AdvancedWeave,
+                lemma_ids: l0_collected_lemma_ids,
+                english_word_count: 0,
+                l0_segment_choices: Some(l0_candidate_choices),
+                l1_part_choices: None,
+            };
         }
     }
 
-    // --- L1: Simple Hybrid (The Fallback) ---
-    // This logic remains the same.
+    // --- L1 FALLBACK LOGIC (remains the same) ---
     let mut l1_collected_lemma_ids: Vec<u32> = Vec::new();
     let mut l1_part_choices: Vec<L1PartChoice> = Vec::new();
     let mut l1_english_word_count: usize = 0;

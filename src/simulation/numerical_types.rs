@@ -1,3 +1,4 @@
+//*** START FILE: src/simulation/numerical_types.rs ***//
 // src/simulation/numerical_types.rs
 use crate::profile::{LearnerLemmaInfo, LemmaState};
 use serde::{Deserialize, Serialize};
@@ -75,8 +76,9 @@ pub struct NumericalAdvSegmentBundle {
     pub adv_lemma_ids: Vec<u32>,
     pub simpler_text_original: String,
     pub simpler_lemma_ids: Vec<u32>,
-    // --- NEW FIELD ---
-    pub inverse_diglot_map_numerical: HashMap<u32, String>,
+    // *** THIS IS THE LINE TO FIX ***
+    // The type must be a Vec of 3-element tuples to match the refactor.
+    pub inverse_diglot_map_numerical: Vec<(String, u32, String)>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -102,3 +104,4 @@ pub struct NumericalChapter {
     pub source_file_name_original: String,
     pub sentences_numerical: Vec<NumericalProcessedSentence>,
 }
+//*** END FILE: src/simulation/numerical_types.rs ***//

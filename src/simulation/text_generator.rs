@@ -1,3 +1,4 @@
+//*** START FILE: src/simulation/text_generator.rs ***//
 // src/simulation/text_generator.rs
 use super::core_algo::{L0SegmentChoice, L1PartChoice, OutputLevel};
 use crate::simulation::core_algo::ChosenLevelOutput;
@@ -9,8 +10,7 @@ use std::collections::HashMap;
 // This regex finds a word surrounded by underscores, like _word_, and captures just the word.
 static ITALIC_CLEANER_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"_([^_[:space:]]+)_").unwrap());
 
-/// **NEW FUNCTION:** Takes any generated text and cleans it for production/TTS output.
-/// This is the function the REAL application will call just before saving the file.
+// *** FIX: Added `pub` to make this function visible to other modules. ***
 pub fn clean_text_for_tts(text: &str) -> String {
     // Step 1: Handle italics like _word_ -> word
     let italics_cleaned = ITALIC_CLEANER_REGEX.replace_all(text, "$1");
@@ -32,7 +32,7 @@ fn replace_words(text: &str, substitutions: &HashMap<String, String>) -> String 
     }).to_string()
 }
 
-/// **RENAMED FUNCTION:** Generates the raw text, preserving underscores for testing.
+// *** FIX: Added `pub` to make this function visible to other modules. ***
 pub fn generate_raw_text_from_levels(
     block_string_sentences: &[&JsonSentenceBlock],
     chosen_level_outputs: &[ChosenLevelOutput],
@@ -60,13 +60,8 @@ pub fn generate_raw_text_from_levels(
                         .map(|choice| match choice {
                             L0SegmentChoice::Adv(text) => text.clone(),
                             L0SegmentChoice::SimplerAdv(text) => text.clone(),
-                            L0SegmentChoice::InverseDiglot { original_text, substitutions } => {
-                                let final_text = replace_words(original_text, substitutions);
-                                if add_debug_markers {
-                                    format!("(%ID% {} %)", final_text)
-                                } else {
-                                    final_text.replace(['[', ']'], "")
-                                }
+                            L0SegmentChoice::InverseDiglot { final_words } => {
+                                final_words.join(" ")
                             }
                         })
                         .collect();
@@ -116,10 +111,9 @@ pub fn generate_raw_text_from_levels(
             assembled_sentence_text = s_sentence.english_text.clone();
         }
         
-        // Return the raw text, leaving underscores for the test runner.
-        // The separate cleaning function will handle italics.
         woven_block_text_parts.push(assembled_sentence_text);
     }
 
     Ok(woven_block_text_parts.join("\n\n").trim().to_string())
 }
+//*** END FILE: src/simulation/text_generator.rs ***//

@@ -21,17 +21,18 @@ fn generate_zipf_frequencies(num_lemmas: usize, alpha: f64) -> Vec<f64> {
     for f in &mut freqs { *f /= sum; }
     freqs
 }
-
 mod production {
     use super::*;
     #[derive(Debug, Clone)] pub struct Checkpoint { pub ka_vocab_percent: f64, pub known_words: usize, pub active_words: usize, pub hours_elapsed: f64, pub learning_rate: f64, pub measured_comprehension: f64 }
-    pub struct ProductionSim { rate_curve: Vec<(f64, u64)>, frequencies: Vec<f64>, global_dist: WeightedIndex<f64>, rng: ThreadRng, active_lemmas: HashMap<u32, u32>, known_lemmas: HashSet<u32>, words_processed: u64, words_processed_since_last_intro: u64, next_lemma_to_introduce_idx: u32, }
+    // MODIFIED: Removed the unused `frequencies` field from the struct.
+    pub struct ProductionSim { rate_curve: Vec<(f64, u64)>, global_dist: WeightedIndex<f64>, rng: ThreadRng, active_lemmas: HashMap<u32, u32>, known_lemmas: HashSet<u32>, words_processed: u64, words_processed_since_last_intro: u64, next_lemma_to_introduce_idx: u32, }
     impl ProductionSim {
+        // MODIFIED: Updated the constructor to match the struct change.
         pub fn new(rate_curve: Vec<(f64, u64)>, frequencies: Vec<f64>) -> Self { 
             let global_dist = WeightedIndex::new(&frequencies).unwrap();
             let mut active_lemmas = HashMap::new();
             active_lemmas.insert(0, 0);
-            Self { rate_curve, frequencies, global_dist, rng: rand::thread_rng(), active_lemmas, known_lemmas: HashSet::new(), words_processed: 0, words_processed_since_last_intro: 0, next_lemma_to_introduce_idx: 1, } 
+            Self { rate_curve, global_dist, rng: rand::thread_rng(), active_lemmas, known_lemmas: HashSet::new(), words_processed: 0, words_processed_since_last_intro: 0, next_lemma_to_introduce_idx: 1, } 
         }
         
         fn get_rate_from_curve(&self, current_percent: f64) -> u64 {

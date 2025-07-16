@@ -314,8 +314,10 @@ pub fn run_corpus_generation(
             format!("{}_L{}_{}_R{}.txt", book_stem, state.current_start_level, target_final_level, state.current_ramp_rate)
         };
         
+        let final_raw_text = final_text_parts.join("\n\n");
+        let final_cleaned_text = text_generator::clean_text_for_tts(&final_raw_text);
         let tts_output_file_path = args.tts_output_dir.join(&filename);
-        fs::write(&tts_output_file_path, final_text_parts.join("\n\n"))?;
+        fs::write(&tts_output_file_path, final_cleaned_text)?;
         println!("  Saved TTS file to: {}", filename);
         
         log_analysis_to_file(&analysis_log_path, &filename, &book_level_stats, &book_segment_stats, numerical_chapter.sentences_numerical.len(), &learner_profile)?;

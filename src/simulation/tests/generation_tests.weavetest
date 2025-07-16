@@ -1,102 +1,172 @@
-; ==============================================================================
-; WeaveLang Generation Test Suite (V3 - Final, Future-Proof)
-; ==============================================================================
+// ===========================================
+// WeaveLang Test Suite - v5.2
+// ===========================================
 
-(#max-lemmas 80000)
+(test-case "All advanced Segments - sentenceA"
 
-; --- Segment Definitions ---
-; Format: (#define-segment <name> (part-list) (lemma-list) )
+    (sentence
+        (L0
+            (S "sa1 sa2 sa3" (lem99 lem95 lem97))
+            (S "ma1 ma2 ma3" (lem44 lem45 lem46))
+            (ID
+              (rdsa1 lem35 rdea1)
+              (rdsa2 lem36 rdea2)
+              (rdsa3 lem37 rdea3)
+            )
+            
+            (S "sb1 sb2 sb3" (lem88 lem89 lem87))
+            (S "mb1 mb2 mb3" (lem51 lem52 lem53))
+            (ID
+              (rdsb1 lem1 rdeb1)
+              (rdsb2 lem1 rdeb2)
+              (rdsb3 lem1 rdeb3)
+            )
+            
+            (S "sc1 sc2 sc3" (lem77 lem78 lem79))
+            (S "mc1 mc2 mc3" (lem60 lem62 lem59))
+            (ID
+              (rdsc1 lem60 rdec1)
+              (rdsc2 lem62 rdec2)
+              (rdsc3 lem59 rdec3)
+            )
+        )
 
-; CORRECTED: Poison markers are now `-i` and `-x`
-(#define-segment ad-p-1 (adword01 adword02) (lem1 lem2))
-(#define-segment ad-p-2 (adword03 adword04) (lem3 lem4))
-(#define-segment ad-f-unknown (adword05-x adword06) (lem21 lem6))
-(#define-segment ad-f-unknown-2 (adword07-x adword08) (lem22 lem8))
-(#define-segment ad-i-poison (adword08-i adword09-i) (lem8 lem9))
-
-(#define-segment mod-p-1 (msword01 msword02) (lem10 lem11))
-(#define-segment mod-p-2 (msword03 msword04) (lem12 lem13))
-(#define-segment mod-f-unknown (msword05-x msword06) (lem23 lem15))
-(#define-segment mod-i-poison (msword07-i msword08-i) (lem16 lem17))
-
-(#define-segment ss-p-1 (ssword01 ssword02) (lem1 lem2))
-(#define-segment ss-p-2 (ssword03 ssword04) (lem3 lem4))
-(#define-segment ss-f-unknown (ssword05-x ssword06) (lem24 lem6))
-(#define-segment ss-i-poison (ssword07-i ssword08-i) (lem8 lem9))
-
-(#define-segment en-p-1 (enword01 enword02))
-(#define-segment en-p-2 (enword03 enword04))
-(#define-segment en-i-poison (enword05-i enword06-i))
-
-; Diglot segment for L1 fallback
-(#define-segment ss-f-for-diglot (ssword01-x) (lem25))
-; This is an english span that defines its diglot relationship internally
-; CORRECTED: Marker is now `-i`
-(#define-segment en-p-for-diglot-clean (enword01 (#di enword02-i lem2 ssword02)))
-
-; Special Segments
-(#define-segment pnoun-seg (Alice) ())
-; NOTE: This word now uses a hyphen instead of an underscore for its name.
-(#define-segment italics-seg (adword01-italicized adword02) (lem1 lem2))
-
-; --- Test Cases ---
-
-(#test-case "L0_passes_with_proper_noun"
-  (#level 20)
-  (sentence 
-    (adv-segments pnoun-seg)
-    (ms-segments mod-i-poison)
-    (ss-segments ss-i-poison)
-    (en-segments en-i-poison)
-  )
-  (assert-level AdvancedWeave)
-  (assert-text "Alice")
+        (L1
+            (S "ssa1 ssa2 ssa3" (lem99 lem95 lem97))
+            (D
+              (dsa1 lem35 dea1)
+              (dsa2 lem36 dea2)
+              (dsa3 lem37 dea3)
+            )
+            (E "ma1 ma2 ma3")
+            
+            (S "ssb1 ssb2 ssb3" (lem88 lem89 lem87))
+            (D
+              (dsb1 lem17 deb1)
+              (dsb2 lem18 deb2)
+              (dsb3 lem19 deb3)
+            )
+            (E "eb1 mb2 mb3")
+            
+            (S "ssc1 ssc2 ssc3" (lem77 lem78 lem79))
+            (D
+              (dsc1 lem21 dec1)
+              (dsc2 lem22 dec2)
+              (dsc3 lem23 dec3)
+            )
+            (E "ec1 ec2 ec3" )
+        )
+    )
+    (sub-test "Advanced weave at 100"
+      (level 100)
+      (assert-text "sa1 sa2 sa3 sb1 sb2 sb3 sc1 sc2 sc3")
+      (assert-level AdvancedWeave) 
+    )
+    (sub-test "at level 90, falls back to Moderate Spanish in column A"
+        (level 90) // Learner does NOT know lem95, lem97, lem99
+        (assert-text "ma1 ma2 ma3 sb1 sb2 sb3 sc1 sc2 sc3")
+      (assert-level AdvancedWeave) 
+    )
+    (sub-test "at level 80, falls back to Moderate Spanish in column A&B"
+        (level 80)
+        (assert-text "ma1 ma2 ma3 mb1 mb2 mb3 sc1 sc2 sc3")
+      (assert-level AdvancedWeave) 
+    )
+    (sub-test "at level 70, falls back to Moderate Spanish in column A&B&C"
+        (level 70)
+        (assert-text "ma1 ma2 ma3 mb1 mb2 mb3 mc1 mc2 mc3")
+      (assert-level AdvancedWeave) 
+    )
+    (sub-test "at level 60, falls back to Moderate Spanish in column A&B id word 3 of column C"
+        (level 60)
+        (assert-text "ma1 ma2 ma3 mb1 mb2 mb3 rdsc1 rdec2 rdsc3")
+      (assert-level AdvancedWeave) 
+    )
 )
 
-(#test-case "L0_full_advanced_spanish"
-  (#level 20)
-  (sentence 
-    (adv-segments ad-p-1 ad-p-2)
-    (ms-segments mod-i-poison mod-i-poison)
-    (ss-segments ss-i-poison ss-i-poison)
-    (en-segments en-i-poison en-i-poison)
-  )
-  (assert-level AdvancedWeave)
-  (assert-text "adword01 adword02 adword03 adword04")
+
+(test-case "Real World Bug - S26 from A Christmas Carol"
+    (sentence
+        // L0 Definition from JSON
+        (L0
+            // --- A1 ---
+            (S "sANo hay duda de" (lem23 lem15 lem150 lem16))
+            (S "mANo hay duda de" (lem12 lem15 lem14 lem16)) 
+            (ID (idANo lem20 NO_SUB) (hay lem19 NO_SUB) (duda lem200 doubt) (de lem15 NO_SUB))
+            // --- A2 ---
+            (S "sBque Marley estaba muerto." (lem45 lem33 lem150))
+            (S "mBque Marley estaba muerto." (que estar muerto))
+            (ID (idBque lem10 NO_SUB) (Marley lem300 PROPER_NOUN) (estaba lem5 is) (muerto lem80 dead))
+        )
+        // L1 Definition from JSON
+        (L1
+            // --- S1 ---
+            (S "No hay duda" (lem20 lem30 lem300))
+            (D (There lem21 Hay t) (is lem2 NO_SUB f) (no ninguno ninguna t) (doubt dudar duda t))
+            (E "There is no doubt")
+            
+            // --- S2 ---
+            (S "de que Marley estaba muerto." (de que estar muerto))
+            (D (that lem3 que t) (Marley marley PROPER_NOUN f) (was lem5 estaba t) (dead muerto muerto t))
+            (E "that Marley was dead.")
+        )
+    )
+
+    // Sub-Test 1: Replicate the bug at a low level (e.g., level 20)
+    (sub-test "at level 20, should produce a clean L1 woven sentence"
+      (level 20)
+      (assert-text "mANo hay duda de idBque Marley estaba dead")
+    )
+
+    // Sub-Test 2: Baseline test at a high level
+    (sub-test "at level 1000, should choose AdvS"
+        (level 1000)
+        (assert-text "sANo hay duda de sBque Marley estaba muerto.")
+      (assert-level AdvancedWeave) 
+    )
 )
 
-(#test-case "L0_falls_back_to_moderate"
-  (#level 20)
-  (sentence 
-    (adv-segments ad-f-unknown ad-p-2)
-    (ms-segments mod-p-1 mod-i-poison)
-    (ss-segments ss-i-poison ss-i-poison)
-    (en-segments en-i-poison en-i-poison)
-  )
-  (assert-level AdvancedWeave)
-  (assert-text "msword01 msword02 adword03 adword04")
-)
 
-(#test-case "L1_falls_back_to_english"
-  (#level 20)
-  (sentence
-    (adv-segments ad-f-unknown)
-    (ms-segments mod-f-unknown)
-    (ss-segments ss-f-unknown)
-    (en-segments en-p-1)
-  )
-  (assert-level SimpleHybrid)
-  (assert-text "enword01 enword02")
-)
+(test-case "Replicates PROPER_NOUN leak from Inverse Diglot Path"
 
-(#test-case "L1_uses_diglot"
-  (#level 20)
-  (sentence
-    (adv-segments ad-f-unknown)
-    (ms-segments mod-f-unknown)
-    (ss-segments ss-f-for-diglot)
-    (en-segments en-p-for-diglot-clean)
-  )
-  (assert-level SimpleHybrid)
-  (assert-text "enword01 ssword02")
+    (sentence
+        // GOAL: Force the engine to choose the L0-Inverse path and leak "PROPER_NOUN".
+        
+        // L0 Definition:
+        // The Adv and Mod paths are poisoned with unknown lemmas.
+        // The Inv path contains a PROPER_NOUN marker. The current buggy
+        // logic will see this path as "salvageable".
+        (L0
+            (S "adv-phrase" (lem99)) // Fails: learner doesn't know lem99
+            (S "Alicia sp2 sp3" (lem1 lem2 lem98)) // Fails: learner doesn't know lem98
+            
+            (ID 
+                // Learner knows lem1, but not lem2.
+                // The engine should use "spanish1" and try to sub "spanish2".
+                // The sub for spanish2 is PROPER_NOUN. The bug is that the engine
+                // doesn't see this as a failure and proceeds.
+                (Alicia lem98 PROPER_NOUN) 
+                (spanish1 lem1 english1)
+                (spanish2 lem2 english2)
+            )
+        )
+
+        // L1 Definition:
+        // We provide a valid L1 path as a fallback. If the L0 bug is fixed,
+        // the engine will choose THIS path instead. But for now, we expect
+        // the buggy L0 path to be chosen.
+        (L1
+            (S "this-is-the-correct-L1-fallback" (lem1))
+            (D (d-i lem99 d-i f))
+            (E "e-i")
+        )
+    )
+
+    (sub-test "at level 1, leaks PROPER_NOUN from L0 Inverse Diglot path"
+        (level 3) // Learner only knows lem1.
+        
+        //Failing case is "PROPER NOUN sp2 sp3"
+        (assert-text "Alicia spanish1 spanish2")
+      (assert-level AdvancedWeave) 
+    )
 )

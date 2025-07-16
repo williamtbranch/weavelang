@@ -1,43 +1,51 @@
-// In pest, comments start with #
+// =======================================
+// WeaveLang Generation Test Suite Grammar
+// v6 - Multi-Assert Test Cases
+// =======================================
+
+// --- Boilerplate ---
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
-COMMENT = _{ ";" ~ (!"\n" ~ ANY)* }
+COMMENT    = _{ "//" ~ (!"\n" ~ ANY)* }
 
-// Basic atoms
-number = @{ ('0'..'9')+ }
-identifier = @{ (ASCII_ALPHANUMERIC | "_" | "-")+ }
-string_literal = @{ "\"" ~ ( (!"\"" ~ ANY)* ) ~ "\"" }
+// --- Top Level ---
+test_suite = { SOI ~ (test_case)* ~ EOI }
 
-// Test Case components
-level_def = { "(" ~ "#level" ~ number ~ ")" }
-assert_level_val = { "AdvancedWeave" | "SimpleHybrid" }
-assert_level = { "(" ~ "assert-level" ~ assert_level_val ~ ")" }
-assert_text = { "(" ~ "assert-text" ~ string_literal ~ ")" }
+// --- Test Case Structure ---
+test_case      = { "(" ~ "test-case" ~ stringLiteral ~ test_case_body ~ ")" }
+test_case_body = { sentence_def ~ (sub_test)+ } // A sentence followed by one or more sub-tests
 
-adv_segs = { "(" ~ "adv-segments" ~ identifier* ~ ")" }
-mod_segs = { "(" ~ "ms-segments" ~ identifier* ~ ")" }
-simple_segs = { "(" ~ "ss-segments" ~ identifier* ~ ")" }
-eng_spans = { "(" ~ "en-segments" ~ identifier* ~ ")" }
-sentence_def = { "(" ~ "sentence" ~ (adv_segs | mod_segs | simple_segs | eng_spans)+ ~ ")" }
+// --- NEW: Sub-Test Structure ---
+sub_test       = { "(" ~ "sub-test" ~ stringLiteral ~ sub_test_body ~ ")" }
+sub_test_body  = { learner_level ~ (assertion)+ }
 
-test_case_body = { (level_def | sentence_def | assert_level | assert_text)+ }
-test_case = { "(" ~ "#test-case" ~ string_literal ~ test_case_body ~ ")" }
+// Reusable Sub-Rules
+learner_level = { "(" ~ "level" ~ number ~ ")" }
+assertion     = { (assert_level | assert_text) }
+assert_level  = { "(" ~ "assert-level" ~ level_value ~ ")" }
+assert_text   = { "(" ~ "assert-text" ~ stringLiteral ~ ")" }
+level_value   = @{ "AdvancedWeave" | "SimpleHybrid" }
 
-// --- Segment Definition components ---
-diglot_def = { "(" ~ "#di" ~ identifier ~ identifier ~ identifier ~ ")" }
-segment_part = { diglot_def | identifier }
+// Sentence Structure (Unchanged from last version)
+sentence_def = { "(" ~ "sentence" ~ l0_column_body ~ l1_column_body ~ ")" }
+l0_column_body = { "(" ~ "L0" ~ segment_spec* ~ ")" }
+l1_column_body = { "(" ~ "L1" ~ segment_spec* ~ ")" }
 
-// A part_list is a parenthesized list of parts.
-part_list = { "(" ~ segment_part* ~ ")" }
-// A lemma_list is a parenthesized list of identifiers.
-lemma_list = { "(" ~ identifier* ~ ")" }
+// Segment definitions
+segment_spec = { spanishSegment | diglotSegment | englishSegment | invDiglotSegment }
+spanishSegment = { "(" ~ "S" ~ quotedPhrase ~ lemmaList ~ ")" }
+englishSegment = { "(" ~ "E" ~ quotedPhrase ~ ")" }
+diglotSegment  = { "(" ~ "D" ~ (diglotTuple)* ~ ")" }
+invDiglotSegment = { "(" ~ "ID" ~ (invDiglotTuple)* ~ ")" }
 
-// A segment_body now requires a part_list, and has an optional lemma_list.
-segment_body = { part_list ~ lemma_list? }
-segment_def = { "(" ~ "#define-segment" ~ identifier ~ segment_body ~ ")" }
+// --- Primitives ---
+quotedPhrase  = { "\"" ~ inner_string ~ "\"" }
+inner_string  = @{ (!"\"" ~ ANY)* } // Capture everything inside the quotes
+lemmaList     = { "(" ~ (identifier)* ~ ")" }
+viabilityFlag = { "t" | "f" }
 
-// Top-level definitions
-max_lemmas = { "(" ~ "#max-lemmas" ~ number ~ ")" }
-file_item = { max_lemmas | segment_def | test_case }
+diglotTuple   = { "(" ~ identifier ~ identifier ~ identifier ~ viabilityFlag? ~ ")" }
+invDiglotTuple = { "(" ~ identifier ~ identifier ~ identifier ~ ")" }
 
-// The main rule to start parsing from
-test_suite = { SOI ~ file_item* ~ EOI }
+identifier    = @{ (ASCII_ALPHANUMERIC | "-" | "_")+ }
+number        = @{ ASCII_DIGIT+ }
+stringLiteral = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }

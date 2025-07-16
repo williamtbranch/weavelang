@@ -1,70 +1,82 @@
-Project Plan: Pedagogical Enhancements (V7 Post-Refactor)
-Objective: Based on direct user testing, the current transition from word-level support (ED segments) to phrase-level comprehension (SS segments) can be jarring for a true beginner. The following enhancements aim to smooth this learning curve by improving the scaffolding for foundational vocabulary and syntactic processing.
-1. Implement "Full Diglotting" Option
-Rationale: The current rule of substituting only one "best" word per English phrase creates a large cognitive leap when the system switches to showing a full, multi-word simple Spanish phrase. Allowing for more substitutions within a single English phrase will create a smoother, more granular ramp. This will help the learner's brain get accustomed to processing adjacent Spanish words, even if they are in an English grammatical structure.
-Implementation Plan:
-Add a CLI Argument: In src/main.rs, add a new boolean flag to the GenerateCliArgs struct, e.g., --full-diglotting.
-Pass the Setting: Pass this new boolean setting from main.rs down through corpus_generator.rs into the core_algo.rs determine_and_annotate_sentence_expression function.
-Modify Core Algorithm:
-Inside determine_and_annotate_sentence_expression, when generating L1PartChoice::Hybrid, the logic needs to change.
-If full_diglotting is true: Instead of finding the single best_sub_candidate and stopping, the algorithm must iterate through all words in the base_english_phrase. For each word, if a viable substitution exists in the diglot map and the corresponding lemma is Known or Active in the profile, the substitution should be made.
-If full_diglotting is false: The existing logic of finding only the single best substitution should be used.
-Acknowledge Trade-off: The documentation should note that "full diglotting" will produce grammatically unnatural "Spanglish" as a temporary and explicit learning scaffold.
-2. Implement Variable Exposure Threshold for Core Vocabulary
-Rationale: Foundational vocabulary (the first ~2000 words) needs to be learned to the point of automaticity to reduce cognitive load when learning new words. Requiring more exposures for these core words will ensure they are more deeply internalized before being considered "Known."
-Implementation Plan:
-Acquire New Asset: Obtain a ranked Spanish lemma frequency list (e.g., from a corpus linguistics project). This should be a simple text file with one lemma per line, ordered from most frequent to least frequent. This will be added to the project (e.g., assets/es_frequency_list.txt).
-Create Loading Logic: In src/simulation/frequency_manager.rs, create a new loader function that is called once at startup. This function will read the frequency list and create a Lazy static HashMap<String, u32> mapping each lemma to its rank (line number, 1-indexed).
-Rewrite Threshold Logic: The get_exposure_threshold_for_lemma function in frequency_manager.rs will be rewritten.
-It will take a lemma string as input.
-It will look up the lemma's rank in the new frequency map.
-If a rank r is found within the core vocabulary size c (e.g., 2000): It will apply the formula e = 20 + m where m = x - ((x * r) / c). All parameters (x, c, baseline) should be configurable constants.
-If the lemma is not found in the core list: It will return the default baseline exposure count (e.g., 20).
-No Other Changes Needed: The GlobalLemmaDictionary already calls this function when a new word is discovered, so no changes are needed there. The new, variable threshold will be automatically stored with each lemma.
+================================================================================
+Project Plan: WeaveLang V8 - The Data Integrity Refactor
+Last Updated: (Date of this session)
+================================================================================
 
-Project Plan: WeaveLang V2 - The Curriculum-Based Model
-Objective: To refactor the WeaveLang engine from a path-dependent simulation model to a standardized, curriculum-based model. This will dramatically simplify the core generation logic, enhance user choice, and introduce more sophisticated pedagogical scaffolding for the intermediate learning phase.
-Phase 1: Foundational Asset Creation & Core Simplification
-1.1. Create a Project-Specific Corpus & Master Frequency List
-Rationale: The order of vocabulary introduction should be based on a standardized, objective measure derived from literature, not on the random chance of word encounters in a fixed book sequence.
-Implementation Plan:
-Action (Data Gathering): Download a large and diverse collection of Spanish-language public domain fiction from sources like Project Gutenberg.
-Action (Scripting): Create a new, standalone Rust or Python utility script (corpus_analyzer).
-Script Logic: This utility will iterate through the directory of raw Spanish texts, use SpaCy (es_core_news_lg) to tokenize and lemmatize all content, aggregate the counts for every unique lemma, and ignore punctuation and proper nouns.
-Final Asset: The script's output will be a single text file: es_master_frequency_list.txt. Each line will contain one lemma, sorted from most frequent to least frequent. This file becomes a foundational, static asset for the entire project.
-1.2. Refactor Rust Engine to a Vocabulary Level & Ramp Rate Model
-Rationale: Replace the complex, stateful, and inefficient CT-based simulation loop with a simpler, faster, and more predictable model based on the master frequency list.
-Implementation Plan (Code Removal):
-Delete the side_tally_profile logic from corpus_generator.rs.
-Delete the PriceAndCost struct and all related logic for calculating upgrade costs.
-Delete the exposure_count field from LearnerLemmaInfo. The concept is now implicit in the frequency list.
-Implementation Plan (New Logic):
-Update CLI Arguments (main.rs):
-Remove --target-ct-threshold and --max-words-to-add-per-block.
-Add --start-vocab-level <N> (e.g., 200).
-Add --end-vocab-level <N> (e.g., 400).
-Add --ramp-rate <R> (e.g., 10, for 10 new words per hour).
-Update corpus_generator.rs:
-At the start of a generation task, load the es_master_frequency_list.txt.
-Initialize the LearnerProfile by adding the top N lemmas from the list, where N is --start-vocab-level.
-The "target vocabulary" is the list of lemmas from rank N+1 to M (where M is --end-vocab-level).
-The New "Loop": As the generator processes sentences, it will keep a running count of total words in the generated output. Based on the --ramp-rate (and the tapering logic for core words), it will activate the next word from the target vocabulary list after a certain number of output words has been generated (e.g., every 900 words for R10).
-Tapering Logic: Implement the ramp-up for the core vocabulary (e.g., first 2000 words). The number of output words required to activate a new word will be higher for the most frequent lemmas and will linearly decrease to the baseline set by the ramp rate.
-Phase 2: Advanced Intermediate Scaffolding
-2.1. Implement "Inverse Diglotting" for Level 0
-Rationale: To bridge the syntactic gap between English-structured simple Spanish (L1) and authentic Spanish grammar (L0), we need a scaffolding layer that presents correct Spanish sentence structure while providing word-level support for difficult vocabulary.
-Implementation Plan (Data Pipeline):
-Add New LLM Call (Stage 3c): In orchestrate_pipeline.py, add a new stage after the advanced segments are simplified.
-New Prompt: This stage's prompt will instruct the LLM to take a Spanish phrase and return a mapping of its key content lemmas to their concise English equivalents (e.g., {"castaño": "chestnut-colored"}). The LLM must be instructed to use a NO_SUB marker for words that cannot be meaningfully substituted.
-Update JSON Structure: Add a new field inverse_diglot_map: HashMap<String, String> to the JsonAdvSpanishSegment struct in types/json_types.rs.
-Update Preprocessor: The preprocessor.rs must be updated to parse this new map and convert it to a numerical format (e.g., HashMap<u32, String>) in the NumericalAdvSegmentBundle.
-Implementation Plan (Rust Engine):
-Modify core_algo.rs: The logic for Level 0 Advanced Weave will be expanded. For each segment, it will attempt generation in the following order:
-Full AS (Advanced Spanish): If all lemmas known.
-Full MS (Moderate Spanish): If all lemmas known.
-Inverse Diglot MS: If the segment meets specific criteria (see below).
-Fail: If none of the above are possible, the entire L0 weave fails for the sentence.
-Inverse Diglot Rules: The new Inverse Diglot option (3) will only be attempted if ALL of the following conditions are met:
-Activation Trigger: A minimum percentage of the Spanish lemmas in the segment must already be known (e.g., >50%). This is a new configurable parameter.
-Sensibility Threshold: The number of required English substitutions must not exceed a maximum limit (e.g., max(1, 33% of total words)). This is a new configurable parameter.
-No "Unsubstitutable" Blockers: None of the unknown lemmas are marked with NO_SUB in the inverse diglot map.
+**Objective:** To perform a critical refactoring of the data pipeline and test suite to fix a fundamental data integrity issue related to the "Inverse Diglot" feature. This will ensure the Rust generation engine receives all the data it needs to function correctly.
+
+---
+**Part 1: The Core Problem Diagnosis**
+---
+
+A deep-dive debugging session has revealed a critical flaw in the data pipeline:
+
+1.  **Missing Data:** The `inverse_diglot_map` in the final `stage10.json` files is structurally deficient. It currently exists as a simple map of `{ "spanish_word": "english_substitute" }`. It is **missing the crucial `spanish_lemma`** for each mapping.
+
+2.  **Broken Engine Logic:** The Rust generation engine is designed to make substitution decisions based on whether a learner knows a specific *lemma*. Without the lemma present in the inverse diglot data, the engine cannot correctly determine if a substitution is valid. This is the root cause of the `NO_SUB` and other markers leaking into the final generated text from the L0 (AdvancedWeave) level.
+
+3.  **Ineffective Pipeline Stage:** Stage 10 (`LemmatizeInverseDiglotMap`) was intended to solve this by finding the lemmas. However, the current JSON data structure provides no field to *save* the lemma it finds, rendering the stage completely ineffective. The data is calculated but immediately discarded.
+
+---
+**Part 2: The Action Plan**
+---
+
+To fix this, a coordinated, multi-step refactoring is required across the Python pipeline, the core Rust data types, and the Rust test suite.
+
+**Step 1: Fix the Core Data Structure (The "Single Source of Truth")**
+
+-   **File:** `src/types/json_types.rs`
+-   **Task:** Redefine the data structure for the inverse diglot map.
+    -   Create a new struct: `JsonInverseDiglotMapEntry { spanish_word: String, spanish_lemma: String, english_substitute: String }`.
+    -   Change the `inverse_diglot_map` field in the `JsonAdvSpanishSegment` struct from `HashMap<String, String>` to `Vec<JsonInverseDiglotMapEntry>`. This will be the new, correct schema.
+
+**Step 2: Fix the Python Data Pipeline**
+
+-   **File:** `llm2books/stages/generate_inverse_diglot_map.py` (Stage 9)
+-   **Task:** Modify this stage to produce the *new* data structure.
+    -   It will parse the LLM's `spanish_word -> english_sub` output.
+    -   For each pair, it will create a *partial* JSON object: `{ "spanish_word": "...", "spanish_lemma": "", "english_substitute": "..." }`. The `spanish_lemma` field will be intentionally left blank.
+    -   It will write a list of these partial objects to the `stage9.json` file.
+
+-   **File:** `llm2books/stages/lemmatize_inverse_diglot_map.py` (Stage 10)
+-   **Task:** Modify this stage to correctly consume and complete the new data structure.
+    -   It will now read the `Vec<JsonInverseDiglotMapEntry>` from the `stage9.json` file.
+    -   It will iterate through the list. For each entry, it will use SpaCy to find the lemma of the `spanish_word`.
+    -   It will then **update the `spanish_lemma` field** in that same entry with the result.
+    -   It will save the final, complete `stage10.json` file.
+
+**Step 3: Create a One-Off Repair Script for Existing Data**
+
+-   **File:** Create a new standalone Python script (e.g., `repair_stage10_json.py`).
+-   **Task:** This script is crucial for migrating all existing processed books.
+    -   It will traverse the directory containing the final `.json` files.
+    -   For each file, it will load the JSON.
+    -   It will find the old, broken `inverse_diglot_map` (the HashMap).
+    -   It will convert the old map into the new `Vec<JsonInverseDiglotMapEntry>` structure, using SpaCy on the fly to find and populate the `spanish_lemma` for each entry.
+    -   It will overwrite the existing file with the new, corrected data structure.
+
+**Step 4: Update the Rust Test Suite to Model Reality**
+
+-   **Goal:** Create a test DSL that is unambiguous and accurately reflects the new, correct data structure.
+-   **File:** `src/simulation/tests/generation_tests.pest`
+    -   **Task:** Introduce a new, explicit tag for defining inverse diglot mappings within a segment: `(#inv-di <spa_word> <spa_lemma> <eng_sub>)`. This syntax is clean, provides all necessary data, and avoids confusion with the regular `#di` tag.
+
+-   **Files:** `src/simulation/tests/weavetest_parser.rs` and `src/simulation/tests/test_generation.rs`
+    -   **Task:** Update the test parser and compiler to understand the new `#inv-di` tag and populate the `DslSegment` and `NumericalAdvSegmentBundle` structs with the complete inverse diglot data, including the lemma.
+
+**Step 5: Write the Final Failing Test Case**
+
+-   **File:** `src/simulation/tests/generation_tests.weavetest`
+-   **Task:** With the test suite fully upgraded, write the definitive test case that proves the `NO_SUB` bug.
+    -   The test will force a fallback to a Moderate Spanish segment.
+    -   The segment will contain an unknown lemma.
+    -   The segment's inverse diglot map will map that unknown lemma to the `NO_SUB` marker.
+    -   The `assert-text` will check that the engine correctly identified this as a failed path and fell back to the L1 `SimpleHybrid` level, producing the expected clean text from that level.
+
+---
+**Previous To-Do Items (Completed or Superseded)**
+---
+
+- Implement "Full Diglotting" Option. (Completed)
+- Implement Variable Exposure Threshold for Core Vocabulary. (Completed)
+- Refactor Rust Engine to a Vocabulary Level & Ramp Rate Model. (Completed)

@@ -1,122 +1,209 @@
-use crate::simulation::core_algo::OutputLevel;
-use crate::simulation::tests::test_generation::{DslSegment, DslSegmentPart, DslTestCase};
-use pest::iterators::{Pair, Pairs};
+// src/simulation/tests/weavetest_parser.rs
+
 use pest::Parser;
-use std::collections::HashMap;
+
+// --- DSL DATA STRUCTURES ---
+#[derive(Debug, Clone)]
+pub struct DslTestCase {
+    pub name: String,
+    pub sentence_def: DslSentenceDef,
+    pub sub_tests: Vec<DslSubTest>, // A test case now has multiple sub-tests
+}
+
+#[derive(Debug, Clone)]
+pub struct DslSubTest {
+    pub name: String,
+    pub learner_level: u32,
+    pub assertions: Vec<DslAssertion>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DslSentenceDef {
+    pub l0_def: DslColumnBody,
+    pub l1_def: DslColumnBody,
+}
+
+#[derive(Debug, Clone)]
+pub enum DslColumnBody {
+    L0(Vec<DslSegmentSpec>),
+    L1(Vec<DslSegmentSpec>),
+}
+
+#[derive(Debug, Clone)]
+pub enum DslSegmentSpec {
+    Spanish { phrase: Vec<String>, lemmas: Vec<String> },
+    Diglot { tuples: Vec<DslDiglotTuple> },
+    English { phrase: Vec<String> },
+    InvDiglot { tuples: Vec<DslInvDiglotTuple> },
+}
+
+#[derive(Debug, Clone)]
+pub struct DslDiglotTuple {
+    pub word_to_replace: String,
+    pub replacement_lemma: String,
+    pub replacement_word: String,
+    pub is_viable: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct DslInvDiglotTuple {
+    pub spanish_word: String,
+    pub spanish_lemma: String,
+    pub english_substitute: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum DslAssertion {
+    Level(String),
+    Text(String),
+}
 
 #[derive(pest_derive::Parser)]
 #[grammar = "simulation/tests/generation_tests.pest"]
-struct WeaveTestParser;
+pub struct WeaveTestParser;
 
-fn parse_segment_body(pair: Pair<Rule>) -> DslSegment {
+// --- PARSING LOGIC ---
+
+pub fn parse_weavetest_file(file_content: &str) -> Result<Vec<DslTestCase>, pest::error::Error<Rule>> {
+    let file_pair = WeaveTestParser::parse(Rule::test_suite, file_content)?.next().unwrap();
+    Ok(file_pair.into_inner()
+        .filter(|p| p.as_rule() == Rule::test_case)
+        .map(parse_test_case)
+        .collect())
+}
+
+fn parse_test_case(pair: pest::iterators::Pair<Rule>) -> DslTestCase {
     let mut inner = pair.into_inner();
-    let mut segment = DslSegment::default();
-    let part_list_pair = inner.next().unwrap();
-    for segment_part_pair in part_list_pair.into_inner() {
-        let mut part_inner = segment_part_pair.into_inner();
-        let part_content_pair = part_inner.next().unwrap();
-        match part_content_pair.as_rule() {
-            Rule::diglot_def => {
-                let mut diglot_inner = part_content_pair.into_inner();
-                let word_to_replace = diglot_inner.next().unwrap().as_str().to_string();
-                let replacement_lemma = diglot_inner.next().unwrap().as_str().to_string();
-                let replacement_word = diglot_inner.next().unwrap().as_str().to_string();
-                segment.parts.push(DslSegmentPart::Diglot {
-                    word_to_replace,
-                    replacement_lemma,
-                    replacement_word,
-                });
+    let name = inner.next().unwrap().as_str().trim_matches('"').to_string();
+    let body_pair = inner.next().unwrap();
+
+    let mut sentence_def_opt = None;
+    let mut sub_tests = Vec::new();
+
+    for part in body_pair.into_inner() {
+        match part.as_rule() {
+            Rule::sentence_def => {
+                sentence_def_opt = Some(parse_sentence_def(part));
             }
-            Rule::identifier => {
-                segment.parts.push(DslSegmentPart::Word(part_content_pair.as_str().to_string()));
+            Rule::sub_test => {
+                sub_tests.push(parse_sub_test(part));
             }
             _ => unreachable!(),
         }
     }
-    if let Some(lemma_list_pair) = inner.next() {
-        segment.lemmas = lemma_list_pair.into_inner().map(|p| p.as_str().to_string()).collect();
-    }
-    segment
-}
-// ... (rest of parser file is unchanged) ...
-fn parse_test_case_body(pairs: Pairs<Rule>, test_case: &mut DslTestCase) {
-    for pair in pairs {
-        let rule = pair.as_rule();
-        let mut inner = pair.into_inner();
 
-        match rule {
-            Rule::level_def => {
-                test_case.learner_level = inner.next().unwrap().as_str().parse().expect("Invalid number for #level");
+    DslTestCase { name, sentence_def: sentence_def_opt.unwrap(), sub_tests }
+}
+
+fn parse_sub_test(pair: pest::iterators::Pair<Rule>) -> DslSubTest {
+    let mut inner = pair.into_inner();
+    let name = inner.next().unwrap().as_str().trim_matches('"').to_string();
+    let body_pair = inner.next().unwrap();
+
+    let mut learner_level = 0;
+    let mut assertions = Vec::new();
+
+    for part in body_pair.into_inner() {
+        match part.as_rule() {
+            Rule::learner_level => {
+                learner_level = part.into_inner().next().unwrap().as_str().parse().unwrap();
             }
-            Rule::sentence_def => {
-                for seg_type_pair in inner {
-                    let seg_rule = seg_type_pair.as_rule();
-                    let seg_inner = seg_type_pair.into_inner();
-                    let seg_names = seg_inner.map(|p| p.as_str().to_string()).collect();
-                    
-                    match seg_rule {
-                        Rule::adv_segs => test_case.sentence.adv_segments = seg_names,
-                        Rule::mod_segs => test_case.sentence.mod_segments = seg_names,
-                        Rule::simple_segs => test_case.sentence.simple_segments = seg_names,
-                        Rule::eng_spans => test_case.sentence.english_spans = seg_names,
-                        _ => unreachable!("Unexpected rule inside sentence_def"),
-                    }
-                }
+            Rule::assertion => {
+                assertions.push(parse_assertion(part));
             }
-            Rule::assert_level => {
-                let level_str = inner.next().unwrap().as_str();
-                test_case.assert_level = if level_str == "AdvancedWeave" {
-                    OutputLevel::AdvancedWeave
-                } else {
-                    OutputLevel::SimpleHybrid
-                };
-            }
-            Rule::assert_text => {
-                test_case.assert_text = inner.next().unwrap().as_str().trim_matches('"').to_string();
-            }
-            _ => unreachable!("Unexpected rule inside test_case_body"),
+            _ => unreachable!(),
         }
     }
+    DslSubTest { name, learner_level, assertions }
 }
-pub fn parse_weavetest_file(
-    file_content: &str,
-) -> Result<(u32, HashMap<String, DslSegment>, Vec<DslTestCase>), pest::error::Error<Rule>> {
-    let mut max_lemmas = 0;
-    let mut segments = HashMap::new();
-    let mut test_cases = Vec::new();
 
-    let file_pair = WeaveTestParser::parse(Rule::test_suite, file_content)?.next().unwrap();
+fn parse_sentence_def(pair: pest::iterators::Pair<Rule>) -> DslSentenceDef {
+    let mut inner = pair.into_inner();
+    let l0_def = parse_column_body(inner.next().unwrap());
+    let l1_def = parse_column_body(inner.next().unwrap());
+    DslSentenceDef { l0_def, l1_def }
+}
 
-    for pair in file_pair.into_inner() {
-        match pair.as_rule() {
-            Rule::file_item => {
-                let mut inner_item = pair.into_inner();
-                let item_content = inner_item.next().unwrap();
-                let rule = item_content.as_rule();
-                let mut inner = item_content.into_inner();
-
-                match rule {
-                    Rule::max_lemmas => {
-                        max_lemmas = inner.next().unwrap().as_str().parse().expect("Invalid number for #max-lemmas");
-                    }
-                    Rule::segment_def => {
-                        let name = inner.next().unwrap().as_str().to_string();
-                        let segment_body_pair = inner.next().unwrap();
-                        segments.insert(name, parse_segment_body(segment_body_pair));
-                    }
-                    Rule::test_case => {
-                        let name = inner.next().unwrap().as_str().trim_matches('"').to_string();
-                        let mut test_case = DslTestCase { name, ..Default::default() };
-                        let body_pairs = inner.next().unwrap().into_inner();
-                        parse_test_case_body(body_pairs, &mut test_case);
-                        test_cases.push(test_case);
-                    }
-                    _ => unreachable!("A file_item contained an unexpected rule: {:?}", rule),
-                }
-            }
-            Rule::WHITESPACE | Rule::COMMENT | Rule::EOI => (),
-            _ => unreachable!("Parser grammar should not allow this at top level: {:?}", pair.as_rule()),
-        }
+fn parse_column_body(pair: pest::iterators::Pair<Rule>) -> DslColumnBody {
+    let rule = pair.as_rule();
+    let segments: Vec<DslSegmentSpec> = pair.into_inner().map(parse_segment_spec).collect();
+    match rule {
+        Rule::l0_column_body => DslColumnBody::L0(segments),
+        Rule::l1_column_body => DslColumnBody::L1(segments),
+        _ => unreachable!(),
     }
-    Ok((max_lemmas, segments, test_cases))
+}
+
+fn parse_segment_spec(pair: pest::iterators::Pair<Rule>) -> DslSegmentSpec {
+    // The `pair` has the rule `segment_spec`. Its inner child is the concrete type.
+    let inner_pair = pair.into_inner().next().unwrap();
+    let rule = inner_pair.as_rule();
+    let mut inner = inner_pair.into_inner();
+
+    match rule {
+        Rule::spanishSegment => {
+            // A spanishSegment has a quotedPhrase and an optional lemmaList.
+            let phrase_with_quotes = inner.next().unwrap().as_str();
+            let phrase_str = phrase_with_quotes.trim_matches('"');
+            
+            let lemmas = inner.next().map(|p| {
+                p.into_inner().map(|l| l.as_str().to_string()).collect()
+            }).unwrap_or_default();
+            
+            DslSegmentSpec::Spanish {
+                phrase: phrase_str.split_whitespace().map(String::from).collect(),
+                lemmas,
+            }
+        }
+        Rule::englishSegment => {
+            // An englishSegment has just a quotedPhrase.
+            let phrase_with_quotes = inner.next().unwrap().as_str();
+            let phrase_str = phrase_with_quotes.trim_matches('"');
+            
+            DslSegmentSpec::English { 
+                phrase: phrase_str.split_whitespace().map(String::from).collect() 
+            }
+        }
+        Rule::diglotSegment => {
+            DslSegmentSpec::Diglot { tuples: inner.map(parse_diglot_tuple).collect() }
+        }
+        Rule::invDiglotSegment => {
+            DslSegmentSpec::InvDiglot { tuples: inner.map(parse_inv_diglot_tuple).collect() }
+        }
+        // This arm handles any other rule, preventing the non-exhaustive match error.
+        // It should never be hit if the grammar is correct.
+        _ => unreachable!("BUG in parse_segment_spec: expected a segment type, got {:?}", rule),
+    }
+}
+
+fn parse_diglot_tuple(pair: pest::iterators::Pair<Rule>) -> DslDiglotTuple {
+    let mut inner = pair.into_inner();
+    DslDiglotTuple {
+        word_to_replace: inner.next().unwrap().as_str().to_string(),
+        replacement_lemma: inner.next().unwrap().as_str().to_string(),
+        replacement_word: inner.next().unwrap().as_str().to_string(),
+        is_viable: inner.next().map_or(true, |p| p.as_str() == "t"),
+    }
+}
+
+fn parse_inv_diglot_tuple(pair: pest::iterators::Pair<Rule>) -> DslInvDiglotTuple {
+    let mut inner = pair.into_inner();
+    DslInvDiglotTuple {
+        spanish_word: inner.next().unwrap().as_str().to_string(),
+        spanish_lemma: inner.next().unwrap().as_str().to_string(),
+        english_substitute: inner.next().unwrap().as_str().to_string(),
+    }
+}
+
+fn parse_assertion(pair: pest::iterators::Pair<Rule>) -> DslAssertion {
+    let assertion_pair = pair.into_inner().next().unwrap();
+    let rule = assertion_pair.as_rule();
+    let value_pair = assertion_pair.into_inner().next().unwrap();
+    let value = value_pair.as_str();
+
+    match rule {
+        Rule::assert_level => DslAssertion::Level(value.to_string()),
+        Rule::assert_text => DslAssertion::Text(value.trim_matches('"').to_string()),
+        _ => unreachable!(),
+    }
 }

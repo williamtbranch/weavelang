@@ -17,17 +17,27 @@ class LemmatizeInverseDiglotMap(SpaCyStage):
         for block in data.get("content_blocks", []):
             if block.get("block_type") == "sentence":
                 for seg in block.get("adv_spanish_segments", []):
-                    token_based_map = seg.get("inverse_diglot_map", {})
-                    lemmatized_map = {}
-                    if token_based_map:
-                        for token_str, eng_sub in token_based_map.items():
-                            # Normalize the lemma produced by SpaCy
-                            doc = spacy_es(token_str)
+                    # --- START MODIFIED LOGIC ---
+                    # `inverse_diglot_map` is now a list of dictionary entries.
+                    # We iterate through it and update each entry in place.
+                    map_entries = seg.get("inverse_diglot_map", [])
+                    for entry in map_entries:
+                        spanish_word = entry.get("spanish_word", "")
+                        if spanish_word:
+                            # Use SpaCy to process the Spanish word
+                            doc = spacy_es(spanish_word)
+                            # Find the first non-punctuation token to get the lemma
                             main_token = next((t for t in doc if not t.is_punct), None)
                             if main_token:
-                                lemma = helper.normalize_spanish_lemma(main_token.lemma_)
-                                if lemma: # Only add if the lemma is valid
-                                    lemmatized_map[lemma] = eng_sub
-                    seg["inverse_diglot_map"] = lemmatized_map
+                                # Use our centralized normalizer for consistency
+                                normalized_lemma = helper.normalize_spanish_lemma(main_token.lemma_)
+                                # Update the 'spanish_lemma' field in the entry
+                                entry["spanish_lemma"] = normalized_lemma
+                            else:
+                                # If no token found, fall back to a normalized version of the word itself
+                                entry["spanish_lemma"] = helper.normalize_spanish_lemma(spanish_word)
+                    # --- END MODIFIED LOGIC ---
+            
             block.setdefault("llm_call_status", {})[f"stage{self.stage_number}"] = "COMPLETED_SPACY"
+        
         return data

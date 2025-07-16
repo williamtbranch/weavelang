@@ -22,12 +22,22 @@ pub struct JsonChapterMarkerBlock {
     pub marker_text: String,
 }
 
-// NOTE: We do NOT need to derive Default here, because the `JsonSentenceBlock`
-// already derives it, and this struct is only ever used inside that one.
 #[derive(Deserialize, Debug, Clone)]
 pub struct JsonTextAndLemmas {
     pub text: String,
     pub lemmas: Vec<String>,
+}
+
+/// **NEW**: Defines the structure for a single entry in the inverse diglot map.
+/// This will be produced by the Python pipeline (Stage 10).
+#[derive(Deserialize, Debug, Clone, Default)]
+pub struct JsonInverseDiglotMapEntry {
+    #[serde(default)]
+    pub spanish_word: String,
+    #[serde(default)]
+    pub spanish_lemma: String,
+    #[serde(default)]
+    pub english_substitute: String,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -37,8 +47,10 @@ pub struct JsonAdvSpanishSegment {
     pub advanced_lemmas: Vec<String>,
     pub simpler_text: String,
     pub simpler_lemmas: Vec<String>,
-    #[serde(default)] 
-    pub inverse_diglot_map: HashMap<String, String>,
+    /// **MODIFIED**: This is now a Vector of the new entry struct, which correctly
+    /// holds all the necessary data from the pipeline.
+    #[serde(default)]
+    pub inverse_diglot_map: Vec<JsonInverseDiglotMapEntry>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -64,9 +76,6 @@ pub struct JsonDiglotMapEntry {
     pub note: String,
 }
 
-// CORRECTED: Added `Default` to the derive macro.
-// We also need to add `#[serde(default)]` to all fields so that `::default()` knows how
-// to construct an empty instance.
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct JsonSentenceBlock {
     #[serde(default)]
@@ -99,8 +108,6 @@ pub struct JsonSentenceBlock {
     pub processing_notes: Vec<String>,
 }
 
-// We also need to add #[derive(Default)] to `JsonTextAndLemmas` since it's used inside
-// JsonSentenceBlock.
 impl Default for JsonTextAndLemmas {
     fn default() -> Self {
         Self {

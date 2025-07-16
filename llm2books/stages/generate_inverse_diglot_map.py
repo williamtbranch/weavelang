@@ -62,11 +62,11 @@ class GenerateInverseDiglotMap(LLMStage):
 
         token_estimate = self._estimate_tokens("\n".join(full_prompt_text_for_unit))
         return prepared_items, token_estimate
-
     def process_llm_response(self, block: Dict[str, Any], llm_response: Dict[str, str]) -> None:
         """
         Parses the LLM's response and adds the `inverse_diglot_map` to each
-        advanced segment in the sentence block.
+        advanced segment in the sentence block. The map will contain PARTIAL entries,
+        as the lemma will be populated in the next stage.
         """
         s_id_num = block["original_sentence_s_id"].replace("S", "")
         # The mapping regex: `spanish_word -> english_substitute`
@@ -79,18 +79,27 @@ class GenerateInverseDiglotMap(LLMStage):
             # The response for one segment is a multi-line string block
             segment_mapping_text = llm_response.get(lookup_id, "")
             
-            inverse_map = {}
-            for line in segment_mapping_text.splitlines():
-                match = mapping_regex.match(line.strip())
-                if match:
-                    # Key is the exact spanish word, value is the english substitute
-                    spanish_word = match.group(1).strip()
-                    english_sub = match.group(2).strip()
-                    inverse_map[spanish_word] = english_sub
+            # --- START MODIFIED LOGIC ---
+            # Instead of a dict, we now create a list of dicts (our partial entries)
+            inverse_map_entries = []
+            if segment_mapping_text:
+                for line in segment_mapping_text.splitlines():
+                    match = mapping_regex.match(line.strip())
+                    if match:
+                        spanish_word = match.group(1).strip()
+                        english_sub = match.group(2).strip()
+                        # Create the partial entry. The `spanish_lemma` is left blank
+                        # for Stage 10 to fill in.
+                        inverse_map_entries.append({
+                            "spanish_word": spanish_word,
+                            "spanish_lemma": "", 
+                            "english_substitute": english_sub
+                        })
             
-            # Add the newly created map to the segment object.
+            # Add the newly created list of partial objects to the segment.
             # The field will be created if it doesn't exist.
-            seg["inverse_diglot_map"] = inverse_map
+            seg["inverse_diglot_map"] = inverse_map_entries
+            # --- END MODIFIED LOGIC ---
 
         # Mark this stage as complete for the block
         status_key = f"stage{self.stage_number}"

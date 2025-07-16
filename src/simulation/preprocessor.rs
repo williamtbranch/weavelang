@@ -1,3 +1,4 @@
+//*** START FILE: src/simulation/preprocessor.rs ***//
 // src/simulation/preprocessor.rs
 
 use crate::simulation::dictionary::GlobalLemmaDictionary;
@@ -61,15 +62,19 @@ fn json_sentence_to_numerical(
         .adv_spanish_segments
         .iter()
         .map(|s_bundle| {
-            // --- NEW: Convert the inverse diglot map ---
-            let inverse_diglot_map_numerical: HashMap<u32, String> = s_bundle
+            // *** FIX: This now correctly builds the Vec<(String, u32, String)> tuple. ***
+            // It was previously creating a Vec<(u32, String)>, which was incorrect.
+            let inverse_diglot_map_numerical: Vec<(String, u32, String)> = s_bundle
                 .inverse_diglot_map
                 .iter()
-                .map(|(spa_lemma, eng_sub)| {
-                    (dictionary.get_id_or_insert(spa_lemma), eng_sub.clone())
+                .map(|entry| {
+                    (
+                        entry.spanish_word.clone(), // 1. The original Spanish word
+                        dictionary.get_id_or_insert(&entry.spanish_lemma), // 2. The Lemma ID
+                        entry.english_substitute.clone(), // 3. The English Substitute
+                    )
                 })
                 .collect();
-            // --- END NEW ---
 
             NumericalAdvSegmentBundle {
                 a_id_str: s_bundle.segment_id.clone(),
@@ -77,8 +82,7 @@ fn json_sentence_to_numerical(
                 adv_lemma_ids: string_lemmas_to_ids(&s_bundle.advanced_lemmas, dictionary),
                 simpler_text_original: s_bundle.simpler_text.clone(),
                 simpler_lemma_ids: string_lemmas_to_ids(&s_bundle.simpler_lemmas, dictionary),
-                // --- NEW: Initialize the field ---
-                inverse_diglot_map_numerical,
+                inverse_diglot_map_numerical, // Assign the newly created correct map
             }
         })
         .collect();
@@ -152,3 +156,4 @@ fn json_sentence_to_numerical(
         diglot_map_numerical,
     }
 }
+//*** END FILE: src/simulation/preprocessor.rs ***//
