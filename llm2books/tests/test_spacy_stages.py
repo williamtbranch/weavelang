@@ -28,12 +28,18 @@ class TestSpaCyLemmatizationStages(unittest.TestCase):
 
     def create_mock_stage(self, StageClass):
         """Helper to create a stage instance with mocked config and resources."""
-        mock_cli_args = MagicMock() # Create a mock for cli_args
+        # --- FIXED CONSTRUCTOR CALL ---
+        mock_cli_args = MagicMock()
+        mock_cli_args.input_staged_subdir = 'Staged'
+        mock_cli_args.output_llm_subdir = 'pipeline'
+
         common_resources = {
             "spacy_models": self.spacy_models,
-            "content_project_dir": "/fake/dir" 
+            "content_project_dir": "/fake/dir",
+            "pipeline_config": {},
+            "models_config": {},
+            "stages_config": {}
         }
-        # Pass the mock_cli_args to the constructor
         return StageClass("test_book", mock_cli_args, common_resources)
 
     def test_stage2_lemmatize_adv_spanish(self):
@@ -56,7 +62,7 @@ class TestSpaCyLemmatizationStages(unittest.TestCase):
         
         # ASSERT
         lemmas = processed_data["content_blocks"][0]["adv_spanish_full"]["lemmas"]
-        # CORRECTED: 'sentirse' lemmatizes to 'sentir'. 'él' is incorrect.
+        # With the PROPN filter removed, this will now pass.
         self.assertEqual(lemmas, ["comenzar", "a", "sentir", "mucho", "cansado"])
         status = processed_data["content_blocks"][0]["llm_call_status"]["stage2"]
         self.assertEqual(status, "COMPLETED_SPACY")
@@ -100,7 +106,7 @@ class TestSpaCyLemmatizationStages(unittest.TestCase):
         self.assertEqual(block["adv_spanish_segments"][0]["simpler_lemmas"], ["empezar"])
         
         self.assertEqual(block["adv_spanish_segments"][1]["simpler_lemmas"], ["a", "estar", "cansado"])
-        # CORRECTED: 'sentirse' lemmatizes to 'sentir'.
+        # With the PROPN filter removed, this will now pass.
         self.assertEqual(block["adv_spanish_segments"][1]["advanced_lemmas"], ["a", "sentir", "cansado"])
         # Check aggregated simpler text and lemmas
         self.assertEqual(block["simpler_adv_spanish_full"]["text"], "Alicia empezaba a estar cansada.")
@@ -133,8 +139,8 @@ class TestSpaCyLemmatizationStages(unittest.TestCase):
         
         # ASSERT
         # Check per-segment lemmas
-        # CORRECTED: 'Ella' lemmatizes to 'él'.
         self.assertEqual(block["simple_spanish_l3_lemmas_per_segment"]["S1"], ["el", "libro", "ser", "bueno"])
+        # Note: "Ella" lemmatizes to "el", which is SpaCy's behavior. We keep this assertion.
         self.assertEqual(block["simple_spanish_l3_lemmas_per_segment"]["S2"], ["el", "leer", "rapido"])
         
         # Check aggregated full-sentence lemmas

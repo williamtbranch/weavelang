@@ -1,3 +1,4 @@
+# llm2books/stages/lemmatize_adv_spanish.py
 from typing import Any, Dict
 
 from .base import SpaCyStage, logger
@@ -21,8 +22,9 @@ class LemmatizeAdvSpanish(SpaCyStage):
                 source_text = adv_spanish_obj.get("text", "")
                 if source_text.strip():
                     doc = spacy_es(source_text)
-                    # --- MODIFIED LEMMA EXTRACTION ---
-                    raw_lemmas = [token.lemma_ for token in doc if not token.is_punct and not token.is_space and token.pos_ != "PROPN"]
+                    # --- MODIFIED LEMMA EXTRACTION (BUG FIX) ---
+                    # The `and token.pos_ != "PROPN"` check was removed.
+                    raw_lemmas = [token.lemma_ for token in doc if not token.is_punct and not token.is_space]
                     normalized_lemmas = [
                         norm_lemma for s in raw_lemmas if (norm_lemma := helper.normalize_spanish_lemma(s))
                     ]

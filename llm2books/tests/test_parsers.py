@@ -7,30 +7,32 @@ from llm2books.stages.generate_diglot_map import GenerateDiglotMap
 # We need to import the class we're testing
 from llm2books.stages.base import LLMStage
 
+# --- FIXED DUMMY CLASS ---
 # Since LLMStage is an Abstract Base Class (ABC), we can't instantiate it directly.
-# We create a simple, concrete subclass just for testing purposes.
+# We create a simple, concrete subclass that implements all abstract methods.
 class DummyLLMStage(LLMStage):
     def get_system_prompt(self) -> str:
-        pass # Not needed for this test
-    def prepare_llm_input(self, block, s_idx):
+        return "dummy_prompt" # Not needed for this test
+    def prepare_atomic_unit(self, block, s_idx):
         pass # Not needed for this test
     def process_llm_response(self, block, llm_response):
         pass # Not needed for this test
+
 
 class TestLLMResponseParsers(unittest.TestCase):
     
     def setUp(self):
         """Set up a dummy stage instance to call the private parser methods."""
-        # The __init__ method requires some arguments, so we'll create mock objects.
-        mock_config = MagicMock()
+        # --- FIXED CONSTRUCTOR CALL ---
+        # The constructor now takes cli_args and common_resources.
+        mock_cli_args = MagicMock()
         mock_common_resources = MagicMock()
         self.stage = DummyLLMStage(
             book_stem="test_book",
-            config=mock_config,
+            cli_args=mock_cli_args,
             common_resources=mock_common_resources,
             stage_number=99,
             stage_name="TestStage",
-            batch_size=1,
             parser_type='line' # Default, can be ignored
         )
 
@@ -63,6 +65,7 @@ ID 10 :   Some content with spaces.
         parsed_data, errors = self.stage._parse_llm_response_line(mock_response, expected_ids)
         
         self.assertEqual(len(errors), 0)
+        # Note: The keys are lowercased by the parser.
         self.assertEqual(parsed_data["id 10"], "Some content with spaces.")
         self.assertEqual(parsed_data["id 11"], "Another line.")
         
@@ -74,20 +77,23 @@ ID 10 :   Some content with spaces.
         parsed_data, errors = self.stage._parse_llm_response_line(mock_response, expected_ids)
         
         self.assertEqual(len(errors), 1)
-        self.assertIn("Missing IDs in response: id 2", errors[0])
+        self.assertIn("Missing or empty content for IDs: id 2", errors[0])
         self.assertIn("id 1", parsed_data)
         self.assertNotIn("id 2", parsed_data)
 
     def test_line_parser_empty_content(self):
-        """Tests response where an ID has no content."""
+        """Tests response where an ID has no content, which is a validation failure."""
         mock_response = "id 5:\nid 6: Has content."
         expected_ids = ["id 5", "id 6"]
         
         parsed_data, errors = self.stage._parse_llm_response_line(mock_response, expected_ids)
+        
+        # The new parser considers an empty line a failure
+        self.assertEqual(len(errors), 1)
+        self.assertIn("Missing or empty content for IDs: id 5", errors[0])
+        # It still parses what it can
+        self.assertEqual(parsed_data.get("id 6"), "Has content.")
 
-        self.assertEqual(len(errors), 0)
-        self.assertEqual(parsed_data["id 5"], "")
-        self.assertEqual(parsed_data["id 6"], "Has content.")
 
     def test_line_parser_malformed_lines(self):
         """Tests that it ignores lines that don't match the format."""
@@ -133,7 +139,7 @@ id 5_A3:
 And this segment has a leading newline.
 """
         expected_ids = ["id 5_A1", "id 5_A2", "id 5_A3"]
-        
+        self.stage.parser_type = "block"
         parsed_data, errors = self.stage._parse_llm_response_block(mock_response, expected_ids)
         
         self.assertEqual(len(errors), 0)
@@ -145,29 +151,29 @@ And this segment has a leading newline.
         """Tests that the colon after the ID is optional."""
         mock_response = "id 100_S1\nContent without a colon."
         expected_ids = ["id 100_S1"]
-        
+        self.stage.parser_type = "block"
         parsed_data, errors = self.stage._parse_llm_response_block(mock_response, expected_ids)
         
         self.assertEqual(len(errors), 0)
         self.assertEqual(parsed_data["id 100_s1"], "Content without a colon.")
 
     def test_block_parser_empty_block(self):
-        """Tests an ID followed immediately by another ID."""
+        """Tests an ID followed immediately by another ID, which is a validation failure."""
         mock_response = "id 1\nSome content.\nid 2\nid 3\nMore content."
         expected_ids = ["id 1", "id 2", "id 3"]
-        
+        self.stage.parser_type = "block"
         parsed_data, errors = self.stage._parse_llm_response_block(mock_response, expected_ids)
-
-        self.assertEqual(len(errors), 0)
-        self.assertEqual(parsed_data["id 1"], "Some content.")
-        self.assertEqual(parsed_data["id 2"], "")
-        self.assertEqual(parsed_data["id 3"], "More content.")
+        
+        self.assertEqual(len(errors), 1)
+        self.assertIn("Missing or empty content for IDs: id 2", errors[0])
+        self.assertEqual(parsed_data.get("id 1"), "Some content.")
+        self.assertEqual(parsed_data.get("id 3"), "More content.")
 
     def test_block_parser_final_block_capture(self):
         """Ensures the very last block in the text is captured."""
         mock_response = "id 50: This is the only block and it's at the end."
         expected_ids = ["id 50"]
-        
+        self.stage.parser_type = "block"
         parsed_data, errors = self.stage._parse_llm_response_block(mock_response, expected_ids)
 
         self.assertEqual(len(errors), 0)
@@ -177,22 +183,23 @@ And this segment has a leading newline.
         """Tests a block response that is missing expected IDs."""
         mock_response = "id 1: Block one."
         expected_ids = ["id 1", "id 2"]
-        
+        self.stage.parser_type = "block"
         parsed_data, errors = self.stage._parse_llm_response_block(mock_response, expected_ids)
         
         self.assertEqual(len(errors), 1)
-        self.assertIn("Missing IDs in response: id 2", errors[0])
+        self.assertIn("Missing or empty content for IDs: id 2", errors[0])
         self.assertIn("id 1", parsed_data)
 
 class TestGenerateDiglotMapProcessing(unittest.TestCase):
 
     def setUp(self):
         """Set up a dummy stage instance for testing Stage 7 processing."""
-        mock_config = MagicMock()
+        # --- FIXED CONSTRUCTOR CALL ---
+        mock_cli_args = MagicMock()
         mock_common_resources = MagicMock()
         self.stage = GenerateDiglotMap(
             book_stem="test_book",
-            config=mock_config,
+            cli_args=mock_cli_args,
             common_resources=mock_common_resources,
         )
 
@@ -200,9 +207,7 @@ class TestGenerateDiglotMapProcessing(unittest.TestCase):
         """Tests the successful processing of a well-formatted diglot map block."""
         
         # ARRANGE
-        # This simulates the initial state of the block before this method is called.
         block = {
-            "llm_block_id": "id 5",
             "original_sentence_s_id": "S5",
             "phrase_alignments_l3_to_english": [
                 {"segment_id": "S1"},
@@ -210,41 +215,28 @@ class TestGenerateDiglotMapProcessing(unittest.TestCase):
             ]
         }
         
-        # This simulates the parsed output from the generic block parser.
-        
-        # ACT
-        # We manually call the method we want to test.
-        # NOTE: The current `process_llm_response` in Stage 7 parses the full block itself.
-        # Let's adapt the test to match that.
-        
-        llm_response_single_block = {
-            'id 5_s1': """
-id 5_S1:
-Alice -> PROPER_NOUN
-was -> estaba
-
-id 5_S2:
-by -> junto
-            """
+        # This simulates the parsed output for the whole sentence, where each key
+        # corresponds to a segment's LLM ID.
+        llm_response = {
+            'id 5_s1': "Alice -> PROPER_NOUN\nwas -> estaba",
+            'id 5_s2': "by -> junto"
         }
         
-        self.stage.process_llm_response(block, llm_response_single_block)
+        # ACT
+        self.stage.process_llm_response(block, llm_response)
         
         # ASSERT
         entries = block["diglot_map_entries"]
         self.assertEqual(len(entries), 3)
         
-        # Check first entry
         self.assertEqual(entries[0]["english_word"], "Alice")
         self.assertEqual(entries[0]["exact_spanish_form"], "PROPER_NOUN")
         self.assertEqual(entries[0]["is_viable_for_substitution"], False)
         
-        # Check second entry
         self.assertEqual(entries[1]["english_word"], "was")
         self.assertEqual(entries[1]["exact_spanish_form"], "estaba")
         self.assertEqual(entries[1]["is_viable_for_substitution"], True)
         
-        # Check third entry
         self.assertEqual(entries[2]["english_word"], "by")
         self.assertEqual(entries[2]["exact_spanish_form"], "junto")
         self.assertEqual(entries[2]["is_viable_for_substitution"], True)
@@ -254,7 +246,6 @@ by -> junto
         
         # ARRANGE
         block = {
-            "llm_block_id": "id 10",
             "original_sentence_s_id": "S10",
             "phrase_alignments_l3_to_english": [
                 {"segment_id": "S1"}
@@ -262,7 +253,6 @@ by -> junto
         }
         llm_response = {
             'id 10_s1': """
-id 10_S1:
 This is LLM commentary.
 word1 -> forma1
 another bad line
@@ -284,7 +274,6 @@ word2 -> forma2
         
         # ARRANGE
         block = {
-            "llm_block_id": "id 15",
             "original_sentence_s_id": "S15",
             "phrase_alignments_l3_to_english": [
                 {"segment_id": "S1"}

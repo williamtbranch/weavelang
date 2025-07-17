@@ -1,3 +1,4 @@
+# llm2books/stages/finalize_simpler_spanish.py
 from typing import Any, Dict
 
 from .base import SpaCyStage, logger
@@ -21,12 +22,14 @@ class FinalizeSimplerSpanish(SpaCyStage):
                 for seg in block.get("adv_spanish_segments", []):
                     # Lemmatize advanced_text
                     adv_doc = spacy_es(seg.get("advanced_text", ""))
-                    adv_raw_lemmas = [token.lemma_ for token in adv_doc if not token.is_punct and not token.is_space and token.pos_ != "PROPN"]
+                    # The `and token.pos_ != "PROPN"` check was removed.
+                    adv_raw_lemmas = [token.lemma_ for token in adv_doc if not token.is_punct and not token.is_space]
                     seg["advanced_lemmas"] = [norm_lemma for s in adv_raw_lemmas if (norm_lemma := helper.normalize_spanish_lemma(s))]
 
                     # Lemmatize simpler_text
                     simpler_doc = spacy_es(seg.get("simpler_text", ""))
-                    simpler_raw_lemmas = [token.lemma_ for token in simpler_doc if not token.is_punct and not token.is_space and token.pos_ != "PROPN"]
+                    # The `and token.pos_ != "PROPN"` check was removed.
+                    simpler_raw_lemmas = [token.lemma_ for token in simpler_doc if not token.is_punct and not token.is_space]
                     simpler_lemmas = [norm_lemma for s in simpler_raw_lemmas if (norm_lemma := helper.normalize_spanish_lemma(s))]
                     seg["simpler_lemmas"] = simpler_lemmas
                     

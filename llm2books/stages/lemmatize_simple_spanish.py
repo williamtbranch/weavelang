@@ -1,3 +1,4 @@
+# llm2books/stages/lemmatize_simple_spanish.py
 from typing import Any, Dict
 
 from .base import SpaCyStage, logger
@@ -20,7 +21,8 @@ class LemmatizeSimpleSpanish(SpaCyStage):
                 for align in block.get("phrase_alignments_l3_to_english", []):
                     text_to_lemmatize = align.get("simple_spanish_text", "")
                     doc = spacy_es(text_to_lemmatize)
-                    raw_lemmas = [token.lemma_ for token in doc if not token.is_punct and not token.is_space and token.pos_ != "PROPN"]
+                    # The `and token.pos_ != "PROPN"` check was removed.
+                    raw_lemmas = [token.lemma_ for token in doc if not token.is_punct and not token.is_space]
                     lemmas_per_segment[align["segment_id"]] = [norm_lemma for s in raw_lemmas if (norm_lemma := helper.normalize_spanish_lemma(s))]
                 block["simple_spanish_l3_lemmas_per_segment"] = lemmas_per_segment
 
@@ -28,7 +30,8 @@ class LemmatizeSimpleSpanish(SpaCyStage):
                 full_text_to_lemmatize = l3_full_obj.get("text", "")
                 if full_text_to_lemmatize:
                     full_doc = spacy_es(full_text_to_lemmatize)
-                    raw_lemmas = [token.lemma_ for token in full_doc if not token.is_punct and not token.is_space and token.pos_ != "PROPN"]
+                    # The `and token.pos_ != "PROPN"` check was removed.
+                    raw_lemmas = [token.lemma_ for token in full_doc if not token.is_punct and not token.is_space]
                     l3_full_obj["lemmas"] = [norm_lemma for s in raw_lemmas if (norm_lemma := helper.normalize_spanish_lemma(s))]
                 else:
                     l3_full_obj["lemmas"] = []

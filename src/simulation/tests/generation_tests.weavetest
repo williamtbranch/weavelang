@@ -96,7 +96,7 @@
             // --- A2 ---
             (S "sBque Marley estaba muerto." (lem45 lem33 lem150))
             (S "mBque Marley estaba muerto." (que estar muerto))
-            (ID (idBque lem10 NO_SUB) (Marley lem300 PROPER_NOUN) (estaba lem5 is) (muerto lem80 dead))
+            (ID (idBque lem10 NO_SUB) (Marley marley PROPER_NOUN) (estaba lem5 is) (muerto lem80 dead))
         )
         // L1 Definition from JSON
         (L1
@@ -130,22 +130,17 @@
 (test-case "Replicates PROPER_NOUN leak from Inverse Diglot Path"
 
     (sentence
-        // GOAL: Force the engine to choose the L0-Inverse path and leak "PROPER_NOUN".
         
         // L0 Definition:
-        // The Adv and Mod paths are poisoned with unknown lemmas.
-        // The Inv path contains a PROPER_NOUN marker. The current buggy
-        // logic will see this path as "salvageable".
         (L0
             (S "adv-phrase" (lem99)) // Fails: learner doesn't know lem99
             (S "Alicia sp2 sp3" (lem1 lem2 lem98)) // Fails: learner doesn't know lem98
             
             (ID 
-                // Learner knows lem1, but not lem2.
-                // The engine should use "spanish1" and try to sub "spanish2".
-                // The sub for spanish2 is PROPER_NOUN. The bug is that the engine
-                // doesn't see this as a failure and proceeds.
-                (Alicia lem98 PROPER_NOUN) 
+                //alicia is not on lemma list. Should be added for just this sentence
+                //proper noun lemmas get added to active lemmas just for sentence where they 
+                //are marked by a diglot or inverse diglot
+                (Alicia alicia PROPER_NOUN) 
                 (spanish1 lem1 english1)
                 (spanish2 lem2 english2)
             )
