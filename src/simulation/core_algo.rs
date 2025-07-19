@@ -1,4 +1,3 @@
-// src/simulation/core_algo.rs
 use super::numerical_types::{NumericalLearnerProfile, NumericalProcessedSentence};
 use crate::simulation::dictionary::GlobalLemmaDictionary;
 use std::collections::HashMap;
@@ -68,41 +67,57 @@ pub fn determine_and_annotate_sentence_expression(
                 l0_candidate_choices.push(L0SegmentChoice::SimplerAdv(bundle.simpler_text_original.clone()));
                 l0_collected_lemma_ids.extend(&bundle.simpler_lemma_ids);
             } else {
-                // --- START OF CORRECTED INVERSE DIGLOT LOGIC ---
                 let mut is_segment_salvageable = true;
                 let inverse_map_entries = &bundle.inverse_diglot_map_numerical;
 
-                // **NEW SALVAGEABILITY RULE:** A segment is ONLY unsalvageable if it contains
-                // a word marked `NO_SUB` whose lemma is UNKNOWN to the learner.
                 for (_spanish_word, lemma_id, substitute) in inverse_map_entries.iter() {
                     if substitute == "NO_SUB" && !profile.is_lemma_active(*lemma_id) {
                         is_segment_salvageable = false;
-                        break; // This is the only instant-fail condition.
+                        break;
                     }
                 }
 
                 if is_segment_salvageable {
+                    // --- START OF MODIFIED LOGIC ---
                     let mut final_words = Vec::new();
                     let mut temp_collected_lemmas = Vec::new();
+                    let mut substitution_count = 0;
+                    let total_words = inverse_map_entries.len();
 
                     for (spanish_word, lemma_id, english_sub) in inverse_map_entries.iter() {
-                        // Use the Spanish word if the lemma is known OR it's a proper noun.
                         if profile.is_lemma_active(*lemma_id) || english_sub == "PROPER_NOUN" {
                             final_words.push(spanish_word.clone());
                             temp_collected_lemmas.push(*lemma_id);
                         } else {
-                            // Otherwise, it must have an English substitute (since we passed the salvage check).
                             final_words.push(english_sub.clone());
+                            // This is an English substitution, count it.
+                            substitution_count += 1;
                         }
                     }
-                    l0_candidate_choices.push(L0SegmentChoice::InverseDiglot { final_words });
-                    l0_collected_lemma_ids.extend(temp_collected_lemmas);
+
+                    // NEW: Apply the >50% substitution rule.
+                    // A single-word phrase can always be substituted (1/1 = 100% is OK).
+                    let substitution_limit_exceeded = if total_words > 1 {
+                        // If substitution count is strictly greater than half the words, it fails.
+                        (substitution_count as f32 / total_words as f32) > 0.5
+                    } else {
+                        false // Allow single-word segments to be substituted.
+                    };
+
+                    if substitution_limit_exceeded {
+                        // Too many substitutions, fail this L0 path.
+                        l0_is_viable = false;
+                        break;
+                    } else {
+                        // The substitution count is acceptable, add the constructed segment.
+                        l0_candidate_choices.push(L0SegmentChoice::InverseDiglot { final_words });
+                        l0_collected_lemma_ids.extend(temp_collected_lemmas);
+                    }
+                    // --- END OF MODIFIED LOGIC ---
                 } else {
-                    // If not salvageable, the entire L0 path fails.
                     l0_is_viable = false;
                     break;
                 }
-                // --- END OF CORRECTED INVERSE DIGLOT LOGIC ---
             }
         }
         

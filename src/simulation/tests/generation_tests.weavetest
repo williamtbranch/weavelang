@@ -7,7 +7,7 @@
     (sentence
         (L0
             (S "sa1 sa2 sa3" (lem99 lem95 lem97))
-            (S "ma1 ma2 ma3" (lem44 lem45 lem46))
+            (S "ma1 ma2 ma3" (lem44 lem55 lem46))
             (ID
               (rdsa1 lem35 rdea1)
               (rdsa2 lem36 rdea2)
@@ -15,7 +15,7 @@
             )
             
             (S "sb1 sb2 sb3" (lem88 lem89 lem87))
-            (S "mb1 mb2 mb3" (lem51 lem52 lem53))
+            (S "mb1 mb2 mb3" (lem41 lem42 lem43))
             (ID
               (rdsb1 lem1 rdeb1)
               (rdsb2 lem1 rdeb2)
@@ -24,15 +24,17 @@
             
             (S "sc1 sc2 sc3" (lem77 lem78 lem79))
             (S "mc1 mc2 mc3" (lem60 lem62 lem59))
+            
+            // should not pass level 40 due to >50% swapping
             (ID
-              (rdsc1 lem60 rdec1)
-              (rdsc2 lem62 rdec2)
-              (rdsc3 lem59 rdec3)
+              (rdsc1 lem61 rdec1)
+              (rdsc2 lem48 rdec2)
+              (rdsc3 lem39 rdec3)
             )
         )
 
         (L1
-            (S "ssa1 ssa2 ssa3" (lem99 lem95 lem97))
+            (S "ssa1 ssa2 ssa3" (lem33 lem35 lem37))
             (D
               (dsa1 lem35 dea1)
               (dsa2 lem36 dea2)
@@ -40,15 +42,15 @@
             )
             (E "ma1 ma2 ma3")
             
-            (S "ssb1 ssb2 ssb3" (lem88 lem89 lem87))
+            (S "ssb1 ssb2 ssb3" (lem41 lem38 lem37))
             (D
               (dsb1 lem17 deb1)
               (dsb2 lem18 deb2)
               (dsb3 lem19 deb3)
             )
-            (E "eb1 mb2 mb3")
+            (E "eb1 eb2 eb3")
             
-            (S "ssc1 ssc2 ssc3" (lem77 lem78 lem79))
+            (S "ssc1 ssc2 ssc3" (lem37 lem38 lem39))
             (D
               (dsc1 lem21 dec1)
               (dsc2 lem22 dec2)
@@ -65,22 +67,32 @@
     (sub-test "at level 90, falls back to Moderate Spanish in column A"
         (level 90) // Learner does NOT know lem95, lem97, lem99
         (assert-text "ma1 ma2 ma3 sb1 sb2 sb3 sc1 sc2 sc3")
-      (assert-level AdvancedWeave) 
+        (assert-level AdvancedWeave) 
     )
     (sub-test "at level 80, falls back to Moderate Spanish in column A&B"
         (level 80)
         (assert-text "ma1 ma2 ma3 mb1 mb2 mb3 sc1 sc2 sc3")
-      (assert-level AdvancedWeave) 
+        (assert-level AdvancedWeave) 
     )
     (sub-test "at level 70, falls back to Moderate Spanish in column A&B&C"
         (level 70)
         (assert-text "ma1 ma2 ma3 mb1 mb2 mb3 mc1 mc2 mc3")
-      (assert-level AdvancedWeave) 
+        (assert-level AdvancedWeave) 
     )
     (sub-test "at level 60, falls back to Moderate Spanish in column A&B id word 3 of column C"
         (level 60)
-        (assert-text "ma1 ma2 ma3 mb1 mb2 mb3 rdsc1 rdec2 rdsc3")
-      (assert-level AdvancedWeave) 
+        (assert-text "ma1 ma2 ma3 mb1 mb2 mb3 rdec1 rdsc2 rdsc3")
+        (assert-level AdvancedWeave) 
+    )
+    (sub-test "at level 50, falls back to Moderate Spanish in column B id word 3 of column C"
+        (level 50)
+        (assert-text "rdsa1 rdsa2 rdsa3 mb1 mb2 mb3 rdec1 rdsc2 rdsc3")
+        (assert-level AdvancedWeave) 
+    )
+    (sub-test "at level 40, falls back to L1 at this threshold"
+        (level 40)
+        (assert-text "ssa1 ssa2 ssa3 dsb1 dsb2 dsb3 ssc1 ssc2 ssc3")
+        (assert-level SimpleHybrid) 
     )
 )
 
