@@ -33,27 +33,27 @@
         )
 
         (L1
-            (S "ssa1 ssa2 ssa3" (lem33 lem35 lem37))
+            (S "ssa1 ssa2 ssa3" (lem18 lem5 lem7))
             (D
-              (dsa1 lem35 dea1)
-              (dsa2 lem36 dea2)
-              (dsa3 lem37 dea3)
+              (dsa1 lem18 dea1)
+              (dsa2 lem9 dea2)
+              (dsa3 lem3 dea3)
             )
             (E "dsa1 dsa2 dsa3")
             
             (S "ssb1 ssb2 ssb3" (lem41 lem38 lem37))
             (D
-              (dsb1 lem17 deb1)
-              (dsb2 lem18 deb2)
-              (dsb3 lem19 deb3)
+              (dsb1 lem10 deb1)
+              (dsb2 lem31 deb2)
+              (dsb3 lem21 deb3)
             )
             (E "dsb1 dsb2 dsb3")
             
-            (S "ssc1 ssc2 ssc3" (lem37 lem38 lem39))
+            (S "ssc1 ssc2 ssc3" (lem21 lem11 lem19))
             (D
-              (ec1 lem21 dec1)
-              (ec2 lem22 dec2)
-              (ec3 lem23 dec3)
+              (ec1 lem31 dec1)
+              (ec2 lem10 dec2)
+              (ec3 lem19 dec3)
             )
             (E "ec1 ec2 ec3" )
         )
@@ -91,6 +91,31 @@
     (sub-test "at level 40, falls back to L1 at this threshold"
         (level 40)
         (assert-text "ssa1 ssa2 ssa3 deb1 deb2 deb3 ssc1 ssc2 ssc3")
+        (assert-level SimpleHybrid) 
+    )
+    (sub-test "at level 30, falls back to L1 at this threshold"
+        (level 30)
+        (assert-text "ssa1 ssa2 ssa3 deb1 dsb2 deb3 ssc1 ssc2 ssc3")
+        (assert-level SimpleHybrid) 
+    )
+    (sub-test "at level 20, falls back to L1 at this threshold"
+        (level 20)
+        (assert-text "ssa1 ssa2 ssa3 deb1 dsb2 dsb3 ec1 dec2 dec3")
+        (assert-level SimpleHybrid) 
+    )
+    (sub-test "at level 10, falls back to L1 at this threshold"
+        (level 10)
+        (assert-text "dsa1 dea2 dea3 deb1 dsb2 dsb3 ec1 dec2 ec3")
+        (assert-level SimpleHybrid) 
+    )
+    (sub-test "at level 05, falls back to L1 at this threshold"
+        (level 5)
+        (assert-text "dsa1 dsa2 dea3 dsb1 dsb2 dsb3 ec1 ec2 ec3")
+        (assert-level SimpleHybrid) 
+    )
+    (sub-test "at level 0, falls back to L1 at this threshold"
+        (level 0)
+        (assert-text "dsa1 dsa2 dsa3 dsb1 dsb2 dsb3 ec1 ec2 ec3")
         (assert-level SimpleHybrid) 
     )
 )
