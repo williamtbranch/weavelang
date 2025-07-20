@@ -195,3 +195,186 @@
         (assert-level AdvancedWeave)
     )
 )
+
+(test-case "Punctuation Integrity During Diglot Substitution"
+    (sentence
+        (L0
+            (S "\"¡Claro!\", exclamó el Rey;" (lem301 lem302 lem303 lem304))
+            (S "\"¡Sí!\", dijo el Rey;" (lem201 lem202 lem203 lem204))
+            (ID
+              (Sí lem201 Yes)
+              (dijo lem202 said)
+              (el lem203 the)
+              (Rey lem204 King)
+            )
+
+            (S "¿qué es ese estruendo?" (lem305 lem306 lem307 lem308))
+            (S "¿qué es ese sonido?" (lem205 lem206 lem207 lem208))
+            (ID
+              (qué lem205 what)
+              (es lem206 is)
+              (ese lem207 that)
+              (sonido lem208 sound)
+            )
+        )
+
+        (L1
+            (S "\"Sí\", dijo el Rey;" (lem1 lem2 lem3 lem4))
+            (D
+              (Yes lem1 Sí t)
+              (said lem2 dijo t)
+              (the lem3 el t)
+              (King lem4 Rey t)
+            )
+            (E "\"Yes\", said the King;")
+
+            (S "¿qué es el sonido?" (lem5 lem6 lem7 lem8))
+            (D
+              (what lem5 qué t)
+              (is lem6 es t)
+              (that lem7 ese t)
+              (sound lem8 sonido t)
+            )
+            (E "what is that sound?")
+        )
+    )
+
+    (sub-test "L0: Inverse diglot substitution that handles punctuation"
+      (level 206)
+      (assert-level AdvancedWeave)
+      (assert-text "\"¡Sí!\", dijo el Rey; ¿qué es that sound?")
+    )
+    (sub-test "L1: Regular diglot substitution that handles punctuation"
+      (level 7)
+      (assert-level SimpleHybrid)
+      (assert-text "\"Sí\", dijo el Rey; qué es ese sound?")
+    )
+)
+
+(test-case "Test insuring NO_SUB does not appear in L1 diglot "
+
+    (sentence
+        (L0
+            (S "sa1 sa2 sa3" (lem99 lem95 lem97))
+            (S "ma1 ma2 ma3" (lem44 lem55 lem46))
+            (ID
+              (ma1 lem85 rdea1)
+              (ma2 lem36 rdea2)
+              (ma3 lem37 rdea3)
+            )
+        )    
+
+        (L1
+            (S "ssa1 ssa2 ssa3" (lem88 lem5 lem7))
+            (D
+              (dsa1 lem8 NO_SUB)
+              (dsa2 lem9 NO_SUB t)
+              (dsa3 lem3 NO_SUB f)
+            )
+            (E "dsa1 dsa2 dsa3")
+            
+            (S "ssb1 ssb2 ssb3" (lem41 lem38 lem37))
+            (D
+              (dsb1 lem11 NO_SUB)
+              (dsb2 lem3 deb2)
+              (dsb3 lem2 NO_SUB)
+            )
+            (E "dsb1 dsb2 dsb3")
+        )
+      )
+    
+    (sub-test "English Diglot NO_SUB never gets used regardless of flag"
+      (level 10)
+      (assert-text "dsa1 dsa2 dsa3 dsb1 deb2 dsb3")
+      (assert-level SimpleHybrid) 
+    )
+)
+
+(test-case "Test insuring L1 diglots don't express when 'f' flag is set"
+
+    (sentence
+        (L0
+            (S "sa1 sa2 sa3" (lem99 lem95 lem97))
+            (S "ma1 ma2 ma3" (lem44 lem55 lem46))
+            (ID
+              (ma1 lem85 rdea1)
+              (ma2 lem36 rdea2)
+              (ma3 lem37 rdea3)
+            )
+        )    
+
+        (L1
+            (S "ssa1 ssa2 ssa3" (lem88 lem5 lem7))
+            (D
+              (dsa1 lem8 sp1)
+              (dsa2 lem9 sp2 t)
+              (dsa3 lem3 sp3 f)
+            )
+            (E "dsa1 dsa2 dsa3")
+            
+            (S "ssb1 ssb2 ssb3" (lem41 lem38 lem37))
+            (D
+              (dsb1 lem11 spb2 t)
+              (dsb2 lem3 spb3 f)
+              (dsb3 lem2 spb3)
+            )
+            (E "dsb1 dsb2 dsb3")
+        )
+      )
+    
+    (sub-test "English Diglot 'f' flag turns off diglot"
+      (level 10)
+      (assert-text "sp1 sp2 dsa3 dsb1 dsb2 spb3")
+      (assert-level SimpleHybrid) 
+    )
+)
+
+(test-case "L0 Fails on Unknown NO_SUB Lemma"
+    (sentence
+        (L0
+            // Segment A is designed to fail because of the 'de' lemma.
+            (S "Frase avanzada de prueba" (lem401 lem402 lem403 lem404))
+            (S "Una frase simple de prueba" (lem201 lem202 lem203 lem500 lem204))
+            (ID
+              (Una lem99 A)
+              (frase lem98 phrase)
+              (simple lem80 simple)
+              (de lem500 NO_SUB) // This is the trigger. lem500 is unknown.
+              (prueba lem204 test)
+            )
+
+            // Segment B is perfectly valid and would pass on its own.
+            (S "Otro segmento" (lem405 lem406))
+            (S "Segundo segmento" (lem205 lem206))
+            (ID
+              (Segundo lem2 Second)
+              (segmento lem20 segment)
+            )
+        )
+
+        (L1
+            // This is the fallback content the test will assert against.
+            (S "Una prueba simple" (lem1 lem2 lem3))
+            (D
+              (A lem1 A t)
+              (simple lem2 simple t)
+              (test lem3 prueba t)
+            )
+            (E "A simple test")
+
+            (S "El segundo" (lem4 lem5))
+            (D
+              (The lem4 El t)
+              (second lem5 segundo t)
+            )
+            (E "The second")
+        )
+    )
+
+    (sub-test "L0 fails on unknown NO_SUB and falls back to L1"
+      (level 100) // Knows all lemmas except the poison pill lem500.
+      (assert-level SimpleHybrid) // Must fall back to L1.
+      // At level 100, the L1 simple spanish phrases are fully known.
+      (assert-text "Una prueba simple El segundo")
+    )
+)

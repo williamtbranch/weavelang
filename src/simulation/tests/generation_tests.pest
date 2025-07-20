@@ -39,14 +39,14 @@ invDiglotSegment = { "(" ~ "ID" ~ (invDiglotTuple)* ~ ")" }
 
 // --- Primitives ---
 quotedPhrase  = { "\"" ~ inner_string ~ "\"" }
-inner_string  = @{ (!"\"" ~ ANY)* } // Capture everything inside the quotes
+inner_string  = @{ ( "\\\"" | !"\"" ~ ANY )* }
 lemmaList     = { "(" ~ (identifier)* ~ ")" }
 viabilityFlag = { "t" | "f" }
 
 diglotTuple   = { "(" ~ identifier ~ identifier ~ identifier ~ viabilityFlag? ~ ")" }
-// *** REVERTED: invDiglotTuple now expects three identifiers for consistency. ***
 invDiglotTuple = { "(" ~ identifier ~ identifier ~ identifier ~ ")" }
 
-identifier    = @{ (ASCII_ALPHANUMERIC | "-" | "_")+ }
+// FIX: Allow Unicode letters (like í, é, ñ) in identifiers.
+identifier    = @{ (LETTER | ASCII_DIGIT | "-" | "_")+ }
 number        = @{ ASCII_DIGIT+ }
-stringLiteral = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
+stringLiteral = { "\"" ~ inner_string ~ "\"" }

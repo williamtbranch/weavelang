@@ -1,3 +1,4 @@
+// src/simulation/tests/test_generation.rs
 
 use super::weavetest_parser::{
     self, DslAssertion, DslColumnBody, DslSegmentSpec, DslSubTest, DslTestCase,
@@ -48,14 +49,12 @@ fn run_dsl_generation_test_suite() {
         println!("TEST CASE: [{}]", test_case.name);
         println!("------------------------------------------------------------");
 
-        // Compile the sentence structure once for the whole test case.
         let mut dictionary = GlobalLemmaDictionary::new();
         let numerical_sentence = compile_dsl_sentence_to_numerical(test_case, &mut dictionary);
 
         for sub_test in &test_case.sub_tests {
             println!("\n  Sub-Test: [{}]", sub_test.name);
 
-            // Set up the profile for this specific sub-test.
             let mut profile = NumericalLearnerProfile::new();
             for i in 1..=sub_test.learner_level {
                 profile.activate_lemma(dictionary.get_id_or_insert(&format!("lem{}", i)));
@@ -64,13 +63,16 @@ fn run_dsl_generation_test_suite() {
             let mut n_sentence_clone = numerical_sentence.clone();
             let output = determine_and_annotate_sentence_expression(&mut n_sentence_clone, &profile, &dictionary, 0.4);
 
-            let raw_text = text_generator::generate_raw_text_from_levels(&[&JsonSentenceBlock::default()], &[output.clone()], false).unwrap();
-            let actual_text = text_generator::clean_text_for_tts(&raw_text);
+            let raw_text_with_escapes = text_generator::generate_raw_text_from_levels(&[&JsonSentenceBlock::default()], &[output.clone()], false).unwrap();
+            let actual_text_with_escapes = text_generator::clean_text_for_tts(&raw_text_with_escapes);
 
-            let (is_passed, failure_reasons) = run_assertions(sub_test, &output, &actual_text);
+            let (is_passed, failure_reasons) = run_assertions(sub_test, &output, &actual_text_with_escapes);
+            
+            let expected_text_for_display = get_expected_text(sub_test).replace("\\\"", "\"");
+            let actual_text_for_display = actual_text_with_escapes.replace("\\\"", "\"");
 
-            println!("    Expected: {}", get_expected_text(sub_test));
-            println!("    Actual:   {}", actual_text);
+            println!("    Expected: {}", expected_text_for_display);
+            println!("    Actual:   {}", actual_text_for_display);
 
             if is_passed {
                 println!("    Result:   PASS");
@@ -106,7 +108,6 @@ fn compile_dsl_sentence_to_numerical(
 ) -> NumericalProcessedSentence {
     let mut num_sentence = NumericalProcessedSentence::default();
 
-    // --- Process L0 ---
     let l0_segments = if let DslColumnBody::L0(segments) = &test_case.sentence_def.l0_def { segments } else { unreachable!() };
     for (i, chunk) in l0_segments.chunks(3).enumerate() {
         let col_num = i + 1;
@@ -114,16 +115,18 @@ fn compile_dsl_sentence_to_numerical(
         let DslSegmentSpec::Spanish { phrase: adv_phrase, lemmas: adv_lemmas } = adv_spec else { panic!("L0 Adv must be Spanish") };
         let DslSegmentSpec::Spanish { phrase: mod_phrase, lemmas: mod_lemmas } = mod_spec else { panic!("L0 Mod must be Spanish") };
         let DslSegmentSpec::InvDiglot { tuples: inv_tuples } = inv_spec else { panic!("L0 Inv must be InvDiglot") };
+        
+        // --- FIX: Create a longer-lived String to borrow from ---
+        let joined_mod_phrase = mod_phrase.join(" ");
+        let mod_phrase_words: Vec<&str> = joined_mod_phrase.split_whitespace().collect();
 
-        // *** FINAL FIX: L0 Structural Integrity Check with Punctuation Cleaning ***
-        if mod_phrase.len() != inv_tuples.len() {
+        if mod_phrase_words.len() != inv_tuples.len() {
             panic!(
                 "Test Case '{}', L0 Segment {}: Count mismatch. Moderate Spanish phrase has {} words, but Inverse Diglot has {} tuples.",
-                test_case.name, col_num, mod_phrase.len(), inv_tuples.len()
+                test_case.name, col_num, mod_phrase_words.len(), inv_tuples.len()
             );
         }
-        for (idx, word) in mod_phrase.iter().enumerate() {
-            // Clean the word from the template before comparing it to the anchor word in the tuple.
+        for (idx, word) in mod_phrase_words.iter().enumerate() {
             let cleaned_word = word.trim_matches(|c: char| !c.is_alphanumeric());
             if cleaned_word != inv_tuples[idx].spanish_word {
                 panic!(
@@ -147,7 +150,6 @@ fn compile_dsl_sentence_to_numerical(
         });
     }
 
-    // --- Process L1 ---
     let l1_segments = if let DslColumnBody::L1(segments) = &test_case.sentence_def.l1_def { segments } else { unreachable!() };
     for (i, chunk) in l1_segments.chunks(3).enumerate() {
         let col_num = i + 1;
@@ -157,15 +159,17 @@ fn compile_dsl_sentence_to_numerical(
         let DslSegmentSpec::Diglot { tuples: dig_tuples } = dig_spec else { panic!("L1 Dig must be Diglot") };
         let DslSegmentSpec::English { phrase: eng_phrase } = eng_spec else { panic!("L1 Eng must be English") };
         
-        // *** FINAL FIX: L1 Structural Integrity Check with Punctuation Cleaning ***
-        if eng_phrase.len() != dig_tuples.len() {
+        // --- FIX: Create a longer-lived String to borrow from ---
+        let joined_eng_phrase = eng_phrase.join(" ");
+        let eng_phrase_words: Vec<&str> = joined_eng_phrase.split_whitespace().collect();
+
+        if eng_phrase_words.len() != dig_tuples.len() {
             panic!(
                 "Test Case '{}', L1 Segment {}: Count mismatch. English phrase has {} words, but Diglot block has {} tuples.",
-                test_case.name, col_num, eng_phrase.len(), dig_tuples.len()
+                test_case.name, col_num, eng_phrase_words.len(), dig_tuples.len()
             );
         }
-        for (idx, word) in eng_phrase.iter().enumerate() {
-            // Clean the word from the template before comparing it to the anchor word in the tuple.
+        for (idx, word) in eng_phrase_words.iter().enumerate() {
             let cleaned_word = word.trim_matches(|c: char| !c.is_alphanumeric());
             if cleaned_word != dig_tuples[idx].word_to_replace {
                 panic!(
@@ -181,7 +185,7 @@ fn compile_dsl_sentence_to_numerical(
             s_segment_id_str: s_id.clone(),
             sims_l3_segment_text_original: sim_phrase.join(" "),
             eng_span_text_original: eng_phrase.join(" "),
-            eng_span_word_count: eng_phrase.len(),
+            eng_span_word_count: eng_phrase_words.len(),
         });
         num_sentence.diglot_map_numerical.push(NumericalDiglotSegmentMap {
             s_segment_id_str: s_id,
@@ -206,7 +210,7 @@ fn get_expected_text<'s>(sub_test: &'s DslSubTest) -> &'s str {
 fn run_assertions(
     sub_test: &DslSubTest,
     output: &ChosenLevelOutput,
-    actual_text: &str
+    actual_text_with_escapes: &str
 ) -> (bool, Vec<String>) {
     let mut is_passed = true;
     let mut reasons = Vec::new();
@@ -219,10 +223,12 @@ fn run_assertions(
                     reasons.push(format!("Level Mismatch: Expected {:?}, got {:?}", expected_level, output.level));
                 }
             },
-            DslAssertion::Text(expected_text) => {
-                if actual_text != expected_text {
+            DslAssertion::Text(expected_text_with_escapes) => {
+                if actual_text_with_escapes != expected_text_with_escapes {
                     is_passed = false;
-                    reasons.push(format!("Text Mismatch: Expected '{}', got '{}'", expected_text, actual_text));
+                    let display_expected = expected_text_with_escapes.replace("\\\"", "\"");
+                    let display_actual = actual_text_with_escapes.replace("\\\"", "\"");
+                    reasons.push(format!("Text Mismatch: Expected '{}', got '{}'", display_expected, display_actual));
                 }
             }
         }
