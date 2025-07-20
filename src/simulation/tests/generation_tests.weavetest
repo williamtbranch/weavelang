@@ -1,5 +1,6 @@
 // ===========================================
-// WeaveLang Test Suite - v5.2
+// WeaveLang Test Suite - v8.0
+// Uses unified, self-validating DSL
 // ===========================================
 
 (test-case "All advanced Segments - sentenceA"
@@ -9,27 +10,25 @@
             (S "sa1 sa2 sa3" (lem99 lem95 lem97))
             (S "ma1 ma2 ma3" (lem44 lem55 lem46))
             (ID
-              (rdsa1 lem35 rdea1)
-              (rdsa2 lem36 rdea2)
-              (rdsa3 lem37 rdea3)
+              (ma1 lem35 rdea1)
+              (ma2 lem36 rdea2)
+              (ma3 lem37 rdea3)
             )
             
             (S "sb1 sb2 sb3" (lem88 lem89 lem87))
-            (S "mb1 mb2 mb3" (lem41 lem42 lem43))
+            (S "mb1 mb2 mb3" (lem41 lem41 lem54))
             (ID
-              (rdsb1 lem1 rdeb1)
-              (rdsb2 lem1 rdeb2)
-              (rdsb3 lem1 rdeb3)
+              (mb1 lem1 rdeb1)
+              (mb2 lem51 rdeb2)
+              (mb3 lem3 rdeb3)
             )
             
             (S "sc1 sc2 sc3" (lem77 lem78 lem79))
             (S "mc1 mc2 mc3" (lem60 lem62 lem59))
-            
-            // should not pass level 40 due to >50% swapping
             (ID
-              (rdsc1 lem61 rdec1)
-              (rdsc2 lem48 rdec2)
-              (rdsc3 lem39 rdec3)
+              (mc1 lem61 rdec1)
+              (mc2 lem48 rdec2) //leve40 exceeds 50% rule at this point.
+              (mc3 lem39 rdec3)
             )
         )
 
@@ -40,7 +39,7 @@
               (dsa2 lem36 dea2)
               (dsa3 lem37 dea3)
             )
-            (E "ma1 ma2 ma3")
+            (E "dsa1 dsa2 dsa3")
             
             (S "ssb1 ssb2 ssb3" (lem41 lem38 lem37))
             (D
@@ -48,13 +47,13 @@
               (dsb2 lem18 deb2)
               (dsb3 lem19 deb3)
             )
-            (E "eb1 eb2 eb3")
+            (E "dsb1 dsb2 dsb3")
             
             (S "ssc1 ssc2 ssc3" (lem37 lem38 lem39))
             (D
-              (dsc1 lem21 dec1)
-              (dsc2 lem22 dec2)
-              (dsc3 lem23 dec3)
+              (ec1 lem21 dec1)
+              (ec2 lem22 dec2)
+              (ec3 lem23 dec3)
             )
             (E "ec1 ec2 ec3" )
         )
@@ -65,7 +64,7 @@
       (assert-level AdvancedWeave) 
     )
     (sub-test "at level 90, falls back to Moderate Spanish in column A"
-        (level 90) // Learner does NOT know lem95, lem97, lem99
+        (level 90)
         (assert-text "ma1 ma2 ma3 sb1 sb2 sb3 sc1 sc2 sc3")
         (assert-level AdvancedWeave) 
     )
@@ -81,99 +80,93 @@
     )
     (sub-test "at level 60, falls back to Moderate Spanish in column A&B id word 3 of column C"
         (level 60)
-        (assert-text "ma1 ma2 ma3 mb1 mb2 mb3 rdec1 rdsc2 rdsc3")
+        (assert-text "ma1 ma2 ma3 mb1 mb2 mb3 rdec1 mc2 mc3")
         (assert-level AdvancedWeave) 
     )
     (sub-test "at level 50, falls back to Moderate Spanish in column B id word 3 of column C"
         (level 50)
-        (assert-text "rdsa1 rdsa2 rdsa3 mb1 mb2 mb3 rdec1 rdsc2 rdsc3")
+        (assert-text "ma1 ma2 ma3 mb1 rdeb2 mb3 rdec1 mc2 mc3")
         (assert-level AdvancedWeave) 
     )
     (sub-test "at level 40, falls back to L1 at this threshold"
         (level 40)
-        (assert-text "ssa1 ssa2 ssa3 dsb1 dsb2 dsb3 ssc1 ssc2 ssc3")
+        (assert-text "ssa1 ssa2 ssa3 deb1 deb2 deb3 ssc1 ssc2 ssc3")
         (assert-level SimpleHybrid) 
     )
 )
 
-
 (test-case "Real World Bug - S26 from A Christmas Carol"
     (sentence
-        // L0 Definition from JSON
         (L0
-            // --- A1 ---
             (S "sANo hay duda de" (lem23 lem15 lem150 lem16))
-            (S "mANo hay duda de" (lem12 lem15 lem14 lem16)) 
-            (ID (idANo lem20 NO_SUB) (hay lem19 NO_SUB) (duda lem200 doubt) (de lem15 NO_SUB))
-            // --- A2 ---
+            (S "mANo hay duda de" (lem12 lem21 lem14 lem16)) 
+            (ID 
+                (mANo lem20 NO_SUB) 
+                (hay lem19 NO_SUB) 
+                (duda lem200 doubt) 
+                (de lem15 NO_SUB)
+            )
+            
             (S "sBque Marley estaba muerto." (lem45 lem33 lem150))
             (S "mBque Marley estaba muerto." (que estar muerto))
-            (ID (idBque lem10 NO_SUB) (Marley marley PROPER_NOUN) (estaba lem5 is) (muerto lem80 dead))
+            (ID 
+                (mBque lem10 NO_SUB) 
+                (Marley marley PROPER_NOUN) //We should never see "PROPER_NOUN" in final text. 
+                (estaba lem5 is) 
+                (muerto lem80 dead)
+            )
         )
-        // L1 Definition from JSON
         (L1
-            // --- S1 ---
             (S "No hay duda" (lem20 lem30 lem300))
             (D (There lem21 Hay t) (is lem2 NO_SUB f) (no ninguno ninguna t) (doubt dudar duda t))
             (E "There is no doubt")
             
-            // --- S2 ---
             (S "de que Marley estaba muerto." (de que estar muerto))
-            (D (that lem3 que t) (Marley marley PROPER_NOUN f) (was lem5 estaba t) (dead muerto muerto t))
+            (D
+              (that lem3 que t)
+              (Marley lem1 PROPER_NOUN t) //PROPER_NOUN should never get used even if 't' flag set
+              (was lem5 estaba t)
+              (dead muerto muerto t)
+            )
             (E "that Marley was dead.")
         )
     )
-
-    // Sub-Test 1: Replicate the bug at a low level (e.g., level 20)
-    (sub-test "at level 20, should produce a clean L1 woven sentence"
+    (sub-test "at level 20, should produce L0 inverse diglot without literal PROPER_NOUN"
       (level 20)
-      (assert-text "mANo hay duda de idBque Marley estaba dead")
+      (assert-text "mANo hay doubt de mBque Marley estaba dead.")
     )
-
-    // Sub-Test 2: Baseline test at a high level
+    (sub-test "at level 15, should always produce L1 diglot without literal PROPER_NOUN"
+      (level 15)
+      (assert-text "There is no doubt que Marley estaba dead.")
+    )
     (sub-test "at level 1000, should choose AdvS"
         (level 1000)
         (assert-text "sANo hay duda de sBque Marley estaba muerto.")
-      (assert-level AdvancedWeave) 
+        (assert-level AdvancedWeave) 
     )
 )
 
-
-(test-case "Replicates PROPER_NOUN leak from Inverse Diglot Path"
-
+(test-case "Fingerprint test for context-aware lemmas"
     (sentence
-        
-        // L0 Definition:
         (L0
-            (S "adv-phrase" (lem99)) // Fails: learner doesn't know lem99
-            (S "Alicia sp2 sp3" (lem1 lem2 lem98)) // Fails: learner doesn't know lem98
-            
+            (S "adv-fails" (lem99))
+            (S "word1 word2 word3" (lem10 lem20 lem98)) // lem98 is the poison pill
             (ID 
-                //alicia is not on lemma list. Should be added for just this sentence
-                //proper noun lemmas get added to active lemmas just for sentence where they 
-                //are marked by a diglot or inverse diglot
-                (Alicia alicia PROPER_NOUN) 
-                (spanish1 lem1 english1)
-                (spanish2 lem2 english2)
+                (word1 lem10 eng1) 
+                (word2 lem20 eng2) 
+                (word3 lem30 eng3)
             )
         )
-
-        // L1 Definition:
-        // We provide a valid L1 path as a fallback. If the L0 bug is fixed,
-        // the engine will choose THIS path instead. But for now, we expect
-        // the buggy L0 path to be chosen.
         (L1
-            (S "this-is-the-correct-L1-fallback" (lem1))
-            (D (d-i lem99 d-i f))
-            (E "e-i")
+            (S "l1-fallback" (lem1))
+            (D (fallback-e lem2 fb-d t))
+            (E "fallback-e")
         )
     )
 
-    (sub-test "at level 1, leaks PROPER_NOUN from L0 Inverse Diglot path"
-        (level 3) // Learner only knows lem1.
-        
-        //Failing case is "PROPER NOUN sp2 sp3"
-        (assert-text "Alicia spanish1 spanish2")
-      (assert-level AdvancedWeave) 
+    (sub-test "at level 50, proves separate lemma lists are used"
+        (level 50)
+        (assert-text "word1 word2 word3")
+        (assert-level AdvancedWeave)
     )
 )

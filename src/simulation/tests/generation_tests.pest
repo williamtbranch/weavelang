@@ -1,6 +1,6 @@
 // =======================================
 // WeaveLang Generation Test Suite Grammar
-// v6 - Multi-Assert Test Cases
+// v8 - Unified & Self-Validating DSL
 // =======================================
 
 // --- Boilerplate ---
@@ -14,7 +14,7 @@ test_suite = { SOI ~ (test_case)* ~ EOI }
 test_case      = { "(" ~ "test-case" ~ stringLiteral ~ test_case_body ~ ")" }
 test_case_body = { sentence_def ~ (sub_test)+ } // A sentence followed by one or more sub-tests
 
-// --- NEW: Sub-Test Structure ---
+// --- Sub-Test Structure ---
 sub_test       = { "(" ~ "sub-test" ~ stringLiteral ~ sub_test_body ~ ")" }
 sub_test_body  = { learner_level ~ (assertion)+ }
 
@@ -25,7 +25,7 @@ assert_level  = { "(" ~ "assert-level" ~ level_value ~ ")" }
 assert_text   = { "(" ~ "assert-text" ~ stringLiteral ~ ")" }
 level_value   = @{ "AdvancedWeave" | "SimpleHybrid" }
 
-// Sentence Structure (Unchanged from last version)
+// Sentence Structure
 sentence_def = { "(" ~ "sentence" ~ l0_column_body ~ l1_column_body ~ ")" }
 l0_column_body = { "(" ~ "L0" ~ segment_spec* ~ ")" }
 l1_column_body = { "(" ~ "L1" ~ segment_spec* ~ ")" }
@@ -44,6 +44,7 @@ lemmaList     = { "(" ~ (identifier)* ~ ")" }
 viabilityFlag = { "t" | "f" }
 
 diglotTuple   = { "(" ~ identifier ~ identifier ~ identifier ~ viabilityFlag? ~ ")" }
+// *** REVERTED: invDiglotTuple now expects three identifiers for consistency. ***
 invDiglotTuple = { "(" ~ identifier ~ identifier ~ identifier ~ ")" }
 
 identifier    = @{ (ASCII_ALPHANUMERIC | "-" | "_")+ }

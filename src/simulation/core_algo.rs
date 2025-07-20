@@ -1,6 +1,7 @@
 use super::numerical_types::{NumericalLearnerProfile, NumericalProcessedSentence};
 use crate::simulation::dictionary::GlobalLemmaDictionary;
-use std::collections::HashMap;
+use regex::{Captures, Regex};
+use once_cell::sync::Lazy;
 
 /// Helper function to check if a slice of lemma IDs are all known to the learner.
 fn are_lemmas_active(
@@ -48,6 +49,8 @@ pub struct ChosenLevelOutput {
     pub l1_part_choices: Option<Vec<L1PartChoice>>,
 }
 
+static WORD_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b[\w'-]+\b").unwrap());
+
 pub fn determine_and_annotate_sentence_expression(
     n_sentence: &mut NumericalProcessedSentence,
     profile: &NumericalLearnerProfile,
@@ -78,42 +81,38 @@ pub fn determine_and_annotate_sentence_expression(
                 }
 
                 if is_segment_salvageable {
-                    // --- START OF MODIFIED LOGIC ---
-                    let mut final_words = Vec::new();
-                    let mut temp_collected_lemmas = Vec::new();
                     let mut substitution_count = 0;
-                    let total_words = inverse_map_entries.len();
+                    let total_words = bundle.simpler_text_original.split_whitespace().count();
+                    let mut temp_collected_lemmas = Vec::new();
+                    let mut map_iter = inverse_map_entries.iter();
 
-                    for (spanish_word, lemma_id, english_sub) in inverse_map_entries.iter() {
-                        if profile.is_lemma_active(*lemma_id) || english_sub == "PROPER_NOUN" {
-                            final_words.push(spanish_word.clone());
-                            temp_collected_lemmas.push(*lemma_id);
+                    let final_text = WORD_REGEX.replace_all(&bundle.simpler_text_original, |caps: &Captures| {
+                        if let Some((_word, lemma_id, eng_sub)) = map_iter.next() {
+                            if profile.is_lemma_active(*lemma_id) || eng_sub == "PROPER_NOUN" {
+                                temp_collected_lemmas.push(*lemma_id);
+                                caps[0].to_string() // Keep original Spanish word
+                            } else {
+                                substitution_count += 1;
+                                eng_sub.clone() // Substitute with English
+                            }
                         } else {
-                            final_words.push(english_sub.clone());
-                            // This is an English substitution, count it.
-                            substitution_count += 1;
+                            caps[0].to_string() // Fallback if map is exhausted
                         }
-                    }
+                    }).to_string();
 
-                    // NEW: Apply the >50% substitution rule.
-                    // A single-word phrase can always be substituted (1/1 = 100% is OK).
                     let substitution_limit_exceeded = if total_words > 1 {
-                        // If substitution count is strictly greater than half the words, it fails.
                         (substitution_count as f32 / total_words as f32) > 0.5
                     } else {
-                        false // Allow single-word segments to be substituted.
+                        false
                     };
 
                     if substitution_limit_exceeded {
-                        // Too many substitutions, fail this L0 path.
                         l0_is_viable = false;
                         break;
                     } else {
-                        // The substitution count is acceptable, add the constructed segment.
-                        l0_candidate_choices.push(L0SegmentChoice::InverseDiglot { final_words });
+                        l0_candidate_choices.push(L0SegmentChoice::InverseDiglot { final_words: vec![final_text] });
                         l0_collected_lemma_ids.extend(temp_collected_lemmas);
                     }
-                    // --- END OF MODIFIED LOGIC ---
                 } else {
                     l0_is_viable = false;
                     break;
@@ -132,69 +131,66 @@ pub fn determine_and_annotate_sentence_expression(
         }
     }
 
-    // --- L1 FALLBACK LOGIC (remains the same) ---
+    // --- L1 FALLBACK LOGIC ---
     let mut l1_collected_lemma_ids: Vec<u32> = Vec::new();
     let mut l1_part_choices: Vec<L1PartChoice> = Vec::new();
     let mut l1_english_word_count: usize = 0;
 
     for s_seg_data_num in &n_sentence.sims_l3_segments_numerical {
-        let seg_lemmas_obj_num = n_sentence
-            .l3_simsl_per_segment_numerical
-            .iter()
-            .find(|sl_num| sl_num.segment_id_str == s_seg_data_num.id_str);
+        let seg_lemmas_obj_num = n_sentence.l3_simsl_per_segment_numerical.iter().find(|sl_num| sl_num.segment_id_str == s_seg_data_num.id_str);
 
-        let ss_is_active = seg_lemmas_obj_num.map_or(false, |lemmas| {
-            are_lemmas_active(&lemmas.lemma_ids, profile, dictionary)
-        });
+        let ss_is_active = seg_lemmas_obj_num.map_or(false, |lemmas| are_lemmas_active(&lemmas.lemma_ids, profile, dictionary));
 
         if ss_is_active {
             l1_part_choices.push(L1PartChoice::Spanish(s_seg_data_num.text_original.clone()));
-            if let Some(lemmas) = seg_lemmas_obj_num {
-                l1_collected_lemma_ids.extend(&lemmas.lemma_ids);
-            }
+            if let Some(lemmas) = seg_lemmas_obj_num { l1_collected_lemma_ids.extend(&lemmas.lemma_ids); }
         } else {
             if let Some(alignment) = n_sentence.phrase_alignments_l3_to_eng_numerical.iter().find(|pa| pa.s_segment_id_str == s_seg_data_num.id_str) {
-                let mut woven_phrase_parts: Vec<String> = Vec::new();
-                let mut substitutions_made = 0;
-
                 if let Some(diglot_map) = n_sentence.diglot_map_numerical.iter().find(|dm| dm.s_segment_id_str == s_seg_data_num.id_str) {
-                    let diglot_lookup: HashMap<_, _> = diglot_map.entries.iter().map(|e| (e.eng_word_original.to_lowercase(), e)).collect();
+                    let mut diglot_iter = diglot_map.entries.iter();
+                    let mut substitutions_made = 0;
                     
-                    for eng_word in alignment.eng_span_text_original.split_whitespace() {
-                        let lower_eng_word = eng_word.to_lowercase();
-                        let mut substituted = false;
-                        
-                        if let Some(diglot_entry) = diglot_lookup.get(&lower_eng_word) {
-                            if diglot_entry.viable && profile.is_lemma_active(diglot_entry.spa_lemma_id) {
-                                let is_capitalized = eng_word.chars().next().map_or(false, |c| c.is_uppercase());
-                                let spa_form = &diglot_entry.exact_spa_form_original;
-                                let final_form = if is_capitalized && !spa_form.is_empty() {
+                    let woven_text = WORD_REGEX.replace_all(&alignment.eng_span_text_original, |caps: &Captures| {
+                        if let Some(diglot_entry) = diglot_iter.next() {
+                            let spa_form = &diglot_entry.exact_spa_form_original;
+                            
+                            // *** FINAL FIX: Add resilience against bad data. ***
+                            // A substitution is only valid if all conditions are met.
+                            let should_substitute = diglot_entry.viable
+                                && profile.is_lemma_active(diglot_entry.spa_lemma_id)
+                                && spa_form != "PROPER_NOUN"
+                                && spa_form != "NO_SUB";
+
+                            if should_substitute {
+                                let is_capitalized = caps[0].chars().next().map_or(false, |c| c.is_uppercase());
+                                substitutions_made += 1;
+                                l1_collected_lemma_ids.push(diglot_entry.spa_lemma_id);
+                                if is_capitalized && !spa_form.is_empty() {
                                     let mut c = spa_form.chars();
                                     c.next().unwrap().to_uppercase().to_string() + c.as_str()
                                 } else {
                                     spa_form.clone()
-                                };
-                                woven_phrase_parts.push(final_form);
-                                l1_collected_lemma_ids.push(diglot_entry.spa_lemma_id);
-                                substituted = true;
-                                substitutions_made += 1;
+                                }
+                            } else {
+                                l1_english_word_count += 1;
+                                caps[0].to_string()
                             }
-                        }
-
-                        if !substituted {
-                            woven_phrase_parts.push(eng_word.to_string());
+                        } else {
                             l1_english_word_count += 1;
+                            caps[0].to_string()
                         }
+                    }).to_string();
+
+                    if substitutions_made > 0 {
+                        let contains_english = substitutions_made < alignment.eng_span_word_count;
+                        l1_part_choices.push(L1PartChoice::Woven(woven_text, contains_english));
+                    } else {
+                        // If no substitutions happened, the word count is just the original span's word count.
+                        l1_english_word_count = alignment.eng_span_word_count;
+                        l1_part_choices.push(L1PartChoice::English(alignment.eng_span_text_original.clone()));
                     }
                 } else {
-                    woven_phrase_parts.push(alignment.eng_span_text_original.clone());
                     l1_english_word_count += alignment.eng_span_word_count;
-                }
-
-                if substitutions_made > 0 {
-                    let contains_english = substitutions_made < alignment.eng_span_text_original.split_whitespace().count();
-                    l1_part_choices.push(L1PartChoice::Woven(woven_phrase_parts.join(" "), contains_english));
-                } else {
                     l1_part_choices.push(L1PartChoice::English(alignment.eng_span_text_original.clone()));
                 }
             } else {

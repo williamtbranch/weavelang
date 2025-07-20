@@ -1,16 +1,13 @@
-//*** START FILE: src/simulation/text_generator.rs ***//
 // src/simulation/text_generator.rs
 use super::core_algo::{L0SegmentChoice, L1PartChoice, OutputLevel};
 use crate::simulation::core_algo::ChosenLevelOutput;
 use crate::types::json_types::JsonSentenceBlock;
 use once_cell::sync::Lazy;
-use regex::{Captures, Regex};
-use std::collections::HashMap;
+use regex::Regex;
 
 // This regex finds a word surrounded by underscores, like _word_, and captures just the word.
 static ITALIC_CLEANER_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"_([^_[:space:]]+)_").unwrap());
 
-// *** FIX: Added `pub` to make this function visible to other modules. ***
 pub fn clean_text_for_tts(text: &str) -> String {
     // Step 1: Handle italics like _word_ -> word
     let italics_cleaned = ITALIC_CLEANER_REGEX.replace_all(text, "$1");
@@ -18,21 +15,6 @@ pub fn clean_text_for_tts(text: &str) -> String {
     italics_cleaned.replace('_', " ")
 }
 
-/// Helper to perform whole-word replacement for inverse diglots.
-fn replace_words(text: &str, substitutions: &HashMap<String, String>) -> String {
-    if substitutions.is_empty() {
-        return text.to_string();
-    }
-    let keys: Vec<String> = substitutions.keys().map(|k| regex::escape(k)).collect();
-    let pattern = format!(r"\b({})\b", keys.join("|"));
-    let re = Regex::new(&pattern).unwrap();
-    re.replace_all(text, |caps: &Captures| {
-        let matched_word = &caps[0];
-        format!("[{}]", substitutions.get(matched_word).unwrap_or(&"ERROR".to_string()))
-    }).to_string()
-}
-
-// *** FIX: Added `pub` to make this function visible to other modules. ***
 pub fn generate_raw_text_from_levels(
     block_string_sentences: &[&JsonSentenceBlock],
     chosen_level_outputs: &[ChosenLevelOutput],
@@ -61,7 +43,9 @@ pub fn generate_raw_text_from_levels(
                             L0SegmentChoice::Adv(text) => text.clone(),
                             L0SegmentChoice::SimplerAdv(text) => text.clone(),
                             L0SegmentChoice::InverseDiglot { final_words } => {
-                                final_words.join(" ")
+                                // *** FIX: The `final_words` vec now contains a single,
+                                // pre-assembled, punctuated string. We just need to get it.
+                                final_words.get(0).cloned().unwrap_or_default()
                             }
                         })
                         .collect();
@@ -116,4 +100,3 @@ pub fn generate_raw_text_from_levels(
 
     Ok(woven_block_text_parts.join("\n\n").trim().to_string())
 }
-//*** END FILE: src/simulation/text_generator.rs ***//

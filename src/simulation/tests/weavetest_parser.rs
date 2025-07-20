@@ -1,4 +1,3 @@
-// src/simulation/tests/weavetest_parser.rs
 
 use pest::Parser;
 
@@ -45,6 +44,7 @@ pub struct DslDiglotTuple {
     pub is_viable: bool,
 }
 
+// *** REVERTED: This struct is now back to its 3-token form for consistency. ***
 #[derive(Debug, Clone)]
 pub struct DslInvDiglotTuple {
     pub spanish_word: String,
@@ -135,14 +135,12 @@ fn parse_column_body(pair: pest::iterators::Pair<Rule>) -> DslColumnBody {
 }
 
 fn parse_segment_spec(pair: pest::iterators::Pair<Rule>) -> DslSegmentSpec {
-    // The `pair` has the rule `segment_spec`. Its inner child is the concrete type.
     let inner_pair = pair.into_inner().next().unwrap();
     let rule = inner_pair.as_rule();
     let mut inner = inner_pair.into_inner();
 
     match rule {
         Rule::spanishSegment => {
-            // A spanishSegment has a quotedPhrase and an optional lemmaList.
             let phrase_with_quotes = inner.next().unwrap().as_str();
             let phrase_str = phrase_with_quotes.trim_matches('"');
             
@@ -156,7 +154,6 @@ fn parse_segment_spec(pair: pest::iterators::Pair<Rule>) -> DslSegmentSpec {
             }
         }
         Rule::englishSegment => {
-            // An englishSegment has just a quotedPhrase.
             let phrase_with_quotes = inner.next().unwrap().as_str();
             let phrase_str = phrase_with_quotes.trim_matches('"');
             
@@ -170,8 +167,6 @@ fn parse_segment_spec(pair: pest::iterators::Pair<Rule>) -> DslSegmentSpec {
         Rule::invDiglotSegment => {
             DslSegmentSpec::InvDiglot { tuples: inner.map(parse_inv_diglot_tuple).collect() }
         }
-        // This arm handles any other rule, preventing the non-exhaustive match error.
-        // It should never be hit if the grammar is correct.
         _ => unreachable!("BUG in parse_segment_spec: expected a segment type, got {:?}", rule),
     }
 }
@@ -186,6 +181,7 @@ fn parse_diglot_tuple(pair: pest::iterators::Pair<Rule>) -> DslDiglotTuple {
     }
 }
 
+// *** REVERTED: This function now correctly parses the 3-token tuple. ***
 fn parse_inv_diglot_tuple(pair: pest::iterators::Pair<Rule>) -> DslInvDiglotTuple {
     let mut inner = pair.into_inner();
     DslInvDiglotTuple {

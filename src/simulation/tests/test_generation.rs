@@ -1,5 +1,3 @@
-//*** START FILE: src/simulation/tests/test_generation.rs ***//
-// src/simulation/tests/test_generation.rs
 
 use super::weavetest_parser::{
     self, DslAssertion, DslColumnBody, DslSegmentSpec, DslSubTest, DslTestCase,
@@ -116,15 +114,31 @@ fn compile_dsl_sentence_to_numerical(
         let DslSegmentSpec::Spanish { phrase: adv_phrase, lemmas: adv_lemmas } = adv_spec else { panic!("L0 Adv must be Spanish") };
         let DslSegmentSpec::Spanish { phrase: mod_phrase, lemmas: mod_lemmas } = mod_spec else { panic!("L0 Mod must be Spanish") };
         let DslSegmentSpec::InvDiglot { tuples: inv_tuples } = inv_spec else { panic!("L0 Inv must be InvDiglot") };
+
+        // *** FINAL FIX: L0 Structural Integrity Check with Punctuation Cleaning ***
+        if mod_phrase.len() != inv_tuples.len() {
+            panic!(
+                "Test Case '{}', L0 Segment {}: Count mismatch. Moderate Spanish phrase has {} words, but Inverse Diglot has {} tuples.",
+                test_case.name, col_num, mod_phrase.len(), inv_tuples.len()
+            );
+        }
+        for (idx, word) in mod_phrase.iter().enumerate() {
+            // Clean the word from the template before comparing it to the anchor word in the tuple.
+            let cleaned_word = word.trim_matches(|c: char| !c.is_alphanumeric());
+            if cleaned_word != inv_tuples[idx].spanish_word {
+                panic!(
+                    "Test Case '{}', L0 Segment {}: Mismatch at word {}. Moderate Spanish has '{}' (cleaned to '{}'), but Inverse Diglot tuple expects '{}'.",
+                    test_case.name, col_num, idx + 1, word, cleaned_word, inv_tuples[idx].spanish_word
+                );
+            }
+        }
+
         num_sentence.adv_segment_bundles_numerical.push(NumericalAdvSegmentBundle {
             a_id_str: format!("A{}", col_num),
             adv_text_original: adv_phrase.join(" "),
             adv_lemma_ids: adv_lemmas.iter().map(|l| dictionary.get_id_or_insert(l)).collect(),
             simpler_text_original: mod_phrase.join(" "),
             simpler_lemma_ids: mod_lemmas.iter().map(|l| dictionary.get_id_or_insert(l)).collect(),
-            // *** THIS IS THE LINE TO FIX ***
-            // The map closure must create a 3-element tuple (String, u32, String)
-            // to match the struct definition.
             inverse_diglot_map_numerical: inv_tuples.iter().map(|t| (
                 t.spanish_word.clone(),
                 dictionary.get_id_or_insert(&t.spanish_lemma),
@@ -142,6 +156,25 @@ fn compile_dsl_sentence_to_numerical(
         let DslSegmentSpec::Spanish { phrase: sim_phrase, lemmas: sim_lemmas } = sim_spec else { panic!("L1 Sim must be Spanish") };
         let DslSegmentSpec::Diglot { tuples: dig_tuples } = dig_spec else { panic!("L1 Dig must be Diglot") };
         let DslSegmentSpec::English { phrase: eng_phrase } = eng_spec else { panic!("L1 Eng must be English") };
+        
+        // *** FINAL FIX: L1 Structural Integrity Check with Punctuation Cleaning ***
+        if eng_phrase.len() != dig_tuples.len() {
+            panic!(
+                "Test Case '{}', L1 Segment {}: Count mismatch. English phrase has {} words, but Diglot block has {} tuples.",
+                test_case.name, col_num, eng_phrase.len(), dig_tuples.len()
+            );
+        }
+        for (idx, word) in eng_phrase.iter().enumerate() {
+            // Clean the word from the template before comparing it to the anchor word in the tuple.
+            let cleaned_word = word.trim_matches(|c: char| !c.is_alphanumeric());
+            if cleaned_word != dig_tuples[idx].word_to_replace {
+                panic!(
+                    "Test Case '{}', L1 Segment {}: Mismatch at word {}. English phrase has '{}' (cleaned to '{}'), but Diglot tuple expects '{}'.",
+                    test_case.name, col_num, idx + 1, word, cleaned_word, dig_tuples[idx].word_to_replace
+                );
+            }
+        }
+
         num_sentence.sims_l3_segments_numerical.push(NumericalSegmentData { id_str: s_id.clone(), text_original: sim_phrase.join(" ") });
         num_sentence.l3_simsl_per_segment_numerical.push(NumericalSegmentLemmas { segment_id_str: s_id.clone(), lemma_ids: sim_lemmas.iter().map(|l| dictionary.get_id_or_insert(l)).collect() });
         num_sentence.phrase_alignments_l3_to_eng_numerical.push(NumericalPhraseAlignmentToEng {
@@ -196,4 +229,3 @@ fn run_assertions(
     }
     (is_passed, reasons)
 }
-//*** END FILE: src/simulation/tests/test_generation.rs ***//
