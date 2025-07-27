@@ -24,7 +24,7 @@ class LemmatizeAdvSpanish(SpaCyStage):
                     doc = spacy_es(source_text)
                     # --- MODIFIED LEMMA EXTRACTION (BUG FIX) ---
                     # The `and token.pos_ != "PROPN"` check was removed.
-                    raw_lemmas = [token.lemma_ for token in doc if not token.is_punct and not token.is_space]
+                    raw_lemmas = [token.lemma_ for token in doc if not token.is_punct and not token.is_space and token.pos_ != "PROPN"]
                     normalized_lemmas = [
                         norm_lemma for s in raw_lemmas if (norm_lemma := helper.normalize_spanish_lemma(s))
                     ]

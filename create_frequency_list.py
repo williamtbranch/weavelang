@@ -1,63 +1,37 @@
-# create_frequency_list.py
+# create_frequency_list.py (v2 - Resumable and Robust)
 
 import argparse
 import sys
+import pickle
 from collections import Counter
 from pathlib import Path
 import unicodedata
 import re
+import os # For getting file size
 
+# --- Normalization Function (kept the same) ---
 def normalize_and_clean_lemma(lemma_str: str) -> str:
-    """
-    Applies a series of cleaning and normalization steps to a raw lemma string.
-    
-    Returns a cleaned lemma string or an empty string if it's invalid.
-    """
-    # 1. Start with the raw string and convert to lowercase
     s = lemma_str.lower().strip()
-
-    # 2. Handle specific, known replacements for archaic characters from Gutenberg texts
     s = s.replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
-
-    # 3. Strip any leading or trailing non-alphabetic characters.
-    # This will remove '--' from '--sigue' and '.' from 'word.'
-    # We specifically keep internal hyphens for now (e.g., 'well-being').
     s = re.sub(r'^[^\w]+|[^\w]+$', '', s)
-
-    # If after stripping, the string is empty, it's invalid.
     if not s:
         return ""
-        
-    # 4. Normalize Unicode to NFC (Normalization Form C).
-    # This is the standard form and merges characters and their accents into single code points.
-    # It ensures that "e" + "´" becomes the single character "é". While we replaced these above,
-    # this is good practice for other characters like 'ñ' (n + ~).
     s = unicodedata.normalize('NFC', s)
-    
-    # 5. Final check: ensure the resulting string doesn't contain invalid characters
-    # (e.g., if punctuation was in the middle of a word). We only want letters,
-    # and we can decide to allow hyphens.
-    # This regex will find anything that is NOT a lowercase letter or a hyphen.
     if re.search(r'[^a-z-]', s):
-        # This is a "garbage" lemma like 'hagas—y'. We discard it.
-        # Returning an empty string is a signal to the calling code to ignore this lemma.
         return ""
-        
     return s
 
 # --- Configuration ---
 OUTPUT_DIR = Path("assets")
 OUTPUT_FILENAME = "es_master_frequency_list.txt"
-# Use a tab character as a separator. It's standard for TSV files and won't be in a lemma.
 SEPARATOR = "\t"
+CHECKPOINT_FILENAME = "_freq_list_checkpoint.pkl" # File to save progress
 
-# Try to import tqdm for a nice progress bar, but make it optional.
 try:
     from tqdm import tqdm
 except ImportError:
     tqdm = None
 
-# Try to import SpaCy
 try:
     import spacy
 except ImportError:
@@ -65,89 +39,148 @@ except ImportError:
     sys.exit(1)
 
 
+def save_checkpoint(filepath: Path, file_index: int, counts: Counter):
+    """Saves the current progress to a pickle file."""
+    state = {
+        'last_processed_file_index': file_index,
+        'lemma_counts': counts,
+    }
+    try:
+        with open(filepath, 'wb') as f:
+            pickle.dump(state, f)
+        # Use .write() for tqdm to avoid breaking the progress bar
+        if tqdm:
+            tqdm.write(f"      [Checkpoint saved after processing file index {file_index}]")
+    except Exception as e:
+        if tqdm:
+            tqdm.write(f"      [WARNING: Could not save checkpoint: {e}]")
+
+def load_checkpoint(filepath: Path) -> tuple[int, Counter]:
+    """Loads progress from a pickle file."""
+    if filepath.exists():
+        try:
+            with open(filepath, 'rb') as f:
+                state = pickle.load(f)
+            print(f"--- Checkpoint found at '{filepath}'. Resuming progress. ---")
+            last_index = state.get('last_processed_file_index', -1)
+            counts = state.get('lemma_counts', Counter())
+            print(f"Resuming from file index {last_index + 1}. Loaded {len(counts)} existing lemma counts.")
+            return last_index, counts
+        except Exception as e:
+            print(f"Warning: Could not load checkpoint file '{filepath}': {e}. Starting fresh.")
+    return -1, Counter() # Return -1 to indicate no files have been processed yet
+
 def create_frequency_list(corpus_dir: Path):
     """
     Reads all .txt files in a directory, lemmatizes them using SpaCy,
-    and generates a ranked, counted frequency list.
+    and generates a ranked, counted frequency list with resumability.
     """
     if not corpus_dir.is_dir():
         print(f"ERROR: The specified directory does not exist: {corpus_dir}", file=sys.stderr)
         sys.exit(1)
 
-    # --- 1. Load the SpaCy Model ---
-    # We disable the parser and NER components as they are not needed for
-    # lemmatization, which significantly speeds up the process.
+    checkpoint_path = corpus_dir / CHECKPOINT_FILENAME
+    start_from_index, lemma_counts = load_checkpoint(checkpoint_path)
+
     print("Loading SpaCy model (es_core_news_lg)... This may take a moment.")
     try:
+        # Lowering batch_size for nlp.pipe as requested, to reduce memory pressure.
         nlp = spacy.load("es_core_news_lg", disable=["parser", "ner"])
     except IOError:
-        print("\n---")
+        print("\n---", file=sys.stderr)
         print("ERROR: Spanish SpaCy model 'es_core_news_lg' not found.", file=sys.stderr)
         print("Please run this command to download it:", file=sys.stderr)
         print("python -m spacy download es_core_news_lg", file=sys.stderr)
         sys.exit(1)
     print("SpaCy model loaded successfully.")
 
-    # --- 2. Find and Count Files ---
-    txt_files = list(corpus_dir.glob("*.txt"))
+    txt_files = sorted(list(corpus_dir.glob("*.txt")))
     if not txt_files:
         print(f"ERROR: No .txt files found in '{corpus_dir}'.", file=sys.stderr)
         sys.exit(1)
-
-    print(f"\nFound {len(txt_files)} text files to process.")
-
-    # --- 3. Process Files and Count Lemma Frequencies ---
-    lemma_counts = Counter()
     
-    # Use tqdm for a progress bar if available, otherwise just print filenames.
-    iterable = tqdm(txt_files, desc="Processing files") if tqdm else txt_files
+    files_to_process = txt_files[start_from_index + 1:]
+    if not files_to_process and start_from_index >= len(txt_files) -1 :
+        print("All files have already been processed according to the checkpoint.")
+    elif not files_to_process:
+        print("Warning: No files left to process based on checkpoint. Consider deleting the checkpoint to restart.")
+        # Proceed to finalization step with loaded data
+    else:
+        print(f"\nFound {len(txt_files)} total text files. Resuming with {len(files_to_process)} remaining files.")
 
-    for file_path in iterable:
-        if not tqdm:
-            print(f"  - Processing {file_path.name}...")
-        
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                text = f.read()
-        except Exception as e:
-            print(f"Warning: Could not read file {file_path.name}. Skipping. Error: {e}")
-            continue
+    # --- Byte-based Progress Bar Setup ---
+    total_bytes_to_process = sum(os.path.getsize(f) for f in files_to_process)
+    processed_bytes = 0
+    
+    progress_bar = None
+    if tqdm:
+        progress_bar = tqdm(total=total_bytes_to_process, unit='B', unit_scale=True, desc="Processing Corpus")
 
-        # Process the text in batches using nlp.pipe for memory efficiency.
-        # This is crucial for handling very large text files.
-        for doc in nlp.pipe(text.splitlines(), batch_size=50):
-            # Create a list of valid lemmas from the document
-            lemmas_in_doc_raw = [
-                token.lemma_.lower()
-                for token in doc
-                if not token.is_punct and not token.is_space and token.pos_ != "PROPN"
-            ]
-            # Update the master counter with the lemmas from this document
-            cleaned_lemmas = [
-                cleaned for s in lemmas_in_doc_raw 
-                if (cleaned := normalize_and_clean_lemma(s)) # Python 3.8+ walrus operator
-            ]
-            lemma_counts.update(cleaned_lemmas)
+    try:
+        for i, file_path in enumerate(files_to_process):
+            current_file_index = start_from_index + 1 + i
+            file_size = os.path.getsize(file_path)
 
+            if progress_bar:
+                progress_bar.set_description(f"Processing {file_path.name}")
+            else:
+                print(f"  - Processing {file_path.name}...")
+            
+            try:
+                with open(file_path, "r", encoding="utf-8", errors='ignore') as f:
+                    # Use a generator to avoid loading the whole file into memory at once
+                    line_generator = (line for line in f)
+                    
+                    for doc in nlp.pipe(line_generator, batch_size=400, n_process=-1):
+                        lemmas_in_doc_raw = [
+                            token.lemma_.lower()
+                            for token in doc
+                            if not token.is_punct and not token.is_space and token.pos_ != "PROPN"
+                        ]
+                        cleaned_lemmas = [
+                            cleaned for s in lemmas_in_doc_raw 
+                            if (cleaned := normalize_and_clean_lemma(s))
+                        ]
+                        lemma_counts.update(cleaned_lemmas)
+                
+                # After successfully processing a file, save a checkpoint.
+                save_checkpoint(checkpoint_path, current_file_index, lemma_counts)
+
+            except Exception as e:
+                # On error, save progress and exit gracefully.
+                print(f"\nCRITICAL ERROR: Could not read or process file {file_path.name}. Error: {e}", file=sys.stderr)
+                print("Saving progress before exiting. You can fix the issue and restart the script to resume.", file=sys.stderr)
+                save_checkpoint(checkpoint_path, current_file_index -1, lemma_counts) # Save progress up to the file *before* the failing one.
+                sys.exit(1)
+
+            # Update the byte-based progress bar
+            if progress_bar:
+                progress_bar.update(file_size)
+            processed_bytes += file_size
+
+    finally:
+        if progress_bar:
+            progress_bar.close()
+    
     if not lemma_counts:
         print("ERROR: No valid lemmas were found in any of the processed files.", file=sys.stderr)
         sys.exit(1)
         
-    print(f"\nProcessing complete. Found {len(lemma_counts)} unique lemmas.")
+    print(f"\nProcessing complete. Found {len(lemma_counts)} unique lemmas in total.")
 
-    # --- 4. Sort Lemmas by Frequency ---
-    # .most_common() returns a list of (element, count) tuples, sorted by count descending.
+    # --- Finalization (Writing the output file) ---
     sorted_lemmas = lemma_counts.most_common()
 
-    # --- 5. Write the Output File ---
     OUTPUT_DIR.mkdir(exist_ok=True)
     output_path = OUTPUT_DIR / OUTPUT_FILENAME
-    print(f"Writing frequency list to: {output_path}")
+    print(f"Writing final frequency list to: {output_path}")
 
     try:
         with open(output_path, "w", encoding="utf-8") as f:
-            f.write(f"lemma{SEPARATOR}rank{SEPARATOR}occurrences\n") # Write a header row
-            for rank, (lemma, count) in enumerate(sorted_lemmas, 1):
+            f.write(f"lemma{SEPARATOR}rank{SEPARATOR}occurrences\n")
+            
+            write_iterable = tqdm(enumerate(sorted_lemmas, 1), total=len(sorted_lemmas), desc="Writing output") if tqdm else enumerate(sorted_lemmas, 1)
+            for rank, (lemma, count) in write_iterable:
                 f.write(f"{lemma}{SEPARATOR}{rank}{SEPARATOR}{count}\n")
     except Exception as e:
         print(f"ERROR: Could not write to output file. Error: {e}", file=sys.stderr)
@@ -155,34 +188,35 @@ def create_frequency_list(corpus_dir: Path):
         
     print("Frequency list created successfully.")
     
-    # --- 6. Calculate and Display Lexical Coverage ---
+    # Clean up the checkpoint file on successful completion
+    try:
+        if checkpoint_path.exists():
+            os.remove(checkpoint_path)
+            print(f"Successfully removed checkpoint file: '{checkpoint_path}'")
+    except Exception as e:
+        print(f"Warning: Could not remove checkpoint file. You may want to delete it manually. Error: {e}")
+
+    # (Lexical coverage analysis remains the same)
     print("\n--- Corpus Lexical Coverage Analysis ---")
     total_token_count = sum(lemma_counts.values())
     print(f"Total valid tokens in corpus: {total_token_count:,}")
-    
     cumulative_count = 0
-    coverage_thresholds = {
-        0.80: None, 0.90: None, 0.95: None, 0.98: None, 0.99: None
-    }
-    
+    coverage_thresholds = {0.80: None, 0.90: None, 0.95: None, 0.98: None, 0.99: None}
     for rank, (lemma, count) in enumerate(sorted_lemmas, 1):
         cumulative_count += count
         coverage = cumulative_count / total_token_count
-        
         for threshold, value in coverage_thresholds.items():
             if value is None and coverage >= threshold:
                 coverage_thresholds[threshold] = rank
-    
     for threshold, rank_needed in coverage_thresholds.items():
         if rank_needed is not None:
             print(f"To understand {threshold:.0%} of the text, you need to know the top {rank_needed:,} lemmas.")
         else:
             print(f"The corpus is not large enough to calculate the {threshold:.0%} coverage.")
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Generate a master lemma frequency list from a corpus of text files."
+        description="Generate a master lemma frequency list from a corpus of text files with resumability."
     )
     parser.add_argument(
         "corpus_dir",

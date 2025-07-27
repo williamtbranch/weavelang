@@ -1,5 +1,5 @@
 // src/main.rs
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+//#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use clap::{Parser, ValueEnum};
 use eframe::{egui, App as EframeApp, NativeOptions};

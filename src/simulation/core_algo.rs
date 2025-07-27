@@ -1,15 +1,25 @@
+// src/simulation/core_algo.rs
 use super::numerical_types::{NumericalLearnerProfile, NumericalProcessedSentence};
 use crate::simulation::dictionary::GlobalLemmaDictionary;
-use regex::{Captures, Regex};
-use once_cell::sync::Lazy;
+use crate::simulation::frequency_manager;
 
 /// Helper function to check if a slice of lemma IDs are all known to the learner.
 fn are_lemmas_active(
     lemma_ids: &[u32],
     profile: &NumericalLearnerProfile,
-    _dictionary: &GlobalLemmaDictionary, // Signature kept for consistency
+    dictionary: &GlobalLemmaDictionary,
 ) -> bool {
-    lemma_ids.iter().all(|&id| profile.is_lemma_active(id))
+    lemma_ids.iter().all(|&id| {
+        if profile.is_lemma_active(id) {
+            return true;
+        }
+        if let Some(lemma_str) = dictionary.get_str(id) {
+            if frequency_manager::get_rank_for_lemma(lemma_str).is_none() {
+                return true; // "Rare word" rule
+            }
+        }
+        false
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -28,9 +38,7 @@ impl Default for OutputLevel {
 pub enum L0SegmentChoice {
     Adv(String),
     SimplerAdv(String),
-    InverseDiglot {
-        final_words: Vec<String>,
-    },
+    InverseDiglot(String), // Simplified to just hold the final text
 }
 
 #[derive(Debug, Clone)]
@@ -49,8 +57,6 @@ pub struct ChosenLevelOutput {
     pub l1_part_choices: Option<Vec<L1PartChoice>>,
 }
 
-static WORD_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b[\w'-]+\b").unwrap());
-
 pub fn determine_and_annotate_sentence_expression(
     n_sentence: &mut NumericalProcessedSentence,
     profile: &NumericalLearnerProfile,
@@ -67,59 +73,50 @@ pub fn determine_and_annotate_sentence_expression(
                 l0_candidate_choices.push(L0SegmentChoice::Adv(bundle.adv_text_original.clone()));
                 l0_collected_lemma_ids.extend(&bundle.adv_lemma_ids);
             } else if are_lemmas_active(&bundle.simpler_lemma_ids, profile, dictionary) {
-                l0_candidate_choices.push(L0SegmentChoice::SimplerAdv(bundle.simpler_text_original.clone()));
+                l0_candidate_choices
+                    .push(L0SegmentChoice::SimplerAdv(bundle.simpler_text_original.clone()));
                 l0_collected_lemma_ids.extend(&bundle.simpler_lemma_ids);
             } else {
-                let mut is_segment_salvageable = true;
-                let inverse_map_entries = &bundle.inverse_diglot_map_numerical;
+                let mut final_parts: Vec<String> = Vec::new();
+                let mut temp_collected_lemmas: Vec<u32> = Vec::new();
+                let mut substitutions_made = 0;
 
-                for (_spanish_word, lemma_id, substitute) in inverse_map_entries.iter() {
-                    if substitute == "NO_SUB" && !profile.is_lemma_active(*lemma_id) {
-                        is_segment_salvageable = false;
+                for (i, word_token) in bundle.simpler_text_words.iter().enumerate() {
+                    final_parts.push(bundle.simpler_text_backgrounds[i].clone());
+                    let (_word, lemma_id, eng_sub) = &bundle.inverse_diglot_map_numerical[word_token.diglot_index];
+
+                    if profile.is_lemma_active(*lemma_id) || eng_sub == "PROPER_NOUN" {
+                        temp_collected_lemmas.push(*lemma_id);
+                        final_parts.push(word_token.text.clone());
+                    } else if eng_sub == "NO_SUB" {
+                        l0_is_viable = false; // A NO_SUB for an unknown word fails the weave.
                         break;
+                    }
+                    else {
+                        substitutions_made += 1;
+                        final_parts.push(eng_sub.clone());
                     }
                 }
+                if !l0_is_viable { break; }
+                final_parts.push(bundle.simpler_text_backgrounds.last().unwrap().clone());
 
-                if is_segment_salvageable {
-                    let mut substitution_count = 0;
-                    let total_words = bundle.simpler_text_original.split_whitespace().count();
-                    let mut temp_collected_lemmas = Vec::new();
-                    let mut map_iter = inverse_map_entries.iter();
-
-                    let final_text = WORD_REGEX.replace_all(&bundle.simpler_text_original, |caps: &Captures| {
-                        if let Some((_word, lemma_id, eng_sub)) = map_iter.next() {
-                            if profile.is_lemma_active(*lemma_id) || eng_sub == "PROPER_NOUN" {
-                                temp_collected_lemmas.push(*lemma_id);
-                                caps[0].to_string() // Keep original Spanish word
-                            } else {
-                                substitution_count += 1;
-                                eng_sub.clone() // Substitute with English
-                            }
-                        } else {
-                            caps[0].to_string() // Fallback if map is exhausted
-                        }
-                    }).to_string();
-
-                    let substitution_limit_exceeded = if total_words > 1 {
-                        (substitution_count as f32 / total_words as f32) > 0.5
-                    } else {
-                        false
-                    };
-
-                    if substitution_limit_exceeded {
-                        l0_is_viable = false;
-                        break;
-                    } else {
-                        l0_candidate_choices.push(L0SegmentChoice::InverseDiglot { final_words: vec![final_text] });
-                        l0_collected_lemma_ids.extend(temp_collected_lemmas);
-                    }
+                let total_words = bundle.simpler_text_words.len();
+                let substitution_limit_exceeded = if total_words > 1 {
+                    (substitutions_made as f32 / total_words as f32) > 0.5
                 } else {
+                    false
+                };
+
+                if substitution_limit_exceeded || !are_lemmas_active(&temp_collected_lemmas, profile, dictionary) {
                     l0_is_viable = false;
                     break;
+                } else {
+                    l0_candidate_choices.push(L0SegmentChoice::InverseDiglot(final_parts.join("")));
+                    l0_collected_lemma_ids.extend(temp_collected_lemmas);
                 }
             }
         }
-        
+
         if l0_is_viable {
             return ChosenLevelOutput {
                 level: OutputLevel::AdvancedWeave,
@@ -130,80 +127,104 @@ pub fn determine_and_annotate_sentence_expression(
             };
         }
     }
+// --- L1 FALLBACK LOGIC (Version 4 - With Debug Prints) ---
+let mut l1_collected_lemma_ids: Vec<u32> = Vec::new();
+let mut l1_part_choices: Vec<L1PartChoice> = Vec::new();
+let mut l1_total_english_word_count: usize = 0;
 
-    // --- L1 FALLBACK LOGIC ---
-    let mut l1_collected_lemma_ids: Vec<u32> = Vec::new();
-    let mut l1_part_choices: Vec<L1PartChoice> = Vec::new();
-    let mut l1_english_word_count: usize = 0;
 
-    for s_seg_data_num in &n_sentence.sims_l3_segments_numerical {
-        let seg_lemmas_obj_num = n_sentence.l3_simsl_per_segment_numerical.iter().find(|sl_num| sl_num.segment_id_str == s_seg_data_num.id_str);
+// Iterate through all the L3 segments that make up the sentence.
+for l3_segment in &n_sentence.sims_l3_segments_numerical {
+    let segment_id = &l3_segment.id_str;
 
-        let ss_is_active = seg_lemmas_obj_num.map_or(false, |lemmas| are_lemmas_active(&lemmas.lemma_ids, profile, dictionary));
+    let segment_lemmas = n_sentence
+        .l3_simsl_per_segment_numerical
+        .iter()
+        .find(|sl| &sl.segment_id_str == segment_id);
 
-        if ss_is_active {
-            l1_part_choices.push(L1PartChoice::Spanish(s_seg_data_num.text_original.clone()));
-            if let Some(lemmas) = seg_lemmas_obj_num { l1_collected_lemma_ids.extend(&lemmas.lemma_ids); }
-        } else {
-            if let Some(alignment) = n_sentence.phrase_alignments_l3_to_eng_numerical.iter().find(|pa| pa.s_segment_id_str == s_seg_data_num.id_str) {
-                if let Some(diglot_map) = n_sentence.diglot_map_numerical.iter().find(|dm| dm.s_segment_id_str == s_seg_data_num.id_str) {
-                    let mut diglot_iter = diglot_map.entries.iter();
-                    let mut substitutions_made = 0;
-                    
-                    let woven_text = WORD_REGEX.replace_all(&alignment.eng_span_text_original, |caps: &Captures| {
-                        if let Some(diglot_entry) = diglot_iter.next() {
-                            let spa_form = &diglot_entry.exact_spa_form_original;
-                            
-                            // *** FINAL FIX: Add resilience against bad data. ***
-                            // A substitution is only valid if all conditions are met.
-                            let should_substitute = diglot_entry.viable
-                                && profile.is_lemma_active(diglot_entry.spa_lemma_id)
-                                && spa_form != "PROPER_NOUN"
-                                && spa_form != "NO_SUB";
+    let ss_is_active = segment_lemmas
+        .map_or(false, |lemmas| are_lemmas_active(&lemmas.lemma_ids, profile, dictionary));
+    
 
-                            if should_substitute {
-                                let is_capitalized = caps[0].chars().next().map_or(false, |c| c.is_uppercase());
-                                substitutions_made += 1;
-                                l1_collected_lemma_ids.push(diglot_entry.spa_lemma_id);
-                                if is_capitalized && !spa_form.is_empty() {
-                                    let mut c = spa_form.chars();
-                                    c.next().unwrap().to_uppercase().to_string() + c.as_str()
-                                } else {
-                                    spa_form.clone()
-                                }
-                            } else {
-                                l1_english_word_count += 1;
-                                caps[0].to_string()
-                            }
-                        } else {
-                            l1_english_word_count += 1;
-                            caps[0].to_string()
-                        }
-                    }).to_string();
+    if ss_is_active {
+        // Case 1: The simple Spanish version of this segment is fully known.
+        l1_part_choices.push(L1PartChoice::Spanish(l3_segment.text_original.clone()));
+        if let Some(lemmas) = segment_lemmas {
+            l1_collected_lemma_ids.extend(&lemmas.lemma_ids);
+        }
+        continue; // Move to the next segment
+    }
 
-                    if substitutions_made > 0 {
-                        let contains_english = substitutions_made < alignment.eng_span_word_count;
-                        l1_part_choices.push(L1PartChoice::Woven(woven_text, contains_english));
+    // --- Case 2: Spanish is not fully known. Fallback to English/Diglot. ---
+    if let Some(alignment) = n_sentence.phrase_alignments_l3_to_eng_numerical.iter().find(|pa| &pa.s_segment_id_str == segment_id) {
+        
+        let mut final_parts: Vec<String> = Vec::new();
+        let mut substitutions_made = 0;
+
+        if let Some(diglot_map) = n_sentence.diglot_map_numerical.iter().find(|dm| &dm.s_segment_id_str == segment_id) {
+            for (i, word_token) in alignment.eng_span_words.iter().enumerate() {
+                final_parts.push(alignment.eng_span_backgrounds[i].clone());
+                let diglot_entry = diglot_map.entries.get(word_token.diglot_index)
+        .unwrap_or_else(|| panic!(
+            "\n\nFATAL DATA INTEGRITY ERROR in book '{}', sentence '{}', segment '{}':\n\
+             Preprocessor created a WordToken for '{}' with diglot_index '{}', \
+             but the diglot_map for this segment only has a length of {}.\n\
+             This means the number of words found by the Rust tokenizer does not match the number of diglot map entries from the Python pipeline.\n\
+             Please check the JSON data for this sentence.\n",
+            n_sentence.source_file_name_original, // Assuming you add this field to NumericalProcessedSentence
+            n_sentence.sentence_id_str,
+            alignment.s_segment_id_str,
+            word_token.text,
+            word_token.diglot_index,
+            diglot_map.entries.len()
+        ));
+                let spa_form = &diglot_entry.exact_spa_form_original;
+                let should_substitute = diglot_entry.viable
+                    && profile.is_lemma_active(diglot_entry.spa_lemma_id)
+                    && spa_form != "PROPER_NOUN"
+                    && spa_form != "NO_SUB";
+                if should_substitute {
+                    substitutions_made += 1;
+                    l1_collected_lemma_ids.push(diglot_entry.spa_lemma_id);
+                    let is_capitalized = word_token.text.chars().next().map_or(false, |c| c.is_uppercase());
+                    if is_capitalized && !spa_form.is_empty() {
+                        let mut c = spa_form.chars();
+                        final_parts.push(c.next().unwrap().to_uppercase().to_string() + c.as_str());
                     } else {
-                        // If no substitutions happened, the word count is just the original span's word count.
-                        l1_english_word_count = alignment.eng_span_word_count;
-                        l1_part_choices.push(L1PartChoice::English(alignment.eng_span_text_original.clone()));
+                        final_parts.push(spa_form.clone());
                     }
                 } else {
-                    l1_english_word_count += alignment.eng_span_word_count;
-                    l1_part_choices.push(L1PartChoice::English(alignment.eng_span_text_original.clone()));
+                    final_parts.push(word_token.text.clone());
                 }
-            } else {
-                l1_part_choices.push(L1PartChoice::Spanish(s_seg_data_num.text_original.clone()));
             }
+            final_parts.push(alignment.eng_span_backgrounds.last().unwrap().clone());
+        } else {
+            for (i, word_token) in alignment.eng_span_words.iter().enumerate() {
+                final_parts.push(alignment.eng_span_backgrounds[i].clone());
+                final_parts.push(word_token.text.clone());
+            }
+            final_parts.push(alignment.eng_span_backgrounds.last().unwrap().clone());
         }
-    }
+        
+        let woven_text = final_parts.join("");
+        l1_total_english_word_count += alignment.eng_span_words.len() - substitutions_made;
 
-    ChosenLevelOutput {
-        level: OutputLevel::SimpleHybrid,
-        lemma_ids: l1_collected_lemma_ids,
-        english_word_count: l1_english_word_count,
-        l0_segment_choices: None,
-        l1_part_choices: Some(l1_part_choices),
+        if substitutions_made > 0 {
+            l1_part_choices.push(L1PartChoice::Woven(woven_text, true));
+        } else {
+            l1_part_choices.push(L1PartChoice::English(alignment.eng_span_text_original.clone()));
+        }
+    } else {
+        l1_part_choices.push(L1PartChoice::Spanish(l3_segment.text_original.clone()));
     }
+}
+
+
+ChosenLevelOutput {
+    level: OutputLevel::SimpleHybrid,
+    lemma_ids: l1_collected_lemma_ids,
+    english_word_count: l1_total_english_word_count,
+    l0_segment_choices: None,
+    l1_part_choices: Some(l1_part_choices),
+}
 }

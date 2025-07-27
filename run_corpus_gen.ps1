@@ -45,7 +45,7 @@ $CommandArgs = @(
     #"--debug-markers",
     "--profiles-dir", "$ContentProjectPath/generated_profiles",
     "--start-level", "0", 
-    "--ramp-rate", "10", 
+    "--ramp-rate", "1", 
     "--words-per-level", "10",
     "--core-vocab-size", "2000",
     "--stretch-threshold", "0.5",

@@ -30,9 +30,9 @@ pub enum DslColumnBody {
 
 #[derive(Debug, Clone)]
 pub enum DslSegmentSpec {
-    Spanish { phrase: Vec<String>, lemmas: Vec<String> },
+    Spanish { phrase: String, lemmas: Vec<String> },
     Diglot { tuples: Vec<DslDiglotTuple> },
-    English { phrase: Vec<String> },
+    English { phrase: String },
     InvDiglot { tuples: Vec<DslInvDiglotTuple> },
 }
 
@@ -142,23 +142,23 @@ fn parse_segment_spec(pair: pest::iterators::Pair<Rule>) -> DslSegmentSpec {
     match rule {
         Rule::spanishSegment => {
             let phrase_with_quotes = inner.next().unwrap().as_str();
-            let phrase_str = phrase_with_quotes.trim_matches('"');
-            
+            let phrase_str = phrase_with_quotes.trim_matches('"').to_string();
+
             let lemmas = inner.next().map(|p| {
                 p.into_inner().map(|l| l.as_str().to_string()).collect()
             }).unwrap_or_default();
-            
+
             DslSegmentSpec::Spanish {
-                phrase: phrase_str.split_whitespace().map(String::from).collect(),
+                phrase: phrase_str, // Use the full string
                 lemmas,
             }
         }
         Rule::englishSegment => {
             let phrase_with_quotes = inner.next().unwrap().as_str();
-            let phrase_str = phrase_with_quotes.trim_matches('"');
-            
-            DslSegmentSpec::English { 
-                phrase: phrase_str.split_whitespace().map(String::from).collect() 
+            let phrase_str = phrase_with_quotes.trim_matches('"').to_string();
+
+            DslSegmentSpec::English {
+                phrase: phrase_str // Use the full string
             }
         }
         Rule::diglotSegment => {

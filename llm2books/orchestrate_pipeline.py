@@ -91,11 +91,16 @@ def main():
     parser.add_argument("--version", default="7.1.0-inverse-diglot", help="Pipeline version for metadata.")
     parser.add_argument("--input_staged_subdir", default="Staged", help="Subdirectory for initial staged text files.")
     parser.add_argument("--output_llm_subdir", default="pipeline", help="Base subdirectory for intermediate pipeline stage outputs.")
+    
     # --- Execution control arguments ---
     parser.add_argument("--force_book", type=str, default=None, help="Force reprocessing of a specific book, ignoring existing progress.")
     parser.add_argument("--book_to_process", type=str, default=None, help="Process only a single specified book.")
     parser.add_argument(
         "--start_at_stage", type=int, default=1, choices=range(1, len(PIPELINE_STAGES) + 2), help="Start processing from a specific stage number."
+    )
+    # --- NEW ARGUMENT ---
+    parser.add_argument(
+        "--run_only_stage", type=int, default=None, choices=range(1, len(PIPELINE_STAGES) + 1), help="If specified, run ONLY this single stage and then exit."
     )
     args = parser.parse_args()
 
@@ -119,7 +124,18 @@ def main():
 
     logger.info("Initializing shared resources (LLM Client & SpaCy Models)...")
     
-    llm_provider = pipeline_config.get("llm_provider", "claude")
+    # Find the first LLM provider listed in any stage to initialize the client
+    # This makes the assumption all stages use the same provider, which is current design
+    llm_provider = "claude" # Default
+    for stage_conf in stages_config.values():
+        primary_model_key = stage_conf.get("primary_model")
+        if primary_model_key:
+            model_conf = models_config.get(primary_model_key, {})
+            if "provider" in model_conf:
+                llm_provider = model_conf["provider"]
+                break
+    
+    logger.info(f"Identified LLM provider '{llm_provider}' from config.")
     llm_client = helper.initialize_llm_client(llm_provider)
     if llm_client is None:
         sys.exit(1)
@@ -165,34 +181,46 @@ def main():
 
         effective_start_stage = args.start_at_stage
 
-        # Resumability check for non-forced books
-        if args.force_book != book_stem:
+        # If run_only_stage is set, it overrides start_at_stage for simplicity
+        if args.run_only_stage is not None:
+            effective_start_stage = args.run_only_stage
+        elif args.force_book != book_stem:
+            # Resumability check for non-forced books
             first_incomplete_stage = 1
             for StageClass in PIPELINE_STAGES:
                 instance_to_check = StageClass(book_stem, args, common_resources)
                 if not instance_to_check._is_stage_complete():
                     first_incomplete_stage = instance_to_check.stage_number
                     break
+                # If the last stage is complete, this will end up as num_stages + 1
                 first_incomplete_stage = instance_to_check.stage_number + 1
             
             if first_incomplete_stage > effective_start_stage:
                 effective_start_stage = first_incomplete_stage
         
         logger.info(f"Effective start stage for '{book_stem}' is Stage {effective_start_stage}.")
+        if args.run_only_stage is not None:
+            logger.info(f"Execution is limited to Stage {args.run_only_stage} ONLY.")
         
         for StageClass in PIPELINE_STAGES:
             stage_instance = StageClass(book_stem, args, common_resources)
 
-            if stage_instance.stage_number < effective_start_stage:
-                logger.info(f"Skipping stage {stage_instance.stage_number} ({stage_instance.stage_name}) due to resumability check.")
+            if args.run_only_stage is not None:
+                # If we are in single-stage mode, only run if the stage number matches
+                if stage_instance.stage_number != args.run_only_stage:
+                    continue # Skip all other stages
+            elif stage_instance.stage_number < effective_start_stage:
+                logger.info(f"Skipping stage {stage_instance.stage_number} ({stage_instance.stage_name}) due to start_at_stage setting.")
                 continue
 
             pipeline_ok = stage_instance.run()
 
-            if not pipeline_ok:
-                logger.error(f"Halting pipeline for '{book_stem}' due to failure in stage: {stage_instance.stage_name}.")
-                overall_success = False
-                break
+            # If we were in single-stage mode, or if any stage fails, break the loop for this book.
+            if not pipeline_ok or args.run_only_stage is not None:
+                if not pipeline_ok:
+                    logger.error(f"Halting pipeline for '{book_stem}' due to failure in stage: {stage_instance.stage_name}.")
+                    overall_success = False
+                break # Exit the loop over stages for this book
         
         if pipeline_ok:
             logger.info(f"--- Successfully Finished Pipeline for Book: [{book_stem}] ---\n")
@@ -205,5 +233,6 @@ def main():
     else:
         logger.error("Orchestrator finished, but one or more books failed processing.")
         sys.exit(1)
+
 if __name__ == "__main__":
     main()

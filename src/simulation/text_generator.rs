@@ -5,13 +5,10 @@ use crate::types::json_types::JsonSentenceBlock;
 use once_cell::sync::Lazy;
 use regex::Regex;
 
-// This regex finds a word surrounded by underscores, like _word_, and captures just the word.
 static ITALIC_CLEANER_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"_([^_[:space:]]+)_").unwrap());
 
 pub fn clean_text_for_tts(text: &str) -> String {
-    // Step 1: Handle italics like _word_ -> word
     let italics_cleaned = ITALIC_CLEANER_REGEX.replace_all(text, "$1");
-    // Step 2: Globally replace all remaining underscores with spaces for the TTS.
     italics_cleaned.replace('_', " ")
 }
 
@@ -35,59 +32,33 @@ pub fn generate_raw_text_from_levels(
         let chosen_output = &chosen_level_outputs[idx];
 
         let mut assembled_sentence_text = match chosen_output.level {
-            OutputLevel::AdvancedWeave => {
-                if let Some(segment_choices) = &chosen_output.l0_segment_choices {
-                    let parts: Vec<String> = segment_choices
-                        .iter()
-                        .map(|choice| match choice {
-                            L0SegmentChoice::Adv(text) => text.clone(),
-                            L0SegmentChoice::SimplerAdv(text) => text.clone(),
-                            L0SegmentChoice::InverseDiglot { final_words } => {
-                                // *** FIX: The `final_words` vec now contains a single,
-                                // pre-assembled, punctuated string. We just need to get it.
-                                final_words.get(0).cloned().unwrap_or_default()
-                            }
-                        })
-                        .collect();
-                    parts.join(" ")
+            OutputLevel::AdvancedWeave | OutputLevel::SimpleHybrid => {
+                let parts: Vec<String> = if chosen_output.level == OutputLevel::AdvancedWeave {
+                    chosen_output.l0_segment_choices.as_ref().map_or(Vec::new(), |choices| {
+                        choices.iter().map(|choice| match choice {
+                            L0SegmentChoice::Adv(text) | L0SegmentChoice::SimplerAdv(text) | L0SegmentChoice::InverseDiglot(text) => text.clone(),
+                        }).collect()
+                    })
                 } else {
-                    return Err(format!(
-                        "TextGen L0 Error: No segment choices for sentence {}",
-                        s_sentence.original_sentence_s_id
-                    ));
-                }
-            }
-            OutputLevel::SimpleHybrid => {
-                if let Some(part_choices) = &chosen_level_outputs[idx].l1_part_choices {
-                    let parts: Vec<String> = part_choices
-                        .iter()
-                        .map(|choice| -> String {
-                            match choice {
-                                L1PartChoice::Spanish(text) => {
-                                    if add_debug_markers {
-                                        format!("(%%{}%%)", text)
-                                    } else {
-                                        text.clone()
-                                    }
-                                }
-                                L1PartChoice::Woven(text, contains_english) => {
-                                    if add_debug_markers && *contains_english {
-                                        format!("(%ED% {} %)", text)
-                                    } else {
-                                        text.clone()
-                                    }
-                                }
-                                L1PartChoice::English(text) => text.clone(),
-                            }
-                        })
-                        .collect();
-                    parts.join(" ")
-                } else {
+                    chosen_output.l1_part_choices.as_ref().map_or(Vec::new(), |choices| {
+                        choices.iter().map(|choice| match choice {
+                            L1PartChoice::Spanish(text) => if add_debug_markers { format!("(%%{}%%)", text) } else { text.clone() },
+                            L1PartChoice::Woven(text, c) => if add_debug_markers && *c { format!("(%ED% {} %)", text) } else { text.clone() },
+                            L1PartChoice::English(text) => text.clone(),
+                        }).collect()
+                    })
+                };
+                
+                if parts.is_empty() {
+                    let level_str = if chosen_output.level == OutputLevel::AdvancedWeave { "L0" } else { "L1" };
                      return Err(format!(
-                        "TextGen L1 Error: No part choices for sentence {}",
-                        s_sentence.original_sentence_s_id
+                        "TextGen {} Error: No segment/part choices for sentence {}",
+                        level_str, s_sentence.original_sentence_s_id
                     ));
                 }
+
+                // *** FIX: Revert to joining with a space. This is the correct rule for joining phrases. ***
+                parts.join(" ")
             }
         };
 
@@ -95,7 +66,20 @@ pub fn generate_raw_text_from_levels(
             assembled_sentence_text = s_sentence.english_text.clone();
         }
         
-        woven_block_text_parts.push(assembled_sentence_text);
+        // *** FIX: This cleanup is the necessary second step to handle the artifacts of the simple join rule. ***
+        let cleaned_spacing = assembled_sentence_text
+            .replace(" ,", ",")
+            .replace(" .", ".")
+            .replace(" :", ":")
+            .replace(" ;", ";")
+            .replace(" ?", "?")
+            .replace(" !", "!")
+            .replace("¡ ", "¡")
+            .replace("¿ ", "¿")
+            .replace(",\"", ", \"")
+            .replace(":\"", ": \"");
+
+        woven_block_text_parts.push(cleaned_spacing);
     }
 
     Ok(woven_block_text_parts.join("\n\n").trim().to_string())

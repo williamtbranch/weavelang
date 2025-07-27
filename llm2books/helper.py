@@ -67,6 +67,7 @@ def normalize_spanish_lemma(lemma_str: str) -> str:
     """
     # 1. Start with the raw string and convert to lowercase
     s = lemma_str.lower().strip()
+    s = s.split(' ')[0]
 
     # 2. Handle specific, known replacements first.
     s = s.replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')

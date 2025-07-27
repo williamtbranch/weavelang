@@ -23,15 +23,23 @@ class FinalizeSimplerSpanish(SpaCyStage):
                     # Lemmatize advanced_text
                     adv_doc = spacy_es(seg.get("advanced_text", ""))
                     # The `and token.pos_ != "PROPN"` check was removed.
-                    adv_raw_lemmas = [token.lemma_ for token in adv_doc if not token.is_punct and not token.is_space]
+                    adv_raw_lemmas =  [token.lemma_ for token in adv_doc if not token.is_punct and not token.is_space and token.pos_ != "PROPN"]
                     seg["advanced_lemmas"] = [norm_lemma for s in adv_raw_lemmas if (norm_lemma := helper.normalize_spanish_lemma(s))]
 
                     # Lemmatize simpler_text
                     simpler_doc = spacy_es(seg.get("simpler_text", ""))
                     # The `and token.pos_ != "PROPN"` check was removed.
-                    simpler_raw_lemmas = [token.lemma_ for token in simpler_doc if not token.is_punct and not token.is_space]
+                    simpler_raw_lemmas = [token.lemma_ for token in simpler_doc if not token.is_punct and not token.is_space and token.pos_ != "PROPN"]
                     simpler_lemmas = [norm_lemma for s in simpler_raw_lemmas if (norm_lemma := helper.normalize_spanish_lemma(s))]
                     seg["simpler_lemmas"] = simpler_lemmas
+
+                    simpler_text_content = seg.get("simpler_text", "")
+                    if not simpler_lemmas and any(c.isalpha() for c in simpler_text_content):
+                        note = f"LemmatizationWarning: Stage 4 found no lemmas for simpler_text: '{simpler_text_content}'"
+                        block.setdefault("processing_notes", []).append(note)
+                        s_id = block.get('original_sentence_s_id', 'N/A')
+                        seg_id = seg.get('segment_id', 'N/A')
+                        logger.warning(f"      -> {note} (Book: {self.book_stem}, S_ID: {s_id}, Seg_ID: {seg_id})")
                     
                     all_simpler_texts.append(seg.get("simpler_text", ""))
                     all_simpler_lemmas.extend(simpler_lemmas)

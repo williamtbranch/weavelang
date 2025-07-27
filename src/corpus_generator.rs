@@ -132,8 +132,11 @@ pub fn run_corpus_generation(
         .join("assets")
         .join("es_master_frequency_list.txt");
 
+    // --- DEBUG: Confirming frequency list is loaded ---
+    println!("[DEBUG] Attempting to load frequency list from: {:?}", &freq_list_path);
     frequency_manager::load_master_frequency_list(&freq_list_path)?;
     let ordered_lemmas = frequency_manager::get_ordered_lemmas();
+    println!("[DEBUG] Frequency list loaded successfully.");
 
     fs::create_dir_all(&args.tts_output_dir)?;
     fs::create_dir_all(&args.profiles_dir)?;
@@ -148,7 +151,11 @@ pub fn run_corpus_generation(
     println!("[INFO] Starting batch generation job.");
     println!("[INFO] Default Start Level: {}, Default Ramp Rate: {}", state.current_start_level, state.current_ramp_rate);
     
+    // --- DEBUG: Confirming sequence file path ---
+    println!("[DEBUG] Attempting to open sequence file at: {:?}", &args.sequence_path);
     let sequence_file = File::open(&args.sequence_path)?;
+    let mut book_stems_found = 0;
+
     for line_result in BufReader::new(sequence_file).lines() {
         let line = line_result?.trim().to_string();
         if line.is_empty() || line.starts_with('#') { continue; }
@@ -175,8 +182,9 @@ pub fn run_corpus_generation(
             continue;
         }
         
+        book_stems_found += 1;
         let book_stem = line;
-        println!("\n--- Processing Book: {} ---", book_stem);
+        println!("\n--- [DEBUG] Processing Book Stem from sequence: {} ---", book_stem);
         println!("  Using Start Level: {}, Ramp Rate: {}", state.current_start_level, state.current_ramp_rate);
 
         let mut learner_profile = NumericalLearnerProfile::new();
@@ -192,15 +200,34 @@ pub fn run_corpus_generation(
 
         let json_file_path = PathBuf::from(&project_config.content_project_dir)
             .join(&args.input_json_dir)
-            .join(format!("{}.stage10.json", book_stem)); // <-- IMPORTANT: Pointing to stage10
+            .join(format!("{}.stage10.json", book_stem));
         
-        let json_chapter = json_parser::parse_chapter_from_json(&fs::read_to_string(&json_file_path).map_err(|e| format!("Could not read final JSON file {:?}: {}", &json_file_path, e))?)?;
+        // --- DEBUG: Confirming JSON file path and read attempt ---
+        println!("[DEBUG] Attempting to read JSON file from: {:?}", &json_file_path);
+        
+        let json_content_result = fs::read_to_string(&json_file_path);
+        if let Err(e) = json_content_result {
+            eprintln!("[DEBUG] FAILED to read JSON file '{}': {}. Skipping.", book_stem, e);
+            continue; // Skip to the next book
+        }
+        
+        let json_chapter_result = json_parser::parse_chapter_from_json(&json_content_result.unwrap());
+        if let Err(e) = json_chapter_result {
+            eprintln!("[DEBUG] FAILED to parse JSON file '{}': {}. Skipping.", book_stem, e);
+            continue; // Skip to the next book
+        }
+        
+        let json_chapter = json_chapter_result.unwrap();
+        println!("[DEBUG] Successfully read and parsed JSON for '{}'.", book_stem);
+
         global_lemma_dictionary.populate_from_json_chapter(&json_chapter);
         let (numerical_chapter, precalculated_english_word_counts) = preprocessor::json_chapter_to_numerical(&json_chapter, &mut global_lemma_dictionary);
+        
         if numerical_chapter.sentences_numerical.is_empty() {
             eprintln!("[WARN] No sentences found in {}. Skipping.", book_stem);
             continue;
         }
+        println!("[DEBUG] Preprocessed JSON into {} numerical sentences.", numerical_chapter.sentences_numerical.len());
         
         let total_english_word_count: usize = precalculated_english_word_counts.iter().sum();
         let estimated_output_words = (total_english_word_count as f32 * 1.1) as usize;
@@ -303,7 +330,6 @@ pub fn run_corpus_generation(
                     }
                 },
             }
-
         }
         
         let filename = if state.current_ramp_rate == 0.0 {
@@ -325,6 +351,8 @@ pub fn run_corpus_generation(
         state.current_start_level = target_final_level;
     }
 
+    // --- DEBUG: Confirming loop finished ---
+    println!("[DEBUG] Finished looping through sequence file. Total book stems found and processed: {}", book_stems_found);
     println!("\n[INFO] Batch generation job finished.");
     Ok(())
 }

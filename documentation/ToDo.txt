@@ -1,4 +1,123 @@
 ================================================================================
 Project Plan: WeaveLang V8 - The Data Integrity Refactor
 Last Updated: (Date of this session)
-================================================================================
+===============================================================================
+
+Primary Objectives:
+Solve Data Integrity: Permanently fix the entire class of punctuation, spacing, and token-mismatch bugs by adopting an explicit, tokenized data model.
+Achieve Language Agnosticism: Refactor the core pipeline and simulation engine to be independent of specific languages, enabling future expansion.
+Increase Robustness: Implement a self-validating data pipeline that checks its own work.
+Improve Portability & Maintainability: Formally separate the shareable tool/code from the user's private content data.
+Phase 1: The New Data Contract (JSON Schema V2)
+The foundation of this refactor is a new, explicit, and language-agnostic JSON schema.
+[ ] 1.1: Define the Top-Level Schema (JsonChapterV2)
+
+{
+  "book_meta": {
+    "book_name": "A_Christmas_Carol",
+    "schema_version": "2.0",
+    "base_language": "en",
+    "target_language": "es"
+  },
+  "content_blocks": [ /* Array of Sentence or Chapter Marker blocks */ ]
+}
+[ ] 1.2: Define the Sentence Block Schema (JsonSentenceBlockV2)
+This structure separates text into Tiers (e.g., base language, simple target language) and Mappings (relationships between tiers).
+
+{
+  "block_type": "sentence",
+  "s_id": "S26",
+  "tiers": [ /* Array of Tier Objects */ ],
+  "mappings": { /* Mapping Objects */ }
+}
+
+[ ] 1.3: Define the Tier Object Schema
+A Tier represents one complete version of the sentence (e.g., English, Simple Spanish).
+
+{
+  "tier_id": "base", // e.g., "base", "simple_target", "advanced_target"
+  "full_text": "“Who are you?” said the Caterpillar.", // For integrity checks
+  "lemmas": [1, 2, 3, 4, 5, 6], // (Optional) Aggregated lemma IDs for the whole tier
+  "segments": [
+    {
+      "seg_id": "S1",
+      "post_separator": " ", // Background text AFTER this segment
+      "tokenized_text": [
+        { "t": "b", "v": "“" },
+        { "t": "w", "v": "Who", "di": 0, "l": [1] },
+        { "t": "b", "v": " " },
+        { "t": "w", "v": "are", "di": 1, "l": [2] },
+        { "t": "b", "v": " " },
+        { "t": "w", "v": "you", "di": 2, "l": [3] },
+        { "t": "b", "v": "?”" }
+      ]
+    }
+    // ... more segments
+  ]
+}
+
+Key Abbreviations:
+t: "type" (b for background, w for word)
+v: "value" (the text string)
+di: "diglot_index" (for base language words, linking to mappings)
+l: "lemmas" (array of lemma IDs for a target language word)
+[ ] 1.4: Define the Mappings Object Schema
+Mappings define relationships like diglot maps.
+
+"mappings": {
+  "simple_target_to_base_diglot": {
+    "S1": [
+      // Format: [base_word_diglot_index, target_lemma_id, "exact_target_form", is_viable_bool]
+      [3, 18, "duda", true] // e.g., base word at di=3 maps to lemma 18 ("duda")
+    ]
+  }
+}
+
+Phase 2: Refactor the Python Pipeline (The "Smart" Part)
+[ ] 2.1: Implement New Directory & Config Structure
+- [ ] In the weavelang (tool) repo, create assets/ directory.
+- [ ] Move prompts to assets/prompts/{pair}/.
+- [ ] Create assets/frequency_lists/ and place es_master_frequency_list.txt inside.
+- [ ] Create assets/languages.toml manifest file.
+- [ ] Update weavelang/config.toml to only contain content_project_dir and the optional custom_frequency_list_path.
+[ ] 2.2: Update the Pipeline Orchestrator (orchestrate_pipeline.py)
+- [ ] Add --base-lang and --target-lang CLI arguments.
+- [ ] Implement logic to load assets/languages.toml.
+- [ ] Implement logic to resolve the correct frequency list path (custom or default).
+- [ ] Implement the V1-to-V2 Data Migration Pre-Check:
+- [ ] Create a migration.py module.
+- [ ] Implement find_latest_v1_json() to locate old data.
+- [ ] Implement migrate_v1_to_v2_stage0() to read a V1 file, extract only the raw LLM-generated texts, and create a partial V2 JSON in a new pipeline/stage0/ directory.
+[ ] 2.3: Create a Central Tokenizer
+- [ ] In llm2books/helper.py, create a new tokenize_phrase function. It must take a raw string and return the tokenized_text array structure ([{t:b, v:...}, {t:w, v:...}]). This will be the single source of truth for tokenization.
+[ ] 2.4: Refactor All Pipeline Stages
+- [ ] Modify the base Stage classes to load and use the new language_config.
+- [ ] SpaCy Stages (e.g., SegmentEnglish, Lemmatize...):
+- [ ] These stages are now responsible for generating the tokenized_text arrays using the new central tokenizer.
+- [ ] They will also determine and save the post_separator for each segment.
+- [ ] They will populate the lemmas fields with numerical IDs.
+- [ ] LLM Stages (e.g., GenerateAdvSpanish):
+- [ ] These stages will now populate only the full_text fields in the V2 JSON. They no longer deal with segmentation or lemmas directly.
+[ ] 2.5: Add a Final Integrity Check Stage (e.g., Stage11: ValidateIntegrity)
+- [ ] This new stage runs last.
+- [ ] For every tier in every sentence, it reconstructs the text by joining the v values from the tokenized_text array.
+- [ ] It will then assert that the reconstructed text exactly matches the full_text field for that tier. This makes the pipeline self-validating.
+Phase 3: Refactor the Rust Application (The "Stupid" Part)
+[ ] 3.1: Update JSON Data Structures (src/types/json_types.rs)
+- [ ] Create new Rust structs that exactly mirror the V2 JSON Schema. Use serde attributes for the abbreviated keys (e.g., #[serde(rename = "t")]).
+[ ] 3.2: Overhaul the Preprocessor (src/simulation/preprocessor.rs)
+- [ ] The json_chapter_to_numerical function's role changes. It no longer tokenizes.
+- [ ] Its new job is to be a simple data mapper: Traverse the JsonSentenceBlockV2 and map its structures to the Numerical... equivalents.
+- [ ] Delete the disassemble_string function. Its logic now lives permanently in the Python pipeline.
+[ ] 3.3: Massively Simplify the Text Generator (src/simulation/text_generator.rs)
+- [ ] The generate_raw_text_from_levels function becomes much simpler.
+- [ ] It will receive fully-formed segments. Its only job is to concatenate segment.post_separator and the text reconstructed from segment.tokenized_text.
+- [ ] Delete all the brittle .replace() calls for punctuation cleanup.
+[ ] 3.4: Refactor the Core Algorithm (src/simulation/core_algo.rs)
+- [ ] The logic for determining expression levels remains, but it now works with the pre-tokenized data.
+- [ ] Reconstructing text for inverse diglot or woven phrases is now just a simple loop over the tokenized_text array, replacing v values as needed. No more string manipulation.
+Phase 4: Update the Test Suite
+[ ] 4.1: Refactor the Test Compiler (src/simulation/tests/test_generation.rs)
+- [ ] The compile_dsl_sentence_to_numerical function needs a major update.
+- [ ] It will now take the simple DSL phrases and run them through a Rust version of the tokenize_phrase logic to generate the rich JsonSentenceBlockV2 structure before passing it to the preprocessor. This ensures the tests perfectly simulate the new data format.
+//*** END FILE: documentation/ToDo.txt ***//
