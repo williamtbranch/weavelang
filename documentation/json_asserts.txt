@@ -1,0 +1,78 @@
+//*** START FILE: documentation/json_asserts.txt ***//
+# ==========================================================
+# WeaveLang JSON Data Integrity Assertions (Schema v2.2)
+# ==========================================================
+#
+# This document lists the data integrity rules that a compliant JSON file
+# must follow to be considered valid for processing by the WeaveLang engine.
+#
+# The core philosophy is "Correctness by Construction." The Python pipeline
+# is responsible for enforcing these rules. The Rust engine is designed to be
+# "brittle" and will (and should) panic if it encounters data that violates
+# these contracts. This ensures that data errors are caught early, preventing
+# the generation of subtly incorrect learning materials.
+
+# ----------------------------
+# 1. File & Book-Level Asserts
+# ----------------------------
+- The file MUST be a syntactically valid JSON document.
+- The root object MUST contain a `book_meta` object.
+- `book_meta.schema_version` MUST exist and match the version the engine expects (e.g., "2.2").
+- `book_meta.base_language` and `book_meta.target_language` MUST be present.
+- The root object MUST contain a `content_blocks` array.
+
+# -------------------------
+# 2. Sentence-Level Asserts
+# -------------------------
+- Every object in `content_blocks` MUST have a `block_type` of either "sentence" or "chapter_marker".
+- Every "sentence" block MUST have a unique `s_id` string.
+- Every "sentence" block MUST contain a `tiers` array and a `mappings` object.
+- A "sentence" block MUST contain at least one word token (`t: "w"`) across all its tiers combined. A sentence cannot be composed solely of punctuation.
+- A "sentence" block SHOULD contain a `processing_status` object that documents the completion state of each pipeline stage for that sentence (e.g., `"stage1": "COMPLETED_LLM"`). This allows for resumability.
+
+# --------------------
+# 3. Tier-Level Asserts
+# --------------------
+- Each tier object in the `tiers` array MUST have a `tier_id` (e.g., "base", "simple_target", "advanced_target", "simpler_advanced_target").
+- Each tier object MUST have a `full_text` string.
+- Each tier object MUST have a `segments` array.
+- [CRITICAL] Lossless Reconstruction: The text formed by concatenating the `v` (value) of all tokens from all segments within a tier MUST exactly equal the `full_text` for that tier.
+- Target language tiers (`simple_target`, `advanced_target`, `simpler_advanced_target`) MUST have a `lemmas` array of strings.
+- The `base` language tier MUST NOT have a `lemmas` property.
+
+# ----------------------
+# 4. Segment-Level Asserts
+# ----------------------
+- Each segment object in a `segments` array MUST have a unique `seg_id` string within that tier.
+- Each segment object MUST have a `tokenized_text` array.
+- [CRITICAL] No Punctuation-Only Segments: Every segment MUST contain at least one word token (`t: "w"`). Segments containing only background tokens are invalid and should have been merged into an adjacent segment by the pipeline.
+
+# ---------------------------
+# 5. Token (`tokenized_text`) Asserts
+# ---------------------------
+- The `tokenized_text` array for any segment MUST NOT be empty.
+- Every element in `tokenized_text` MUST be an object with at least a `t` (type) and `v` (value) key.
+- The `t` property MUST be either "b" (background) or "w" (word).
+- [CRITICAL] BWBWB Invariant: The `tokenized_text` array MUST start with a background token and end with a background token. Word and background tokens must alternate. (e.g., B, BWB, BWBWB are valid; W, WB, BWW are invalid).
+- In the `base` tier, every word token (`t: "w"`) MUST have a numerical `di` (diglot_index) key.
+- In target language tiers, every word token (`t: "w"`) MUST have an `l` (lemmas) key, which is an array of one or more strings.
+- Across all segments of the `base` tier for a single sentence, `di` values MUST be unique and sequential, starting from 0.
+
+# ----------------------
+# 6. Mapping-Level Asserts
+# ----------------------
+- The `mappings` object MUST contain `simple_target_to_base_diglot` and `simpler_adv_target_to_base_inv_diglot` objects.
+- The keys of these mapping objects (e.g., "S1", "A1") MUST correspond to valid `seg_id`s in the appropriate tiers.
+- [CRITICAL] Exhaustive Diglot Mapping: For every `base` segment, the number of word tokens (`t: "w"`) within it MUST exactly equal the number of entries in the `simple_target_to_base_diglot` map for that `seg_id`.
+- [CRITICAL] Exhaustive Inverse Diglot Mapping: For every `simpler_advanced_target` segment, the number of word tokens (`t: "w"`) within it MUST exactly equal the number of entries in the `simpler_adv_target_to_base_inv_diglot` map for that `seg_id`.
+- All `di` values used in the `simple_target_to_base_diglot` map MUST be valid indices that exist on word tokens in the `base` tier.
+- All word indices used in the `simpler_adv_target_to_base_inv_diglot` map MUST be valid indices within the `tokenized_text` array of the corresponding `simpler_advanced_target` segment.
+
+# -----------------------------
+# 7. Cross-Tier Alignment Asserts
+# -----------------------------
+- The `base` tier and the `simple_target` tier MUST have the exact same number of segments.
+- The `seg_id`s for `base` and `simple_target` segments MUST correspond one-to-one (e.g., `S1` in `base` aligns with `S1` in `simple_target`).
+- The `advanced_target` tier and the `simpler_advanced_target` tier MUST have the exact same number of segments.
+- The `seg_id`s for `advanced_target` and `simpler_advanced_target` segments MUST correspond one-to-one (e.g., `A1` in `advanced` aligns with `A1` in `simpler_advanced`).
+//*** END FILE: documentation/json_asserts.txt ***//
