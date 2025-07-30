@@ -1,4 +1,6 @@
-// src/simulation/core_algo.rs
+//*** START FILE: src/simulation/core_algo.rs ***//
+// In file: src/simulation/core_algo.rs
+
 use super::numerical_types::{NumericalLearnerProfile, NumericalProcessedSentence};
 use crate::simulation::dictionary::GlobalLemmaDictionary;
 use crate::simulation::frequency_manager;
@@ -9,6 +11,9 @@ fn are_lemmas_active(
     profile: &NumericalLearnerProfile,
     dictionary: &GlobalLemmaDictionary,
 ) -> bool {
+    if lemma_ids.is_empty() {
+        return true;
+    }
     lemma_ids.iter().all(|&id| {
         if profile.is_lemma_active(id) {
             return true;
@@ -38,13 +43,13 @@ impl Default for OutputLevel {
 pub enum L0SegmentChoice {
     Adv(String),
     SimplerAdv(String),
-    InverseDiglot(String), // Simplified to just hold the final text
+    InverseDiglot(String),
 }
 
 #[derive(Debug, Clone)]
 pub enum L1PartChoice {
     Spanish(String),
-    Woven(String, bool),
+    Woven(String, bool), 
     English(String),
 }
 
@@ -57,174 +62,185 @@ pub struct ChosenLevelOutput {
     pub l1_part_choices: Option<Vec<L1PartChoice>>,
 }
 
+
+/// Attempts to build a Level 0 (AdvancedWeave) sentence.
+/// Returns Some(ChosenLevelOutput) on success, or None on failure.
+/// Failure occurs if any single segment is not expressible under L0 rules.
+fn try_build_advanced_weave(
+    n_sentence: &NumericalProcessedSentence,
+    profile: &NumericalLearnerProfile,
+    dictionary: &GlobalLemmaDictionary,
+) -> Option<ChosenLevelOutput> {
+    // If there are no advanced segments defined at all, L0 is not possible.
+    if n_sentence.adv_segment_bundles_numerical.is_empty() {
+        return None;
+    }
+
+    let mut l0_candidate_choices: Vec<L0SegmentChoice> = Vec::new();
+    let mut l0_collected_lemma_ids: Vec<u32> = Vec::new();
+
+    // Iterate through each segment "column". If any column fails, this whole function will return None.
+    for bundle in &n_sentence.adv_segment_bundles_numerical {
+        // Path 1: Try Advanced Spanish
+        if are_lemmas_active(&bundle.adv_lemma_ids, profile, dictionary) {
+            l0_candidate_choices.push(L0SegmentChoice::Adv(bundle.adv_text_original.clone()));
+            l0_collected_lemma_ids.extend(&bundle.adv_lemma_ids);
+            continue; // Success for this column, move to the next.
+        }
+
+        // Path 2: Try Simpler Advanced Spanish
+        if are_lemmas_active(&bundle.simpler_lemma_ids, profile, dictionary) {
+            l0_candidate_choices.push(L0SegmentChoice::SimplerAdv(bundle.simpler_text_original.clone()));
+            l0_collected_lemma_ids.extend(&bundle.simpler_lemma_ids);
+            continue; // Success for this column, move to the next.
+        }
+
+        // Path 3: Try Inverse Diglot with the 50% rule
+        let total_words = bundle.simpler_text_words.len();
+        if total_words == 0 {
+            // Empty segment is trivially successful
+            l0_candidate_choices.push(L0SegmentChoice::InverseDiglot("".to_string()));
+            continue;
+        }
+
+        let mut final_parts: Vec<String> = Vec::new();
+        let mut temp_collected_lemmas: Vec<u32> = Vec::new();
+        let mut substitutions = 0;
+        let mut inverse_diglot_is_viable = true;
+
+        for (i, word_token) in bundle.simpler_text_words.iter().enumerate() {
+            final_parts.push(bundle.simpler_text_backgrounds[i].clone());
+
+            let diglot_entry = bundle.inverse_diglot_map_numerical.iter()
+                .find(|(original_word, _, _)| original_word == &word_token.text);
+
+            if let Some((_, lemma_id, eng_sub)) = diglot_entry {
+                // *** L0 PROPER_NOUN LOGIC ***
+                if eng_sub == "PROPER_NOUN" {
+                    // Always keep the Spanish word for proper nouns in L0. Do not count as a substitution.
+                    final_parts.push(word_token.text.clone());
+                } else if profile.is_lemma_active(*lemma_id) {
+                    temp_collected_lemmas.push(*lemma_id);
+                    final_parts.push(word_token.text.clone());
+                } else if eng_sub == "NO_SUB" {
+                    inverse_diglot_is_viable = false; // Cannot substitute, so path is blocked
+                    break;
+                } else {
+                    substitutions += 1;
+                    final_parts.push(eng_sub.clone());
+                }
+            } else {
+                final_parts.push(word_token.text.clone()); // Not in map, assume punctuation/etc.
+            }
+        }
+        final_parts.push(bundle.simpler_text_backgrounds.last().unwrap().clone());
+
+        // Check viability based on the loop results
+        if !inverse_diglot_is_viable {
+            return None; // This segment is un-expressible, so the entire L0 attempt fails.
+        }
+
+        // Apply 50% rule, but waive for single-word segments
+        if total_words > 1 {
+            let substitution_ratio = substitutions as f32 / total_words as f32;
+            if substitution_ratio > 0.5 {
+                return None; // Fails the 50% rule. This entire L0 attempt fails.
+            }
+        }
+        
+        // If we get here, the inverse diglot path is viable for this segment.
+        l0_candidate_choices.push(L0SegmentChoice::InverseDiglot(final_parts.concat()));
+        l0_collected_lemma_ids.extend(temp_collected_lemmas);
+    }
+    
+    // If we successfully processed all segments without returning None, the L0 attempt is a success.
+    Some(ChosenLevelOutput {
+        level: OutputLevel::AdvancedWeave,
+        lemma_ids: l0_collected_lemma_ids,
+        english_word_count: 0,
+        l0_segment_choices: Some(l0_candidate_choices),
+        l1_part_choices: None,
+    })
+}
+
+
 pub fn determine_and_annotate_sentence_expression(
     n_sentence: &mut NumericalProcessedSentence,
     profile: &NumericalLearnerProfile,
     dictionary: &GlobalLemmaDictionary,
+    // This argument is now unused due to the per-segment 50% rule,
+    // but is kept for signature compatibility with the caller.
     _inverse_diglot_threshold: f32,
 ) -> ChosenLevelOutput {
-    let mut l0_candidate_choices: Vec<L0SegmentChoice> = Vec::new();
-    let mut l0_is_viable = true;
-    let mut l0_collected_lemma_ids: Vec<u32> = Vec::new();
-
-    if !n_sentence.adv_segment_bundles_numerical.is_empty() {
-        for bundle in &n_sentence.adv_segment_bundles_numerical {
-            if are_lemmas_active(&bundle.adv_lemma_ids, profile, dictionary) {
-                l0_candidate_choices.push(L0SegmentChoice::Adv(bundle.adv_text_original.clone()));
-                l0_collected_lemma_ids.extend(&bundle.adv_lemma_ids);
-            } else if are_lemmas_active(&bundle.simpler_lemma_ids, profile, dictionary) {
-                l0_candidate_choices
-                    .push(L0SegmentChoice::SimplerAdv(bundle.simpler_text_original.clone()));
-                l0_collected_lemma_ids.extend(&bundle.simpler_lemma_ids);
-            } else {
-                let mut final_parts: Vec<String> = Vec::new();
-                let mut temp_collected_lemmas: Vec<u32> = Vec::new();
-                let mut substitutions_made = 0;
-
-                for (i, word_token) in bundle.simpler_text_words.iter().enumerate() {
-                    final_parts.push(bundle.simpler_text_backgrounds[i].clone());
-                    let (_word, lemma_id, eng_sub) = &bundle.inverse_diglot_map_numerical[word_token.diglot_index];
-
-                    if profile.is_lemma_active(*lemma_id) || eng_sub == "PROPER_NOUN" {
-                        temp_collected_lemmas.push(*lemma_id);
-                        final_parts.push(word_token.text.clone());
-                    } else if eng_sub == "NO_SUB" {
-                        l0_is_viable = false; // A NO_SUB for an unknown word fails the weave.
-                        break;
-                    }
-                    else {
-                        substitutions_made += 1;
-                        final_parts.push(eng_sub.clone());
-                    }
-                }
-                if !l0_is_viable { break; }
-                final_parts.push(bundle.simpler_text_backgrounds.last().unwrap().clone());
-
-                let total_words = bundle.simpler_text_words.len();
-                let substitution_limit_exceeded = if total_words > 1 {
-                    (substitutions_made as f32 / total_words as f32) > 0.5
-                } else {
-                    false
-                };
-
-                if substitution_limit_exceeded || !are_lemmas_active(&temp_collected_lemmas, profile, dictionary) {
-                    l0_is_viable = false;
-                    break;
-                } else {
-                    l0_candidate_choices.push(L0SegmentChoice::InverseDiglot(final_parts.join("")));
-                    l0_collected_lemma_ids.extend(temp_collected_lemmas);
-                }
-            }
-        }
-
-        if l0_is_viable {
-            return ChosenLevelOutput {
-                level: OutputLevel::AdvancedWeave,
-                lemma_ids: l0_collected_lemma_ids,
-                english_word_count: 0,
-                l0_segment_choices: Some(l0_candidate_choices),
-                l1_part_choices: None,
-            };
-        }
-    }
-// --- L1 FALLBACK LOGIC (Version 4 - With Debug Prints) ---
-let mut l1_collected_lemma_ids: Vec<u32> = Vec::new();
-let mut l1_part_choices: Vec<L1PartChoice> = Vec::new();
-let mut l1_total_english_word_count: usize = 0;
-
-
-// Iterate through all the L3 segments that make up the sentence.
-for l3_segment in &n_sentence.sims_l3_segments_numerical {
-    let segment_id = &l3_segment.id_str;
-
-    let segment_lemmas = n_sentence
-        .l3_simsl_per_segment_numerical
-        .iter()
-        .find(|sl| &sl.segment_id_str == segment_id);
-
-    let ss_is_active = segment_lemmas
-        .map_or(false, |lemmas| are_lemmas_active(&lemmas.lemma_ids, profile, dictionary));
     
-
-    if ss_is_active {
-        // Case 1: The simple Spanish version of this segment is fully known.
-        l1_part_choices.push(L1PartChoice::Spanish(l3_segment.text_original.clone()));
-        if let Some(lemmas) = segment_lemmas {
-            l1_collected_lemma_ids.extend(&lemmas.lemma_ids);
-        }
-        continue; // Move to the next segment
+    // --- L0: Advanced Weave Attempt ---
+    if let Some(l0_output) = try_build_advanced_weave(n_sentence, profile, dictionary) {
+        return l0_output;
     }
 
-    // --- Case 2: Spanish is not fully known. Fallback to English/Diglot. ---
-    if let Some(alignment) = n_sentence.phrase_alignments_l3_to_eng_numerical.iter().find(|pa| &pa.s_segment_id_str == segment_id) {
-        
-        let mut final_parts: Vec<String> = Vec::new();
-        let mut substitutions_made = 0;
+    // --- L1: Simple Hybrid Fallback (This logic runs only if the L0 attempt fails) ---
+    let mut l1_collected_lemma_ids: Vec<u32> = Vec::new();
+    let mut l1_part_choices: Vec<L1PartChoice> = Vec::new();
+    let mut l1_total_english_word_count: usize = 0;
 
-        if let Some(diglot_map) = n_sentence.diglot_map_numerical.iter().find(|dm| &dm.s_segment_id_str == segment_id) {
-            for (i, word_token) in alignment.eng_span_words.iter().enumerate() {
-                final_parts.push(alignment.eng_span_backgrounds[i].clone());
-                let diglot_entry = diglot_map.entries.get(word_token.diglot_index)
-        .unwrap_or_else(|| panic!(
-            "\n\nFATAL DATA INTEGRITY ERROR in book '{}', sentence '{}', segment '{}':\n\
-             Preprocessor created a WordToken for '{}' with diglot_index '{}', \
-             but the diglot_map for this segment only has a length of {}.\n\
-             This means the number of words found by the Rust tokenizer does not match the number of diglot map entries from the Python pipeline.\n\
-             Please check the JSON data for this sentence.\n",
-            n_sentence.source_file_name_original, // Assuming you add this field to NumericalProcessedSentence
-            n_sentence.sentence_id_str,
-            alignment.s_segment_id_str,
-            word_token.text,
-            word_token.diglot_index,
-            diglot_map.entries.len()
-        ));
-                let spa_form = &diglot_entry.exact_spa_form_original;
-                let should_substitute = diglot_entry.viable
-                    && profile.is_lemma_active(diglot_entry.spa_lemma_id)
-                    && spa_form != "PROPER_NOUN"
-                    && spa_form != "NO_SUB";
-                if should_substitute {
-                    substitutions_made += 1;
-                    l1_collected_lemma_ids.push(diglot_entry.spa_lemma_id);
-                    let is_capitalized = word_token.text.chars().next().map_or(false, |c| c.is_uppercase());
-                    if is_capitalized && !spa_form.is_empty() {
-                        let mut c = spa_form.chars();
-                        final_parts.push(c.next().unwrap().to_uppercase().to_string() + c.as_str());
-                    } else {
-                        final_parts.push(spa_form.clone());
+    for l3_segment in &n_sentence.sims_l3_segments_numerical {
+        let segment_id = &l3_segment.id_str;
+        let segment_lemmas = n_sentence.l3_simsl_per_segment_numerical.iter().find(|sl| &sl.segment_id_str == segment_id);
+
+        if segment_lemmas.map_or(false, |l| are_lemmas_active(&l.lemma_ids, profile, dictionary)) {
+            l1_part_choices.push(L1PartChoice::Spanish(l3_segment.text_original.clone()));
+            if let Some(lemmas) = segment_lemmas {
+                l1_collected_lemma_ids.extend(&lemmas.lemma_ids);
+            }
+        } else {
+            if let Some(alignment) = n_sentence.phrase_alignments_l3_to_eng_numerical.iter().find(|pa| &pa.s_segment_id_str == segment_id) {
+                let mut final_parts: Vec<String> = Vec::new();
+                let mut substitutions_made = 0;
+                let diglot_map_opt = n_sentence.diglot_map_numerical.iter().find(|dm| &dm.s_segment_id_str == segment_id);
+
+                for (i, word_token) in alignment.eng_span_words.iter().enumerate() {
+                    final_parts.push(alignment.eng_span_backgrounds[i].clone());
+                    let mut substituted = false;
+                    
+                    if let Some(diglot_map) = diglot_map_opt {
+                        if let Some(entry) = diglot_map.entries.get(word_token.diglot_index) {
+                            // *** L1 METADATA LOGIC (PROPER_NOUN & NO_SUB) ***
+                            let is_metadata_token = entry.exact_spa_form_original == "PROPER_NOUN" || entry.exact_spa_form_original == "NO_SUB";
+                            
+                            if !is_metadata_token && entry.viable && profile.is_lemma_active(entry.spa_lemma_id) {
+                                substitutions_made += 1;
+                                l1_collected_lemma_ids.push(entry.spa_lemma_id);
+                                final_parts.push(entry.exact_spa_form_original.clone());
+                                substituted = true;
+                            }
+                        }
                     }
-                } else {
-                    final_parts.push(word_token.text.clone());
+                    if !substituted {
+                        final_parts.push(word_token.text.clone());
+                    }
                 }
+                final_parts.push(alignment.eng_span_backgrounds.last().unwrap().clone());
+                
+                let final_text = final_parts.concat();
+                l1_total_english_word_count += alignment.eng_span_words.len() - substitutions_made;
+                
+                if substitutions_made > 0 {
+                    l1_part_choices.push(L1PartChoice::Woven(final_text, true));
+                } else {
+                    l1_part_choices.push(L1PartChoice::English(alignment.eng_span_text_original.clone()));
+                }
+            } else {
+                l1_part_choices.push(L1PartChoice::Spanish(l3_segment.text_original.clone()));
             }
-            final_parts.push(alignment.eng_span_backgrounds.last().unwrap().clone());
-        } else {
-            for (i, word_token) in alignment.eng_span_words.iter().enumerate() {
-                final_parts.push(alignment.eng_span_backgrounds[i].clone());
-                final_parts.push(word_token.text.clone());
-            }
-            final_parts.push(alignment.eng_span_backgrounds.last().unwrap().clone());
         }
-        
-        let woven_text = final_parts.join("");
-        l1_total_english_word_count += alignment.eng_span_words.len() - substitutions_made;
-
-        if substitutions_made > 0 {
-            l1_part_choices.push(L1PartChoice::Woven(woven_text, true));
-        } else {
-            l1_part_choices.push(L1PartChoice::English(alignment.eng_span_text_original.clone()));
-        }
-    } else {
-        l1_part_choices.push(L1PartChoice::Spanish(l3_segment.text_original.clone()));
+    }
+    
+    ChosenLevelOutput {
+        level: OutputLevel::SimpleHybrid,
+        lemma_ids: l1_collected_lemma_ids,
+        english_word_count: l1_total_english_word_count,
+        l0_segment_choices: None,
+        l1_part_choices: Some(l1_part_choices),
     }
 }
-
-
-ChosenLevelOutput {
-    level: OutputLevel::SimpleHybrid,
-    lemma_ids: l1_collected_lemma_ids,
-    english_word_count: l1_total_english_word_count,
-    l0_segment_choices: None,
-    l1_part_choices: Some(l1_part_choices),
-}
-}
+//*** END FILE: src/simulation/core_algo.rs ***//

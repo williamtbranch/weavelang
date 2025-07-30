@@ -1,38 +1,40 @@
 # Configuration for the WeaveLang Data Pipeline
 
 # --- Core Path Configuration ---
-# Absolute path to the content project directory (e.g., 'audiolingual')
-# This directory should contain subdirectories like 'Staged' and 'stage'.
+# Absolute path to YOUR content project directory.
+# This is the ONLY path you need to change to point the tool at your data.
 content_project_dir = "E:\\Bill\\Documents\\development\\audiolingual"
+
+# --- Optional Frequency List Override ---
+# If you want to use a custom frequency list for a specific corpus,
+# provide the absolute path to it here.
+# If this is commented out or blank, the tool will use its default list
+# for the target language from its internal 'assets' directory.
+custom_frequency_list_path = ""
 
 
 # --- Central Model Definitions ---
-# Define each available LLM here. Stages will refer to them by their key (e.g., "haiku").
-# 'max_input_tokens' is an *estimated* safe limit for the total tokens in a prompt.
-# It should be comfortably less than the model's absolute maximum context window.
+# This section remains the same.
 [models]
     [models.gemini-flash-lite]
     provider = "gemini"
     name = "gemini-2.5-flash-lite-preview-06-17"
-    #name = "gemini-2.5-flash"
-    max_input_tokens = 10000 # Can be very high
+    max_input_tokens = 10000
     
     [models.gemini-flash]
     provider = "gemini"
-    #name = "gemini-2.5-flash-lite-preview-06-17"
     name = "gemini-2.5-flash"
-    max_input_tokens = 10000 # Can be very high
+    max_input_tokens = 10000
 
     [models.haiku]
     provider = "claude"
     name = "claude-3-5-haiku-20241022"
-    #name = "claude-3-haiku-20240307"
-    max_input_tokens = 4000 # Haiku has a 200K context window 8k output
+    max_input_tokens = 4000
 
     [models.sonnet]
     provider = "claude"
     name = "claude-sonnet-4-20250514"
-    max_input_tokens = 20000 # Sonnet 3.5 also has a 200K window
+    max_input_tokens = 20000
 
     [models.opus]
     provider = "claude"
@@ -41,32 +43,19 @@ content_project_dir = "E:\\Bill\\Documents\\development\\audiolingual"
 
 
 # --- Global Pipeline Execution Settings ---
+# This section remains the same.
 [pipeline]
-# Default number of times to retry a direct API call (e.g., on a 503 error)
 max_api_retries = 3
-
-# Default number of times to retry a batch if it fails *validation* (e.g., malformed output)
-# The script will re-prompt the LLM with corrective instructions.
 max_validation_retries = 4
-
-# Base delay in seconds between retries.
 retry_delay = 7
 
 
 # --- Per-Stage Configuration ---
-# Define settings for each LLM-based stage. The key (e.g., "GenerateAdvSpanish")
-# must match the class name of the stage in the Python code.
-#
-# - primary_model: The key of the model from [models] to use first.
-# - fallback_model: The key of the model to use if the primary model fails repeatedly.
-# - batch_size_in_tokens: The target token count for a batch. The pipeline will
-#   pack as many complete sentences/units as possible without exceeding this limit.
+# This section remains the same.
 [stages]
     [stages.GenerateAdvSpanish]
-    #primary_model = "haiku"
     primary_model = "sonnet"
     fallback_model = "sonnet"
-    #fallback_model = ""
     batch_size_in_tokens = 2000
 
     [stages.SimplifyAdvSpanish]

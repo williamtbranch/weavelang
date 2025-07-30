@@ -157,3 +157,56 @@ def _merge_short_chunks(
             else:
                 i += 1
     return texts
+
+def create_v2_token_list(text: str, doc: Doc) -> List[Dict[str, Any]]:
+    """
+    Creates the V2 token list structure ([{t:'b', v:'...'}, {t:'w', v:'...'}])
+    from a raw text string and its corresponding SpaCy Doc.
+    This is the single source of truth for tokenization in the pipeline.
+    
+    Args:
+        text: The original raw string.
+        doc: The SpaCy Doc object for that string.
+
+    Returns:
+        A list of token dictionaries for the V2 JSON schema.
+    """
+    tokens = []
+    last_idx = 0
+
+    # Ensure the first token is always a background token
+    if not text.startswith(doc[0].text_with_ws if doc else ''):
+        tokens.append({"t": "b", "v": ""})
+
+    for token in doc:
+        # Background is the text between the last token and this one
+        background = text[last_idx:token.idx]
+        if background:
+            # If the last token was also a background, merge them.
+            # This handles cases of multiple spaces or complex non-word sections.
+            if tokens and tokens[-1]["t"] == "b":
+                tokens[-1]["v"] += background
+            else:
+                tokens.append({"t": "b", "v": background})
+        
+        # Add the word token itself
+        tokens.append({
+            "t": "w",
+            "v": token.text,
+            # 'di' and 'l' will be populated by later stages
+        })
+        last_idx = token.idx + len(token.text)
+    
+    # Add the final background token (any text after the last word)
+    final_background = text[last_idx:]
+    if final_background:
+         if tokens and tokens[-1]["t"] == "b":
+            tokens[-1]["v"] += final_background
+         else:
+            tokens.append({"t": "b", "v": final_background})
+    
+    # Final check: if the list is empty (e.g., empty input string), ensure a single empty background token
+    if not tokens:
+        tokens.append({"t": "b", "v": ""})
+
+    return tokens

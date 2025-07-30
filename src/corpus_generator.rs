@@ -303,7 +303,7 @@ pub fn run_corpus_generation(
             );
             
             let s_sentence_json = json_chapter.content_blocks.iter().find_map(|cb| match cb {
-                JsonContentBlock::Sentence(s) if s.original_sentence_s_id == n_sentence.sentence_id_str => Some(s), _ => None,
+                JsonContentBlock::Sentence(s) if s.s_id == n_sentence.sentence_id_str => Some(s), _ => None,
             }).ok_or("Mismatch between numerical and json sentences")?;
             let generated_text = text_generator::generate_raw_text_from_levels(&[s_sentence_json], &[output.clone()], args.debug_markers)?;
 

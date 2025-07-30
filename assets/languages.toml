@@ -1,0 +1,21 @@
+# In weavelang/assets/languages.toml
+
+# ===============================================
+#  Language-Specific Resource Manifest
+# ===============================================
+
+[en] # Configuration for English
+spacy_model = "en_core_web_lg"
+
+[es] # Configuration for Spanish
+spacy_model = "es_core_news_lg"
+
+# [fr] # Future configuration for French
+# spacy_model = "fr_core_news_sm"
+
+
+# --- Configuration for specific language PAIRS ---
+
+[pair.en-es]
+# The path to the directory holding prompts, relative to the `assets` directory.
+prompt_dir = "prompts/en-es"

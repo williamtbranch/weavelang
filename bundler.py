@@ -6,7 +6,7 @@ DEFAULT_OUTPUT_FILE = "mono.out"
 DEFAULT_EXTENSIONS = ['.zig', '.py', '.md', '.txt', '.rs', '.ps1', '.toml', '.pest', '.weavetest'] # Added .rs and .toml
 #DEFAULT_EXTENSIONS = ['.py','.txt','.ps1', '.toml'] # Added .rs and .toml
 DEFAULT_IGNORE_PATHS_OR_NAMES = [
-    '.git', '__pycache__', 'zig-cache', 'zig-out', 'stage', 'data', 'output_audio', '.venv', 'assets',
+    '.git', '__pycache__', 'es_master_frequency_list.txt', 'zig-cache', 'zig-out', 'stage', 'data', 'output_audio', '.venv', 'assets',
     DEFAULT_OUTPUT_FILE, 'mono.in', '.DS_Store',
     'target', # Added Rust target directory
 ]

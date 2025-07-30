@@ -68,22 +68,34 @@ impl GlobalLemmaDictionary {
     pub fn get_str(&self, lemma_id: u32) -> Option<&String> {
         self.id_to_entry.get(lemma_id as usize).map(|entry| &entry.text)
     }
-
     pub fn populate_from_json_chapter(&mut self, json_chapter_data: &JsonChapter) {
         for block in &json_chapter_data.content_blocks {
             if let JsonContentBlock::Sentence(s_sentence) = block {
-                for lemma in &s_sentence.adv_spanish_full.lemmas { self.get_id_or_insert(lemma); }
-                for segment in &s_sentence.adv_spanish_segments {
-                    for lemma in &segment.advanced_lemmas { self.get_id_or_insert(lemma); }
-                    for lemma in &segment.simpler_lemmas { self.get_id_or_insert(lemma); }
+                // Populate from tiers
+                for tier in &s_sentence.tiers {
+                    for lemma in &tier.lemmas {
+                        self.get_id_or_insert(lemma);
+                    }
+                    for segment in &tier.segments {
+                        for token in &segment.tokenized_text {
+                            for lemma in &token.lemmas {
+                                self.get_id_or_insert(lemma);
+                            }
+                        }
+                    }
                 }
-                for lemma in &s_sentence.simpler_adv_spanish_full.lemmas { self.get_id_or_insert(lemma); }
-                for lemma in &s_sentence.simple_spanish_l3_full.lemmas { self.get_id_or_insert(lemma); }
-                for (_s_id, lemmas) in &s_sentence.simple_spanish_l3_lemmas_per_segment {
-                    for lemma in lemmas { self.get_id_or_insert(lemma); }
+                // Populate from mappings
+                for (_, entries) in &s_sentence.mappings.simple_target_to_base_diglot {
+                    for (_, lemma, _, viable) in entries {
+                        if *viable {
+                            self.get_id_or_insert(lemma);
+                        }
+                    }
                 }
-                for entry in &s_sentence.diglot_map_entries {
-                    if entry.is_viable_for_substitution { self.get_id_or_insert(&entry.spanish_lemma); }
+                for (_, entries) in &s_sentence.mappings.adv_target_to_base_inv_diglot {
+                     for (_, lemma, _) in entries {
+                        self.get_id_or_insert(lemma);
+                    }
                 }
             }
         }

@@ -1,64 +1,16 @@
-// src/simulation/preprocessor.rs
+// In file: src/simulation/preprocessor.rs
+
 use crate::simulation::dictionary::GlobalLemmaDictionary;
 use crate::simulation::numerical_types::{
     NumericalAdvSegmentBundle, NumericalChapter, NumericalDiglotEntry, NumericalDiglotSegmentMap,
     NumericalPhraseAlignmentToEng, NumericalProcessedSentence, NumericalSegmentData,
-    NumericalSegmentLemmas, WordToken, // Added WordToken
+    NumericalSegmentLemmas, WordToken,
 };
-use crate::types::json_types::{JsonChapter, JsonContentBlock, JsonSentenceBlock};
-use once_cell::sync::Lazy; // Added for regex
-use regex::Regex;           // Added for regex
-use std::collections::HashMap;
+use crate::types::json_types::{
+    JsonChapter, JsonContentBlock, JsonSentenceBlock, JsonTokenV2, JsonTokenType,
+};
 
-/// Helper function to count words in a string slice.
-fn count_words(text: &str) -> usize {
-    text.split_whitespace().count()
-}
-
-// --- NEW TOKENIZATION LOGIC ---
-static TOKENIZER_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"([\w'-’]+)|([^\w'-’]+)").unwrap());
-
-/// Disassembles a raw string into a structured format of words and backgrounds.
-/// This enforces the `[B, W, B, W, ..., B]` template.
-// --- END NEW TOKENIZATION LOGIC ---
-
-fn disassemble_string(
-    raw_text: &str,
-    _is_inverse_diglot: bool, // No longer needed
-) -> (Vec<WordToken>, Vec<String>) {
-    // A simpler regex that just finds the words.
-    static WORD_FINDER: Lazy<Regex> = Lazy::new(|| Regex::new(r"[\w'-’]+").unwrap());
-
-    let mut words: Vec<WordToken> = Vec::new();
-    let mut backgrounds: Vec<String> = Vec::new();
-    let mut last_index = 0;
-
-    for (diglot_idx, mat) in WORD_FINDER.find_iter(raw_text).enumerate() {
-        // The background is the text between the end of the last match and the start of this one.
-        let background_text = &raw_text[last_index..mat.start()];
-        backgrounds.push(background_text.to_string());
-        
-        // The word is the text that was matched.
-        words.push(WordToken {
-            text: mat.as_str().to_string(),
-            diglot_index: diglot_idx,
-        });
-
-        // Update our position.
-        last_index = mat.end();
-    }
-
-    // The final background is everything from the end of the last word to the end of the string.
-    let final_background = &raw_text[last_index..];
-    backgrounds.push(final_background.to_string());
-    
-    (words, backgrounds)
-}
-
-
-/// Converts a `JsonChapter` into a `NumericalChapter` and also returns a
-/// vector of the word counts for each source English sentence.
+/// Converts a `JsonChapter` (V2) into a `NumericalChapter`.
 pub fn json_chapter_to_numerical(
     json_chapter: &JsonChapter,
     dictionary: &mut GlobalLemmaDictionary,
@@ -70,7 +22,7 @@ pub fn json_chapter_to_numerical(
         .iter()
         .filter_map(|block| match block {
             JsonContentBlock::Sentence(s) => {
-                let numerical_sentence = json_sentence_to_numerical(s, dictionary, &json_chapter.book_name);
+                let numerical_sentence = json_sentence_to_numerical(s, dictionary, &json_chapter.book_meta.book_name);
                 english_word_counts.push(numerical_sentence.eng_text_word_count);
                 Some(numerical_sentence)
             }
@@ -79,11 +31,49 @@ pub fn json_chapter_to_numerical(
         .collect();
 
     let numerical_chapter = NumericalChapter {
-        source_file_name_original: json_chapter.book_name.clone(),
+        source_file_name_original: json_chapter.book_meta.book_name.clone(),
         sentences_numerical,
     };
 
     (numerical_chapter, english_word_counts)
+}
+
+fn map_tokenized_text(tokens: &[JsonTokenV2]) -> (Vec<WordToken>, Vec<String>) {
+    let mut words = Vec::new();
+    let mut backgrounds = Vec::new();
+
+    for token in tokens {
+        match token.token_type {
+            JsonTokenType::Background => {
+                if backgrounds.len() == words.len() {
+                    backgrounds.push(token.value.clone());
+                } else {
+                    if let Some(last) = backgrounds.last_mut() {
+                        last.push_str(&token.value);
+                    }
+                }
+            }
+            JsonTokenType::Word => {
+                if backgrounds.len() == words.len() {
+                    backgrounds.push("".to_string());
+                }
+                words.push(WordToken {
+                    text: token.value.clone(),
+                    diglot_index: token.diglot_index.unwrap_or(0),
+                });
+            }
+        }
+    }
+    if backgrounds.len() == words.len() {
+        backgrounds.push("".to_string());
+    }
+
+    (words, backgrounds)
+}
+
+// --- FIX IS HERE: Added `pub` to make this function accessible to other modules ---
+pub fn reconstruct_original_text(tokens: &[JsonTokenV2]) -> String {
+    tokens.iter().map(|t| t.value.as_str()).collect()
 }
 
 pub fn json_sentence_to_numerical(
@@ -91,128 +81,96 @@ pub fn json_sentence_to_numerical(
     dictionary: &mut GlobalLemmaDictionary,
     book_name: &str,
 ) -> NumericalProcessedSentence {
-    let string_lemmas_to_ids =
-        |lemmas: &[String], dict: &mut GlobalLemmaDictionary| -> Vec<u32> {
-            lemmas
-                .iter()
-                .map(|s| dict.get_id_or_insert(s))
-                .collect()
-        };
+    let string_lemmas_to_ids = |lemmas: &[String], dict: &mut GlobalLemmaDictionary| -> Vec<u32> {
+        lemmas.iter().map(|s| dict.get_id_or_insert(s)).collect()
+    };
+    
+    let base_tier = s_sentence.tiers.iter().find(|t| t.tier_id == "base").cloned().unwrap_or_default();
+    let simple_target_tier = s_sentence.tiers.iter().find(|t| t.tier_id == "simple_target").cloned().unwrap_or_default();
+    let adv_target_tier = s_sentence.tiers.iter().find(|t| t.tier_id == "advanced_target").cloned().unwrap_or_default();
+    let simpler_adv_target_tier = s_sentence.tiers.iter().find(|t| t.tier_id == "simpler_advanced_target").cloned().unwrap_or_default();
 
-    let adv_segment_bundles_numerical: Vec<NumericalAdvSegmentBundle> = s_sentence
-        .adv_spanish_segments
-        .iter()
-        .map(|s_bundle| {
-            let inverse_diglot_map_numerical: Vec<(String, u32, String)> = s_bundle
-                .inverse_diglot_map
-                .iter()
-                .map(|entry| {
-                    (
-                        entry.spanish_word.clone(),
-                        dictionary.get_id_or_insert(&entry.spanish_lemma),
-                        entry.english_substitute.clone(),
-                    )
-                })
-                .collect();
-            
-            // --- NEW: Disassemble the simpler_text for inverse diglot ---
-            let (simpler_text_words, simpler_text_backgrounds) =
-                disassemble_string(&s_bundle.simpler_text, true);
+    let adv_segment_bundles_numerical: Vec<NumericalAdvSegmentBundle> = adv_target_tier.segments.iter().enumerate().map(|(i, adv_seg)| {
+        let simpler_seg = simpler_adv_target_tier.segments.get(i).cloned().unwrap_or_default();
+        let inv_diglot_mapping = s_sentence.mappings.adv_target_to_base_inv_diglot.get(&adv_seg.seg_id).cloned().unwrap_or_default();
+        let (simpler_text_words, simpler_text_backgrounds) = map_tokenized_text(&simpler_seg.tokenized_text);
 
-            NumericalAdvSegmentBundle {
-                a_id_str: s_bundle.segment_id.clone(),
-                adv_text_original: s_bundle.advanced_text.clone(),
-                adv_lemma_ids: string_lemmas_to_ids(&s_bundle.advanced_lemmas, dictionary),
-                simpler_text_original: s_bundle.simpler_text.clone(),
-                simpler_lemma_ids: string_lemmas_to_ids(&s_bundle.simpler_lemmas, dictionary),
-                inverse_diglot_map_numerical,
-                simpler_text_words,       // Populate new field
-                simpler_text_backgrounds, // Populate new field
-            }
-        })
-        .collect();
+        NumericalAdvSegmentBundle {
+            a_id_str: adv_seg.seg_id.clone(),
+            adv_text_original: reconstruct_original_text(&adv_seg.tokenized_text),
+            adv_lemma_ids: string_lemmas_to_ids(&adv_seg.dsl_lemmas, dictionary),
+            simpler_text_original: reconstruct_original_text(&simpler_seg.tokenized_text),
+            simpler_lemma_ids: string_lemmas_to_ids(&simpler_seg.dsl_lemmas, dictionary),
+            inverse_diglot_map_numerical: inv_diglot_mapping.iter().map(|(idx, lemma, sub)| {
+                let original_word = simpler_text_words.iter()
+                    .find(|word| word.diglot_index == *idx)
+                    .map_or("", |w| &w.text);
+                (original_word.to_string(), dictionary.get_id_or_insert(lemma), sub.clone())
+            }).collect(),
+            simpler_text_words,
+            simpler_text_backgrounds,
+        }
+    }).collect();
+    
+    let sims_l3_segments_numerical: Vec<NumericalSegmentData> = simple_target_tier.segments.iter().map(|s| {
+        NumericalSegmentData {
+            id_str: s.seg_id.clone(),
+            text_original: reconstruct_original_text(&s.tokenized_text),
+        }
+    }).collect();
 
-    let sims_l3_segments_numerical: Vec<NumericalSegmentData> = s_sentence
-        .simple_spanish_l3_segments
-        .iter()
-        .map(|s| NumericalSegmentData {
-            id_str: s.segment_id.clone(),
-            text_original: s.simple_text.clone(),
-        })
-        .collect();
+    let phrase_alignments_l3_to_eng_numerical: Vec<NumericalPhraseAlignmentToEng> = base_tier.segments.iter().enumerate().map(|(i, base_seg)| {
+        let simple_seg = simple_target_tier.segments.get(i).cloned().unwrap_or_default();
+        let (eng_span_words, eng_span_backgrounds) = map_tokenized_text(&base_seg.tokenized_text);
+        
+        NumericalPhraseAlignmentToEng {
+            s_segment_id_str: base_seg.seg_id.clone(),
+            sims_l3_segment_text_original: reconstruct_original_text(&simple_seg.tokenized_text),
+            eng_span_text_original: reconstruct_original_text(&base_seg.tokenized_text),
+            eng_span_word_count: eng_span_words.len(),
+            eng_span_words,
+            eng_span_backgrounds,
+        }
+    }).collect();
 
-    let phrase_alignments_l3_to_eng_numerical: Vec<NumericalPhraseAlignmentToEng> = s_sentence
-        .phrase_alignments_l3_to_english
-        .iter()
-        .map(|pa| {
-            // --- NEW: Disassemble the english_span_text for diglot ---
-            let (eng_span_words, eng_span_backgrounds) =
-                disassemble_string(&pa.english_span_text, false);
+    let l3_simsl_per_segment_numerical: Vec<NumericalSegmentLemmas> = simple_target_tier.segments.iter().map(|s| {
+        NumericalSegmentLemmas {
+            segment_id_str: s.seg_id.clone(),
+            lemma_ids: string_lemmas_to_ids(&s.dsl_lemmas, dictionary),
+        }
+    }).collect();
 
-            NumericalPhraseAlignmentToEng {
-                s_segment_id_str: pa.segment_id.clone(),
-                sims_l3_segment_text_original: pa.simple_spanish_text.clone(),
-                eng_span_text_original: pa.english_span_text.clone(),
-                eng_span_word_count: count_words(&pa.english_span_text),
-                eng_span_words,       // Populate new field
-                eng_span_backgrounds, // Populate new field
-            }
-        })
-        .collect();
+    let mut diglot_map_numerical: Vec<NumericalDiglotSegmentMap> = s_sentence.mappings.simple_target_to_base_diglot.iter().map(|(seg_id, entries)| {
+        NumericalDiglotSegmentMap {
+            s_segment_id_str: seg_id.clone(),
+            entries: entries.iter().map(|(base_di, lemma, form, viable)| {
+                let base_word = base_tier.segments.iter().find(|s| &s.seg_id == seg_id)
+                    .and_then(|s| s.tokenized_text.iter().find(|t| t.diglot_index == Some(*base_di)))
+                    .map_or("", |t| &t.value);
 
-    let l3_simsl_per_segment_numerical: Vec<NumericalSegmentLemmas> = s_sentence
-        .simple_spanish_l3_lemmas_per_segment
-        .iter()
-        .map(|(id, lemmas)| NumericalSegmentLemmas {
-            segment_id_str: id.clone(),
-            lemma_ids: string_lemmas_to_ids(lemmas, dictionary),
-        })
-        .collect();
-
-    let mut diglot_map_by_segment: HashMap<String, Vec<NumericalDiglotEntry>> = HashMap::new();
-    for entry in &s_sentence.diglot_map_entries {
-        let spa_lemma_id = dictionary.get_id_or_insert(&entry.spanish_lemma);
-
-        diglot_map_by_segment
-            .entry(entry.segment_id.clone())
-            .or_default()
-            .push(NumericalDiglotEntry {
-                eng_word_original: entry.english_word.clone(),
-                spa_lemma_id,
-                exact_spa_form_original: entry.exact_spanish_form.clone(),
-                viable: entry.is_viable_for_substitution,
-            });
-    }
-    let mut diglot_map_numerical: Vec<NumericalDiglotSegmentMap> = diglot_map_by_segment
-        .into_iter()
-        .map(|(s_id, entries)| NumericalDiglotSegmentMap {
-            s_segment_id_str: s_id,
-            entries,
-        })
-        .collect();
+                NumericalDiglotEntry {
+                    eng_word_original: base_word.to_string(),
+                    spa_lemma_id: dictionary.get_id_or_insert(lemma),
+                    exact_spa_form_original: form.clone(),
+                    viable: *viable,
+                }
+            }).collect()
+        }
+    }).collect();
     diglot_map_numerical.sort_by(|a, b| a.s_segment_id_str.cmp(&b.s_segment_id_str));
 
     NumericalProcessedSentence {
         source_file_name_original: book_name.to_string(),
-        sentence_id_str: s_sentence.original_sentence_s_id.clone(),
-        eng_text_original: s_sentence.english_text.clone(),
-        eng_text_word_count: count_words(&s_sentence.english_text),
-        adv_s_text_original: s_sentence.adv_spanish_full.text.clone(),
-        adv_sl_overall_lemma_ids: string_lemmas_to_ids(
-            &s_sentence.adv_spanish_full.lemmas,
-            dictionary,
-        ),
+        sentence_id_str: s_sentence.s_id.clone(),
+        eng_text_original: base_tier.full_text,
+        eng_text_word_count: base_tier.segments.iter().flat_map(|s| &s.tokenized_text).filter(|t| t.token_type == JsonTokenType::Word).count(),
+        adv_s_text_original: adv_target_tier.full_text.clone(),
+        adv_sl_overall_lemma_ids: string_lemmas_to_ids(&adv_target_tier.lemmas, dictionary),
         adv_segment_bundles_numerical,
-        simpler_adv_s_text_original: s_sentence.simpler_adv_spanish_full.text.clone(),
-        simpler_adv_sl_overall_lemma_ids: string_lemmas_to_ids(
-            &s_sentence.simpler_adv_spanish_full.lemmas,
-            dictionary,
-        ),
-        l3_sim_s_text_original: s_sentence.simple_spanish_l3_full.text.clone(),
-        l3_sim_sl_overall_lemma_ids: string_lemmas_to_ids(
-            &s_sentence.simple_spanish_l3_full.lemmas,
-            dictionary,
-        ),
+        simpler_adv_s_text_original: simpler_adv_target_tier.full_text,
+        simpler_adv_sl_overall_lemma_ids: string_lemmas_to_ids(&simpler_adv_target_tier.lemmas, dictionary),
+        l3_sim_s_text_original: simple_target_tier.full_text,
+        l3_sim_sl_overall_lemma_ids: string_lemmas_to_ids(&simple_target_tier.lemmas, dictionary),
         sims_l3_segments_numerical,
         phrase_alignments_l3_to_eng_numerical,
         l3_simsl_per_segment_numerical,

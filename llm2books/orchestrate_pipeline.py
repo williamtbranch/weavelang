@@ -26,37 +26,38 @@ except ImportError:
 
 # --- Local Module Imports ---
 from . import helper
-# Import all the concrete stage classes
-from .stages.generate_adv_spanish import GenerateAdvSpanish
-from .stages.lemmatize_adv_spanish import LemmatizeAdvSpanish
-from .stages.segment_adv_spanish import SegmentAdvSpanish
-from .stages.simplify_adv_spanish import SimplifyAdvSpanish
-from .stages.finalize_simpler_spanish import FinalizeSimplerSpanish
-from .stages.segment_english import SegmentEnglish
-from .stages.generate_simple_spanish import GenerateSimpleSpanish
-from .stages.lemmatize_simple_spanish import LemmatizeSimpleSpanish
+# --- Local Module Imports ---
+from . import helper
+# --- MODIFIED: Import the new, generically named classes ---
+from .stages.generate_advanced_target import GenerateAdvancedTarget
+from .stages.lemmatize_advanced_target import LemmatizeAdvancedTarget
+from .stages.segment_advanced_target import SegmentAdvancedTarget
+from .stages.simplify_advanced_target import SimplifyAdvancedTarget
+from .stages.finalize_simpler_target import FinalizeSimplerTarget
+from .stages.segment_base import SegmentBase
+from .stages.generate_simple_target import GenerateSimpleTarget
+from .stages.lemmatize_simple_target import LemmatizeSimpleTarget
 from .stages.generate_diglot_map import GenerateDiglotMap
 from .stages.lemmatize_diglot_map import LemmatizeDiglotMap
-# --- NEW IMPORTS FOR NEW STAGES ---
 from .stages.generate_inverse_diglot_map import GenerateInverseDiglotMap
 from .stages.lemmatize_inverse_diglot_map import LemmatizeInverseDiglotMap
 
 
 # --- The Pipeline Stage Registry ---
+# --- MODIFIED: The registry now uses the generic names ---
 PIPELINE_STAGES = [
-    GenerateAdvSpanish,          # Stage 1
-    LemmatizeAdvSpanish,         # Stage 2
-    SegmentAdvSpanish,           # Stage 3a
-    SimplifyAdvSpanish,          # Stage 3b
-    FinalizeSimplerSpanish,      # Stage 4
-    SegmentEnglish,              # Stage 5a
-    GenerateSimpleSpanish,       # Stage 5b
-    LemmatizeSimpleSpanish,      # Stage 6
+    GenerateAdvancedTarget,      # Stage 1
+    LemmatizeAdvancedTarget,     # Stage 2
+    SegmentAdvancedTarget,       # Stage 3a
+    SimplifyAdvancedTarget,      # Stage 3b
+    FinalizeSimplerTarget,       # Stage 4
+    SegmentBase,                 # Stage 5a
+    GenerateSimpleTarget,        # Stage 5b
+    LemmatizeSimpleTarget,       # Stage 6
     GenerateDiglotMap,           # Stage 7
     LemmatizeDiglotMap,          # Stage 8
-    # --- APPENDED NEW STAGES ---
-    GenerateInverseDiglotMap,    # Stage 9 (NEW)
-    LemmatizeInverseDiglotMap,   # Stage 10 (NEW)
+    GenerateInverseDiglotMap,    # Stage 9
+    LemmatizeInverseDiglotMap,   # Stage 10
 ]
 
 # --- Logging Setup ---
@@ -88,23 +89,27 @@ def main():
     
     # --- Argument Parsing ---
     parser.add_argument("--project_config", default="config.toml", help="Path to the main TOML configuration file.")
-    parser.add_argument("--version", default="7.1.0-inverse-diglot", help="Pipeline version for metadata.")
+    parser.add_argument("--version", default="8.0.0-language-agnostic", help="Pipeline version for metadata.")
     parser.add_argument("--input_staged_subdir", default="Staged", help="Subdirectory for initial staged text files.")
     parser.add_argument("--output_llm_subdir", default="pipeline", help="Base subdirectory for intermediate pipeline stage outputs.")
     
+    # --- NEW: Language pair arguments ---
+    parser.add_argument("--base-lang", required=True, help="Base language code (e.g., 'en')")
+    parser.add_argument("--target-lang", required=True, help="Target language code (e.g., 'es')")
+
     # --- Execution control arguments ---
     parser.add_argument("--force_book", type=str, default=None, help="Force reprocessing of a specific book, ignoring existing progress.")
     parser.add_argument("--book_to_process", type=str, default=None, help="Process only a single specified book.")
     parser.add_argument(
         "--start_at_stage", type=int, default=1, choices=range(1, len(PIPELINE_STAGES) + 2), help="Start processing from a specific stage number."
     )
-    # --- NEW ARGUMENT ---
     parser.add_argument(
         "--run_only_stage", type=int, default=None, choices=range(1, len(PIPELINE_STAGES) + 1), help="If specified, run ONLY this single stage and then exit."
     )
     args = parser.parse_args()
 
     logger.info(f"--- WeaveLang Pipeline Orchestrator v{args.version} Initializing ---")
+    logger.info(f"Processing language pair: {args.base_lang} -> {args.target_lang}")
 
     # --- Configuration and Resource Loading ---
     try:
@@ -122,44 +127,96 @@ def main():
         logger.critical("'content_project_dir' not found in config.")
         sys.exit(1)
 
-    logger.info("Initializing shared resources (LLM Client & SpaCy Models)...")
+    # --- NEW: Load language-specific assets based on new structure ---
+    tool_root_dir = Path(__file__).resolve().parent.parent
+    content_project_root = Path(content_project_dir_str)
     
-    # Find the first LLM provider listed in any stage to initialize the client
-    # This makes the assumption all stages use the same provider, which is current design
-    llm_provider = "claude" # Default
-    for stage_conf in stages_config.values():
+    lang_manifest_path = tool_root_dir / "assets" / "languages.toml"
+    try:
+        with open(lang_manifest_path, "rb") as f:
+            lang_manifest = tomllib.load(f)
+    except Exception as e:
+        logger.critical(f"Failed to load language manifest at '{lang_manifest_path}': {e}")
+        sys.exit(1)
+
+    # --- NEW: Build the language_config object for this run ---
+    lang_pair_key = f"{args.base_lang}-{args.target_lang}"
+    base_lang_conf = lang_manifest.get(args.base_lang, {})
+    target_lang_conf = lang_manifest.get(args.target_lang, {})
+    pair_conf = lang_manifest.get("pair", {}).get(lang_pair_key, {})
+
+    if not all([base_lang_conf, target_lang_conf, pair_conf]):
+        logger.critical(f"Language configuration for '{lang_pair_key}' not found or incomplete in languages.toml.")
+        sys.exit(1)
+
+    language_config = {
+        "base_code": args.base_lang,
+        "target_code": args.target_lang,
+        "base_spacy_model": base_lang_conf.get("spacy_model"),
+        "target_spacy_model": target_lang_conf.get("spacy_model"),
+        "prompt_dir": tool_root_dir / "assets" / pair_conf.get("prompt_dir")
+    }
+
+    # --- MODIFIED: Load SpaCy models dynamically ---
+    logger.info("Initializing shared resources (LLM Client & SpaCy Models)...")
+    spacy_models = {}
+    try:
+        spacy_models[args.base_lang] = spacy.load(language_config["base_spacy_model"], disable=["ner"])
+        spacy_models[args.target_lang] = spacy.load(language_config["target_spacy_model"], disable=["ner"])
+        logger.info("SpaCy models loaded successfully.")
+    except IOError as e:
+        logger.critical(f"SpaCy model not found. Have you run 'python -m spacy download ...'? Error: {e}")
+        sys.exit(1)
+
+    # --- MODIFIED: Resolve frequency list path (custom or default) ---
+    custom_freq_path_str = config.get("custom_frequency_list_path", "").strip()
+    if custom_freq_path_str:
+        freq_list_path = Path(custom_freq_path_str)
+        logger.info(f"Using custom frequency list from config: {freq_list_path}")
+    else:
+        freq_list_path = tool_root_dir / "assets" / "frequency_lists" / f"{args.target_lang}_master_frequency_list.txt"
+        logger.info(f"Using default frequency list for '{args.target_lang}': {freq_list_path}")
+
+    if not freq_list_path.is_file():
+        logger.critical(f"Frequency list not found at resolved path: {freq_list_path}")
+        sys.exit(1)
+
+    # --- MODIFIED: Dynamically determine the LLM provider and assemble common resources ---
+    # Find the first LLM provider listed in any stage to initialize the client.
+    # This assumes all stages in a single run use the same provider (e.g., all Claude, or all Gemini), which is the current design.
+    llm_provider = None
+    for stage_class in PIPELINE_STAGES:
+        # Use the class name (e.g., "GenerateAdvSpanish") to look up its config
+        stage_conf = stages_config.get(stage_class.__name__, {})
         primary_model_key = stage_conf.get("primary_model")
         if primary_model_key:
             model_conf = models_config.get(primary_model_key, {})
             if "provider" in model_conf:
                 llm_provider = model_conf["provider"]
-                break
-    
-    logger.info(f"Identified LLM provider '{llm_provider}' from config.")
+                logger.info(f"Identified LLM provider '{llm_provider}' from config for stage '{stage_class.__name__}'.")
+                break # Found the first one, so we can stop looking.
+
+    if not llm_provider:
+        logger.warning("Could not determine LLM provider from stage configurations. Defaulting to 'claude'.")
+        llm_provider = "claude"
+
+    # Initialize the client using the dynamically found provider
     llm_client = helper.initialize_llm_client(llm_provider)
     if llm_client is None:
         sys.exit(1)
-        
-    spacy_models = {}
-    try:
-        spacy_models["en"] = spacy.load("en_core_web_lg", disable=["ner"])
-        spacy_models["es"] = spacy.load("es_core_news_lg", disable=["ner"])
-        logger.info("SpaCy models loaded successfully.")
-    except IOError as e:
-        logger.critical(f"SpaCy model not found. Have you run 'python -m spacy download ...' for en_core_web_lg and es_core_news_lg? Error: {e}")
-        sys.exit(1)
 
+    # Assemble the final common_resources dictionary to pass to all stages
     common_resources = {
         'llm_client': llm_client,
         'spacy_models': spacy_models,
         'content_project_dir': content_project_dir_str,
         'models_config': models_config,
         'pipeline_config': pipeline_config,
-        'stages_config': stages_config
+        'stages_config': stages_config,
+        'language_config': language_config, # NEW
+        'frequency_list_path': freq_list_path # NEW
     }
-
     # --- Book Discovery ---
-    content_project_root = Path(content_project_dir_str)
     staged_dir = content_project_root / args.input_staged_subdir
     
     book_stems = (
@@ -174,6 +231,8 @@ def main():
     logger.info(f"Orchestrator starting. Found {len(book_stems)} book(s) to process.")
 
     # --- Main Processing Loop ---
+    # NOTE: The V1 to V2 migration logic will be added here in a later step.
+    # For now, we assume a clean slate for the new schema.
     overall_success = True
     for book_stem in book_stems:
         logger.info(f"--- Starting Pipeline for Book: [{book_stem}] ---")
@@ -181,22 +240,11 @@ def main():
 
         effective_start_stage = args.start_at_stage
 
-        # If run_only_stage is set, it overrides start_at_stage for simplicity
         if args.run_only_stage is not None:
             effective_start_stage = args.run_only_stage
         elif args.force_book != book_stem:
-            # Resumability check for non-forced books
-            first_incomplete_stage = 1
-            for StageClass in PIPELINE_STAGES:
-                instance_to_check = StageClass(book_stem, args, common_resources)
-                if not instance_to_check._is_stage_complete():
-                    first_incomplete_stage = instance_to_check.stage_number
-                    break
-                # If the last stage is complete, this will end up as num_stages + 1
-                first_incomplete_stage = instance_to_check.stage_number + 1
-            
-            if first_incomplete_stage > effective_start_stage:
-                effective_start_stage = first_incomplete_stage
+            # Resumability check will need to be updated for V2 schema
+            pass # Placeholder for now
         
         logger.info(f"Effective start stage for '{book_stem}' is Stage {effective_start_stage}.")
         if args.run_only_stage is not None:
@@ -205,22 +253,20 @@ def main():
         for StageClass in PIPELINE_STAGES:
             stage_instance = StageClass(book_stem, args, common_resources)
 
-            if args.run_only_stage is not None:
-                # If we are in single-stage mode, only run if the stage number matches
-                if stage_instance.stage_number != args.run_only_stage:
-                    continue # Skip all other stages
+            if args.run_only_stage is not None and stage_instance.stage_number != args.run_only_stage:
+                continue
             elif stage_instance.stage_number < effective_start_stage:
                 logger.info(f"Skipping stage {stage_instance.stage_number} ({stage_instance.stage_name}) due to start_at_stage setting.")
                 continue
 
+            # TODO: This will fail until we refactor the stages. This is the next step.
             pipeline_ok = stage_instance.run()
 
-            # If we were in single-stage mode, or if any stage fails, break the loop for this book.
             if not pipeline_ok or args.run_only_stage is not None:
                 if not pipeline_ok:
                     logger.error(f"Halting pipeline for '{book_stem}' due to failure in stage: {stage_instance.stage_name}.")
                     overall_success = False
-                break # Exit the loop over stages for this book
+                break
         
         if pipeline_ok:
             logger.info(f"--- Successfully Finished Pipeline for Book: [{book_stem}] ---\n")

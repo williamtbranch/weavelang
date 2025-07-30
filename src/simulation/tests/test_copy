@@ -7,24 +7,24 @@
 
     (sentence
         (L0
-            (S "sa1 sa2 sa3 " (lem99 lem95 lem97))
-            (S "[[ma1]] [[ma2]] [[ma3]] " (lem44 lem55 lem46))
+            (S "sa1 sa2 sa3" (lem99 lem95 lem97))
+            (S "[[ma1]] [[ma2]] [[ma3]]" (lem44 lem55 lem46))
             (ID
               (ma1 lem35 rdea1)
               (ma2 lem36 rdea2)
               (ma3 lem37 rdea3)
             )
             
-            (S "sb1 sb2 sb3 " (lem88 lem89 lem87))
-            (S "[[mb1]] [[mb2]] [[mb3]] " (lem41 lem41 lem54))
+            (S "sb1 sb2 sb3" (lem88 lem89 lem87))
+            (S "[[mb1]] [[mb2]] [[mb3]]" (lem41 lem41 lem54))
             (ID
               (mb1 lem1 rdeb1)
               (mb2 lem51 rdeb2)
               (mb3 lem3 rdeb3)
             )
             
-            (S "sc1 sc2 sc3 " (lem77 lem78 lem79))
-            (S "[[mc1]] [[mc2]] [[mc3]] " (lem60 lem62 lem59))
+            (S "sc1 sc2 sc3" (lem77 lem78 lem79))
+            (S "[[mc1]] [[mc2]] [[mc3]]" (lem60 lem62 lem59))
             (ID
               (mc1 lem61 rdec1)
               (mc2 lem48 rdec2) //leve40 exceeds 50% rule at this point.
@@ -33,23 +33,23 @@
         )
 
         (L1
-            (S "ssa1 ssa2 ssa3 " (lem18 lem5 lem7))
+            (S "ssa1 ssa2 ssa3" (lem18 lem5 lem7))
             (D
               (dsa1 lem18 dea1)
               (dsa2 lem9 dea2)
               (dsa3 lem3 dea3)
             )
-            (E "[[dsa1]] [[dsa2]] [[dsa3]] ")
+            (E "[[dsa1]] [[dsa2]] [[dsa3]]")
             
-            (S "ssb1 ssb2 ssb3 " (lem41 lem38 lem37))
+            (S "ssb1 ssb2 ssb3" (lem41 lem38 lem37))
             (D
               (dsb1 lem10 deb1)
               (dsb2 lem31 deb2)
               (dsb3 lem21 deb3)
             )
-            (E "[[dsb1]] [[dsb2]] [[dsb3]] ")
+            (E "[[dsb1]] [[dsb2]] [[dsb3]]")
             
-            (S "ssc1 ssc2 ssc3 " (lem21 lem11 lem19))
+            (S "ssc1 ssc2 ssc3" (lem21 lem11 lem19))
             (D
               (ec1 lem31 dec1)
               (ec2 lem10 dec2)
@@ -123,8 +123,8 @@
 (test-case "Real World Bug - S26 from A Christmas Carol"
     (sentence
         (L0
-            (S "sANo hay duda de " (lem23 lem15 lem150 lem16))
-            (S "[[mANo]] [[hay]] [[duda]] [[de]] " (lem12 lem21 lem14 lem16)) 
+            (S "sANo hay duda de" (lem23 lem15 lem150 lem16))
+            (S "[[mANo]] [[hay]] [[duda]] [[de]]" (lem12 lem21 lem14 lem16)) 
             (ID 
                 (mANo lem20 NO_SUB) 
                 (hay lem19 NO_SUB) 
@@ -142,9 +142,9 @@
             )
         )
         (L1
-            (S "No hay duda " (lem20 lem30 lem300))
+            (S "No hay duda" (lem20 lem30 lem300))
             (D (There lem21 Hay t) (is lem2 NO_SUB f) (no ninguno ninguna t) (doubt dudar duda t))
-            (E "[[There]] [[is]] [[no]] [[doubt]] ")
+            (E "[[There]] [[is]] [[no]] [[doubt]]")
             
             (S "de que Marley estaba muerto." (lem45 de que estar muerto))
             (D
@@ -199,8 +199,8 @@
 (test-case "Punctuation Integrity During Diglot Substitution"
     (sentence
         (L0
-            (S "\"¡Claro!\", exclamó el Rey; " (lem301 lem302 lem303 lem304))
-            (S "\"¡[[Sí]]!\", [[dijo]] [[el]] [[Rey]]; " (lem201 lem202 lem203 lem204))
+            (S "\"¡Claro!\", exclamó el Rey;" (lem301 lem302 lem303 lem304))
+            (S "\"¡[[Sí]]!\", [[dijo]] [[el]] [[Rey]];" (lem201 lem202 lem203 lem204))
             (ID
               (Sí lem201 Yes)
               (dijo lem202 said)
@@ -219,14 +219,14 @@
         )
 
         (L1
-            (S "\"Sí\", dijo el Rey; " (lem1 lem2 lem3 lem4))
+            (S "\"Sí\", dijo el Rey;" (lem1 lem2 lem3 lem4))
             (D
               (Yes lem1 Sí t)
               (said lem2 dijo t)
               (the lem3 el t)
               (King lem4 Rey t)
             )
-            (E "\"[[Yes]]\", [[said]] [[the]] [[King]]; ")
+            (E "\"[[Yes]]\", [[said]] [[the]] [[King]];")
 
             (S "¿qué es el sonido?" (lem5 lem6 lem7 lem8))
             (D
@@ -265,13 +265,13 @@
         )    
 
         (L1
-            (S "ssa1 ssa2 ssa3 " (lem88 lem5 lem7))
+            (S "ssa1 ssa2 ssa3" (lem88 lem5 lem7))
             (D
               (dsa1 lem8 NO_SUB)
               (dsa2 lem9 NO_SUB t)
               (dsa3 lem3 NO_SUB f)
             )
-            (E "[[dsa1]] [[dsa2]] [[dsa3]] ")
+            (E "[[dsa1]] [[dsa2]] [[dsa3]]")
             
             (S "ssb1 ssb2 ssb3" (lem41 lem38 lem37))
             (D
@@ -304,13 +304,13 @@
         )    
 
         (L1
-            (S "ssa1 ssa2 ssa3 " (lem88 lem5 lem7))
+            (S "ssa1 ssa2 ssa3" (lem88 lem5 lem7))
             (D
               (dsa1 lem8 sp1)
               (dsa2 lem9 sp2 t)
               (dsa3 lem3 sp3 f)
             )
-            (E "[[dsa1]] [[dsa2]] [[dsa3]] ")
+            (E "[[dsa1]] [[dsa2]] [[dsa3]]")
             
             (S "ssb1 ssb2 ssb3" (lem41 lem38 lem37))
             (D
@@ -333,8 +333,8 @@
     (sentence
         (L0
             // Segment A is designed to fail because of the 'de' lemma.
-            (S "Frase avanzada de prueba " (lem401 lem402 lem403 lem404))
-            (S "[[Una]] [[frase]] [[simple]] [[de]] [[prueba]] " (lem201 lem202 lem203 lem500 lem204))
+            (S "Frase avanzada de prueba" (lem401 lem402 lem403 lem404))
+            (S "[[Una]] [[frase]] [[simple]] [[de]] [[prueba]]" (lem201 lem202 lem203 lem500 lem204))
             (ID
               (Una lem99 A)
               (frase lem98 phrase)
@@ -354,13 +354,13 @@
 
         (L1
             // This is the fallback content the test will assert against.
-            (S "Una prueba simple " (lem1 lem2 lem3))
+            (S "Una prueba simple" (lem1 lem2 lem3))
             (D
               (A lem1 A t)
               (simple lem2 simple t)
               (test lem3 prueba t)
             )
-            (E "[[A]] [[simple]] [[test]] ")
+            (E "[[A]] [[simple]] [[test]]")
 
             (S "El segundo" (lem4 lem5))
             (D
@@ -390,8 +390,8 @@
               (dijo lem212 said)
             )
 
-            (S ": " ()) // Lonely punctuation segment
-            (S ": " ())
+            (S ":" ()) // Lonely punctuation segment
+            (S ":" ())
             (ID)
 
             (S "\"¡fue bueno!\"" (lem213 lem214))
@@ -409,9 +409,9 @@
             )
             (E "[[He]] [[said]]")
 
-            (S ", " ()) // Lonely punctuation segment
+            (S "," ()) // Lonely punctuation segment
             (D)
-            (E ", ")
+            (E ",")
 
             (S "\"es tarde.\"" (lem12 lem13))
             (D

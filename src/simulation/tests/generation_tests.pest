@@ -1,52 +1,53 @@
 // =======================================
 // WeaveLang Generation Test Suite Grammar
-// v8 - Unified & Self-Validating DSL
+// v8.23 - Correct and Simple
 // =======================================
 
-// --- Boilerplate ---
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 COMMENT    = _{ "//" ~ (!"\n" ~ ANY)* }
 
-// --- Top Level ---
 test_suite = { SOI ~ (test_case)* ~ EOI }
 
-// --- Test Case Structure ---
 test_case      = { "(" ~ "test-case" ~ stringLiteral ~ test_case_body ~ ")" }
-test_case_body = { sentence_def ~ (sub_test)+ } // A sentence followed by one or more sub-tests
+test_case_body = { sentence_def ~ (sub_test)+ }
 
-// --- Sub-Test Structure ---
 sub_test       = { "(" ~ "sub-test" ~ stringLiteral ~ sub_test_body ~ ")" }
 sub_test_body  = { learner_level ~ (assertion)+ }
 
-// Reusable Sub-Rules
 learner_level = { "(" ~ "level" ~ number ~ ")" }
 assertion     = { (assert_level | assert_text) }
 assert_level  = { "(" ~ "assert-level" ~ level_value ~ ")" }
 assert_text   = { "(" ~ "assert-text" ~ stringLiteral ~ ")" }
 level_value   = @{ "AdvancedWeave" | "SimpleHybrid" }
 
-// Sentence Structure
 sentence_def = { "(" ~ "sentence" ~ l0_column_body ~ l1_column_body ~ ")" }
 l0_column_body = { "(" ~ "L0" ~ segment_spec* ~ ")" }
 l1_column_body = { "(" ~ "L1" ~ segment_spec* ~ ")" }
 
-// Segment definitions
 segment_spec = { spanishSegment | diglotSegment | englishSegment | invDiglotSegment }
-spanishSegment = { "(" ~ "S" ~ quotedPhrase ~ lemmaList ~ ")" }
-englishSegment = { "(" ~ "E" ~ quotedPhrase ~ ")" }
+
+phrase = { tokenizedPhrase | stringLiteral }
+
+spanishSegment = { "(" ~ "S" ~ phrase? ~ lemmaList? ~ ")" }
+englishSegment = { "(" ~ "E" ~ phrase? ~ ")" }
+
 diglotSegment  = { "(" ~ "D" ~ (diglotTuple)* ~ ")" }
 invDiglotSegment = { "(" ~ "ID" ~ (invDiglotTuple)* ~ ")" }
 
-// --- Primitives ---
-quotedPhrase  = { "\"" ~ inner_string ~ "\"" }
-inner_string  = @{ ( "\\\"" | !"\"" ~ ANY )* }
+// --- PRIMITIVES (Correctly Simplified) ---
+// tokenizedPhrase is just a string. We will parse [[...]] in Rust.
+tokenizedPhrase = { "\"" ~ inner_string ~ "\"" } 
+stringLiteral   = { "\"" ~ inner_string ~ "\"" }
+//inner_string    = @{ ( "\\\"" | !"\"" ~ ANY )* }
+inner_string    = @{ ( "\\\\" | "\\\"" | !"\"" ~ ANY )* }
+
+// These are no longer needed here as they are handled by our Rust tokenizer
+// wordToken       = { ... }
+// background      = { ... }
+
 lemmaList     = { "(" ~ (identifier)* ~ ")" }
 viabilityFlag = { "t" | "f" }
-
 diglotTuple   = { "(" ~ identifier ~ identifier ~ identifier ~ viabilityFlag? ~ ")" }
 invDiglotTuple = { "(" ~ identifier ~ identifier ~ identifier ~ ")" }
-
-// FIX: Allow Unicode letters (like í, é, ñ) in identifiers.
 identifier    = @{ (LETTER | ASCII_DIGIT | "-" | "_")+ }
 number        = @{ ASCII_DIGIT+ }
-stringLiteral = { "\"" ~ inner_string ~ "\"" }
