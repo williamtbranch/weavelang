@@ -3,6 +3,10 @@ from typing import Any, Dict
 from .base import SpaCyStage, logger
 from .. import helper
 
+def reconstruct_text_from_tokens(tokens: list) -> str:
+    """Helper to reconstruct a plain text string from a V2 token list."""
+    return "".join(token.get("v", "") for token in tokens)
+
 class FinalizeSimplerTarget(SpaCyStage):
     """
     Stage 4 (V2): Tokenizes and lemmatizes both the advanced and simpler-advanced
@@ -23,16 +27,25 @@ class FinalizeSimplerTarget(SpaCyStage):
 
             block.setdefault("llm_call_status", {})[f"stage{self.stage_number}"] = "COMPLETED_SPACY"
         return data
-
     def _process_tier(self, block: Dict[str, Any], tier_id: str, spacy_model):
         """Helper to tokenize and lemmatize a single tier's data."""
         tier = next((t for t in block.get("tiers", []) if t["tier_id"] == tier_id), None)
-        if not tier: return
+        if not tier:
+            return
 
-        full_text = tier.get("full_text", "")
-        if not full_text.strip(): return
-        
+        # Reconstruct the full text from all segments for a single, efficient SpaCy doc
+        full_text = "".join(
+            reconstruct_text_from_tokens(seg.get("tokenized_text", []))
+            for seg in tier.get("segments", [])
+        )
+        if not full_text.strip():
+            tier["lemmas"] = []
+            return
+
         full_doc = spacy_model(full_text)
+        
+        # Create a definitive map of a word's text to its normalized lemma
+        # This is more reliable than lemmatizing small fragments.
         token_to_lemma = {
             token.text: helper.normalize_spanish_lemma(token.lemma_)
             for token in full_doc if not token.is_punct and not token.is_space
@@ -40,18 +53,25 @@ class FinalizeSimplerTarget(SpaCyStage):
 
         all_tier_lemmas = set()
         for seg in tier.get("segments", []):
-            # Reconstruct text from the placeholder
-            raw_seg_text = "".join(t.get("v", "") for t in seg.get("tokenized_text", []))
+            # Reconstruct each segment's original raw text
+            raw_seg_text = reconstruct_text_from_tokens(seg.get("tokenized_text", []))
             seg_doc = spacy_model(raw_seg_text)
+
+            # --- THE CORE FIX IS HERE ---
+            # Use the canonical helper to build the token list from scratch.
+            # This ensures the BWBWB structure is correct.
             final_token_list = helper.create_v2_token_list(raw_seg_text, seg_doc)
 
+            # Now, iterate through the NEWLY created token list and add the lemmas.
             for token in final_token_list:
                 if token["t"] == "w":
                     lemma_str = token_to_lemma.get(token["v"])
                     if lemma_str:
-                        token["l"] = [lemma_str]
+                        token["l"] = [lemma_str]  # Add the lemma list
                         all_tier_lemmas.add(lemma_str)
             
+            # Replace the old, simple tokenized_text with the new, rich one.
             seg["tokenized_text"] = final_token_list
         
+        # Finally, set the aggregated, sorted list of unique lemmas for the tier.
         tier["lemmas"] = sorted(list(all_tier_lemmas))

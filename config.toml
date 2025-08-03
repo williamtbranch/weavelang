@@ -53,7 +53,7 @@ retry_delay = 7
 # --- Per-Stage Configuration ---
 # This section remains the same.
 [stages]
-    [stages.GenerateAdvSpanish]
+    [stages.InitializeBookTiers]
     primary_model = "sonnet"
     fallback_model = "sonnet"
     batch_size_in_tokens = 2000

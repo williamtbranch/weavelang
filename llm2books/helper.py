@@ -9,7 +9,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List
+from typing import List, Dict, Any
 
 from dotenv import load_dotenv
 from spacy.tokens import Doc, Span
@@ -88,10 +88,9 @@ def normalize_spanish_lemma(lemma_str: str) -> str:
     return s
 
 # --- Text Segmentation Logic ---
-
-def segment_text(doc: Doc, language: str) -> List[str]:
+def segment_text(doc: Doc, language: str) -> List[Span]:
     """
-    A generic text segmenter that chunks a SpaCy Doc and merges short fragments.
+    Segments a SpaCy Doc into syntactic chunks (Spans) and merges short fragments.
     """
     if language == "es":
         conjunctions = SPANISH_CONJUNCTIONS
@@ -99,23 +98,27 @@ def segment_text(doc: Doc, language: str) -> List[str]:
         conjunctions = ENGLISH_CONJUNCTIONS
     else:
         conjunctions = []
+    
     syntactic_chunks = _get_syntactic_chunks(doc)
-    merged_phrases = _merge_short_chunks(syntactic_chunks, conjunctions)
-    return merged_phrases
+    merged_spans = _merge_short_spans(syntactic_chunks, conjunctions)
+    return merged_spans
 
 
 def _get_syntactic_chunks(doc: Doc) -> List[Span]:
-    """(Private) Identifies split points based on syntactic dependencies."""
+    """(Private) Identifies split points based on syntactic dependencies and returns Spans."""
     split_points = set()
     for token in doc:
-        if token.dep_ == "cc":
+        # Splitting on conjunctions and subordinate conjunctions
+        if token.dep_ in ("cc", "mark"):
             split_points.add(token.i)
-        if token.dep_ == "mark":
-            split_points.add(token.i)
+        # Splitting on prepositions that introduce significant clauses
         if token.pos_ == "ADP" and token.head.pos_ in ["VERB", "NOUN", "PROPN"]:
-            if token.i > 0 and len([t for t in doc[0 : token.i] if not t.is_punct]) > 1:
+            # Ensure it's not the very first word
+            if token.i > 0:
                 split_points.add(token.i)
+    
     sorted_split_points = sorted(list(split_points))
+    
     final_chunks = []
     start = 0
     for point in sorted_split_points:
@@ -124,7 +127,54 @@ def _get_syntactic_chunks(doc: Doc) -> List[Span]:
         start = point
     if start < len(doc):
         final_chunks.append(doc[start:])
+        
     return final_chunks
+
+
+def _merge_short_spans(
+    chunks: List[Span], conjunctions: List[str], min_words: int = 2
+) -> List[Span]:
+    """(Private) Merges overly short SpaCy Spans for better coherence."""
+    if len(chunks) < 2:
+        return chunks
+
+    spans = list(chunks)
+    
+    # Merge conjunctions first. e.g., ["He saw", "and", "ran away"] -> ["He saw and", "ran away"]
+    i = 0
+    while i < len(spans):
+        # A span is a conjunction span if it contains only one token and that token is a conjunction
+        is_conjunction_span = len(spans[i]) == 1 and spans[i].text.lower() in conjunctions
+        
+        if is_conjunction_span and i > 0:
+            # Merge with the PREVIOUS span
+            merged_span = spans[i].doc[spans[i-1].start : spans[i].end]
+            spans[i-1] = merged_span
+            spans.pop(i)
+            # Do not increment i, as the new merged span might need to be evaluated again
+        else:
+            i += 1
+
+    # Iteratively merge short fragments. e.g. ["He ran", "away"] -> ["He ran away"]
+    made_a_merge = True
+    while made_a_merge:
+        made_a_merge = False
+        i = 1
+        if len(spans) < 2:
+            break
+        while i < len(spans):
+            word_count = sum(1 for token in spans[i] if not token.is_punct and not token.is_space)
+            if word_count < min_words:
+                # Merge with the PREVIOUS span
+                merged_span = spans[i].doc[spans[i-1].start : spans[i].end]
+                spans[i-1] = merged_span
+                spans.pop(i)
+                made_a_merge = True
+                break # Restart the inner loop
+            else:
+                i += 1
+                
+    return spans
 
 
 def _merge_short_chunks(
@@ -158,55 +208,48 @@ def _merge_short_chunks(
                 i += 1
     return texts
 
-def create_v2_token_list(text: str, doc: Doc) -> List[Dict[str, Any]]:
+def create_v2_token_list(doc_span: Span) -> List[Dict[str, Any]]:
     """
-    Creates the V2 token list structure ([{t:'b', v:'...'}, {t:'w', v:'...'}])
-    from a raw text string and its corresponding SpaCy Doc.
-    This is the single source of truth for tokenization in the pipeline.
-    
-    Args:
-        text: The original raw string.
-        doc: The SpaCy Doc object for that string.
-
-    Returns:
-        A list of token dictionaries for the V2 JSON schema.
+    Creates the V2 token list from a SpaCy Span object.
+    This is the single source of truth for tokenization.
     """
     tokens = []
+    text = doc_span.text_with_ws # Use text_with_ws for perfect reconstruction
     last_idx = 0
-
-    # Ensure the first token is always a background token
-    if not text.startswith(doc[0].text_with_ws if doc else ''):
-        tokens.append({"t": "b", "v": ""})
-
-    for token in doc:
-        # Background is the text between the last token and this one
-        background = text[last_idx:token.idx]
-        if background:
-            # If the last token was also a background, merge them.
-            # This handles cases of multiple spaces or complex non-word sections.
-            if tokens and tokens[-1]["t"] == "b":
-                tokens[-1]["v"] += background
-            else:
-                tokens.append({"t": "b", "v": background})
+    
+    for token in doc_span:
+        # 1. Append background text before this token
+        background_start = last_idx
+        # token.idx is relative to the whole doc, so we adjust for the span's start
+        background_end = token.idx - doc_span.start_char
+        if background_end > background_start:
+            tokens.append({"t": "b", "v": text[background_start:background_end]})
         
-        # Add the word token itself
-        tokens.append({
-            "t": "w",
-            "v": token.text,
-            # 'di' and 'l' will be populated by later stages
-        })
-        last_idx = token.idx + len(token.text)
+        # 2. Append the current token, classified correctly.
+        if not token.is_punct and not token.is_space:
+            tokens.append({"t": "w", "v": token.text})
+        else:
+            tokens.append({"t": "b", "v": token.text})
+            
+        last_idx = (token.idx - doc_span.start_char) + len(token.text)
     
-    # Add the final background token (any text after the last word)
-    final_background = text[last_idx:]
-    if final_background:
-         if tokens and tokens[-1]["t"] == "b":
-            tokens[-1]["v"] += final_background
-         else:
-            tokens.append({"t": "b", "v": final_background})
-    
-    # Final check: if the list is empty (e.g., empty input string), ensure a single empty background token
-    if not tokens:
-        tokens.append({"t": "b", "v": ""})
+    # 3. Append any final background text after the last token.
+    if last_idx < len(text):
+        tokens.append({"t": "b", "v": text[last_idx:]})
 
-    return tokens
+    # 4. Merge consecutive background tokens.
+    if not tokens: return [{"t": "b", "v": ""}]
+    merged = [tokens[0]]
+    for i in range(1, len(tokens)):
+        if tokens[i]["t"] == "b" and merged[-1]["t"] == "b":
+            merged[-1]["v"] += tokens[i]["v"]
+        else:
+            merged.append(tokens[i])
+
+    # 5. Final safety checks for BWBWB.
+    if merged and merged[0]["t"] == "w":
+        merged.insert(0, {"t": "b", "v": ""})
+    if merged and merged[-1]["t"] == "w":
+        merged.append({"t": "b", "v": ""})
+        
+    return merged

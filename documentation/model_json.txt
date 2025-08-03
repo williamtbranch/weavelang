@@ -1,7 +1,7 @@
 {
   "book_meta": {
     "book_name": "A_Christmas_Carol",
-    "schema_version": "2.2",
+    "schema_version": "2.5",
     "base_language": "en",
     "target_language": "es"
   },
@@ -9,6 +9,14 @@
     {
       "block_type": "sentence",
       "s_id": "S26",
+        "processing_status": {
+          "stage1": "COMPLETED",
+          "stage2": "COMPLETED",
+          "stage3a": "COMPLETED",
+          "stage3b": "COMPLETED",
+          "stage4": "COMPLETED"
+      },
+
       "tiers": [
         {
           "tier_id": "base",
@@ -30,11 +38,11 @@
               "seg_id": "S2",
               "tokenized_text": [
                 { "t": "b", "v": "" },
-                { "t": "w", "v": "said", "di": 3 },
+                { "t": "w", "v": "said", "di": 0 },
                 { "t": "b", "v": " " },
-                { "t": "w", "v": "the", "di": 4 },
+                { "t": "w", "v": "the", "di": 1 },
                 { "t": "b", "v": " " },
-                { "t": "w", "v": "Caterpillar", "di": 5 },
+                { "t": "w", "v": "Caterpillar", "di": 2 },
                 { "t": "b", "v": "." }
               ]
             }
@@ -43,91 +51,62 @@
         {
           "tier_id": "simple_target",
           "full_text": "“¿Quién eres tú?” dijo la Oruga.",
-          "lemmas": ["quien", "ser", "tu", "decir", "el", "oruga"],
           "segments": [
             {
               "seg_id": "S1",
-              "tokenized_text": [
-                { "t": "b", "v": "“¿" },
-                { "t": "w", "v": "Quién", "l": ["quien"] },
-                { "t": "b", "v": " " },
-                { "t": "w", "v": "eres", "l": ["ser"] },
-                { "t": "b", "v": " " },
-                { "t": "w", "v": "tú", "l": ["tu"] },
-                { "t": "b", "v": "? ” " }
-              ]
+              "text": "“¿Quién eres tú?” ",
+              "lemmas": ["quien", "ser", "tu"]
             },
             {
               "seg_id": "S2",
-              "tokenized_text": [
-                { "t": "b", "v": "" },
-                { "t": "w", "v": "dijo", "l": ["decir"] },
-                { "t": "b", "v": " " },
-                { "t": "w", "v": "la", "l": ["el"] },
-                { "t": "b", "v": " " },
-                { "t": "w", "v": "Oruga", "l": ["oruga"] },
-                { "t": "b", "v": "." }
-              ]
+              "text": "dijo la Oruga.",
+              "lemmas": ["decir", "el", "oruga"]
             }
           ]
         },
         {
           "tier_id": "advanced_target",
           "full_text": "—¿Quién sois vos? —dijo la Oruga.",
-          "lemmas": ["quien", "ser", "tu", "decir", "el", "oruga"],
           "segments": [
             {
               "seg_id": "A1",
-              "tokenized_text": [
-                { "t": "b", "v": "—¿" },
-                { "t": "w", "v": "Quién", "l": ["quien"] },
-                { "t": "b", "v": " " },
-                { "t": "w", "v": "sois", "l": ["ser"] },
-                { "t": "b", "v": " " },
-                { "t": "w", "v": "vos", "l": ["tu"] },
-                { "t": "b", "v": "? — " }
-              ]
+              "text": "—¿Quién sois vos? —",
+              "lemmas": ["quien", "ser", "tu"]
             },
             {
               "seg_id": "A2",
-              "tokenized_text": [
-                { "t": "b", "v": "" },
-                { "t": "w", "v": "dijo", "l": ["decir"] },
-                { "t": "b", "v": " " },
-                { "t": "w", "v": "la", "l": ["el"] },
-                { "t": "b", "v": " " },
-                { "t": "w", "v": "Oruga", "l": ["oruga"] },
-                { "t": "b", "v": "." }
-              ]
+              "text": "dijo la Oruga.",
+              "lemmas": ["decir", "el", "oruga"]
             }
           ]
         },
         {
           "tier_id": "simpler_advanced_target",
           "full_text": "¿Quién eres tú? —dijo la Oruga.",
-          "lemmas": ["quien", "ser", "tu", "decir", "el", "oruga"],
           "segments": [
             {
               "seg_id": "A1",
+              "lemmas": ["quien", "ser", "tu"],
               "tokenized_text": [
                 { "t": "b", "v": "¿" },
-                { "t": "w", "v": "Quién", "l": ["quien"] },
+                { "t": "w", "v": "Quién" , "l": ["quien"], "di": 0 },
                 { "t": "b", "v": " " },
-                { "t": "w", "v": "eres", "l": ["ser"] },
+                { "t": "w", "v": "eres", "l": ["ser"], "di": 1 },
                 { "t": "b", "v": " " },
-                { "t": "w", "v": "tú", "l": ["tu"] },
-                { "t": "b", "v": "? — " }
+                { "t": "w", "v": "tú", "l": ["tu"], "di": 2 },
+                { "t": "b", "v": "? —" }
               ]
             },
             {
               "seg_id": "A2",
+              "lemmas": ["decir", "el", "oruga"],
               "tokenized_text": [
                 { "t": "b", "v": "" },
-                { "t": "w", "v": "dijo", "l": ["decir"] },
+                { "t": "w", "v": "dijo", "l": ["decir"], "di": 0 },
                 { "t": "b", "v": " " },
-                { "t": "w", "v": "la", "l": ["el"] },
+                { "t": "w", "v": "la", "l": ["el"], "di": 1 },
                 { "t": "b", "v": " " },
-                { "t": "w", "v": "Oruga", "l": ["oruga"] },
+                { "t": "w", "v": "Oruga", "l": ["oruga"], "di": 2 },
                 { "t": "b", "v": "." }
               ]
             }
@@ -137,29 +116,23 @@
       "mappings": {
         "simple_target_to_base_diglot": {
           "S1": [
-            // Every word from the base segment S1 ("Who are you?") has a mapping.
-            // Format: [base_word_di, "target_lemma", "exact_target_form", is_viable_bool]
             [0, "quien", "Quién", true],
             [1, "ser", "eres", true],
             [2, "tu", "tú", true]
           ],
           "S2": [
-            // Every word from the base segment S2 ("said the Caterpillar.") has a mapping.
-            [3, "decir", "dijo", true],
-            [4, "el", "la", true],
-            [5, "oruga", "PROPER_NOUN", false]
+            [0, "decir", "dijo", true],
+            [1, "el", "la", true],
+            [2, "oruga", "PROPER_NOUN", false]
           ]
         },
         "simpler_adv_target_to_base_inv_diglot": {
           "A1": [
-            // Every word from the simpler_advanced segment A1 ("¿Quién eres tú?") has a mapping.
-            // Format: [target_word_index_in_segment, "target_lemma", "base_substitute"]
             [0, "quien", "Who"],
             [1, "ser", "are"],
             [2, "tu", "you"]
           ],
           "A2": [
-            // Every word from the simpler_advanced segment A2 ("dijo la Oruga.") has a mapping.
             [0, "decir", "said"],
             [1, "el", "the"],
             [2, "oruga", "Caterpillar"]

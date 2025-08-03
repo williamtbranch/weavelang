@@ -1,0 +1,92 @@
+================================================================================
+WeaveLang Refactor - Current Context & Plan
+================================================================================
+
+This document serves as a "brain dump" to capture the current state of the
+WeaveLang pipeline refactor. The goal is to ensure continuity between development
+sessions, preserving the nuanced design decisions we've made.
+
+### Overall Status
+
+We are in the middle of a major, production-focused refactor of the Python data
+generation pipeline. The primary goals are to achieve true language agnosticism,
+guarantee data integrity, and create a lean, efficient, and logical JSON
+output for the Rust consumer.
+
+We are following a strict Test-Driven Development (TDD) methodology. The current
+phase involves writing a comprehensive suite of failing tests that act as an
+"executable specification" for the new design. The immediate next step is to
+write the Python code that will make these new tests pass.
+
+### The Core Problems and Our Solutions
+
+**1. The Boundary Alignment Problem (The `splitB` Problem)**
+
+- **The Problem:** When weaving segments from different languages (e.g., a Spanish
+  phrase followed by an English phrase), punctuation and spacing can be lost or
+  mismatched, creating grammatically incorrect sentences. For example, a Spanish
+  opening quote `¿` could end up attached to an English phrase, or a space
+  between a comma and the next word could be deleted.
+
+- **The Solution: The "Smart Space Boundary" Rule.** We have designed a simple,
+  universal, and robust rule that operates on the background ("B") content
+  between segments.
+  - The rule is implemented in a pure function, tentatively named `split_boundary`.
+  - It combines the final 'B' of the first segment and the initial 'B' of the second.
+  - It splits this combined boundary string at the **first space**.
+  - All content *up to and including* that space is assigned back to the first segment.
+  - The remainder is assigned to the second segment.
+  - If no space exists (e.g., in some Japanese grammar), the entire boundary is
+    assigned to the first segment. This provides a predictable, low-level, and
+    language-agnostic way to handle all boundaries correctly.
+
+**2. The Information Loss Problem & Temporary Tokenized Data**
+
+- **The Problem:** The `splitB` logic needs to operate on the boundary between
+  segments. For text-only (atomic) tiers like `advanced_target`, we don't have
+  explicit "B" tokens. Converting rich SpaCy `Span` objects (which contain
+  perfect boundary information) into simple strings too early in the pipeline
+  causes this information to be lost, leading to bugs.
+
+- **The Solution: Progressive Enrichment & Temporary Data.** To solve this, the
+  pipeline will **temporarily tokenize all four tiers internally**.
+  - This means that during the middle stages of the pipeline, the JSON data will
+    contain rich `tokenized_text` arrays for every segment in every tier.
+  - This provides the `splitB` logic (which will be implemented in a function
+    like `standardize_tokenized_segments`) with the precise `B` token data it needs
+    to work correctly and uniformly on all tiers.
+  - In the **final stage of the pipeline (`FinalizeAnnotations`)**, after all
+    standardization and lemmatization is complete, a cleanup step will run. It
+    will reconstruct the simple `text` string for the atomic tiers (`advanced_target`,
+    `simple_target`) from their now-perfect token lists and then **delete the
+    temporary `tokenized_text` key**, producing our final, lean JSON.
+
+**3. The LLM Segment Re-joining Problem**
+
+- **The Problem:** The derived tiers (`simpler_advanced_target`, `simple_target`) are
+  created by sending standardized segments to an LLM. When the LLM returns the
+  derived segments, we need to join them to create a grammatically correct
+  `full_text` for that tier. A naive `" ".join()` could introduce erroneous
+  spaces (e.g., `said, " How...`).
+
+- **The Solution: "Pre-Standardize and Lossless Concatenation".**
+  - The key is that the *source* segments (from `base` and `advanced_target`)
+    have their boundaries perfected by our `splitB` logic in Stage 2 *before*
+    they are ever sent to the LLM.
+  - For example, `He asked, "Are you...` is correctly segmented into `["He asked, ", "\"Are you..."]`.
+  - When the LLM receives these clean inputs, it returns clean, corresponding outputs.
+  - The `full_text` for the derived tier can then be created by a simple, lossless
+    concatenation (`"".join(segments)`), which is guaranteed to be correct because
+    the boundary spacing was handled correctly at the source.
+
+### Current Status
+
+We have successfully encoded these solutions into a new set of test files.
+- `test_standardize.py` defines the expected behavior of our `splitB` logic.
+- `test_stage_2_segment_core_tiers.py` provides a critical integration test that
+  will fail until the entire new workflow (segmentation, standardization, and
+  correct tokenization) is implemented for Stage 2.
+
+These tests are currently failing, which is the desired state. **Our immediate
+next step is to write the implementation code in `standardize.py`, `helper.py`,
+and `segment_core_tiers.py` to make this new suite of tests pass.**

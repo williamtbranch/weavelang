@@ -1,21 +1,61 @@
-# In weavelang/assets/languages.toml
+# ==============================================================================
+# WeaveLang Language Manifest
+# ==============================================================================
+# This file is the single source of truth for all language-specific
+# configurations used by the data generation pipeline.
+#
+# The orchestrator loads this file on startup to configure itself for a
+# specific language-pair run.
+# ==============================================================================
 
-# ===============================================
-#  Language-Specific Resource Manifest
-# ===============================================
-
-[en] # Configuration for English
+# --- Individual Language Definitions ---
+# Each language supported by the tool needs an entry here. The key (e.g., "en")
+# is the short-code used in the --base-lang and --target-lang CLI arguments.
+[en]
+name = "English"
 spacy_model = "en_core_web_lg"
+# 'normalization_function' is a placeholder for a future enhancement where
+# we might specify which Python function to use for lemma normalization.
+# For now, the logic is dispatched internally in helper.py.
+normalization_function = "default_latin"
 
-[es] # Configuration for Spanish
+[es]
+name = "Spanish"
 spacy_model = "es_core_news_lg"
+normalization_function = "spanish_latin_unaccented"
 
-# [fr] # Future configuration for French
-# spacy_model = "fr_core_news_sm"
+[ja]
+name = "Japanese"
+# NOTE: The user must run 'python -m spacy download ja_core_news_lg'
+# for the pipeline to work with Japanese.
+spacy_model = "ja_core_news_lg"
+normalization_function = "japanese_dictionary_form"
 
 
-# --- Configuration for specific language PAIRS ---
+# --- Language PAIR Definitions ---
+# This section maps a "from_lang-to_lang" pair to its specific assets.
+# The primary use case is defining the directory for custom prompt overrides.
+# If a pair is not listed here, the pipeline can still run, but it will
+# rely exclusively on the _defaults for all prompts. Listing pairs here
+# makes the configuration more explicit and self-documenting.
+[pair]
+  # English <-> Spanish
+  [pair.en-es]
+  prompt_dir = "prompts/en-es" # Relative to the assets directory
 
-[pair.en-es]
-# The path to the directory holding prompts, relative to the `assets` directory.
-prompt_dir = "prompts/en-es"
+  [pair.es-en]
+  prompt_dir = "prompts/es-en"
+
+  # English <-> Japanese
+  [pair.en-ja]
+  prompt_dir = "prompts/en-ja"
+
+  [pair.ja-en]
+  prompt_dir = "prompts/ja-en"
+
+  # Spanish <-> Japanese (for future proofing)
+  [pair.es-ja]
+  prompt_dir = "prompts/es-ja"
+
+  [pair.ja-es]
+  prompt_dir = "prompts/ja-es"

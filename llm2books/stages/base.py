@@ -56,10 +56,8 @@ class Stage(ABC):
             raise ValueError("'content_project_dir' not found in common_resources.")
 
         self.content_project_root = Path(content_project_dir_str)
-        self.staged_dir = self.content_project_root / self.cli_args.input_staged_subdir
-        self.llm_output_base_dir = (
-            self.content_project_root / self.cli_args.output_llm_subdir
-        )
+        self.staged_dir = self.content_project_root / "Staged"
+        self.llm_output_base_dir = self.content_project_root / "pipeline"
         self.stage_output_dir = self.llm_output_base_dir / f"stage{self.stage_number}"
         self.output_path = (
             self.stage_output_dir / f"{self.book_stem}.stage{self.stage_number}.json"
@@ -119,12 +117,7 @@ class SpaCyStage(Stage, ABC):
         logger.info(f"Executing SpaCy Stage {self.stage_number}: {self.stage_name} for '{self.book_stem}'")
         self.stage_output_dir.mkdir(parents=True, exist_ok=True)
 
-        if self.cli_args.force_book == self.book_stem:
-            if self.output_path.exists():
-                logger.info(f"      -> Force mode: Deleting existing output file {self.output_path.name}")
-                self.output_path.unlink()
-
-        if not self.cli_args.force_book and self._is_stage_complete():
+        if self._is_stage_complete(): # We removed force_book, so this check is now simpler
             logger.info("      -> Stage is already marked as 'COMPLETED'. Skipping.")
             return True
 
@@ -406,9 +399,9 @@ class LLMStage(Stage, ABC):
             return False
     
     def _make_api_call_with_retries(
-        self, user_prompt: str, expected_ids: List[str]
+        self, user_prompt: str, expected_ids: List[str], system_prompt_override: Optional[str] = None
     ) -> Optional[Dict[str, str]]:
-        system_prompt = self.get_system_prompt()
+        system_prompt = system_prompt_override if system_prompt_override is not None else self.get_system_prompt()
         if not system_prompt:
             logger.critical("      -> CRITICAL: System prompt is missing.")
             return None

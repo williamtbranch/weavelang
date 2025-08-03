@@ -7,3 +7,5 @@ mono.out
 *.err
 *.log
 voices.txt
+.venv
+weavelang_pipeline.egg-info
