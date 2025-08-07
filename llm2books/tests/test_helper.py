@@ -6,15 +6,6 @@ from llm2books.helper import create_v2_token_list, normalize_spanish_lemma # (up
 
 # --- Test Suite for Helper Functions ---
 
-# We can add this fixture to load the model once, which is efficient
-@pytest.fixture(scope="module")
-def spacy_en_model():
-    """Loads the SpaCy English model once for all tests in this module."""
-    try:
-        return spacy.load("en_core_web_lg", disable=["ner"])
-    except IOError:
-        pytest.skip("Skipping helper tests: English SpaCy model not found.")
-
 # --- Tests for create_v2_token_list ---
 
 def test_create_v2_token_list_handles_punctuation_correctly(spacy_en_model):
