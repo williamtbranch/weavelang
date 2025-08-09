@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 import re
 from typing import Optional, Dict, Any
+from .stanza_segmenter import EnglishStanzaProcessor
 
 # --- Dependency Imports ---
 try:
@@ -107,15 +108,18 @@ def main():
     
     # --- Argument Parsing ---
     parser.add_argument("--project_config", default="config.toml", help="Path to the main project TOML configuration file.")
-    parser.add_argument("--base-lang", required=True, help="Base language code (e.g., 'en')")
-    parser.add_argument("--target-lang", required=True, help="Target language code (e.g., 'es')")
+    # The --base-lang and --target-lang arguments are now deprecated from the orchestrator
+    # as this is determined by the %%lang:xx%% tag in the source file.
+    # We will leave them for now to avoid breaking any scripts, but they are unused.
+    parser.add_argument("--base-lang", help="[DEPRECATED] Base language is now detected from source file.")
+    parser.add_argument("--target-lang", default="es", help="Target language code (e.g., 'es').")
     parser.add_argument("--book-to-process", type=str, default=None, help="Process only a single specified book stem.")
-    # Add other control args like force_book, start_at_stage as needed.
-    
+    parser.add_argument("--force_book", type=str, default=None, help="Force reprocessing of a specific book, ignoring existing progress.")
+    parser.add_argument("--start_at_stage", type=int, default=None, help="Start processing from a specific stage number.")
+
     args = parser.parse_args()
     
     logger.info("--- WeaveLang Pipeline Orchestrator Initializing ---")
-    logger.info(f"Run configured for: {args.base_lang} -> {args.target_lang}")
 
     # --- Load Project Config (config.toml) ---
     try:
@@ -138,58 +142,66 @@ def main():
     try:
         with open(tool_root_dir / "assets" / "languages.toml", "rb") as f:
             lang_manifest = tomllib.load(f)
-        language_config = build_language_config(lang_manifest, args.base_lang, args.target_lang)
     except Exception as e:
-        logger.critical(f"Failed to load or process language manifest: {e}")
+        logger.critical(f"Failed to load language manifest: {e}")
         sys.exit(1)
-
-    # --- Initialize Shared Resources (SpaCy, LLM Client) ---
-    logger.info("Initializing shared resources...")
-    spacy_models: Dict[str, Any] = {}
-    try:
-        logger.info(f"Loading SpaCy model for base language '{args.base_lang}': {language_config['base_spacy_model']}")
-        spacy_models[args.base_lang] = spacy.load(language_config["base_spacy_model"], disable=["ner"])
-        logger.info(f"Loading SpaCy model for target language '{args.target_lang}': {language_config['target_spacy_model']}")
-        spacy_models[args.target_lang] = spacy.load(language_config["target_spacy_model"], disable=["ner"])
-    except IOError as e:
-        logger.critical(f"SpaCy model not found. Please run 'python -m spacy download <model_name>'. Error: {e}")
-        sys.exit(1)
-
-    llm_provider = "claude" # Default, can be made dynamic later
-    llm_client = helper.initialize_llm_client(llm_provider)
-    if llm_client is None:
-        sys.exit(1)
-        
-    # --- Assemble final common_resources dictionary ---
-    common_resources = {
-        'llm_client': llm_client,
-        'spacy_models': spacy_models,
-        'content_project_dir': content_project_dir_str,
-        'tool_root_dir': tool_root_dir,
-        'models_config': models_config,
-        'pipeline_config': pipeline_config,
-        'stages_config': stages_config,
-        'language_config': language_config,
-    }
 
     # --- Book Discovery ---
     staged_dir = content_project_root / "Staged"
     if args.book_to_process:
-        book_files_to_process = [staged_dir / f"{args.book_to_process}.txt"]
+        source_files_to_process = [staged_dir / f"{args.book_to_process}.txt"]
+        if not source_files_to_process[0].exists():
+             logger.critical(f"Specified book not found: {source_files_to_process[0]}")
+             sys.exit(1)
     else:
-        book_files_to_process = sorted(staged_dir.glob("*.txt"))
+        source_files_to_process = sorted(staged_dir.glob("*.txt"))
 
-    if not any(p.is_file() for p in book_files_to_process):
-        logger.warning(f"No books found to process in: {staged_dir}")
+    if not source_files_to_process:
+        logger.warning(f"No source .txt files found to process in: {staged_dir}")
         return
 
-    logger.info(f"Found {len(book_files_to_process)} potential source file(s) in Staged directory.")
+    logger.info(f"Found {len(source_files_to_process)} potential source file(s) in Staged directory.")
     
+    # --- Initialize Shared Resources (SpaCy, Stanza, LLM Client) ---
+    # These are expensive, so we load them once for the entire run.
+    logger.info("Initializing shared resources (this may take a moment)...")
+    
+    # Determine all languages needed for this run
+    needed_langs = {args.target_lang}
+    for book_path in source_files_to_process:
+        source_lang = get_source_lang_from_file(book_path)
+        if source_lang:
+            needed_langs.add(source_lang)
+    
+    spacy_models: Dict[str, Any] = {}
+    stanza_processors: Dict[str, Any] = {}
+    for lang_code in needed_langs:
+        lang_info = lang_manifest.get(lang_code)
+        if not lang_info:
+            logger.warning(f"Language '{lang_code}' found in a source file, but not defined in languages.toml. Skipping.")
+            continue
+        # Load SpaCy model
+        try:
+            spacy_model_name = lang_info.get("spacy_model")
+            if spacy_model_name:
+                logger.info(f"Loading SpaCy model for '{lang_code}': {spacy_model_name}")
+                spacy_models[lang_code] = spacy.load(spacy_model_name, disable=["ner"])
+        except IOError as e:
+            logger.critical(f"SpaCy model for '{lang_code}' not found. Please run 'python -m spacy download {spacy_model_name}'. Error: {e}")
+            sys.exit(1)
+        # Load Stanza model
+        if lang_code == 'en': # Extend this with 'es' etc. when SpanishStanzaProcessor is created
+            logger.info(f"Loading Stanza processor for '{lang_code}'...")
+            stanza_processors[lang_code] = EnglishStanzaProcessor()
+
+    llm_provider = pipeline_config.get("llm_provider", "claude")
+    llm_client = helper.initialize_llm_client(llm_provider)
+    if llm_client is None:
+        sys.exit(1)
+
     # --- Main Processing Loop ---
     overall_success = True
-    for book_path in book_files_to_process:
-        if not book_path.is_file(): continue # Skip directories
-        
+    for book_path in source_files_to_process:
         book_stem = book_path.stem
         source_lang = get_source_lang_from_file(book_path)
         
@@ -197,17 +209,37 @@ def main():
             logger.warning(f"Skipping '{book_path.name}': Missing or malformed %%lang:xx%% tag on the first line.")
             continue
         
-        logger.info(f"--- Starting Pipeline for Book: [{book_stem}] (Source Language: {source_lang}) ---")
+        try:
+            language_config = build_language_config(lang_manifest, source_lang, args.target_lang)
+        except ValueError as e:
+            logger.error(f"Skipping '{book_path.name}': {e}")
+            continue
+
+        logger.info(f"--- Starting Pipeline for Book: [{book_stem}] ({source_lang} -> {args.target_lang}) ---")
         
-        # Add book-specific info to a copy of resources for this specific run
-        run_resources = common_resources.copy()
-        run_resources['source_lang'] = source_lang
-        run_resources['source_path'] = book_path
+        # Assemble book-specific common resources for this run
+        common_resources = {
+            'llm_client': llm_client,
+            'spacy_models': spacy_models,
+            'stanza_processors': stanza_processors,
+            'content_project_dir': content_project_dir_str,
+            'tool_root_dir': tool_root_dir,
+            'models_config': models_config,
+            'pipeline_config': pipeline_config,
+            'stages_config': stages_config,
+            'language_config': language_config, # This is now specific to the book's language pair
+            'source_path': book_path, # Pass the source path down
+        }
 
         pipeline_ok = True
         for StageClass in PIPELINE_STAGES:
-            stage_instance = StageClass(book_stem, args, run_resources)
+            stage_instance = StageClass(book_stem, args, common_resources)
             
+            # Logic to skip stages if --start_at_stage is used
+            if args.start_at_stage and stage_instance.stage_number < args.start_at_stage:
+                logger.info(f"Skipping Stage {stage_instance.stage_number} ({stage_instance.stage_name}) as requested.")
+                continue
+
             pipeline_ok = stage_instance.run()
 
             if not pipeline_ok:
@@ -226,6 +258,3 @@ def main():
     else:
         logger.error("Orchestrator finished, but one or more books failed processing.")
         sys.exit(1)
-
-if __name__ == "__main__":
-    main()

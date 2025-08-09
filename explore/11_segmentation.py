@@ -19,7 +19,7 @@ import stanza
 from pathlib import Path
 
 # --- Configuration Constant ---
-MIN_SEGMENT_SIZE = 3
+MIN_SEGMENT_SIZE = 5
 
 # --- Core Segmentation Logic (Definitive Version) ---
 
