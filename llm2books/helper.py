@@ -15,10 +15,13 @@ from dotenv import load_dotenv
 from spacy.tokens import Doc, Span
 
 # --- Attempt to import optional libraries ---
-try:
-    import anthropic
-except ImportError:
-    anthropic = None
+# try:
+#     # --- THIS IS THE FIX ---
+#     # We now specifically import the Synchronous client
+#     from anthropic import SyncAnthropic
+# except ImportError:
+#     # Set it to None if the library isn't installed
+#     SyncAnthropic = None
 
 # --- Global Constants ---
 SPANISH_CONJUNCTIONS = ["y", "o", "pero", "que", "si", "cuando", "pues"]
@@ -39,21 +42,29 @@ def get_iso_timestamp() -> str:
     """Returns the current UTC time in ISO 8601 format."""
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-
 def initialize_llm_client(provider: str) -> any:
     """
     Initializes and returns an LLM client based on the provider string.
     """
     load_dotenv(dotenv_path=Path.cwd() / ".env")
     if provider == "claude":
-        if not anthropic:
-            logger.critical("Anthropic provider selected, but SDK not installed. Run `pip install anthropic`")
+        try:
+            # --- THE REAL FIX IS HERE ---
+            # The correct synchronous client is just called 'Anthropic'
+            from anthropic import Anthropic
+        except ImportError:
+            logger.critical("Anthropic provider selected, but SDK not found or is not visible to the Python interpreter. Run 'pip install anthropic'")
             return None
+            
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
             logger.critical("ANTHROPIC_API_KEY not found in environment or .env file.")
             return None
-        return anthropic.Anthropic(api_key=api_key)
+            
+        # --- AND HERE ---
+        # Instantiate the correct class
+        return Anthropic(api_key=api_key)
+        
     logger.critical(f"LLM provider '{provider}' is not supported.")
     return None
 

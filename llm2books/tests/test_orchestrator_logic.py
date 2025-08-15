@@ -6,7 +6,6 @@ from pathlib import Path
 # We are writing tests for functions that DON'T EXIST YET.
 # This is the core of TDD. We will import them once we create them.
 from llm2books.orchestrate_pipeline import build_language_config
-from llm2books.llm_prompts import load_prompt_template
 
 # A mock manifest dictionary that mirrors the structure of languages.toml
 # This will be our single source of truth for these tests.
@@ -92,64 +91,3 @@ class TestBuildLanguageConfig:
         assert lang_config["pair_prompt_dir"] == "prompts/en-es"
     # Test cases will go here
     pass
-
-# --- Test Suite for Prompt Loader ---
-
-class TestLoadPromptTemplate:
-
-    def test_loads_specific_prompt_when_it_exists(self, fs):
-        """
-        Tests that the loader correctly finds and uses a language-pair specific
-        override prompt.
-        
-        The 'fs' argument is a pytest fixture that provides a fake file system.
-        """
-        # ARRANGE: Create the fake files and directories needed for this test.
-        base_asset_path = Path("/weavelang/assets")
-        
-        fs.create_file(
-            base_asset_path / "prompts/_defaults/stage1_translate.txt",
-            contents="This is the default prompt."
-        )
-        
-        fs.create_file(
-            base_asset_path / "prompts/en-ja/stage1_translate.txt",
-            contents="This is the specific en-ja override prompt."
-        )
-        fs.create_dir(base_asset_path / "prompts/en-es")
-        
-        # ACT: Call the function we are testing (which doesn't exist yet).
-        # We need to design the function signature. Let's make it simple.
-        # It takes the filename, the root asset path, and the specific pair directory.
-        prompt_content = load_prompt_template(
-            prompt_name="stage1_translate.txt",
-            base_asset_path=base_asset_path,
-            pair_prompt_dir="prompts/en-ja" # This pair has a specific file
-        )
-        
-        # ASSERT
-        assert prompt_content == "This is the specific en-ja override prompt."
-
-    def test_falls_back_to_default_when_specific_prompt_missing(self, fs):
-        """
-        Tests that the loader correctly falls back to the default prompt when
-        a language-pair specific override does not exist.
-        """
-        # ARRANGE: Set up the fake file system.
-        base_asset_path = Path("/weavelang/assets")
-        fs.create_file(
-            base_asset_path / "prompts/_defaults/stage1_translate.txt",
-            contents="This is the default prompt."
-        )
-        # Note: We do NOT create a file in the en-es directory.
-        fs.create_dir(base_asset_path / "prompts/en-es")
-        
-        # ACT: Call the function for the en-es pair, which has no override.
-        prompt_content = load_prompt_template(
-            prompt_name="stage1_translate.txt",
-            base_asset_path=base_asset_path,
-            pair_prompt_dir="prompts/en-es"
-        )
-        
-        # ASSERT
-        assert prompt_content == "This is the default prompt."

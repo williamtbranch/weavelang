@@ -17,10 +17,10 @@ Your task is to take a Spanish phrase and, for EACH word, provide a simple, conc
 **EXAMPLE 1: Verb and Function Words**
 
 INPUT:
-id 5_A1: estaba pensando para sí misma
+5_A1: estaba pensando para sí misma
 
 EXPECTED OUTPUT:
-id 5_A1:
+5_A1:
 estaba -> NO_SUB
 pensando -> thinking
 para -> NO_SUB
@@ -31,10 +31,10 @@ misma -> NO_SUB
 **EXAMPLE 2: Proper Noun**
 
 INPUT:
-id 8_A3: que caminaba de la mano con Dinah
+8_A3: que caminaba de la mano con Dinah
 
 EXPECTED OUTPUT:
-id 8_A3:
+8_A3:
 que -> NO_SUB
 caminaba -> walking
 de -> NO_SUB
@@ -47,18 +47,18 @@ Dinah -> PROPER_NOUN
 **EXAMPLE 3: Multi-Part Batch with Idiom**
 
 INPUT:
-id 102_A1: El político no tardó en
-id 102_A2: dar gato por liebre
+102_A1: El político no tardó en
+102_A2: dar gato por liebre
 
 EXPECTED OUTPUT:
-id 102_A1:
+102_A1:
 El -> NO_SUB
 político -> politician
 no -> not
 tardó -> took
 en -> NO_SUB
 
-id 102_A2:
+102_A2:
 dar -> NO_SUB
 gato -> NO_SUB
 por -> NO_SUB

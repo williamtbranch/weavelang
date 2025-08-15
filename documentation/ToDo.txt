@@ -1,79 +1,71 @@
 ================================================================================
-Project Plan: WeaveLang V8 - The Production-Ready Pipeline
+Project Plan: WeaveLang V9 - The Common Pool Architecture
 Last Updated: (Date of this session)
 ================================================================================
 
 ### Primary Objectives & Guiding Principles
 
-- **Goal:** Overhaul the data pipeline to be language-agnostic, self-validating,
-  and produce a lean, intention-revealing JSON schema (v2.5) for the Rust consumer.
-- **Architecture:** A two-phase pipeline. Phase 1 is LLM-heavy for creative text
-  generation. Phase 2 is SpaCy-heavy for deterministic linguistic annotation.
-- **The Golden Rule of Lemmatization:** To derive a word's lemma, its original
-  full-sentence context MUST be provided to SpaCy.
-
-### The New 6-Stage Pipeline Flow
-
-(Abridged - Full description in current_context.txt)
-- **Stage 1: `InitializeBookTiers` (LLM):** Creates base/advanced `full_text`.
-- **Stage 2: `SegmentCoreTiers` (SpaCy):** Segments core tiers.
-- **Stage 3: `GenerateDerivedTiers` (LLM):** Creates derived tier text.
-- **Stage 4: `GenerateMappings` (LLM):** Creates raw diglot maps.
-- **Stage 5: `TokenizeAndLemmatizeSimplerTarget` (SpaCy):** Annotates `simpler_advanced_target`.
-- **Stage 6: `FinalizeAnnotations` (SpaCy):** Annotates all remaining tiers,
-  standardizes boundaries, lemmatizes mappings, and cleans up temporary data.
+- **Goal:** Implement a scalable, cost-effective data pipeline using a "Common Pool"
+  for reusable, pre-processed linguistic data.
+- **Architecture:** A two-part system. Part 1 is the "Pool Manager" which generates
+  and caches reusable, language-specific data. Part 2 is the "Pipeline Runner"
+  which consumes pooled data to generate pair-specific artifacts.
+- **Golden Rule:** Expensive, reusable operations are done ONCE and cached.
 
 ---
 ### Master Checklist
 ---
 
-#### Phase 1: Foundational Tooling & Tests
+#### Phase 1: Foundational Tooling (Complete)
 
-[x] 1.1: Set up asset structure (`languages.toml`, `prompts/_defaults`, etc.).
-[x] 1.2: Implement and test `build_language_config` in orchestrator.
-[x] 1.3: Implement and test `load_prompt_template` with fallback logic.
-[x] 1.4: Implement and test core validator functions (`validator.py`).
-[ ] 1.5: **CURRENT TASK:** Create `standardize.py` and implement the `split_boundary`
-     logic to make the tests in `test_standardizer.py` pass.
+[x] 1.1: Set up asset structure.
+[x] 1.2: Implement and test `build_language_config`.
+[x] 1.3: Implement and test `load_prompt_template`.
+[x] 1.4: Implement and test core validator functions.
+[x] 1.5: [REMOVED] `split_boundary` logic is now obsolete.
+[x] 1.6: Successfully integrated Stanza for constituency-based segmentation.
 
-#### Phase 2: Implement the Pipeline (Stage by Stage)
+#### Phase 2: Implement the Common Pool Manager (Complete)
 
-[ ] 2.1: **Stage 1 (`InitializeBookTiers`):**
-    - [x] Class created and integrated into orchestrator.
-    - [x] Integration tests created and passing.
-    - [ ] Final review and cleanup.
+[x] 2.1: Created `llm2books/pool_manager.py`.
+[x] 2.2: Implemented `pool_manager.generate_std_file`.
+[x] 2.3: Implemented `pool_manager.generate_sim_file`.
+[x] 2.4: Implemented the main `pool_manager.get_book_resources` function.
 
-[ ] 2.2: **Stage 2 (`SegmentCoreTiers`):**
-    - [x] Placeholder class created and integrated.
-    - [x] Integration test (`test_stage_2...py`) created and is correctly failing.
-    - [ ] **NEXT:** Implement the full `Span`-based logic to make the integration
-          test pass. This involves fixing `helper.py` and the stage's `_process_data`
-          method.
+#### Phase 3: Refactor the Pipeline to Use the Pool Manager
 
-[ ] 2.3: **Stage 3 (`GenerateDerivedTiers`):**
-    - [ ] Create placeholder class and integrate into orchestrator.
-    - [ ] Write integration test.
-    - [ ] Implement stage logic.
+[x] 3.1: **Stage 1 (`AssembleTiers`):**
+    - [x] **CURRENT TASK:** Create the class `llm2books/stages/assemble_tiers.py`.
+    - [x] Implement the logic to read the pool files and create `stage1.json`.
+    - [ ] Write integration tests for this assembly process.
 
-[ ] 2.4: **Stage 4 (`GenerateMappings`):**
+[ ] 3.2: **Stage 2 (`GenerateSimpleTarget`):**
     - [ ] Create placeholder class and integrate.
     - [ ] Write integration test.
-    - [ ] Implement stage logic.
+    - [ ] Implement stage logic (LLM stage).
 
-[ ] 2.5: **Stage 5 (`TokenizeAndLemmatizeSimplerTarget`):**
+[ ] 3.3: **Stage 3 (`FinalizeSimpleTarget`):**
     - [ ] Create placeholder class and integrate.
     - [ ] Write integration test.
-    - [ ] Implement stage logic.
+    - [ ] Implement stage logic (SpaCy stage).
 
-[ ] 2.6: **Stage 6 (`FinalizeAnnotations`):**
+[ ] 3.4: **Stage 4 (`GenerateDiglotMap`):**
     - [ ] Create placeholder class and integrate.
     - [ ] Write integration test.
-    - [ ] Implement stage logic (including boundary standardization and cleanup).
+    - [ ] Implement stage logic (LLM stage).
 
-#### Phase 3: Final Integration & Validation
+[ ] 3.5: **Stage 5 (`FinalizeDiglotMap`):**
+    - [ ] Create placeholder class and integrate.
+    - [ ] Write integration test.
+    - [ ] Implement stage logic (SpaCy stage).
 
-[ ] 3.1: Integrate the full `validator.py` module into the orchestrator to run
-     after each relevant stage.
-[ ] 3.2: Perform a full pipeline run on the 22-sentence test file and verify
-     the final `stage6.json` is perfect.
-[ ] 3.3: Perform sanity-check runs with other language pairs (e.g., en-ja).
+[ ] 3.6: **Stage 6 (`FinalizeBook`):**
+    - [ ] Create placeholder class and integrate.
+    - [ ] Write integration test.
+    - [ ] Implement final cleanup logic.
+
+#### Phase 4: Final Integration & Validation
+
+[ ] 4.1: Refactor `orchestrate_pipeline.py` to run the full, lean pipeline.
+[ ] 4.2: Delete all obsolete stage files from the old design.
+[ ] 4.3: Perform a full pipeline run and verify the final `library/*.json` output.
