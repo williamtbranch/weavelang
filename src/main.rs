@@ -34,6 +34,8 @@ enum CliForceLevel {
 
 #[derive(clap::Args, Debug, Clone)]
 struct GenerateCliArgs {
+    #[arg(long, value_name = "DIR", help="Path to the tool's root directory, for finding assets.")]
+    tool_root_dir: PathBuf,
     #[arg(short, long, value_name = "FILE", help="Path to the sequence.txt file listing books to process.")]
     sequence: PathBuf,
 
@@ -168,6 +170,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .ok_or_else(|| "Project config is required for generate mode but was not available.".to_string())?;
                 
             let corpus_gen_args = GenerationArgs {
+                tool_root_dir: generate_cli_args.tool_root_dir,
                 sequence_path: generate_cli_args.sequence,
                 input_json_dir: generate_cli_args.input_json_dir,
                 tts_output_dir: generate_cli_args.tts_output_dir,

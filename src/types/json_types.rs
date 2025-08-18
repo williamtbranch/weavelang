@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct JsonChapterMarkerBlock {
-    pub marker_text: String,
+    pub text: String,
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -39,11 +39,10 @@ pub struct JsonTokenV2 {
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct JsonSegmentV2 {
     pub seg_id: String,
-    pub post_separator: String,
+    pub text: String,
     pub tokenized_text: Vec<JsonTokenV2>,
-    // FIX: Add a field to hold the original, top-level lemma list from the DSL.
     #[serde(default)]
-    pub dsl_lemmas: Vec<String>,
+    pub lemmas: Vec<String>,
 }
 
 // --- Top-level block structures ---
@@ -58,7 +57,9 @@ pub struct JsonSentenceBlock {
 #[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "block_type")]
 #[serde(rename_all = "snake_case")]
+
 pub enum JsonContentBlock {
+    #[serde(rename = "chapter")] 
     ChapterMarker(JsonChapterMarkerBlock),
     Sentence(JsonSentenceBlock),
 }

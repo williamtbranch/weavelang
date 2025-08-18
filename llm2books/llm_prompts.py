@@ -12,8 +12,14 @@ def get_system_prompt(prompt_name: str, language_config: Dict) -> str:
     
     # Use the pre-calculated prompt directory for the specific language pair
     pair_prompt_dir_str = language_config.get("pair_prompt_dir")
+    print(f"DEBUG: Looking for prompt '{prompt_name}'")
+    if pair_prompt_dir_str:
+        print(f"DEBUG: Using pair-specific prompt dir: '{pair_prompt_dir_str}'")
+    else:
+        print("DEBUG: No pair-specific prompt dir found in config.")
     if pair_prompt_dir_str:
         specific_path = base_asset_path / pair_prompt_dir_str / f"{prompt_name}.txt"
+        print(f"DEBUG: Checking specific path: {specific_path.resolve()}")
         if specific_path.exists():
             return specific_path.read_text(encoding="utf-8")
 

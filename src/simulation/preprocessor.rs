@@ -98,9 +98,9 @@ pub fn json_sentence_to_numerical(
         NumericalAdvSegmentBundle {
             a_id_str: adv_seg.seg_id.clone(),
             adv_text_original: reconstruct_original_text(&adv_seg.tokenized_text),
-            adv_lemma_ids: string_lemmas_to_ids(&adv_seg.dsl_lemmas, dictionary),
+            adv_lemma_ids: string_lemmas_to_ids(&adv_seg.lemmas, dictionary),
             simpler_text_original: reconstruct_original_text(&simpler_seg.tokenized_text),
-            simpler_lemma_ids: string_lemmas_to_ids(&simpler_seg.dsl_lemmas, dictionary),
+            simpler_lemma_ids: string_lemmas_to_ids(&simpler_seg.lemmas, dictionary),
             inverse_diglot_map_numerical: inv_diglot_mapping.iter().map(|(idx, lemma, sub)| {
                 let original_word = simpler_text_words.iter()
                     .find(|word| word.diglot_index == *idx)
@@ -136,7 +136,7 @@ pub fn json_sentence_to_numerical(
     let l3_simsl_per_segment_numerical: Vec<NumericalSegmentLemmas> = simple_target_tier.segments.iter().map(|s| {
         NumericalSegmentLemmas {
             segment_id_str: s.seg_id.clone(),
-            lemma_ids: string_lemmas_to_ids(&s.dsl_lemmas, dictionary),
+            lemma_ids: string_lemmas_to_ids(&s.lemmas, dictionary),
         }
     }).collect();
 

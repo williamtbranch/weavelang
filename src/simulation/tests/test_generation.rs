@@ -203,7 +203,6 @@ fn build_single_tier(
         
         final_segments.push(JsonSegmentV2 {
             seg_id: format!("{}{}", seg_id_prefix, seg_counter),
-            post_separator: String::new(),
             tokenized_text: tokens,
             dsl_lemmas: lemmas,
         });

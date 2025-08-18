@@ -104,34 +104,36 @@ def _parse_singleline_llm_response(raw_text: str) -> Dict[str, str]:
 #
 def _parse_multiline_llm_response(raw_text: str) -> Dict[str, str]:
     """
-    Parses a multi-line LLM response where an ID may be on its own line
-    followed by the content.
+    Parses a multi-line LLM response where multiple IDs may be present in a
+    single text block. It splits the text by ID markers.
     """
     parsed = {}
-    current_id = None
-    current_lines = []
     
-    # Regex to find an ID at the start of a line, ending with an optional colon.
-    id_regex = re.compile(r"^\s*([A-Za-z0-9_]+):?\s*$")
-
-    for line in raw_text.strip().splitlines():
-        match = id_regex.match(line)
-        
-        # Check if the line ONLY contains an ID (and maybe a colon)
-        if match and len(line.strip().replace(":", "")) == len(match.group(1)):
-            # Finalize the previous block if it exists
-            if current_id:
-                parsed[current_id] = "\n".join(current_lines).strip()
+    # Regex to find all ID markers (e.g., "S1_S1:") in the text.
+    # We use a positive lookahead `(?=...)` to split the text *before* each ID,
+    # keeping the ID as part of the resulting chunk.
+    id_marker_regex = re.compile(r"(?=\n\s*[A-Za-z0-9_]+:)")
+    chunks = id_marker_regex.split(raw_text.strip())
+    
+    for chunk in chunks:
+        chunk = chunk.strip()
+        if not chunk:
+            continue
             
-            # Start a new block
-            current_id = match.group(1).strip()
-            current_lines = []
-        elif current_id:
-            # This is a content line for the current block
-            current_lines.append(line)
-
-    # After the loop, finalize the last block
-    if current_id:
-        parsed[current_id] = "\n".join(current_lines).strip()
+        # The first line of the chunk should be the ID.
+        lines = chunk.splitlines()
+        first_line = lines[0]
         
+        if ':' in first_line:
+            parts = first_line.split(':', 1)
+            item_id = parts[0].strip()
+            
+            # The content is the rest of the first line plus all subsequent lines.
+            content_lines = [parts[1].strip()] + lines[1:]
+            
+            # Filter out any blank lines that might have been created
+            content_lines = [line.strip() for line in content_lines if line.strip()]
+            
+            parsed[item_id] = "\n".join(content_lines)
+            
     return parsed

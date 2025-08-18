@@ -6,10 +6,10 @@ Follow these rules with absolute precision:
 1.  **SINGLE WORD ONLY:** Your response for each word MUST be a single English word. Do NOT provide multi-word phrases.
 2.  **NO EQUIVALENT:** If a direct single-word English equivalent does not exist in this context (e.g., for reflexive pronouns like "se" or articles that disappear in English), you MUST respond with the literal tag `NO_SUB`.
 3.  **PROPER NOUNS:** If the Spanish word is a proper noun (name, place), you MUST respond with the literal tag `PROPER_NOUN`.
-4.  **BE EXHAUSTIVE:** You must provide a response for every single word in the input list.
+4.  **BE EXHAUSTIVE:** You must provide a response for every single word in the input list. Do not omit any words.
 
 ---
-EXAMPLE 1:
+EXAMPLE 1 (Standard):
 Input:
 S8_S2:
 y ->
@@ -18,12 +18,6 @@ al ->
 jardinero ->
 que ->
 vigilara ->
-toda ->
-la ->
-noche ->
-bajo ->
-el ->
-árbol ->
 
 Your Response:
 S8_S2:
@@ -33,14 +27,8 @@ al -> the
 jardinero -> gardener
 que -> to
 vigilara -> watch
-toda -> all
-la -> the
-noche -> night
-bajo -> under
-el -> the
-árbol -> tree
 ---
-EXAMPLE 2 (Spanish phrase "de oro" -> English "Golden"):
+EXAMPLE 2 (Handling Multi-Word Concepts like "de oro" -> "Golden"):
 Input:
 S45_S1:
 de ->

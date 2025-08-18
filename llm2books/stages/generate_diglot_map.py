@@ -1,14 +1,15 @@
-# llm2books/stages/generate_diglot_map.py
 import re
 from typing import Any, Dict, List
 
 from .base import LLMStage, logger
 from .. import llm_prompts
 
+#
 class GenerateDiglotMap(LLMStage):
     """
     Stage 4: Generates a word-for-word mapping (Diglot Map) from the
     base language to the simple target language for each segment.
+    Uses a robust "fill-in-the-blank" prompt and programmatic validation.
     """
     def __init__(self, book_stem: str, cli_args: Any, common_resources: Dict[str, Any]):
         super().__init__(
@@ -18,91 +19,81 @@ class GenerateDiglotMap(LLMStage):
             stage_number=4,
             stage_name="GenerateDiglotMap"
         )
-        # The LLM will return a multi-line block for each segment's map.
         self.parser_type = "multi_line"
 
     def get_system_prompt(self) -> str:
-        """Loads the system prompt for this stage."""
-        return llm_prompts.get_system_prompt(
-            "generate_diglot_map", 
-            self.resources["language_config"]
-        )
+        return llm_prompts.get_system_prompt("generate_diglot_map", self.resources["language_config"])
 
-    def prepare_items_for_llm(self, book_data: Dict) -> List[Dict]:
+    def prepare_llm_items(self, book_data: Dict) -> List[Dict]:
         """
-        Creates a prompt for each segment containing both the base and simple
-        target text, asking for a word-for-word mapping.
+        Tokenizes the base text and creates a "fill-in-the-blank" prompt
+        for each segment.
         """
         items_to_process = []
+        word_regex = re.compile(r'\S+') # Simple regex to find words
+
         for block in book_data.get("content_blocks", []):
             if block.get("block_type") == "sentence":
                 base_tier = next((t for t in block["tiers"] if t["tier_id"] == "base"), None)
-                simple_target_tier = next((t for t in block["tiers"] if t["tier_id"] == "simple_target"), None)
-
-                if not base_tier or not simple_target_tier:
-                    continue
-                
-                # Align segments by index, assuming they correspond one-to-one
-                for i, base_seg in enumerate(base_tier.get("segments", [])):
-                    if i < len(simple_target_tier.get("segments", [])):
-                        target_seg = simple_target_tier["segments"][i]
-                        
-                        base_text = "".join(t['v'] for t in base_seg['tokenized_text'])
-                        target_text = target_seg.get("text", "") # Use the raw text from Stage 2/3
-
-                        if base_text.strip() and target_text.strip():
-                            prompt_text = (
-                                f"Base: {base_text.strip()}\n"
-                                f"Target: {target_text.strip()}"
-                            )
-                            items_to_process.append({
-                                "id": f"{block['s_id']}_{base_seg['seg_id']}",
-                                "text": prompt_text
-                            })
-        return items_to_process
-
-    def process_llm_responses(self, book_data: Dict, llm_responses: List[Dict]) -> Dict:
-        """
-        Parses the LLM's word mappings and populates the diglot map in the JSON.
-        """
-        response_map = {item['id']: item['llm_response'] for item in llm_responses}
-        mapping_regex = re.compile(r"^\s*([^->]+?)\s*->\s*(.+)$")
-
-        for block in book_data.get("content_blocks", []):
-            if block.get("block_type") == "sentence":
-                mappings = block.setdefault("mappings", {})
-                diglot_map = mappings.setdefault("simple_target_to_base_diglot", {})
-                
-                base_tier = next((t for t in block["tiers"] if t["tier_id"] == "base"), {})
+                if not base_tier: continue
                 
                 for seg in base_tier.get("segments", []):
-                    seg_id = seg["seg_id"]
-                    lookup_key = f"{block['s_id']}_{seg_id}"
+                    base_text = seg.get("text", "")
+                    words = word_regex.findall(base_text)
+                    if not words: continue
+
+                    # Create the "fill-in-the-blank" list
+                    prompt_text = "\n".join(f"{word} ->" for word in words)
                     
-                    if lookup_key in response_map:
-                        segment_mapping_text = response_map[lookup_key]
-                        seg_entries = []
-                        
-                        for line in segment_mapping_text.splitlines():
-                            map_match = mapping_regex.match(line.strip())
-                            if map_match:
-                                base_word = map_match.group(1).strip()
-                                target_form = map_match.group(2).strip()
-                                is_viable = target_form.upper() not in ["PROPER_NOUN", "NO_SUB"]
+                    items_to_process.append({
+                        "id": f"{block['s_id']}_{seg['seg_id']}",
+                        "text": prompt_text,
+                        "source_words": words # Store the source words for processing later
+                    })
+        return items_to_process
 
-                                # Find the diglot_index (di) for the given base word
-                                word_token = next((
-                                    tok for tok in seg.get("tokenized_text", []) 
-                                    if tok.get("t") == "w" and tok.get("v") == base_word
-                                ), None)
-                                
-                                if word_token and "di" in word_token:
-                                    # Format: [base_word_di, "target_lemma", "exact_target_form", is_viable_bool]
-                                    # The "target_lemma" is a placeholder to be filled by the next stage.
-                                    seg_entries.append([word_token["di"], "TBD", target_form, is_viable])
+    def process_llm_results_for_block(self, block: Dict, llm_results: Dict[str, str]) -> Dict:
+        """
+        Parses the LLM's "fill-in-the-blank" response and populates the
+        diglot map, auto-correcting any multi-word responses.
+        """
+        mappings = block.setdefault("mappings", {})
+        diglot_map = mappings.setdefault("simple_target_to_base_diglot", {})
+        
+        base_tier = next((t for t in block["tiers"] if t["tier_id"] == "base"), {})
+        
+        for seg in base_tier.get("segments", []):
+            seg_id = seg["seg_id"]
+            lookup_key = f"{block['s_id']}_{seg_id}"
+            
+            if lookup_key in llm_results:
+                response_text = llm_results[lookup_key]
+                response_map = {}
+                # Parse the "word -> translation" lines from the response
+                for line in response_text.splitlines():
+                    if '->' in line:
+                        parts = line.split('->', 1)
+                        if len(parts) == 2:
+                            response_map[parts[0].strip()] = parts[1].strip()
 
-                        diglot_map[seg_id] = seg_entries
-                
-                block.setdefault("processing_status", {})[self.stage_name] = "COMPLETED"
+                seg_entries = []
+                word_tokens = [tok for tok in seg.get("tokenized_text", []) if tok.get("t") == "w"]
 
-        return book_data
+                for token in word_tokens:
+                    base_word = token.get("v")
+                    target_form = response_map.get(base_word, "NO_SUB") # Default to NO_SUB if missing
+
+                    # --- AUTO-CORRECTION LOGIC ---
+                    # If LLM returned a multi-word phrase, force it to NO_SUB.
+                    if ' ' in target_form:
+                        target_form = "NO_SUB"
+                    # --- END AUTO-CORRECTION ---
+
+                    is_viable = target_form.upper() not in ["PROPER_NOUN", "NO_SUB"]
+                    
+                    seg_entries.append([token["di"], "TBD", target_form, is_viable])
+
+                diglot_map[seg_id] = seg_entries
+        
+        block.setdefault("processing_status", {})[self.stage_name] = "COMPLETED"
+        return block

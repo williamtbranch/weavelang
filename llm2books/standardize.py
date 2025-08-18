@@ -1,6 +1,6 @@
 # llm2books/standardize.py
 from typing import List, Dict, Any, Tuple
-
+import re
 
 class ValidationError(Exception):
     """Custom exception for data integrity failures."""
@@ -39,3 +39,44 @@ def standardize_tokenized_segments(segments: List[Dict[str, Any]]):
     This function doesn't exist yet, but will be needed later.
     """
     pass
+
+#
+
+def align_segment_boundaries(segments: List[str]) -> List[str]:
+    """
+    Applies the 'Smart Space Boundary' rule by re-slicing the combined
+    text of adjacent segments. This is the simplest and most robust approach.
+    """
+    if len(segments) < 2:
+        return segments
+
+    # Create a mutable copy to work with
+    aligned = list(segments)
+
+    # We must iterate forwards to correctly pass changes along.
+    i = 0
+    while i < len(aligned) - 1:
+        seg1 = aligned[i]
+        seg2 = aligned[i+1]
+        
+        combined = seg1 + seg2
+        
+        split_point = combined.find(' ')
+
+        if split_point != -1:
+            # A space was found. Slice the combined string.
+            new_seg1 = combined[:split_point + 1]
+            new_seg2 = combined[split_point + 1:]
+        else:
+            # No space in the combined boundary. This is unusual, but to be
+            # safe, seg1 takes everything and seg2 becomes empty.
+            new_seg1 = combined
+            new_seg2 = ""
+            
+        aligned[i] = new_seg1
+        aligned[i+1] = new_seg2
+        
+        i += 1
+
+    # Filter out any segments that became empty during the process.
+    return [s for s in aligned if s]

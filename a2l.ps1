@@ -19,6 +19,7 @@ $ModulePath = "llm2books.orchestrate_pipeline"
 $BookToProcess = "test"    # The book stem, e.g., "Grimm", "test". This is now MANDATORY.
 $BaseLang      = "en"      # The base language for this run.
 $TargetLang    = "es"      # The target language for this run.
+$StopAfterStage = 0
 
 # --- Sanity Check ---
 if (-not $BookToProcess) {
@@ -34,6 +35,10 @@ $CmdArgs = New-Object System.Collections.ArrayList
 [void]$CmdArgs.Add("--book-to-process"); [void]$CmdArgs.Add($BookToProcess)
 [void]$CmdArgs.Add("--base-lang");       [void]$CmdArgs.Add($BaseLang)
 [void]$CmdArgs.Add("--target-lang");     [void]$CmdArgs.Add($TargetLang)
+
+if ($StopAfterStage -gt 0) {
+    [void]$CmdArgs.Add("--stop-after-stage"); [void]$CmdArgs.Add($StopAfterStage)
+}
 
 # --- Execute the Python script ---
 Write-Host "Running WeaveLang Pipeline Orchestrator (Common Pool)..."

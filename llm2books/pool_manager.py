@@ -1,4 +1,3 @@
-# llm2books/pool_manager.py
 
 import json
 import logging
@@ -9,6 +8,7 @@ import time
 
 from . import helper
 from . import llm_prompts
+from . import validator
 from .stanza_segmenter import StanzaLanguageProcessor
 from .llm_logger import LLMLogger
 
@@ -104,10 +104,12 @@ class PoolManager:
         logger.info("--- PoolManager: All required resources are available. ---")
         return {"base_std": base_std_path, "target_std": target_std_path, "target_sim": target_sim_path}
 
+    #
     def generate_std_file(self, book_stem: str, lang_code: str, translated_items: Optional[List[Dict]] = None) -> Optional[Path]:
         logger.info(f"  -> Generating pool file: '{book_stem}.{lang_code}.std.json'")
         std_file_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.std.json"
         
+        # This part of the logic remains the same
         if translated_items:
             source_items = translated_items
         else:
@@ -126,22 +128,151 @@ class PoolManager:
             
         output_content = []
         for item in source_items:
-            if item['type'] == 'chapter': continue
+            if item['type'] == 'chapter':
+                # Pass chapter markers through directly
+                output_content.append({
+                    "block_type": "chapter",
+                    "text": item['text']
+                })
+                continue
+
             s_id, full_text = item['s_id'], item['text']
-            segment_texts = stanza_processor.segment_sentence(full_text)
+            
+            # --- NEW "TOKEN-FIRST" LOGIC ---
+            
+            # 1. Generate the Golden Token Stream for the whole sentence
+            # Note: We now use spacy to tokenize first for the helper.
+            spacy_doc = spacy_model(full_text)
+            golden_stream = helper.create_golden_token_stream(full_text, spacy_doc)
+            
+            # 2. Get the hierarchical segment strings from Stanza
+            stanza_doc = stanza_processor.nlp(full_text)
+            if not stanza_doc.sentences:
+                continue # Skip empty sentences
+            
+            tree = stanza_doc.sentences[0].constituency
+            hierarchical_strings = []
+            if tree and tree.children:
+                initial_tuples = stanza_processor._get_hierarchical_segments(tree.children[0])
+                initial_strings = [text for text, _ in initial_tuples]
+                hierarchical_strings = stanza_processor._refine_for_quotes(initial_strings)
+
+            # 3. Map word tokens to segment indices
+            word_tokens_in_stream = [tok for tok in golden_stream if tok['t'] == 'w']
+            current_word_idx = 0
+            for seg_idx, seg_str in enumerate(hierarchical_strings):
+                num_words_in_seg = len(re.findall(r'\w+', seg_str))
+                for _ in range(num_words_in_seg):
+                    if current_word_idx < len(word_tokens_in_stream):
+                        word_tokens_in_stream[current_word_idx]['seg_idx'] = seg_idx
+                        current_word_idx += 1
+            
+            # 4. Distribute all golden tokens into segment buckets
+            num_segments = len(hierarchical_strings)
+            segment_buckets: List[List[Dict]] = [[] for _ in range(num_segments)]
+            current_seg_idx_for_b = 0
+            for token in golden_stream:
+                if token['t'] == 'w':
+                    seg_idx = token.get('seg_idx', current_seg_idx_for_b)
+                    if seg_idx < num_segments:
+                        segment_buckets[seg_idx].append(token)
+                        current_seg_idx_for_b = seg_idx
+                else: # 'b' token
+                    if current_seg_idx_for_b < num_segments:
+                        segment_buckets[current_seg_idx_for_b].append(token)
+
+            # 5. Apply Smart Space Boundary Rule on token buckets
+            for i in range(num_segments - 1):
+                if not segment_buckets[i] or not segment_buckets[i+1]: continue
+                if segment_buckets[i][-1]['t'] == 'w': segment_buckets[i].append({'t':'b', 'v':''})
+                if segment_buckets[i+1][0]['t'] == 'w': segment_buckets[i+1].insert(0, {'t':'b', 'v':''})
+                b1 = segment_buckets[i][-1]
+                b2 = segment_buckets[i+1][0]
+                combined = b1['v'] + b2['v']
+                split_point = combined.find(' ')
+                if split_point != -1:
+                    b1['v'] = combined[:split_point + 1]
+                    b2['v'] = combined[split_point + 1:]
+                else:
+                    b1['v'] = combined
+                    b2['v'] = ""
+            
+            # 6. Finalize segment data structure
             segments_data = []
             sentence_di_counter = 0
-            full_doc = spacy_model(full_text)
-            token_to_lemma = { token.text: helper.normalize_spanish_lemma(token.lemma_) for token in full_doc if not token.is_punct and not token.is_space }
-            all_sentence_lemmas = set(token_to_lemma.values())
-            for i, seg_text in enumerate(segment_texts):
+            all_sentence_lemmas = set()
+            
+            for i, bucket in enumerate(segment_buckets):
+                seg_text = "".join(tok['v'] for tok in bucket)
                 seg_doc = spacy_model(seg_text)
-                token_list = helper.create_v2_token_list(seg_doc[:])
-                for token in token_list:
-                    if token.get("t") == "w": token["di"] = sentence_di_counter; sentence_di_counter += 1
-                segments_data.append({ "seg_id": f"S{i+1}", "tokenized_text": token_list })
-            output_content.append({ "s_id": s_id, "full_text": full_text, "lemmas": sorted(list(l for l in all_sentence_lemmas if l)), "segments": segments_data })
-        
+                
+                #
+                seg_lemmas = set()
+                for token in bucket:
+                    if token.get('t') == 'w':
+                        token['di'] = sentence_di_counter
+                        sentence_di_counter += 1
+                        spacy_token = next((t for t in seg_doc if t.text == token['v'] and t.idx == seg_text.find(token['v'])), None)
+                        if spacy_token:
+                            norm_lemma = helper.normalize_spanish_lemma(spacy_token.lemma_)
+                            if norm_lemma:
+                                token['l'] = [norm_lemma]
+                                all_sentence_lemmas.add(norm_lemma)
+                                seg_lemmas.add(norm_lemma) # Add to the segment's set
+                
+                
+                # Add diglot indices and lemmas to the tokens in the bucket
+                for token in bucket:
+                    if token.get('t') == 'w':
+                        token['di'] = sentence_di_counter
+                        sentence_di_counter += 1
+                        # Find the corresponding spacy token to get the lemma
+                        spacy_token = next((t for t in seg_doc if t.text == token['v'] and t.idx == seg_text.find(token['v'])), None)
+                        if spacy_token:
+                            norm_lemma = helper.normalize_spanish_lemma(spacy_token.lemma_)
+                            if norm_lemma:
+                                token['l'] = [norm_lemma]
+                                all_sentence_lemmas.add(norm_lemma)
+                
+                segments_data.append({
+                    "seg_id": f"S{i+1}",
+                    "text": seg_text, # Add the ground-truth segment text
+                    "tokenized_text": bucket,
+                    "lemmas": sorted(list(seg_lemmas))
+                })
+
+            output_content.append({
+                "block_type": "sentence",
+                "s_id": s_id,
+                "full_text": full_text,
+                "golden_token_stream": golden_stream, # Store the full stream
+                "lemmas": sorted(list(l for l in all_sentence_lemmas if l)),
+                "segments": segments_data
+            })
+            # --- END OF NEW LOGIC ---
+
+        # Validation and saving logic remains the same
+        logger.info(f"  -> Validating generated std data for '{book_stem}.{lang_code}'...")
+        try:
+            for sentence_block in output_content:
+                if sentence_block.get("block_type") == "sentence":
+                    temp_tier = {
+                        "tier_id": f"std-pool-{lang_code}",
+                        "full_text": sentence_block.get("full_text", ""),
+                        "segments": sentence_block.get("segments", [])
+                    }
+                    # Rule #3: Segments -> full_text
+                    validator.validate_segment_reconstruction(temp_tier)
+                    
+                    for seg in sentence_block.get("segments", []):
+                        # Rule #2: Tokens -> segment.text
+                        reconstructed_from_tokens = "".join(t['v'] for t in seg.get("tokenized_text", []))
+                        if reconstructed_from_tokens != seg.get("text"):
+                            raise validator.ValidationError(f"Token reconstruction for s_id {sentence_block['s_id']} seg_id {seg['seg_id']} failed.")
+        except validator.ValidationError as e:
+            logger.error(f"  -> CRITICAL: Validation failed for pool file '{book_stem}.{lang_code}.std.json'. Halting generation.")
+            logger.error(f"     Reason: {e}")
+            return None
         final_json_data = { "meta": { "book_name": book_stem, "language": lang_code, "tier_type": "std", "schema_version": "pool-v1.0" }, "content": output_content }
         try:
             with open(std_file_path, "w", encoding="utf-8") as f: json.dump(final_json_data, f, indent=2, ensure_ascii=False)
@@ -150,135 +281,294 @@ class PoolManager:
         except IOError as e:
             logger.error(f"Failed to write .std.json file to {std_file_path}: {e}"); return None
 
+    #
     def _translate_and_generate_std(self, book_stem: str, from_lang: str, to_lang: str) -> Optional[Path]:
+        from . import llm_utils # Use a single dot for intra-package import
+
         logger.info(f"    -> Translating '{book_stem}' from '{from_lang}' to '{to_lang}'...")
         source_path = self.source_texts_dir / f"{book_stem}.{from_lang}.txt"
         if not source_path.exists():
             logger.error(f"Cannot translate: Source file '{source_path.name}' not found."); return None
         
         source_items = self._parse_source_file(source_path)
-        items_to_translate = [item for item in source_items if item['type'] == 'sentence']
+        all_items_to_translate = [
+            {"id": item['s_id'], "text": item['text']} 
+            for item in source_items if item['type'] == 'sentence'
+        ]
 
-        from_lang_name = self.lang_manifest.get(from_lang, {}).get("name", from_lang)
-        to_lang_name = self.lang_manifest.get(to_lang, {}).get("name", to_lang)
-        
-        system_prompt_template = llm_prompts.get_system_prompt(
-            "translate_text", 
-            self.resources["language_config"]
-        )
-        system_prompt = system_prompt_template.format(source_language_name=from_lang_name, target_language_name=to_lang_name)
+        temp_translation_path = self.derived_texts_dir / f"{book_stem}.{to_lang}.translation.temp.json"
+        completed_translations = {}
+        if temp_translation_path.exists():
+            try:
+                with open(temp_translation_path, 'r', encoding='utf-8') as f:
+                    completed_translations = json.load(f)
+                logger.info(f"      -> Resuming translation. Found {len(completed_translations)} completed items.")
+            except (IOError, json.JSONDecodeError):
+                logger.warning("      -> Corrupt temp translation file found. Starting from scratch.")
 
-        llm_logger = LLMLogger(self.pool_dir / "llm_logs" / book_stem)
-        translation_results = self._run_llm_batch_job(
-            job_name=f"Translation-{from_lang}-to-{to_lang}",
-            system_prompt=system_prompt,
-            items_to_process=items_to_translate,
-            id_prefix=None,
-            llm_logger=llm_logger # Pass the logger
-        )
+        items_for_this_run = [
+            item for item in all_items_to_translate 
+            if item['id'] not in completed_translations
+        ]
 
-        if not translation_results:
-            logger.error("LLM translation failed."); return None
+        if not items_for_this_run:
+            logger.info("      -> Translation is already complete.")
+        else:
+            logger.info(f"      -> Translating {len(items_for_this_run)} new items.")
+            from_lang_name = self.lang_manifest.get(from_lang, {}).get("name", from_lang)
+            to_lang_name = self.lang_manifest.get(to_lang, {}).get("name", to_lang)
+            
+            system_prompt_template = llm_prompts.get_system_prompt("translate_text", self.resources["language_config"])
+            system_prompt = system_prompt_template.format(source_language_name=from_lang_name, target_language_name=to_lang_name)
+            llm_logger = LLMLogger(self.pool_dir / "llm_logs" / book_stem)
+            
+            BATCH_SIZE = 10
+            batch_num = 0
 
-        translated_items = []
-        result_map = {item['s_id']: item['llm_response'] for item in translation_results}
+            for i in range(0, len(items_for_this_run), BATCH_SIZE):
+                batch_num += 1
+                batch = items_for_this_run[i:i + BATCH_SIZE]
+                
+                batch_results = llm_utils.run_llm_batch_job(
+                    llm_client=self.llm_client,
+                    job_name=f"Pool-Translation-{from_lang}-to-{to_lang}",
+                    system_prompt=system_prompt,
+                    items_to_process=batch,
+                    llm_logger=llm_logger,
+                    parser_type="single_line"
+                )
+
+                if not batch_results:
+                    logger.error(f"LLM batch #{batch_num} failed permanently. Progress up to this point has been saved. Halting job.")
+                    return None
+
+                for item in batch_results:
+                    completed_translations[item['id']] = item['llm_response']
+                
+                try:
+                    with open(temp_translation_path, 'w', encoding='utf-8') as f:
+                        json.dump(completed_translations, f, indent=2)
+                    logger.info(f"      -> Successfully saved progress for batch #{batch_num} to temp file.")
+                except IOError as e:
+                    logger.error(f"CRITICAL: Could not save temp translation progress: {e}")
+                    return None
+
+        final_items_for_std_gen = []
         for item in source_items:
             if item['type'] == 'sentence':
-                item['text'] = result_map.get(item['s_id'], item['text'])
-            translated_items.append(item)
+                reconstructed_item = {
+                    'type': 'sentence',
+                    's_id': item['s_id'],
+                    'text': completed_translations.get(item['s_id'], "TRANSLATION_MISSING")
+                }
+                final_items_for_std_gen.append(reconstructed_item)
+            elif item['type'] == 'chapter':
+                final_items_for_std_gen.append(item)
+        
+        std_file = self.generate_std_file(book_stem, to_lang, translated_items=final_items_for_std_gen)
+        
+        if std_file and temp_translation_path.exists():
+            temp_translation_path.unlink()
             
-        return self.generate_std_file(book_stem, to_lang, translated_items=translated_items)
+        return std_file
 
     #
     def generate_sim_file(self, book_stem: str, lang_code: str) -> Optional[Path]:
-        """
-        Generates a simpler derived tier file (e.g., 'Book.es.sim.json')
-        with dynamic diagnostics to trace data persistence.
-        """
+        from . import llm_utils
+        from . import validator
+
         logger.info(f"  -> Generating pool file: '{book_stem}.{lang_code}.sim.json'")
         sim_file_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.sim.json"
         std_target_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.std.json"
-        base_lang_code = self.resources['language_config']['base_code']
-        std_base_path = self.derived_texts_dir / f"{book_stem}.{base_lang_code}.std.json"
-        if not std_target_path.exists() or not std_base_path.exists():
-            logger.error(f"Cannot generate .sim file: Required parent .std file(s) not found."); return None
+        
+        if not std_target_path.exists():
+            logger.error(f"Cannot generate .sim file: Required parent .std file not found."); return None
         try:
             with open(std_target_path, 'r', encoding='utf-8') as f: std_target_data = json.load(f)
-            with open(std_base_path, 'r', encoding='utf-8') as f: std_base_data = json.load(f)
         except Exception as e:
-            logger.error(f"Failed to read or parse parent .std files: {e}"); return None
+            logger.error(f"Failed to read or parse parent .std file: {e}"); return None
+
         llm_logger = LLMLogger(self.pool_dir / "llm_logs" / book_stem)
-        target_sentences = std_target_data.get("content", [])
         
-        # LLM Call 1: Simplify
-        simplify_prompt = llm_prompts.get_system_prompt("simplify_segments", self.resources["language_config"])
-        items_to_simplify = [{"s_id": s['s_id'], "seg_id": seg['seg_id'], "text": "".join(t['v'] for t in seg['tokenized_text']).strip()} for s in target_sentences for seg in s.get("segments", []) if "".join(t['v'] for t in seg['tokenized_text']).strip()]
-        simplified_results = self._run_llm_batch_job(job_name="Simplification", system_prompt=simplify_prompt, items_to_process=items_to_simplify, llm_logger=llm_logger)
-        if simplified_results is None: return None
-        simplified_results_map = {f"{item['s_id']}_{item['seg_id']}": item['llm_response'] for item in simplified_results}
+        all_content_blocks = std_target_data.get("content", [])
+        if not all_content_blocks:
+            logger.error(f"The source file {std_target_path.name} contains no content blocks.")
+            return None
 
-        # LLM Call 2: Inverse Diglot
-        inv_diglot_prompt = llm_prompts.get_system_prompt("generate_inverse_diglot", self.resources["language_config"])
-        items_for_inv_diglot = [{"s_id": item['s_id'], "seg_id": item['seg_id'], "text": item['llm_response']} for item in simplified_results if item['llm_response'].strip()]
-        inv_diglot_results = self._run_llm_batch_job(job_name="InverseDiglot", system_prompt=inv_diglot_prompt, items_to_process=items_for_inv_diglot, llm_logger=llm_logger)
-        if inv_diglot_results is None: return None
+        target_sentences = [block for block in all_content_blocks if block.get("block_type") == "sentence"]
         
-        spacy_model = self.spacy_models.get(lang_code)
-        if not spacy_model: logger.error(f"Missing SpaCy processor for '{lang_code}'."); return None
+        if not target_sentences:
+            logger.warning(f"The source file {std_target_path.name} contains content, but no blocks of type 'sentence'.")
+            # Create a sim file with only the non-sentence blocks (e.g., chapters)
+            final_json_data = {"meta": {"book_name": book_stem, "language": lang_code, "tier_type": "sim", "schema_version": "pool-v1.0", "parent_std_file": std_target_path.name}, "content": [b for b in all_content_blocks if b.get("block_type") != "sentence"]}
+            try:
+                with open(sim_file_path, "w", encoding="utf-8") as f: json.dump(final_json_data, f, indent=2, ensure_ascii=False)
+                logger.info(f"  -> Successfully saved empty (no sentences) '{sim_file_path.name}' to common pool.")
+                return sim_file_path
+            except IOError as e:
+                logger.error(f"Failed to write empty .sim.json file: {e}"); return None
 
-        # --- EXPLICIT LOOP FOR PARSING ---
-        inverse_diglot_maps = {}
-        map_regex = re.compile(r"^\s*([^->]+?)\s*->\s*(.+)$")
-        for item in inv_diglot_results:
-            # Use distinct variable names to avoid any possible scope collision
-            item_s_id, item_seg_id = item['s_id'], item['seg_id']
-            if item_s_id not in inverse_diglot_maps:
-                inverse_diglot_maps[item_s_id] = {}
-            
-            mappings = []
-            for line in item['llm_response'].splitlines():
-                match = map_regex.match(line)
-                if match:
-                    target_word, base_sub = match.groups()
-                    mappings.append({"target_word": target_word.strip(), "base_substitute": base_sub.strip()})
-            inverse_diglot_maps[item_s_id][item_seg_id] = mappings
-        # --- END OF EXPLICIT LOOP ---
-
+        # Step 1: Prepare all items for the simplification LLM job.
+        all_items_to_simplify = []
+        for s in target_sentences:
+            for seg in s.get("segments", []):
+                text_to_simplify = seg.get("text", "")
+                if text_to_simplify.strip():
+                    all_items_to_simplify.append({
+                        "id": f"{s['s_id']}_{seg['seg_id']}",
+                        "text": text_to_simplify
+                    })
+        
+        # Step 2: Run the transactional simplification job.
+        temp_simplify_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.simplify.temp.json"
+        simplified_results_map = self._run_transactional_llm_job(
+            job_name="Pool-Simplification",
+            system_prompt=llm_prompts.get_system_prompt("simplify_segments", self.resources["language_config"]),
+            all_items=all_items_to_simplify,
+            temp_progress_path=temp_simplify_path,
+            llm_logger=llm_logger,
+            parser_type="single_line"
+        )
+        if simplified_results_map is None: return None
+        
+        # Step 3: Build the final output content. This method no longer handles inverse diglots.
         output_content = []
-        for sentence_data in target_sentences:
-            s_id = sentence_data['s_id']
-            
-            # --- EXPLICIT LOOP for simpler_segment_texts ---
-            simpler_segment_texts = []
-            for seg in sentence_data.get("segments", []):
-                lookup_key = f"{s_id}_{seg['seg_id']}"
-                original_text = "".join(t['v'] for t in seg['tokenized_text'])
-                text = simplified_results_map.get(lookup_key, original_text)
-                simpler_segment_texts.append(text)
-            # --- END OF EXPLICIT LOOP ---
-
-            simpler_full_text = " ".join(simpler_segment_texts)
-            full_doc = spacy_model(simpler_full_text)
-            token_to_lemma = {token.text: helper.normalize_spanish_lemma(token.lemma_) for token in full_doc if not token.is_punct and not token.is_space}
-            all_sentence_lemmas = set(token_to_lemma.values())
-            segments_data = []
-            for i, seg_text in enumerate(simpler_segment_texts):
-                seg_doc = spacy_model(seg_text)
-                token_list = helper.create_v2_token_list(seg_doc[:])
-                seg_lemmas = {token_to_lemma.get(t['v']) for t in token_list if t['t'] == 'w' and token_to_lemma.get(t['v'])}
-                segments_data.append({"seg_id": sentence_data['segments'][i]['seg_id'], "tokenized_text": token_list, "lemmas_per_segment": sorted(list(seg_lemmas))})
-            
-            sentence_inverse_diglot_map = inverse_diglot_maps.get(s_id, {})
-            
-            output_content.append({"s_id": s_id, "full_text": simpler_full_text, "lemmas": sorted(list(l for l in all_sentence_lemmas if l)), "segments": segments_data, "inverse_diglot_map": sentence_inverse_diglot_map})
+        spacy_model = self.spacy_models.get(lang_code)
         
-        final_json_data = {"meta": {"book_name": book_stem, "language": lang_code, "tier_type": "sim", "schema_version": "pool-v1.0", "parent_std_file": std_target_path.name}, "content": output_content}
+        for block in std_target_data.get("content", []):
+            if block.get("block_type") == "chapter_marker":
+                output_content.append(block)
+                continue
+
+            if block.get("block_type") == "sentence":
+                s_id = block['s_id']
+                new_segments_data = []
+                new_full_text_parts = []
+                
+                for seg in block.get("segments", []):
+                    lookup_key = f"{s_id}_{seg['seg_id']}"
+                    new_seg_text = simplified_results_map.get(lookup_key, seg.get("text", ""))
+                    new_segments_data.append({"seg_id": seg['seg_id'], "text": new_seg_text})
+                    new_full_text_parts.append(new_seg_text)
+
+                simpler_full_text = "".join(new_full_text_parts)
+                full_doc = spacy_model(simpler_full_text)
+                token_to_lemma = {token.text: helper.normalize_spanish_lemma(token.lemma_) for token in full_doc if not token.is_punct and not token.is_space}
+                all_sentence_lemmas = set(token_to_lemma.values())
+
+                for seg_data in new_segments_data:
+                    seg_doc = spacy_model(seg_data["text"])
+                    token_list = helper.create_golden_token_stream(seg_data["text"], seg_doc)
+                    seg_lemmas = {token_to_lemma.get(t['v']) for t in token_list if t['t'] == 'w' and token_to_lemma.get(t['v'])}
+                    seg_data["tokenized_text"] = token_list
+                    seg_data["lemmas"] = sorted(list(l for l in seg_lemmas if l))
+
+                output_content.append({
+                    "block_type": "sentence",
+                    "s_id": s_id,
+                    "full_text": simpler_full_text,
+                    "lemmas": sorted(list(l for l in all_sentence_lemmas if l)),
+                    "segments": new_segments_data,
+                    # The inverse_diglot_map is correctly removed from here.
+                })
+
+        final_meta = {
+            "book_name": book_stem, "language": lang_code, "tier_type": "sim", 
+            "schema_version": "pool-v1.0", "parent_std_file": std_target_path.name
+        }
+        final_json_data = {"meta": final_meta, "content": output_content}
+
         try:
+            # Final validation of the completed structure before saving.
+            logger.info(f"  -> Validating final generated sim data for '{book_stem}.{lang_code}'...")
+            for sentence_block in output_content:
+                if sentence_block.get("block_type") == "sentence":
+                    temp_tier = {"tier_id": "sim-pool-final", "full_text": sentence_block.get("full_text"), "segments": sentence_block.get("segments")}
+                    validator.validate_segment_reconstruction(temp_tier)
+                    for seg in sentence_block.get("segments", []):
+                        reconstructed = "".join(t['v'] for t in seg.get("tokenized_text", []))
+                        if reconstructed != seg.get("text"):
+                            raise validator.ValidationError(f"Token reconstruction for s_id {sentence_block['s_id']} seg_id {seg['seg_id']} failed.")
+
             with open(sim_file_path, "w", encoding="utf-8") as f: json.dump(final_json_data, f, indent=2, ensure_ascii=False)
             logger.info(f"  -> Successfully saved '{sim_file_path.name}' to common pool.")
+            if temp_simplify_path.exists(): temp_simplify_path.unlink()
+            
             return sim_file_path
-        except IOError as e:
-            logger.error(f"Failed to write .sim.json file to {sim_file_path}: {e}"); return None
+        except (IOError, validator.ValidationError) as e:
+            logger.error(f"Failed to write or validate .sim.json file to {sim_file_path}: {e}"); return None
+
+    def _run_transactional_llm_job(self, job_name: str, system_prompt: str, all_items: List[Dict], temp_progress_path: Path, llm_logger: Any, parser_type: str) -> Optional[Dict[str, str]]:
+        from . import llm_utils
+
+        completed_items = {}
+        if temp_progress_path.exists():
+            try:
+                with open(temp_progress_path, 'r', encoding='utf-8') as f:
+                    completed_items = json.load(f)
+                logger.info(f"      -> Resuming {job_name}. Found {len(completed_items)} completed items.")
+            except (IOError, json.JSONDecodeError):
+                logger.warning(f"      -> Corrupt temp file for {job_name}. Starting from scratch.")
+
+        items_for_this_run = [item for item in all_items if item['id'] not in completed_items]
+
+        if not items_for_this_run:
+            logger.info(f"      -> {job_name} is already complete.")
+            return completed_items
+
+        BATCH_SIZE = 10
+        batch_num = 0
+        for i in range(0, len(items_for_this_run), BATCH_SIZE):
+            batch_num += 1
+            batch = items_for_this_run[i:i + BATCH_SIZE]
+            
+            batch_results = llm_utils.run_llm_batch_job(
+                llm_client=self.llm_client,
+                job_name=job_name,
+                system_prompt=system_prompt,
+                items_to_process=batch,
+                llm_logger=llm_logger,
+                parser_type=parser_type
+            )
+
+            if not batch_results:
+                logger.error(f"LLM batch #{batch_num} for {job_name} failed permanently. Progress saved. Halting.")
+                return None
+
+            # --- VALIDATION MOVED HERE ---
+            for result_item in batch_results:
+                item_id = result_item['id']
+                response_text = result_item['llm_response']
+                
+                # Find the original prompt text from the batch
+                prompt_text = next((item['text'] for item in batch if item['id'] == item_id), "")
+
+                words_in_prompt = set(re.findall(r"(\S+)\s*->", prompt_text))
+                words_in_response = {line.split('->', 1)[0].strip() for line in response_text.splitlines() if '->' in line}
+
+                if words_in_prompt != words_in_response:
+                    missing = words_in_prompt - words_in_response
+                    extra = words_in_response - words_in_prompt
+                    if not missing and extra == {''}: continue
+
+                    error_msg = (f"LLM response for {item_id} in job {job_name} is not exhaustive.\n"
+                                 f"  Missing: {sorted(list(missing))}, Extra: {sorted(list(extra))}")
+                    logger.error(error_msg)
+                    return None # Hard fail
+            # --- END VALIDATION ---
+
+            for item in batch_results:
+                completed_items[item['id']] = item['llm_response']
+            
+            try:
+                with open(temp_progress_path, 'w', encoding='utf-8') as f:
+                    json.dump(completed_items, f, indent=2)
+            except IOError as e:
+                logger.error(f"CRITICAL: Could not save temp progress for {job_name}: {e}")
+                return None
+        
+        return completed_items
+
 
     def _run_llm_batch_job(self, job_name: str, system_prompt: str, items_to_process: List[Dict], llm_logger: LLMLogger, id_prefix: Optional[str] = "") -> Optional[List[Dict]]:
         BATCH_SIZE, MAX_RETRIES, RETRY_DELAY = 10, 3, 5

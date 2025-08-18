@@ -2,6 +2,8 @@
 from typing import Any, Dict
 from .base import SpaCyStage, logger
 from .. import helper
+from .. import validator
+
 
 class FinalizeDiglotMap(SpaCyStage):
     """
@@ -17,6 +19,7 @@ class FinalizeDiglotMap(SpaCyStage):
             stage_name="FinalizeDiglotMap"
         )
 
+    #
     def _process_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         lang_config = self.resources["language_config"]
         target_lang_code = lang_config["target_code"]
@@ -32,22 +35,32 @@ class FinalizeDiglotMap(SpaCyStage):
                         is_viable = entry[3]
                         target_form = entry[2]
                         
-                        lemma_str = "" # Default to an empty string for non-viable entries
+                        lemma_str = "" # Default for non-viable entries
                         if is_viable and target_form:
-                            # Process with SpaCy to get the lemma
+                            # Use SpaCy to process the specific word form.
+                            # Because it's a single word, context isn't an issue here,
+                            # so the simpler method is still robust.
                             doc = spacy_target(target_form)
-                            # Find the first non-punctuation token to get the primary lemma
-                            main_token = next((t for t in doc if not t.is_punct), None)
+                            main_token = next((t for t in doc if not t.is_punct and not t.is_space), None)
                             
                             if main_token:
-                                # Normalize the lemma using our canonical helper function
                                 lemma_str = helper.normalize_spanish_lemma(main_token.lemma_)
-                            else:
-                                # Fallback for single-word, non-lemma forms
+                            else: # Fallback for single-word forms that are their own lemma
                                 lemma_str = helper.normalize_spanish_lemma(target_form)
                         
-                        # Replace the placeholder "TBD" with the final, normalized lemma string
+                        # Replace the "TBD" placeholder
                         entry[1] = lemma_str
             
             block.setdefault("processing_status", {})[self.stage_name] = "COMPLETED"
+        
+        # --- (Validation will be added in the next step) ---
+        logger.info("      -> Validating diglot map integrity...")
+        try:
+            for block in data.get("content_blocks", []):
+                if block.get("block_type") == "sentence":
+                    validator.validate_exhaustive_diglot_mapping(block)
+        except validator.ValidationError as e:
+            # Re-raise the exception to be caught by the run method
+            raise e
+        
         return data

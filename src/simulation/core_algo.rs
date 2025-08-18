@@ -11,18 +11,29 @@ fn are_lemmas_active(
     profile: &NumericalLearnerProfile,
     dictionary: &GlobalLemmaDictionary,
 ) -> bool {
+    // An empty list of lemmas is always considered active/known.
     if lemma_ids.is_empty() {
         return true;
     }
+
+    // The .all() iterator ensures that EVERY lemma in the slice passes the test.
     lemma_ids.iter().all(|&id| {
+        // Condition 1: The lemma is in the learner's active profile.
         if profile.is_lemma_active(id) {
             return true;
         }
+
+        // Condition 2: The "Rare Word" rule. If the lemma is so rare it's not
+        // in our master frequency list, we approve it to avoid getting stuck.
         if let Some(lemma_str) = dictionary.get_str(id) {
             if frequency_manager::get_rank_for_lemma(lemma_str).is_none() {
-                return true; // "Rare word" rule
+                // You can add a debug print here if you want to see which words are passing via this rule.
+                println!("[DEBUG RARE WORD] Approving unknown lemma: '{}'", lemma_str);
+                return true;
             }
         }
+        
+        // If neither of the above conditions are met, the learner does not know this word.
         false
     })
 }

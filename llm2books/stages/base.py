@@ -79,8 +79,9 @@ class Stage(ABC):
         except (json.JSONDecodeError, IOError):
             return False
 
+    #
     def _save_output_data(self, data: Dict[str, Any], status: str) -> bool:
-        data["processing_status"] = status
+        data["processing_status"] = status  # <--- DELETE THIS LINE
         try:
             with open(self.output_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
@@ -94,7 +95,6 @@ class Stage(ABC):
     def __str__(self) -> str:
         return f"Stage(#{self.stage_number} - {self.stage_name} for book '{self.book_stem}')"
 
-
 class SpaCyStage(Stage, ABC):
     def __init__(
         self,
@@ -106,20 +106,43 @@ class SpaCyStage(Stage, ABC):
     ):
         super().__init__(book_stem, cli_args, common_resources, stage_number, stage_name)
 
+    #
     def run(self) -> bool:
         logger.info(f"Executing SpaCy Stage {self.stage_number}: {self.stage_name} for '{self.book_stem}'")
         self.stage_output_dir.mkdir(parents=True, exist_ok=True)
 
-        if self._is_stage_complete(): # We removed force_book, so this check is now simpler
-            logger.info("      -> Stage is already marked as 'COMPLETED'. Skipping.")
-            return True
+        # Check for our own output file first for a quick skip
+        if self.output_path.exists():
+            try:
+                with open(self.output_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                if data.get("processing_status") == "COMPLETED":
+                    logger.info("      -> Stage is already marked as 'COMPLETED'. Skipping.")
+                    return True
+            except (IOError, json.JSONDecodeError):
+                pass # File is corrupt or unreadable, so we'll overwrite it.
 
+        # Now, load the actual input we need to process
         input_data = self._load_input_data()
         if input_data is None:
+            # _load_input_data already logged the critical error
             return False
 
         logger.info("      -> Processing data with SpaCy model...")
-        output_data = self._process_data(input_data)
+        from .. import validator # Local import to get the exception type
+
+        try:
+            output_data = self._process_data(input_data)
+        except validator.ValidationError as e:
+            # Catch the specific data integrity error
+            logger.error(f"      -> CRITICAL: Data validation failed during stage {self.stage_name}.")
+            logger.error(f"         Reason: {e}")
+            return False
+        except Exception as e:
+            # Catch any other unexpected errors during processing
+            logger.error(f"      -> An unexpected error occurred during the _process_data step for stage {self.stage_name}: {e}")
+            return False
+        # --- END OF FIX ---
 
         final_status = "COMPLETED"
         if self.is_part_a:
@@ -131,102 +154,36 @@ class SpaCyStage(Stage, ABC):
         else:
             return False
 
-    @abstractmethod
-    def _process_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        pass
+        
 
-    #_get_input_path
     def _get_input_path(self) -> Path:
         prev_stage_num = self.stage_number - 1
-        lang_pair_dir = f"{self.resources['language_config']['base_code']}-{self.resources['language_config']['target_code']}"
-        return self.content_project_root / "pipeline_runs" / lang_pair_dir / self.book_stem / f"stage{prev_stage_num}" / f"{self.book_stem}.stage{prev_stage_num}.json"
-
-    #_run_llm_batch_job
-    def _run_llm_batch_job(self, job_name: str, system_prompt: str, items_to_process: List[Dict], llm_logger) -> Optional[List[Dict]]:
-        # NOTE: Removed LLMLogger type hint to avoid top-level import
-        BATCH_SIZE, MAX_RETRIES, RETRY_DELAY = 10, 3, 5
-        all_results = []
-        batch_num = 0
-        llm_client = self.resources['llm_client']
-
-        for i in range(0, len(items_to_process), BATCH_SIZE):
-            batch_num += 1
-            batch = items_to_process[i:i + BATCH_SIZE]
-            
-            prompt_ids = [item['id'] for item in batch]
-            user_prompt = "\n".join([f"{item['id']}: {item['text']}" for item in batch])
-            logger.info(f"    -> Running {job_name} LLM batch {batch_num}...")
-            
-            for _ in range(MAX_RETRIES):
-                raw_response = ""
-                try:
-                    message = llm_client.messages.create(model="claude-3-haiku-20240307", system=system_prompt, messages=[{"role": "user", "content": user_prompt}], max_tokens=4096)
-                    raw_response = message.content[0].text
-                    llm_logger.log_batch(job_name, batch_num, system_prompt, user_prompt, raw_response)
-                    
-                    if self.parser_type == 'single_line':
-                        parsed_response = self._parse_singleline_llm_response(raw_response)
-                    else:
-                        parsed_response = self._parse_multiline_llm_response(raw_response)
-                    
-                    if all(pid in parsed_response for pid in prompt_ids):
-                        for item in batch:
-                            item['llm_response'] = parsed_response[item['id']]
-                        all_results.extend(batch)
-                        break
-                    else:
-                        missing_ids = [pid for pid in prompt_ids if pid not in parsed_response]
-                        logger.warning(f"      -> {job_name} batch failed validation (missing IDs: {missing_ids}). Retrying...")
-                except Exception as e:
-                    logger.error(f"      -> API Error during {job_name} batch: {e}. Retrying...")
-                    if raw_response: llm_logger.log_batch(job_name, batch_num, system_prompt, user_prompt, f"FAILED_RESPONSE: {raw_response}\nERROR: {e}")
-                time.sleep(RETRY_DELAY)
-            else:
-                logger.error(f"      -> {job_name} batch failed after {MAX_RETRIES} retries. Aborting job."); return None
-        return all_results
-
-    def _parse_singleline_llm_response(self, raw_text: str) -> Dict[str, str]:
-        parsed = {}
-        line_regex = re.compile(r"^([^:]+):\s*(.*)$")
-        for line in raw_text.splitlines():
-            match = line_regex.match(line)
-            if match:
-                parsed[match.group(1).strip()] = match.group(2).strip()
-        return parsed
-
-    def _parse_multiline_llm_response(self, raw_text: str) -> Dict[str, str]:
-        """
-        Parses a multi-line LLM response where content for an ID can span
-        multiple lines.
-        """
-        parsed = {}
-        current_id = None
-        current_lines = []
-
-        # Regex to find an ID at the start of a line. It captures the ID.
-        # It's robust enough for S1, S1_S1, S1_A1, etc.
-        id_regex = re.compile(r"^\s*([A-Za-z0-9_]+):")
-
-        # Add a sentinel value (None) to the end to ensure the last block is processed
-        for line in raw_text.strip().splitlines() + [None]:
-            match = id_regex.match(line) if line is not None else None
-
-            if match:
-                # Found a new ID. Finalize the previous one if it exists.
-                if current_id:
-                    parsed[current_id] = "\n".join(current_lines).strip()
-
-                # Start the new block
-                current_id = match.group(1).strip()
-                # Get the part of the line after the colon
-                after_colon = line[match.end():].strip()
-                current_lines = [after_colon] if after_colon else []
-            elif current_id:
-                # This is a continuation line for the current block
-                if line is not None:
-                    current_lines.append(line)
         
-        return parsed
+        # Stage 1 is special, it has no preceding stage file
+        if self.stage_number == 1:
+            return None 
+
+        prev_stage_dir = self.pipeline_run_dir / f"stage{prev_stage_num}"
+        return prev_stage_dir / f"{self.book_stem}.stage{prev_stage_num}.json"
+
+    def _load_input_data(self) -> Optional[Dict[str, Any]]:
+        input_path = self._get_input_path()
+        if not input_path:
+            # This is expected for Stage 1, which will handle its own input.
+            if self.stage_number == 1:
+                return {} # Return an empty dict to proceed
+            logger.critical(f"      -> CRITICAL: Input path could not be determined for stage {self.stage_name}.")
+            return None
+
+        if not input_path.exists():
+            logger.critical(f"      -> CRITICAL: Input file not found at {input_path}")
+            return None
+        try:
+            with open(input_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (IOError, json.JSONDecodeError) as e:
+            logger.critical(f"      -> CRITICAL: Could not read or parse input file {input_path.name}: {e}")
+            return None
 
     def _load_input_data(self) -> Optional[Dict[str, Any]]:
         input_path = self._get_input_path()
@@ -244,27 +201,31 @@ class SpaCyStage(Stage, ABC):
 class LLMStage(Stage, ABC):
     def __init__(self, book_stem: str, cli_args: Any, common_resources: Dict[str, Any], stage_number: int, stage_name: str):
         super().__init__(book_stem, cli_args, common_resources, stage_number, stage_name)
-        lang_pair_dir = f"{self.resources['language_config']['base_code']}-{self.resources['language_config']['target_code']}"
-        self.llm_logger_dir = self.content_project_root / "common_pool" / "llm_logs" / self.book_stem
-        self.parser_type = "single_line"
+        self.llm_logger_dir = self.pipeline_run_dir / "llm_logs"
+        self.parser_type = "single_line" # Default, can be overridden by child class
     
     @abstractmethod
     def get_system_prompt(self) -> str: pass
+
     @abstractmethod
-    def prepare_items_for_llm(self, book_data: Dict) -> List[Dict]: pass
+    def prepare_llm_items(self, book_data: Dict) -> List[Dict]:
+        """Prepares the list of items to be sent to the LLM."""
+        pass
+
     @abstractmethod
-    def process_llm_responses(self, book_data: Dict, llm_responses: List[Dict]) -> Dict: pass
-        
+    def process_llm_results_for_block(self, block: Dict, llm_results: Dict[str, str]) -> Dict:
+        """Processes LLM results for a single content_block and returns the updated block."""
+        pass
+
+    #
     def run(self) -> bool:
-        # Import necessary components here to avoid top-level circular dependencies
         from ..llm_logger import LLMLogger
         from .. import llm_utils
 
         logger.info(f"Executing LLM Stage {self.stage_number}: {self.stage_name} for '{self.book_stem}'")
         self.stage_output_dir.mkdir(parents=True, exist_ok=True)
-        
-        #
-        # 1. Load the input data from the previous stage.
+        self.llm_logger_dir.mkdir(parents=True, exist_ok=True)
+
         input_path = self._get_input_path()
         try:
             with open(input_path, 'r', encoding='utf-8') as f:
@@ -273,68 +234,88 @@ class LLMStage(Stage, ABC):
             logger.error(f"Could not read or parse input file {input_path.name}: {e}")
             return False
 
-        # 2. Check for and load existing partial output from this stage.
-        completed_s_ids = set()
+        # If a partial file for this stage already exists, use it instead.
         if self.output_path.exists():
             try:
                 with open(self.output_path, 'r', encoding='utf-8') as f:
-                    existing_output_data = json.load(f)
-                
-                # If the stage was already fully completed, we can skip it entirely.
-                if existing_output_data.get("processing_status") == "COMPLETED":
-                    logger.info(f"      -> Stage is already marked as 'COMPLETED'. Skipping.")
-                    return True
-
-                # Otherwise, find out which sentences were already done.
-                for block in existing_output_data.get("content_blocks", []):
-                    status = block.get("processing_status", {}).get(self.stage_name)
-                    if status == "COMPLETED":
-                        completed_s_ids.add(block.get("s_id"))
-                
-                if completed_s_ids:
-                    logger.info(f"      -> Resuming stage. Found {len(completed_s_ids)} already completed sentences.")
-                    # We will use the existing output as our starting point.
-                    book_data = existing_output_data
-
-            except (IOError, json.JSONDecodeError):
+                    logger.info(f"      -> Resuming from existing output file: {self.output_path.name}")
+                    book_data = json.load(f)
+            except  (IOError, json.JSONDecodeError):
+                # If the file is corrupt, we log a warning and proceed as if it didn't exist,
+                # using the data from the previous stage. The corrupt file will be overwritten.
                 logger.warning(f"      -> Could not parse existing output file {self.output_path.name}. Re-running stage from scratch.")
-        # --- END Resumability Logic ---
 
-        all_items_to_process = self.prepare_items_for_llm(book_data)
+
+
+        # Prepare all possible items and then filter out the completed ones
+        all_possible_items = self.prepare_llm_items(book_data)
+        completed_ids = {
+            item['id'] for item in all_possible_items 
+            if self._is_item_complete(book_data, item['id'])
+        }
         
-        # Filter out items that have already been completed
-        items_for_this_run = [
-            item for item in all_items_to_process 
-            if item['id'].split('_')[0] not in completed_s_ids
-        ]
+        items_for_this_run = [item for item in all_possible_items if item['id'] not in completed_ids]
 
         if not items_for_this_run:
-            logger.info("      -> All required items have already been processed in a previous run.")
-            # We still need to save to mark the whole stage as complete
+            logger.info("      -> All items for this stage are already complete.")
             return self._save_output_data(book_data, "COMPLETED")
 
-        logger.info(f"      -> Preparing to process {len(items_for_this_run)} new items for the LLM.")
+        logger.info(f"      -> Processing {len(items_for_this_run)} new items for the LLM.")
         llm_logger = LLMLogger(self.llm_logger_dir)
         system_prompt = self.get_system_prompt()
-        
-        llm_results = llm_utils.run_llm_batch_job(
-            llm_client=self.resources['llm_client'],
-            job_name=self.stage_name,
-            system_prompt=system_prompt,
-            items_to_process=items_for_this_run,
-            llm_logger=llm_logger,
-            parser_type=self.parser_type
-        )
 
-        if llm_results is None:
-            # An error occurred, but we should still save the progress we had.
-            self._save_output_data(book_data, "PARTIAL")
+        # Group items by s_id to process one sentence at a time
+        items_by_sid = {}
+        for item in items_for_this_run:
+            s_id = item['id'].split('_')[0]
+            items_by_sid.setdefault(s_id, []).append(item)
+
+        total_sids = len(items_by_sid)
+        processed_sids = 0
+        for s_id, items_for_sid in items_by_sid.items():
+            processed_sids += 1
+            logger.info(f"      -> Processing sentence {s_id} ({processed_sids}/{total_sids})...")
+
+            llm_results = llm_utils.run_llm_batch_job(
+                llm_client=self.resources['llm_client'],
+                job_name=self.stage_name,
+                system_prompt=system_prompt,
+                items_to_process=items_for_sid,
+                llm_logger=llm_logger,
+                parser_type=self.parser_type
+            )
+
+            if llm_results is None:
+                logger.error(f"LLM batch failed for sentence {s_id}. Halting stage.")
+                return False
+
+            # Find the corresponding block in book_data
+            block_to_update = next((b for b in book_data['content_blocks'] if b.get('s_id') == s_id), None)
+            if block_to_update:
+                response_map = {item['id']: item['llm_response'] for item in llm_results}
+                updated_block = self.process_llm_results_for_block(block_to_update, response_map)
+                
+                # Replace the old block with the updated one
+                for i, block in enumerate(book_data['content_blocks']):
+                    if block.get('s_id') == s_id:
+                        book_data['content_blocks'][i] = updated_block
+                        break
+                
+                # Commit this sentence's progress to disk
+                if not self._save_output_data(book_data, "PARTIAL"):
+                    logger.error(f"Failed to save progress after processing {s_id}. Halting.")
+                    return False
+        
+        logger.info("      -> All items for this stage have been processed.")
+        return self._save_output_data(book_data, "COMPLETED")
+
+    def _is_item_complete(self, book_data: Dict, item_id: str) -> bool:
+        """Checks if a specific item's work is already done in the book_data."""
+        s_id = item_id.split('_')[0]
+        block = next((b for b in book_data.get("content_blocks", []) if b.get("s_id") == s_id), None)
+        if not block:
             return False
-
-        updated_book_data = self.process_llm_responses(book_data, llm_results)
-        
-        # Mark the entire stage as complete now that all items are processed
-        return self._save_output_data(updated_book_data, "COMPLETED")
+        return block.get("processing_status", {}).get(self.stage_name) == "COMPLETED"
 
     def _get_input_path(self) -> Path:
         prev_stage_num = self.stage_number - 1

@@ -10,8 +10,9 @@ from .stages import (
     GenerateSimpleTarget, 
     FinalizeSimpleTarget,
     GenerateDiglotMap,
-    FinalizeDiglotMap,
-    FinalizeBook, # <-- ADD THIS LINE
+    GenerateInverseDiglotMap,
+    FinalizeMappings,
+    FinalizeBook,
 )
 
 # --- Dependency Imports ---
@@ -42,7 +43,8 @@ PIPELINE_STAGES = [
     GenerateSimpleTarget,
     FinalizeSimpleTarget,
     GenerateDiglotMap,
-    FinalizeDiglotMap,
+    GenerateInverseDiglotMap,
+    FinalizeMappings,
     FinalizeBook,
 ]
 
@@ -115,6 +117,12 @@ def main():
     parser.add_argument("--book-to-process", required=True, type=str, help="The book stem to process (e.g., 'Grimm').")
     parser.add_argument("--base-lang", required=True, type=str, help="The base language for this run (e.g., 'en').")
     parser.add_argument("--target-lang", required=True, type=str, help="The target language for this run (e.g., 'es').")
+    parser.add_argument(
+        "--stop-after-stage",
+        type=int,
+        default=0, # Default to 0, meaning run all stages
+        help="If set to a positive integer, the pipeline will stop after completing that stage."
+    )
     
     args = parser.parse_args()
     
@@ -191,8 +199,13 @@ def main():
                 logger.error(f"Halting pipeline for '{args.book_to_process}' due to failure in stage: {stage_instance.stage_name}.")
                 overall_success = False
                 break
+            #
+            if args.stop_after_stage > 0 and stage_instance.stage_number == args.stop_after_stage:
+                logger.info(f"--- Pipeline stopped as requested after completing Stage {args.stop_after_stage}. ---")
+                overall_success = True # This was a successful, planned stop
+                break
         
-        if pipeline_ok:
+        if overall_success:
              logger.info("Orchestrator finished successfully.")
              sys.exit(0)
         #

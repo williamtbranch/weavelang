@@ -40,56 +40,78 @@ class AssembleTiers(SpaCyStage):
             return None
 
         # Create maps for easy lookup
-        base_content_map = {item['s_id']: item for item in base_std_data.get('content', [])}
-        target_content_map = {item['s_id']: item for item in target_std_data.get('content', [])}
-        sim_content_map = {item['s_id']: item for item in target_sim_data.get('content', [])}
+        base_content_map = {
+            item['s_id']: item for item in base_std_data.get('content', [])
+            if item.get("block_type") == "sentence"
+        }
+        target_content_map = {
+            item['s_id']: item for item in target_std_data.get('content', [])
+            if item.get("block_type") == "sentence"
+        }
+        sim_content_map = {
+            item['s_id']: item for item in target_sim_data.get('content', []) # <-- CORRECT
+            if item.get("block_type") == "sentence"
+        }
 
         # Assemble the new book data structure
         book_data = {
-            "book_meta": { # This should be enriched with more details
+            "book_meta": {
                 "book_name": self.book_stem,
                 "schema_version": "3.0-wip",
+                "base_language": self.resources['language_config']['base_code'],
+                "target_language": self.resources['language_config']['target_code'],
             },
             "content_blocks": []
         }
 
         # We loop through the base content as the source of truth for sentence order
-        for s_id, base_sentence in base_content_map.items():
-            target_sentence = target_content_map.get(s_id)
-            sim_sentence = sim_content_map.get(s_id)
-
-            if not target_sentence or not sim_sentence:
-                logger.warning(f"Skipping s_id {s_id}: Missing corresponding data in target or sim files.")
+        for block in base_std_data.get('content', []):
+            if block.get("block_type") == "chapter":
+                # Pass chapter blocks through directly
+                book_data["content_blocks"].append(block)
                 continue
+            
+            # If it's not a chapter, it must be a sentence
+            if block.get("block_type") == "sentence":
+                s_id = block.get('s_id')
+                target_sentence = target_content_map.get(s_id)
+                sim_sentence = sim_content_map.get(s_id)
 
-            block = {
-                "block_type": "sentence",
-                "s_id": s_id,
-                "processing_status": {},
-                "tiers": [
-                    {
-                        "tier_id": "base",
-                        "full_text": base_sentence.get('full_text', ''),
-                        "segments": base_sentence.get('segments', [])
-                    },
-                    {
-                        "tier_id": "advanced_target",
-                        "full_text": target_sentence.get('full_text', ''),
-                        "lemmas": target_sentence.get('lemmas', []),
-                        "segments": target_sentence.get('segments', [])
-                    },
-                    {
-                        "tier_id": "simpler_advanced_target",
-                        "full_text": sim_sentence.get('full_text', ''),
-                        "lemmas": sim_sentence.get('lemmas', []),
-                        "segments": sim_sentence.get('segments', [])
+                if not target_sentence or not sim_sentence:
+                    logger.warning(f"Skipping s_id {s_id}: Missing corresponding data in target or sim files.")
+                    continue
+
+                # Assemble the final pipeline block
+                pipeline_block = {
+                    "block_type": "sentence",
+                    "s_id": s_id,
+                    "processing_status": {}, # Start with an empty status
+                    "tiers": [
+                        # The 'base' tier comes directly from the processed base_std block
+                        {
+                            "tier_id": "base",
+                            "full_text": block.get('full_text', ''),
+                            "segments": block.get('segments', [])
+                        },
+                        {
+                            "tier_id": "advanced_target",
+                            "full_text": target_sentence.get('full_text', ''),
+                            "lemmas": target_sentence.get('lemmas', []),
+                            "segments": target_sentence.get('segments', [])
+                        },
+                        {
+                            "tier_id": "simpler_advanced_target",
+                            "full_text": sim_sentence.get('full_text', ''),
+                            "lemmas": sim_sentence.get('lemmas', []),
+                            "segments": sim_sentence.get('segments', [])
+                        }
+                    ],
+                    "mappings": {
+                        "simpler_adv_target_to_base_inv_diglot": sim_sentence.get('inverse_diglot_map', {})
                     }
-                ],
-                "mappings": {
-                    "simpler_adv_target_to_base_inv_diglot": sim_sentence.get('inverse_diglot_map', {})
                 }
-            }
-            book_data["content_blocks"].append(block)
+                book_data["content_blocks"].append(pipeline_block)
+        # --- END OF LOOP FIX ---
         
         return book_data
 

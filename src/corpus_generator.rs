@@ -70,6 +70,7 @@ fn log_analysis_to_file(
 
 #[derive(Debug, Clone)]
 pub struct GenerationArgs {
+    pub tool_root_dir: PathBuf,
     pub sequence_path: PathBuf,
     pub input_json_dir: PathBuf,
     pub tts_output_dir: PathBuf,
@@ -128,8 +129,9 @@ pub fn run_corpus_generation(
     project_config: &Config,
     args: &GenerationArgs,
 ) -> Result<(), Box<dyn Error>> {
-    let freq_list_path = PathBuf::from(&project_config.content_project_dir)
+    let freq_list_path = args.tool_root_dir
         .join("assets")
+        .join("frequency_lists")
         .join("es_master_frequency_list.txt");
 
     // --- DEBUG: Confirming frequency list is loaded ---
@@ -200,7 +202,7 @@ pub fn run_corpus_generation(
 
         let json_file_path = PathBuf::from(&project_config.content_project_dir)
             .join(&args.input_json_dir)
-            .join(format!("{}.stage10.json", book_stem));
+            .join(format!("{}.json", book_stem));
         
         // --- DEBUG: Confirming JSON file path and read attempt ---
         println!("[DEBUG] Attempting to read JSON file from: {:?}", &json_file_path);
@@ -228,7 +230,7 @@ pub fn run_corpus_generation(
             continue;
         }
         println!("[DEBUG] Preprocessed JSON into {} numerical sentences.", numerical_chapter.sentences_numerical.len());
-        
+        /*/ 
         let total_english_word_count: usize = precalculated_english_word_counts.iter().sum();
         let estimated_output_words = (total_english_word_count as f32 * 1.1) as usize;
         let words_per_new_lemma_baseline = if state.current_ramp_rate > 0.0 { 9000.0 / state.current_ramp_rate } else { f32::MAX };
@@ -260,7 +262,16 @@ pub fn run_corpus_generation(
         let final_words_to_introduce = final_target_vocab_size.saturating_sub(start_vocab_size as u32);
 
         println!("  Target End Level: {}. Will introduce {} new words.", target_final_level, final_words_to_introduce);
-        
+        */
+
+        // --- NEW: SIMPLE STATIC LEVELING ---
+        // The level is set in sequence.txt and remains constant for the whole book.
+        // The start_vocab_size is already correctly calculated from this.
+        println!("  Using STATIC vocabulary size for this run: {} words (Level {})", start_vocab_size, state.current_start_level);
+        let target_final_level = state.current_start_level; // For filename consistency
+        // --- END: SIMPLE STATIC LEVELING ---
+
+        /*  
         let mut activation_map: HashMap<usize, Vec<u32>> = HashMap::new();
         if final_words_to_introduce > 0 {
             let mut credit: u64 = 0;
@@ -282,17 +293,20 @@ pub fn run_corpus_generation(
                 }
             }
         }
+        */
 
         let mut final_text_parts = Vec::new();
         let mut book_level_stats = HashMap::new();
         let mut book_segment_stats = HashMap::new();
 
         for (sentence_idx, n_sentence) in numerical_chapter.sentences_numerical.iter().enumerate() {
+            /* 
             if let Some(lemmas_to_activate) = activation_map.get(&sentence_idx) {
                 for &lemma_id in lemmas_to_activate {
                     learner_profile.activate_lemma(lemma_id);
                 }
             }
+            */
 
             let mut n_sentence_clone = n_sentence.clone();
             let output = core_algo::determine_and_annotate_sentence_expression(

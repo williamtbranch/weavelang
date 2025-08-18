@@ -19,7 +19,7 @@ import stanza
 from pathlib import Path
 
 # --- Configuration Constant ---
-MIN_SEGMENT_SIZE = 5
+MIN_SEGMENT_SIZE = 4
 
 # --- Core Segmentation Logic (Definitive Version) ---
 
@@ -100,7 +100,8 @@ def main():
         print(f"Error loading configuration: {e}")
         return
 
-    input_file = content_dir / "Staged" / "test.txt"
+    input_file = content_dir / "common_pool"/ "source_texts" / "test.en.txt"
+
     output_dir = content_dir / "explore"
     output_file = output_dir / "production_segmented.txt"
 

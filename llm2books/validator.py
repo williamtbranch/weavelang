@@ -211,3 +211,40 @@ def validate_exhaustive_inverse_diglot_mapping(sentence_block: Dict[str, Any]):
                     f"Mismatch between word count and mapping entry count. "
                     f"Expected {word_token_count} mapping entries, but found {mapping_entry_count}."
                 )
+
+def validate_segment_reconstruction(tier: Dict[str, Any]):
+    """
+    Validates that the concatenated 'text' fields of all segments in a tier
+    perfectly reconstruct the tier's 'full_text'.
+    
+    Args:
+        tier: A dictionary representing a single tier from the JSON.
+
+    Raises:
+        ValidationError: If the reconstructed text does not match the full_text.
+    """
+    tier_id = tier.get("tier_id", "Unknown")
+    full_text = tier.get("full_text", "")
+    
+    reconstructed_parts = [
+        segment.get("text", "") for segment in tier.get("segments", [])
+    ]
+    reconstructed_text = "".join(reconstructed_parts)
+    
+    if reconstructed_text != full_text:
+        # Provide a more detailed diff for debugging
+        import difflib
+        diff = difflib.unified_diff(
+            full_text.splitlines(keepends=True),
+            reconstructed_text.splitlines(keepends=True),
+            fromfile='expected_full_text',
+            tofile='reconstructed_from_segments',
+        )
+        diff_str = ''.join(diff)
+
+        raise ValidationError(
+            f"Segment reconstruction failed for tier '{tier_id}'.\n"
+            f"  Expected: '{full_text}'\n"
+            f"  Got:      '{reconstructed_text}'\n"
+            f"--- Diff ---\n{diff_str}"
+        )
