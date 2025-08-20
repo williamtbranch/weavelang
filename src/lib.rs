@@ -1,4 +1,3 @@
-// src/lib.rs
 
 // --- Declare all top-level modules ---
 pub mod config;
@@ -29,12 +28,13 @@ pub use simulation::dictionary::GlobalLemmaDictionary;
 pub use simulation::numerical_types::{
     NumericalLearnerProfile, NumericalChapter, NumericalProcessedSentence,
 };
+// --- THIS IS THE FIX: Export the correct function ---
 pub use simulation::preprocessor::json_chapter_to_numerical;
 
 // --- UPDATED EXPORTS FROM core_algo.rs ---
 pub use simulation::core_algo::{
-    determine_and_annotate_sentence_expression, // NEW function
-    ChosenLevelOutput, // NEW struct
+    determine_and_annotate_sentence_expression,
+    ChosenLevelOutput,
     OutputLevel,
 };
 // --- END UPDATED EXPORTS ---

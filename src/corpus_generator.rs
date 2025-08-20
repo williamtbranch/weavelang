@@ -223,7 +223,8 @@ pub fn run_corpus_generation(
         println!("[DEBUG] Successfully read and parsed JSON for '{}'.", book_stem);
 
         global_lemma_dictionary.populate_from_json_chapter(&json_chapter);
-        let (numerical_chapter, precalculated_english_word_counts) = preprocessor::json_chapter_to_numerical(&json_chapter, &mut global_lemma_dictionary);
+        let (numerical_chapter, _precalculated_english_word_counts) = 
+            preprocessor::json_chapter_to_numerical(&json_chapter, &mut global_lemma_dictionary);
         
         if numerical_chapter.sentences_numerical.is_empty() {
             eprintln!("[WARN] No sentences found in {}. Skipping.", book_stem);
@@ -299,7 +300,7 @@ pub fn run_corpus_generation(
         let mut book_level_stats = HashMap::new();
         let mut book_segment_stats = HashMap::new();
 
-        for (sentence_idx, n_sentence) in numerical_chapter.sentences_numerical.iter().enumerate() {
+        for (_sentence_idx, n_sentence) in numerical_chapter.sentences_numerical.iter().enumerate() {
             /* 
             if let Some(lemmas_to_activate) = activation_map.get(&sentence_idx) {
                 for &lemma_id in lemmas_to_activate {

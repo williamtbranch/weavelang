@@ -3,18 +3,18 @@
 
 Write-Host "Starting WeaveLang Corpus Generation (V2 Model)..."
 
-# # --- Step 1: Run the Rust Test Suite ---
-# Write-Host "--- Running Rust Test Suite (cargo test) ---" -ForegroundColor Yellow
-# cargo test
+# --- Step 1: Run the Rust Test Suite ---
+Write-Host "--- Running Rust Test Suite (cargo test) ---" -ForegroundColor Yellow
+cargo test
 
-# # Check if the tests were successful
-# if ($LASTEXITCODE -ne 0) {
-#     Write-Error "Rust tests failed. Halting script. Please fix the tests before generating the corpus."
-#     Read-Host -Prompt "Press Enter to exit"
-#     exit 1
-# }
-# Write-Host "--- Rust tests passed. Proceeding. ---" -ForegroundColor Green
-# Write-Host ""
+# Check if the tests were successful
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Rust tests failed. Halting script. Please fix the tests before generating the corpus."
+    Read-Host -Prompt "Press Enter to exit"
+    exit 1
+}
+Write-Host "--- Rust tests passed. Proceeding. ---" -ForegroundColor Green
+Write-Host ""
 
 
 # --- Step 2: Compile the Rust project ---

@@ -24,7 +24,6 @@ class GenerateInverseDiglotMap(LLMStage):
 
     def prepare_llm_items(self, book_data: Dict) -> List[Dict]:
         items_to_process = []
-        # --- Use the robust \S+ regex to find all "words" including numbers ---
         word_regex = re.compile(r'\S+')
 
         for block in book_data.get("content_blocks", []):
@@ -33,11 +32,10 @@ class GenerateInverseDiglotMap(LLMStage):
                 if not simpler_adv_tier: continue
 
                 for seg in simpler_adv_tier.get("segments", []):
-                    target_text = seg.get("text", "")
+                    target_text = "".join(t['v'] for t in seg.get("tokenized_text", []))
                     words = word_regex.findall(target_text)
                     if not words: continue
                     
-                    # Create the "fill-in-the-blank" prompt
                     prompt_text = "\n".join(f"{word} ->" for word in words)
                     items_to_process.append({
                         "id": f"{block['s_id']}_{seg['seg_id']}",
@@ -46,10 +44,17 @@ class GenerateInverseDiglotMap(LLMStage):
         return items_to_process
 
     def process_llm_results_for_block(self, block: Dict, llm_results: Dict[str, str]) -> Dict:
+        """
+        Parses the LLM's response and builds the inverse diglot map.
+        This version uses a sentence-level index for the words.
+        """
         mappings = block.setdefault("mappings", {})
         inv_diglot_map = mappings.setdefault("simpler_adv_target_to_base_inv_diglot", {})
         
         simpler_adv_tier = next((t for t in block["tiers"] if t["tier_id"] == "simpler_advanced_target"), {})
+
+        # --- THIS IS THE FIX for sentence-level indexing ---
+        sentence_word_index_counter = 0
 
         for seg in simpler_adv_tier.get("segments", []):
             seg_id = seg["seg_id"]
@@ -67,15 +72,15 @@ class GenerateInverseDiglotMap(LLMStage):
                 seg_entries = []
                 word_tokens = [tok for tok in seg.get("tokenized_text", []) if tok.get("t") == "w"]
 
-                for i, token in enumerate(word_tokens):
+                for token in word_tokens:
                     target_word = token.get("v")
                     base_sub = response_map.get(target_word, "NO_SUB")
 
                     if ' ' in base_sub:
                         base_sub = "NO_SUB"
 
-                    # Format: [target_word_index_in_segment, "target_lemma_TBD", "base_substitute"]
-                    seg_entries.append([i, "TBD", base_sub])
+                    seg_entries.append([sentence_word_index_counter, "TBD", base_sub])
+                    sentence_word_index_counter += 1
 
                 inv_diglot_map[seg_id] = seg_entries
 

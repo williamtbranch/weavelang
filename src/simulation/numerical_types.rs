@@ -68,6 +68,7 @@ pub struct NumericalPhraseAlignmentToEng {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NumericalDiglotEntry {
+    pub base_word_di: usize,
     pub eng_word_original: String,
     pub spa_lemma_id: u32,
     pub exact_spa_form_original: String,

@@ -466,3 +466,37 @@
       (assert-text "“Who are you?” dijo el Caterpillar.")
     )
 )
+
+(test-case "Regression Test for L1 Diglot Indexing Bug"
+    (sentence
+        (L0 // This L0 will always fail because of lem999
+            (S "adv1" (lem999))
+            (S "[[adv2]] [[adv3]]" (lem999))
+            (ID
+              (adv2 lem997 dummy_sub)
+              (adv3 lem996 dummy_sub2)
+            )
+            
+        )
+        (L1
+            // Segment 1: The learner knows this segment completely.
+            (S "Segmento uno " (lem1 lem2))
+            (D (Seg lem10 seg t) (one lem11 uno t))
+            (E "[[Seg]] [[one]] ")
+
+            // Segment 2: The learner does NOT know `lem998`. This forces a fallback.
+            (S "Segmento dos " (lem3 lem998))
+            (D 
+                (Seg lem10 seg t)  // Known lemma
+                (two lem12 dos t)  // Known lemma
+            )
+            (E "[[Seg]] [[two]].")
+        )
+    )
+
+    (sub-test "at level 20, first seg is Spanish, second is diglot"
+        (level 20) // Knows lem1-20. Knows "seg", "uno", "dos". Does NOT know lem998.
+        (assert-level SimpleHybrid)
+        (assert-text "Segmento uno seg dos.")
+    )
+)

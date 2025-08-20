@@ -14,7 +14,7 @@ use crate::simulation::preprocessor;
 use crate::simulation::text_generator;
 use crate::types::json_types::{
     JsonBookMetaV2, JsonChapter, JsonContentBlock, JsonSegmentV2,
-    JsonSentenceBlock, JsonTierV2, JsonTokenV2, JsonTokenType,
+    JsonSentenceBlock, JsonTierV2, JsonTokenType,
 };
 use itertools::Itertools;
 use once_cell::sync::Lazy;
@@ -118,6 +118,41 @@ fn compile_dsl_sentence_to_numerical(
     let mut json_sentence = JsonSentenceBlock::default();
     json_sentence.s_id = test_case.name.clone();
 
+    // --- FIX IS HERE: Add validation logic within the test data compiler ---
+    
+    // Group L0 segments into conceptual bundles of (AdvS, SimplerS, InvDiglot)
+    let l0_chunks: Vec<_> = test_case.sentence_def.l0_def.segments.chunks(3).collect();
+    for (i, chunk) in l0_chunks.iter().enumerate() {
+        if chunk.len() != 3 {
+            panic!(
+                "Test Case '{}': L0 definition is malformed. Expected groups of 3 (S, S, ID), but found a group of size {} at index {}.",
+                test_case.name, chunk.len(), i
+            );
+        }
+        
+        let simpler_text_spec = &chunk[1].spec;
+        let inv_diglot_spec = &chunk[2].spec;
+
+        if let (DslSegmentSpecEnum::Spanish { tokens: simpler_tokens, .. }, DslSegmentSpecEnum::InvDiglot { tuples }) = (simpler_text_spec, inv_diglot_spec) {
+            let word_count = simpler_tokens.iter().filter(|t| t.token_type == JsonTokenType::Word).count();
+            let tuple_count = tuples.len();
+
+            if word_count != tuple_count {
+                panic!(
+                    "Test Case '{}': L0 data mismatch in segment bundle {}. Simpler text has {} words, but Inverse Diglot map has {} entries. They must match.",
+                    test_case.name, i + 1, word_count, tuple_count
+                );
+            }
+        } else {
+             panic!(
+                "Test Case '{}': L0 definition is malformed. Expected (S, S, ID) structure in segment bundle {}.",
+                test_case.name, i + 1
+            );
+        }
+    }
+    // --- END OF FIX ---
+
+
     let l0_spanish_segments: Vec<_> = test_case.sentence_def.l0_def.segments.iter()
         .filter(|s| matches!(&s.spec, DslSegmentSpecEnum::Spanish {..}))
         .cloned()
@@ -141,7 +176,7 @@ fn compile_dsl_sentence_to_numerical(
     
     let reconstruct_and_set_full_text = |tier: &mut JsonTierV2| {
         let text = tier.segments.iter()
-           .map(|s| preprocessor::reconstruct_original_text(&s.tokenized_text))
+           .map(|s| s.text.clone())
            .collect::<String>();
         tier.full_text = text;
     };
@@ -201,10 +236,15 @@ fn build_single_tier(
             _ => continue,
         };
         
+        // FIX #1: Replicate the reconstruction logic here for the test context
+        let reconstructed_text = tokens.iter().map(|t| t.value.as_str()).collect::<String>();
+
         final_segments.push(JsonSegmentV2 {
             seg_id: format!("{}{}", seg_id_prefix, seg_counter),
             tokenized_text: tokens,
-            dsl_lemmas: lemmas,
+            // FIX #2: Use the correct field name `lemmas`
+            lemmas: lemmas,
+            text: reconstructed_text,
         });
         seg_counter += 1;
     }
@@ -235,7 +275,6 @@ fn run_assertions(
                 }
             },
             DslAssertion::Text(expected_text) => {
-                // *** THE FIX IS HERE: No more stripping. Use the text directly. ***
                 if actual_text != *expected_text {
                     is_passed = false;
                     reasons.push(format!("Text Mismatch: Expected '{}', got '{}'", expected_text, actual_text));
