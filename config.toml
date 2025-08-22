@@ -45,7 +45,7 @@ custom_frequency_list_path = ""
 # --- Global Pipeline Execution Settings ---
 # This section remains the same.
 [pipeline]
-max_api_retries = 3
+max_api_retries = 4
 max_validation_retries = 4
 retry_delay = 7
 
@@ -67,6 +67,15 @@ retry_delay = 7
     primary_model = "sonnet"
     fallback_model = "sonnet"
     batch_size_in_tokens = 1000
+    
+    [stages.GenerateSimpleTarget]
+    primary_model = "sonnet"
+    fallback_model = "sonnet"
+    batch_size_in_tokens = 1000
+
+    [stages.GeneratePhraseMap]
+    primary_model = "sonnet"
+    fallback_model = "opus"
 
     [stages.GenerateDiglotMap]
     primary_model = "sonnet"

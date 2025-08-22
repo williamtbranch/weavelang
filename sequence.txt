@@ -12,3 +12,15 @@ test
 test
 %level 400 
 test
+%level 800 
+test
+%level 1600 
+test
+%level 3200 
+test
+%level 6400 
+test
+%level 12800 
+test
+%level 25600 
+test

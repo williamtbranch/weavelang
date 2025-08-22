@@ -14,7 +14,7 @@ class GenerateInverseDiglotMap(LLMStage):
             book_stem=book_stem,
             cli_args=cli_args,
             common_resources=common_resources,
-            stage_number=5,
+            stage_number=6,
             stage_name="GenerateInverseDiglotMap"
         )
         self.parser_type = "multi_line"
@@ -36,7 +36,13 @@ class GenerateInverseDiglotMap(LLMStage):
                     words = word_regex.findall(target_text)
                     if not words: continue
                     
-                    prompt_text = "\n".join(f"{word} ->" for word in words)
+                    # --- THIS IS THE FIX ---
+                    # Create the "fill-in-the-blank" list
+                    fill_in_blank_lines = "\n".join(f"{word} ->" for word in words)
+                    # Add the MAPPINGS header that our universal parser now expects.
+                    prompt_text = f"MAPPINGS:\n{fill_in_blank_lines}"
+                    # --- END OF FIX ---
+
                     items_to_process.append({
                         "id": f"{block['s_id']}_{seg['seg_id']}",
                         "text": prompt_text,

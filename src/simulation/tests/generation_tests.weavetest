@@ -143,7 +143,7 @@
         )
         (L1
             (S "No hay duda " (lem20 lem30 lem300))
-            (D (There lem21 Hay t) (is lem2 NO_SUB f) (no ninguno ninguna t) (doubt dudar duda t))
+            (D (There lem21 Hay t) (is lem2 NO_SUB f) (no lem16 ninguna t) (doubt lem17 duda t))
             (E "[[There]] [[is]] [[no]] [[doubt]] ")
             
             (S "de que Marley estaba muerto." (lem45 de que estar muerto))
@@ -498,5 +498,38 @@
         (level 20) // Knows lem1-20. Knows "seg", "uno", "dos". Does NOT know lem998.
         (assert-level SimpleHybrid)
         (assert-text "Segmento uno seg dos.")
+    )
+)
+
+(test-case "Phrase Diglot with Multiple Lemmas"
+    (sentence
+        (L0 (S "adv" (lem999)) // Fails L0
+            (S "[[adv2]] [[adv3]]" (lem999))
+            (ID
+              (adv2 lem997 dummy_sub)
+              (adv3 lem996 dummy_sub2)
+            )
+        )
+        (L1
+            (S "Take a walk." (lem998)) // Fails L1 Spanish
+            (D 
+                // A single diglot tuple for the single English token.
+                // The source phrase is "Take a walk."
+                // The lemmas are "lem8", "lem150", "lem95".
+                // The target phrase is "dar un paseo."
+                (Take__a__walk lem8__lem150__lem95 dar__un__paseo t)
+            )
+            (E "[[Take a walk]].") // A single atomic token.
+        )
+    )
+    (sub-test "at level 200, substitutes the multi-lemma phrase"
+        (level 200) // Knows all 3 lemmas.
+        (assert-level SimpleHybrid)
+        (assert-text "dar un paseo.")
+    )
+    (sub-test "at level 100, fails to substitute due to lem150"
+        (level 100) // Does not know lem150.
+        (assert-level SimpleHybrid)
+        (assert-text "Take a walk.")
     )
 )

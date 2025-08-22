@@ -7,6 +7,7 @@ Follow these rules with absolute precision:
 2.  **NO EQUIVALENT:** If a direct single-word English equivalent does not exist in this context (e.g., for reflexive pronouns like "se" or articles that disappear in English), you MUST respond with the literal tag `NO_SUB`.
 3.  **PROPER NOUNS:** If the Spanish word is a proper noun (name, place), you MUST respond with the literal tag `PROPER_NOUN`.
 4.  **BE EXHAUSTIVE:** You must provide a response for every single word in the input list. Do not omit any words.
+5.  You MUST reproduce the `MAPPINGS:` header.
 
 ---
 EXAMPLE 1 (Standard):
@@ -21,6 +22,7 @@ vigilara ->
 
 Your Response:
 S8_S2:
+MAPPINGS:
 y -> and
 ordenó -> ordered
 al -> the
@@ -36,6 +38,7 @@ oro ->
 
 Your Response:
 S45_S1:
+MAPPINGS:
 de -> NO_SUB
 oro -> Golden
 ---

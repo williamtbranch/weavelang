@@ -1,14 +1,10 @@
-// src/simulation/numerical_types.rs
 use crate::profile::{LearnerLemmaInfo, LemmaState};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-// --- This struct is NEW. It will hold the "word" part of a token. ---
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WordToken {
     pub text: String,
-    // The index of the corresponding entry in the relevant diglot map.
-    // This provides a direct link to the substitution data.
     pub diglot_index: usize,
 }
 
@@ -27,18 +23,6 @@ impl NumericalLearnerProfile {
     pub fn activate_lemma(&mut self, lemma_id: u32) {
         if lemma_id != u32::MAX {
             self.vocabulary.insert(lemma_id, LearnerLemmaInfo::default());
-        }
-    }
-    pub fn get_lemma_info(&self, lemma_id: u32) -> Option<&LearnerLemmaInfo> {
-        self.vocabulary.get(&lemma_id)
-    }
-    pub fn get_lemma_info_mut(&mut self, lemma_id: u32) -> &mut LearnerLemmaInfo {
-        self.vocabulary.entry(lemma_id).or_insert_with(LearnerLemmaInfo::default)
-    }
-    pub fn set_lemma_state(&mut self, lemma_id: u32, new_state: LemmaState) {
-        if lemma_id != u32::MAX {
-            let info = self.get_lemma_info_mut(lemma_id);
-            info.state = new_state;
         }
     }
 }
@@ -61,7 +45,6 @@ pub struct NumericalPhraseAlignmentToEng {
     pub sims_l3_segment_text_original: String,
     pub eng_span_text_original: String,
     pub eng_span_word_count: usize,
-    // --- NEW FIELDS to hold the tokenized English phrase ---
     pub eng_span_words: Vec<WordToken>,
     pub eng_span_backgrounds: Vec<String>,
 }
@@ -70,7 +53,7 @@ pub struct NumericalPhraseAlignmentToEng {
 pub struct NumericalDiglotEntry {
     pub base_word_di: usize,
     pub eng_word_original: String,
-    pub spa_lemma_id: u32,
+    pub spa_lemma_ids: Vec<u32>, // Changed from a single u32
     pub exact_spa_form_original: String,
     pub viable: bool,
 }
@@ -89,7 +72,6 @@ pub struct NumericalAdvSegmentBundle {
     pub simpler_text_original: String,
     pub simpler_lemma_ids: Vec<u32>,
     pub inverse_diglot_map_numerical: Vec<(String, u32, String)>,
-    // --- NEW FIELDS to hold the tokenized Simpler Spanish phrase for inverse diglot ---
     pub simpler_text_words: Vec<WordToken>,
     pub simpler_text_backgrounds: Vec<String>,
 }

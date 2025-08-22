@@ -1,49 +1,75 @@
-You are an expert linguist creating word-for-word mappings for educational software. Your task is to provide the single best Spanish equivalent for each English word provided in a list.
+You are an expert linguist creating aligned semantic chunks for a language learning tool. Your task is to provide a mapping from an English source sentence to its simple Spanish translation.
+//*** START FILE: assets/prompts/en-es/generate_diglot_map.txt ***//
 
-You will be given a list of English words, each followed by an arrow `->`. Your response MUST fill in the single most appropriate Spanish word after each arrow.
+**CRITICAL RULES:**
+1.  **EXHAUSTIVE MAPPING (MOST IMPORTANT):** The concatenation of the English source phrases (left side of '->') MUST perfectly reconstruct the original English sentence. EVERY word from the source must be accounted for in one and only one mapping. DO NOT OMIT ANY WORDS.
+2.  **DEFAULT TO SINGLE WORDS:** Your primary goal is to map SINGLE English words to their Spanish equivalents. This should be your default behavior.
+3.  **GROUP ONLY WHEN NECESSARY:** You MUST group multiple English words into a single source phrase ONLY for IDIOMS (e.g., "take a walk") or for GRAMMATICAL NECESSITY (e.g., `It is -> Es`, `was gone -> había desaparecido`).
+4.  **SELF-VALIDATION:** After the mappings, you MUST include a `VALIDATION:` section. Reconstruct the English sentence from the left side of your mappings to prove it is exhaustive. This reconstruction must match the original input sentence (ignoring case and punctuation).
+5.  **PRONOUNS:** Keep English subject pronouns (`I`, `you`, `he`, etc.) separate from their verbs.
+6.  **NO_SUB TOKEN:** If an English word has no direct equivalent (like the auxiliary 'did' in questions), map it to the special token `NO_SUB`.
+7.  **NO PUNCTUATION:** Do not include punctuation like commas or periods in your output phrases.
+8.  **OUTPUT FORMAT:** For each sentence ID, provide the TRANSLATION, then the MAPPINGS, then the VALIDATION section, following the structure below.
 
-Follow these rules with absolute precision:
-1.  **SINGLE WORD ONLY:** Your response for each word MUST be a single Spanish word. Do NOT provide multi-word phrases.
-2.  **NO EQUIVALENT:** If a direct single-word equivalent does not exist in this context (e.g., for helper verbs like "did" or articles that disappear in Spanish), you MUST respond with the literal tag `NO_SUB`.
-3.  **PROPER NOUNS:** If the English word is a proper noun (name, place), you MUST respond with the literal tag `PROPER_NOUN`. Do not translate it unless it has a very common, standard translation (e.g., Christopher -> Cristóbal).
-4.  **BE EXHAUSTIVE:** You must provide a response for every single word in the input list.
+**--- VERB PHRASE TRAINING EXAMPLES (for MAPPINGS section) ---**
+*   `was brought -> fue traída`
+*   `was gone -> había desaparecido`
+*   `did not come back -> no volvió`
+*   `set out -> partió`
+*   `happened to him -> le sucedió`
+*   `had to -> tenía que`
+*   `to watch -> vigilar`
+*   `look for it -> buscarlo`
+*   `is going to eat -> va a comer`
+*   `was standing -> estaba de pie`
+*   `was called -> fue convocado`
+**------------------------------------**
 
----
-EXAMPLE 1:
-Input:
-S1_S2:
-and ->
-ordered ->
-the ->
-gardener ->
-to ->
-keep ->
-watch ->
 
-Your Response:
-S1_S2:
-and -> y
-ordered -> ordenó
-the -> al
-gardener -> jardinero
-to -> que
-keep -> vigilara
-watch -> vigilara
----
-EXAMPLE 2 (NO_SUB):
-Input:
-S25_S2:
-what ->
-did ->
-you ->
-do ->
+**--- FULL SENTENCE EXAMPLES ---**
 
-Your Response:
-S25_S2:
-what -> qué
+**EXAMPLE 1:**
+USER INPUT:
+S1: A certain king had a beautiful garden
+
+YOUR OUTPUT:
+S1:
+SPANISH_TRANSLATION: Un cierto rey tenía un hermoso jardín
+MAPPINGS:
+A -> Un
+certain -> cierto
+king -> rey
+had -> tenía
+a -> un
+beautiful -> hermoso
+garden -> jardín
+VALIDATION: A certain king had a beautiful garden
+
+**EXAMPLE 2:**
+USER INPUT:
+S2: He had to take a walk
+
+YOUR OUTPUT:
+S2:
+SPANISH_TRANSLATION: Él tenía que dar un paseo
+MAPPINGS:
+He -> Él
+had to -> Tenía que
+take a walk -> dar un paseo
+VALIDATION: He had to take a walk
+
+**EXAMPLE 3:**
+USER INPUT:
+S3: Why did you run so fast
+
+YOUR OUTPUT:
+S3:
+SPANISH_TRANSLATION: ¿Por qué corriste tú tan rápido?
+MAPPINGS:
+Why -> Por qué
 did -> NO_SUB
-you -> hiciste
-do -> hiciste
----
-
-Provide only the completed list for each ID. Do not add any other text.
+you -> tú
+run -> corriste
+so -> tan
+fast -> rápido
+VALIDATION: Why did you run so fast

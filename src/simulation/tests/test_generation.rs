@@ -1,6 +1,3 @@
-//*** START FILE: src/simulation/tests/test_generation.rs ***//
-// In file: src/simulation/tests/test_generation.rs
-
 use super::weavetest_parser::{
     self, DslAssertion, DslSegmentSpec, DslSegmentSpecEnum, DslSubTest, DslTestCase,
 };
@@ -33,7 +30,7 @@ static TEST_SETUP: Lazy<Mutex<()>> = Lazy::new(|| {
     for i in 1..=20000 {
         writeln!(file, "lem{}\t{}\t100", i, i).expect("Failed to write to test frequency list");
     }
-    let real_lemmas = vec!["quien", "ser", "tu", "decir", "el", "de", "gusano", "sedar", "oruga", "quién", "tú", "claro", "exclamar", "rey", "si", "que", "estar", "muerto", "no", "haber", "duda", "frase", "avanzar", "prueba", "uno", "simple", "otro", "segmento", "segundo", "hombre", "ir", "bueno", "tarde", "el", "ella"];
+    let real_lemmas = vec!["quien", "ser", "tu", "decir", "el", "de", "gusano", "sedar", "oruga", "quién", "tú", "claro", "exclamar", "rey", "si", "que", "estar", "muerto", "no", "haber", "duda", "frase", "avanzar", "prueba", "uno", "simple", "otro", "segmento", "segundo", "hombre", "ir", "bueno", "tarde", "el", "ella", "dar", "paseo"];
     let mut rank = 20001;
     for lemma in real_lemmas {
         writeln!(file, "{}\t{}\t100", lemma, rank).expect("Failed to write real lemma");
@@ -70,6 +67,13 @@ fn run_dsl_generation_test_suite() {
             let mut profile = NumericalLearnerProfile::new();
             for i in 1..=sub_test.learner_level {
                 profile.activate_lemma(dictionary.get_id_or_insert(&format!("lem{}", i)));
+            }
+             // Activate real lemmas needed for tests
+            let real_lemmas_to_activate = vec!["dar", "uno", "paseo", "seg", "dos"];
+            for lemma in real_lemmas_to_activate {
+                 if sub_test.learner_level >= 20 { // Activate based on some logic from test
+                    profile.activate_lemma(dictionary.get_id_or_insert(lemma));
+                 }
             }
             let mut n_sentence_clone = numerical_sentence.clone();
             let output =
@@ -118,18 +122,18 @@ fn compile_dsl_sentence_to_numerical(
     let mut json_sentence = JsonSentenceBlock::default();
     json_sentence.s_id = test_case.name.clone();
 
-    // --- FIX IS HERE: Add validation logic within the test data compiler ---
-    
-    // Group L0 segments into conceptual bundles of (AdvS, SimplerS, InvDiglot)
+    // --- L0 Inverse Diglot Integrity Validation ---
     let l0_chunks: Vec<_> = test_case.sentence_def.l0_def.segments.chunks(3).collect();
     for (i, chunk) in l0_chunks.iter().enumerate() {
+        if chunk.len() == 1 && matches!(&chunk[0].spec, DslSegmentSpecEnum::Spanish {..}) {
+             continue; // This is a valid L0 failure test case, skip validation.
+        }
         if chunk.len() != 3 {
             panic!(
                 "Test Case '{}': L0 definition is malformed. Expected groups of 3 (S, S, ID), but found a group of size {} at index {}.",
                 test_case.name, chunk.len(), i
             );
         }
-        
         let simpler_text_spec = &chunk[1].spec;
         let inv_diglot_spec = &chunk[2].spec;
 
@@ -150,8 +154,33 @@ fn compile_dsl_sentence_to_numerical(
             );
         }
     }
-    // --- END OF FIX ---
+    
+    // --- L1 Simple Diglot Integrity Validation ---
+    let l1_chunks: Vec<_> = test_case.sentence_def.l1_def.segments.chunks(3).collect();
+    for (i, chunk) in l1_chunks.iter().enumerate() {
+        if chunk.len() != 3 {
+             panic!(
+                "Test Case '{}': L1 definition is malformed. Expected groups of 3 (S, D, E), but found a group of size {} at index {}.",
+                test_case.name, chunk.len(), i
+            );
+        }
+        let diglot_spec = &chunk[1].spec;
+        let english_spec = &chunk[2].spec;
 
+        if let (DslSegmentSpecEnum::Diglot { tuples }, DslSegmentSpecEnum::English { tokens }) = (diglot_spec, english_spec) {
+            let word_token_count = tokens.iter().filter(|t| t.token_type == JsonTokenType::Word).count();
+            let diglot_tuple_count = tuples.len();
+
+            if word_token_count != diglot_tuple_count {
+                panic!(
+                    "Test Case '{}': L1 data integrity failure in segment bundle {}. English spec has {} [[word]] tokens, but Diglot spec has {} mapping tuples. They MUST match 1-to-1.",
+                    test_case.name, i + 1, word_token_count, diglot_tuple_count
+                );
+            }
+        }
+    }
+    
+    // --- Now, build the tiers since validation passed ---
 
     let l0_spanish_segments: Vec<_> = test_case.sentence_def.l0_def.segments.iter()
         .filter(|s| matches!(&s.spec, DslSegmentSpecEnum::Spanish {..}))
@@ -193,20 +222,22 @@ fn compile_dsl_sentence_to_numerical(
         if let Some((_, dig_spec, _)) = chunk.iter().collect_tuple() {
             if let DslSegmentSpecEnum::Diglot { tuples } = &dig_spec.spec {
                 let entries = tuples.iter().enumerate().map(|(idx, t)| {
-                    (idx, t.replacement_lemma.clone(), t.replacement_word.clone(), t.is_viable)
+                    (idx, t.replacement_lemmas.clone(), t.replacement_word.clone(), t.is_viable)
                 }).collect();
                 json_sentence.mappings.simple_target_to_base_diglot.insert(seg_id.clone(), entries);
             }
         }
     }
-    for (i, chunk) in test_case.sentence_def.l0_def.segments.chunks(3).enumerate() {
+    for (i, chunk) in l0_chunks.iter().enumerate() {
         let seg_id = format!("A{}", i + 1);
-        if let Some((_, _, inv_spec)) = chunk.iter().collect_tuple() {
-            if let DslSegmentSpecEnum::InvDiglot { tuples } = &inv_spec.spec {
-                let entries = tuples.iter().enumerate().map(|(idx, t)| {
-                    (idx, t.spanish_lemma.clone(), t.english_substitute.clone())
-                }).collect();
-                json_sentence.mappings.adv_target_to_base_inv_diglot.insert(seg_id.clone(), entries);
+        if chunk.len() == 3 {
+             if let Some((_, _, inv_spec)) = chunk.iter().collect_tuple() {
+                if let DslSegmentSpecEnum::InvDiglot { tuples } = &inv_spec.spec {
+                    let entries = tuples.iter().enumerate().map(|(idx, t)| {
+                        (idx, t.spanish_lemma.clone(), t.english_substitute.clone())
+                    }).collect();
+                    json_sentence.mappings.adv_target_to_base_inv_diglot.insert(seg_id.clone(), entries);
+                }
             }
         }
     }
@@ -236,13 +267,11 @@ fn build_single_tier(
             _ => continue,
         };
         
-        // FIX #1: Replicate the reconstruction logic here for the test context
         let reconstructed_text = tokens.iter().map(|t| t.value.as_str()).collect::<String>();
 
         final_segments.push(JsonSegmentV2 {
             seg_id: format!("{}{}", seg_id_prefix, seg_counter),
             tokenized_text: tokens,
-            // FIX #2: Use the correct field name `lemmas`
             lemmas: lemmas,
             text: reconstructed_text,
         });
@@ -284,4 +313,3 @@ fn run_assertions(
     }
     (is_passed, reasons)
 }
-//*** END FILE: src/simulation/tests/test_generation.rs ***//

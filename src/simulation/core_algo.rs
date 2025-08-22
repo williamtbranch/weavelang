@@ -2,35 +2,20 @@ use super::numerical_types::{NumericalLearnerProfile, NumericalProcessedSentence
 use crate::simulation::dictionary::GlobalLemmaDictionary;
 use crate::simulation::frequency_manager;
 
-/// Helper function to check if a slice of lemma IDs are all known to the learner.
 fn are_lemmas_active(
     lemma_ids: &[u32],
     profile: &NumericalLearnerProfile,
     dictionary: &GlobalLemmaDictionary,
 ) -> bool {
-    // An empty list of lemmas is always considered active/known.
-    if lemma_ids.is_empty() {
-        return true;
-    }
-
-    // The .all() iterator ensures that EVERY lemma in the slice passes the test.
+    if lemma_ids.is_empty() { return true; }
     lemma_ids.iter().all(|&id| {
-        // Condition 1: The lemma is in the learner's active profile.
-        if profile.is_lemma_active(id) {
-            return true;
-        }
-
-        // Condition 2: The "Rare Word" rule. If the lemma is so rare it's not
-        // in our master frequency list, we approve it to avoid getting stuck.
+        if profile.is_lemma_active(id) { return true; }
         if let Some(lemma_str) = dictionary.get_str(id) {
             if frequency_manager::get_rank_for_lemma(lemma_str).is_none() {
-                // You can add a debug print here if you want to see which words are passing via this rule.
                 println!("[DEBUG RARE WORD] Approving unknown lemma: '{}'", lemma_str);
                 return true;
             }
         }
-        
-        // If neither of the above conditions are met, the learner does not know this word.
         false
     })
 }
@@ -70,11 +55,6 @@ pub struct ChosenLevelOutput {
     pub l1_part_choices: Option<Vec<L1PartChoice>>,
 }
 
-
-/// Attempts to build a Level 0 (AdvancedWeave) sentence.
-/// Returns Some(ChosenLevelOutput) on success, or None on failure.
-/// Failure occurs if any single segment is not expressible under L0 rules.
-// In src/simulation/core_algo.rs
 fn try_build_advanced_weave(
     n_sentence: &NumericalProcessedSentence,
     profile: &NumericalLearnerProfile,
@@ -88,30 +68,26 @@ fn try_build_advanced_weave(
     let mut l0_collected_lemma_ids: Vec<u32> = Vec::new();
 
     for bundle in &n_sentence.adv_segment_bundles_numerical {
-        // Path 1: Try Advanced Spanish
         if are_lemmas_active(&bundle.adv_lemma_ids, profile, dictionary) {
             l0_candidate_choices.push(L0SegmentChoice::Adv(bundle.adv_text_original.clone()));
             l0_collected_lemma_ids.extend(&bundle.adv_lemma_ids);
             continue;
         }
 
-        // Path 2: Try Simpler Advanced Spanish
         if are_lemmas_active(&bundle.simpler_lemma_ids, profile, dictionary) {
             l0_candidate_choices.push(L0SegmentChoice::SimplerAdv(bundle.simpler_text_original.clone()));
             l0_collected_lemma_ids.extend(&bundle.simpler_lemma_ids);
             continue;
         }
 
-        // Path 3: Try Inverse Diglot
         let total_words = bundle.simpler_text_words.len();
         if total_words == 0 {
             l0_candidate_choices.push(L0SegmentChoice::InverseDiglot("".to_string()));
             continue;
         }
 
-        // Guard against cases where the number of words doesn't match the map entries.
         if bundle.simpler_text_words.len() != bundle.inverse_diglot_map_numerical.len() {
-            return None; // Data mismatch, L0 fails.
+            return None;
         }
 
         let mut final_parts: Vec<String> = Vec::new();
@@ -122,7 +98,6 @@ fn try_build_advanced_weave(
         for (i, word_token) in bundle.simpler_text_words.iter().enumerate() {
             final_parts.push(bundle.simpler_text_backgrounds[i].clone());
             
-            // We can now safely use .get(i) because of the guard clause above.
             let diglot_entry = bundle.inverse_diglot_map_numerical.get(i).unwrap();
             let (_, lemma_id, eng_sub) = diglot_entry;
 
@@ -142,12 +117,12 @@ fn try_build_advanced_weave(
         final_parts.push(bundle.simpler_text_backgrounds.last().unwrap().clone());
 
         if !inverse_diglot_is_viable {
-            return None; // L0 attempt fails for this segment.
+            return None;
         }
 
         let substitution_ratio = substitutions as f32 / total_words as f32;
         if substitution_ratio > 0.5 && total_words > 1 {
-            return None; // Fails 50% rule.
+            return None;
         }
         
         l0_candidate_choices.push(L0SegmentChoice::InverseDiglot(final_parts.concat()));
@@ -178,22 +153,17 @@ pub fn determine_and_annotate_sentence_expression(
     let mut l1_part_choices: Vec<L1PartChoice> = Vec::new();
     let mut l1_total_english_word_count: usize = 0;
 
-    // The main loop is now over the `phrase_alignments` which are derived from the `base_tier`.
-    // This is the source of truth for the L1 structure.
     for alignment in &n_sentence.phrase_alignments_l3_to_eng_numerical {
         let segment_id = &alignment.s_segment_id_str;
         
-        // Find the corresponding Spanish segment and its lemmas
         let l3_segment = n_sentence.sims_l3_segments_numerical.iter().find(|s| &s.id_str == segment_id);
         let segment_lemmas = n_sentence.l3_simsl_per_segment_numerical.iter().find(|sl| &sl.segment_id_str == segment_id);
 
         if segment_lemmas.map_or(false, |l| are_lemmas_active(&l.lemma_ids, profile, dictionary)) {
-            // Path 1: The Spanish phrase is fully known. Use it.
             l1_part_choices.push(L1PartChoice::Spanish(l3_segment.unwrap().text_original.clone()));
             l1_collected_lemma_ids.extend(&segment_lemmas.unwrap().lemma_ids);
 
         } else {
-            // Path 2: Fallback to English and attempt diglotting.
             let mut final_parts: Vec<String> = Vec::new();
             let mut substitutions_made = 0;
             let diglot_map_for_segment = n_sentence.diglot_map_numerical.iter().find(|dm| &dm.s_segment_id_str == segment_id);
@@ -206,9 +176,9 @@ pub fn determine_and_annotate_sentence_expression(
                     if let Some(entry) = diglot_map.entries.iter().find(|e| e.base_word_di == word_token.diglot_index) {
                         let is_metadata_token = entry.exact_spa_form_original == "PROPER_NOUN" || entry.exact_spa_form_original == "NO_SUB";
                         
-                        if !is_metadata_token && entry.viable && profile.is_lemma_active(entry.spa_lemma_id) {
+                        if !is_metadata_token && entry.viable && are_lemmas_active(&entry.spa_lemma_ids, profile, dictionary) {
                             substitutions_made += 1;
-                            l1_collected_lemma_ids.push(entry.spa_lemma_id);
+                            l1_collected_lemma_ids.extend(&entry.spa_lemma_ids);
                             final_parts.push(entry.exact_spa_form_original.clone());
                             substituted = true;
                         }

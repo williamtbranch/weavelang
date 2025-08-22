@@ -1,8 +1,6 @@
 use pest::{iterators::Pair, Parser};
 use crate::types::json_types::{JsonTokenV2, JsonTokenType};
 
-// We will get rid of the buggy un_escape_string function.
-
 #[derive(Debug, Clone)]
 pub struct DslTestCase {
     pub name: String,
@@ -10,7 +8,6 @@ pub struct DslTestCase {
     pub sub_tests: Vec<DslSubTest>,
 }
 
-// ... (other structs remain the same) ...
 #[derive(Debug, Clone)]
 pub struct DslSubTest {
     pub name: String,
@@ -45,7 +42,7 @@ pub enum DslSegmentSpecEnum {
 #[derive(Debug, Clone)]
 pub struct DslDiglotTuple {
     pub _word_to_replace: String,
-    pub replacement_lemma: String,
+    pub replacement_lemmas: Vec<String>,
     pub replacement_word: String,
     pub is_viable: bool,
 }
@@ -73,13 +70,8 @@ pub fn parse_weavetest_file(file_content: &str) -> Result<Vec<DslTestCase>, pest
     Ok(file_pair.into_inner().filter(|p| p.as_rule() == Rule::test_case).map(parse_test_case).collect())
 }
 
-// *** HELPER TO PROPERLY PARSE STRING LITERALS ***
 fn parse_string_literal_content(pair: Pair<Rule>) -> String {
-    // The pair is the stringLiteral or tokenizedPhrase rule.
-    // Its inner pair is the inner_string.
     let inner = pair.into_inner().next().unwrap();
-    // Pest gives us the raw string slice. Now we process escapes.
-    // This is a more robust way to handle this than a simple replace.
     let mut result = String::new();
     let mut chars = inner.as_str().chars().peekable();
     while let Some(c) = chars.next() {
@@ -88,14 +80,13 @@ fn parse_string_literal_content(pair: Pair<Rule>) -> String {
                 match next_c {
                     '"' => result.push('"'),
                     '\\' => result.push('\\'),
-                    // Add other escapes like \n if needed in the future
-                    _ => { // Not a valid escape, push both chars
+                    _ => {
                         result.push(c);
                         result.push(next_c);
                     }
                 }
             } else {
-                result.push(c); // Dangling backslash at the end
+                result.push(c);
             }
         } else {
             result.push(c);
@@ -149,7 +140,6 @@ fn parse_column_body(pair: Pair<Rule>) -> DslColumnBody {
     DslColumnBody { segments }
 }
 
-// ... (tokenizer functions are unchanged and correct) ...
 fn tokenize_simple_string(content: &str) -> Vec<JsonTokenV2> {
     let mut tokens = Vec::new();
     let mut last_end = 0;
@@ -276,11 +266,25 @@ fn parse_segment_spec(pair: Pair<Rule>) -> DslSegmentSpec {
 
 fn parse_diglot_tuple(pair: Pair<Rule>) -> DslDiglotTuple {
     let mut inner = pair.into_inner();
+    let word_to_replace = inner.next().unwrap().as_str().to_string()
+        .replace("__", " "); // Also un-escape the source phrase
+    
+    let combined_lemmas_str = inner.next().unwrap().as_str();
+    let replacement_lemmas = combined_lemmas_str
+        .split("__")
+        .map(|s| s.to_string())
+        .collect();
+
+    let replacement_word = inner.next().unwrap().as_str().to_string()
+        .replace("__", " "); // Un-escape the target phrase
+
+    let is_viable = inner.next().map_or(true, |p| p.as_str() == "t");
+
     DslDiglotTuple {
-        _word_to_replace: inner.next().unwrap().as_str().to_string(),
-        replacement_lemma: inner.next().unwrap().as_str().to_string(),
-        replacement_word: inner.next().unwrap().as_str().to_string(),
-        is_viable: inner.next().map_or(true, |p| p.as_str() == "t"),
+        _word_to_replace: word_to_replace,
+        replacement_lemmas,
+        replacement_word,
+        is_viable,
     }
 }
 

@@ -1,29 +1,18 @@
-// src/simulation/dictionary.rs
+//*** START FILE: src/simulation/dictionary.rs ***//
 use crate::types::json_types::{JsonChapter, JsonContentBlock};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Normalizes a lemma string to be consistent with the master frequency list.
-/// This logic MUST be kept in sync with the Python script that generates the list.
 fn normalize_lemma(lemma_str: &str) -> String {
-    // 1. Convert to lowercase and trim whitespace.
     let s = lemma_str.trim().to_lowercase();
-    
-    // 2. Take only the first word if there are spaces (e.g., "mostrar yo" -> "mostrar").
     let first_word = s.split_whitespace().next().unwrap_or(&s);
-    
-    // 3. Perform accent stripping to match the frequency list's format.
-    // This is the crucial step that was missing.
     let normalized = first_word
         .replace('á', "a")
         .replace('é', "e")
         .replace('í', "i")
         .replace('ó', "o")
         .replace('ú', "u")
-        .replace('ü', "u"); // Also handle diaeresis
-
-    // Return a cleaned string, ensuring no invalid characters remain.
-    // This simple filter is sufficient given the controlled input.
+        .replace('ü', "u");
     normalized.chars().filter(|c| c.is_alphanumeric() || *c == '-').collect()
 }
 
@@ -71,7 +60,6 @@ impl GlobalLemmaDictionary {
     pub fn populate_from_json_chapter(&mut self, json_chapter_data: &JsonChapter) {
         for block in &json_chapter_data.content_blocks {
             if let JsonContentBlock::Sentence(s_sentence) = block {
-                // Populate from tiers
                 for tier in &s_sentence.tiers {
                     for lemma in &tier.lemmas {
                         self.get_id_or_insert(lemma);
@@ -84,11 +72,13 @@ impl GlobalLemmaDictionary {
                         }
                     }
                 }
-                // Populate from mappings
                 for (_, entries) in &s_sentence.mappings.simple_target_to_base_diglot {
-                    for (_, lemma, _, viable) in entries {
+                    for (_, lemmas, _, viable) in entries {
                         if *viable {
-                            self.get_id_or_insert(lemma);
+                            // Correctly iterate through the Vec<String> of lemmas
+                            for lemma in lemmas {
+                                self.get_id_or_insert(lemma);
+                            }
                         }
                     }
                 }
@@ -101,3 +91,4 @@ impl GlobalLemmaDictionary {
         }
     }
 }
+//*** END FILE: src/simulation/dictionary.rs ***//

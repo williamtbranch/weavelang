@@ -8,7 +8,6 @@ use crate::types::json_types::{
     JsonChapter, JsonContentBlock, JsonSentenceBlock, JsonTokenV2, JsonTokenType,
 };
 
-/// Converts a `JsonChapter` (V2) into a `NumericalChapter`.
 pub fn json_chapter_to_numerical(
     json_chapter: &JsonChapter,
     dictionary: &mut GlobalLemmaDictionary,
@@ -140,7 +139,7 @@ pub fn json_sentence_to_numerical(
     let diglot_map_numerical: Vec<NumericalDiglotSegmentMap> = s_sentence.mappings.simple_target_to_base_diglot.iter().map(|(seg_id, entries)| {
         NumericalDiglotSegmentMap {
             s_segment_id_str: seg_id.clone(),
-            entries: entries.iter().map(|(base_di, lemma, form, viable)| {
+            entries: entries.iter().map(|(base_di, lemmas, form, viable)| {
                 let base_word = base_tier.segments.iter()
                     .flat_map(|s| &s.tokenized_text)
                     .find(|t| t.diglot_index == Some(*base_di))
@@ -149,7 +148,7 @@ pub fn json_sentence_to_numerical(
                 NumericalDiglotEntry {
                     base_word_di: *base_di,
                     eng_word_original: base_word.to_string(),
-                    spa_lemma_id: dictionary.get_id_or_insert(lemma),
+                    spa_lemma_ids: lemmas.iter().map(|s| dictionary.get_id_or_insert(s)).collect(),
                     exact_spa_form_original: form.clone(),
                     viable: *viable,
                 }

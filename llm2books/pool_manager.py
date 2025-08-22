@@ -1,3 +1,5 @@
+# In llm2books/pool_manager.py
+
 import json
 import logging
 import re
@@ -10,6 +12,8 @@ from . import llm_prompts
 from . import validator
 from .stanza_segmenter import StanzaLanguageProcessor
 from .llm_logger import LLMLogger
+# --- NEW: Import the LLM utility module ---
+from . import llm_utils
 
 logger = logging.getLogger("pipeline")
 
@@ -28,6 +32,9 @@ class PoolManager:
         self.llm_client = self.resources.get("llm_client")
         lang_config = self.resources.get("language_config", {})
         self.lang_manifest = lang_config.get("manifest", {}) if lang_config else {}
+        # --- NEW: Store models and pipeline config for easy access ---
+        self.models_config = self.resources.get("models_config", {})
+        self.pipeline_config = self.resources.get("pipeline_config", {})
 
     def get_book_resources(self, book_stem: str, base_lang: str, target_lang: str) -> Optional[Dict[str, Path]]:
         logger.info(f"--- PoolManager: Gathering resources for '{book_stem}' ({base_lang} -> {target_lang}) ---")
@@ -35,6 +42,7 @@ class PoolManager:
         target_std_path = self.derived_texts_dir / f"{book_stem}.{target_lang}.std.json"
         target_sim_path = self.derived_texts_dir / f"{book_stem}.{target_lang}.sim.json"
 
+        # This logic remains the same, but the functions it calls are now fixed.
         if not base_std_path.exists():
             logger.info(f"Base std file '{base_std_path.name}' not found. Generating...")
             if not self.generate_std_file(book_stem, base_lang): return None
@@ -50,6 +58,8 @@ class PoolManager:
         logger.info("--- PoolManager: All required resources are available. ---")
         return {"base_std": base_std_path, "target_std": target_std_path, "target_sim": target_sim_path}
 
+    # ... generate_std_file and its helpers remain unchanged ...
+    # (I'm omitting the unchanged code for brevity, but it should be kept in your file)
     def generate_std_file(self, book_stem: str, lang_code: str, translated_items: Optional[List[Dict]] = None) -> Optional[Path]:
         logger.info(f"  -> Generating pool file: '{book_stem}.{lang_code}.std.json'")
         std_file_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.std.json"
@@ -130,7 +140,6 @@ class PoolManager:
                     b2['v'] = ""
             
             segments_data = []
-            # --- THIS IS THE FIX for the `di` counter bug ---
             sentence_di_counter = 0
             all_sentence_lemmas = set()
             
@@ -139,7 +148,6 @@ class PoolManager:
                 seg_doc = spacy_model(seg_text)
                 
                 seg_lemmas = set()
-                # Use a token's character index within the segment to find its SpaCy match
                 token_char_map = { t.idx: t for t in seg_doc }
 
                 for token in bucket:
@@ -147,7 +155,6 @@ class PoolManager:
                         token['di'] = sentence_di_counter
                         sentence_di_counter += 1
                         
-                        # Find the corresponding spacy token to get the lemma
                         char_pos = seg_text.find(token['v'])
                         spacy_token = token_char_map.get(char_pos)
 
@@ -197,8 +204,6 @@ class PoolManager:
             logger.error(f"Failed to write .std.json file to {std_file_path}: {e}"); return None
 
     def _translate_and_generate_std(self, book_stem: str, from_lang: str, to_lang: str) -> Optional[Path]:
-        from . import llm_utils
-
         logger.info(f"    -> Translating '{book_stem}' from '{from_lang}' to '{to_lang}'...")
         source_path = self.source_texts_dir / f"{book_stem}.{from_lang}.txt"
         if not source_path.exists():
@@ -230,19 +235,29 @@ class PoolManager:
             system_prompt = system_prompt_template.format(source_language_name=from_lang_name, target_language_name=to_lang_name)
             llm_logger = LLMLogger(self.pool_dir / "llm_logs" / book_stem)
             
-            BATCH_SIZE = 10
-            batch_num = 0
-            for i in range(0, len(items_for_this_run), BATCH_SIZE):
-                batch_num += 1
-                batch = items_for_this_run[i:i + BATCH_SIZE]
+            # --- MODIFIED: Create a temporary config for this specific job ---
+            temp_stage_config = {
+                "primary_model": "sonnet", # Good, fast choice for translation
+                "fallback_model": "sonnet",
+                "max_api_retries": self.pipeline_config.get("max_api_retries", 3),
+                "retry_delay": self.pipeline_config.get("retry_delay", 7),
+                "batch_size_in_items": 10
+            }
+
+            for i in range(0, len(items_for_this_run), temp_stage_config["batch_size_in_items"]):
+                batch_num = (i // temp_stage_config["batch_size_in_items"]) + 1
+                batch = items_for_this_run[i:i + temp_stage_config["batch_size_in_items"]]
                 
+                # --- MODIFIED: Pass the new required arguments ---
                 batch_results = llm_utils.run_llm_batch_job(
                     llm_client=self.llm_client,
                     job_name=f"Pool-Translation-{from_lang}-to-{to_lang}",
                     system_prompt=system_prompt,
                     items_to_process=batch,
                     llm_logger=llm_logger,
-                    parser_type="single_line"
+                    parser_type="single_line",
+                    stage_config=temp_stage_config,
+                    models_config=self.models_config
                 )
 
                 if not batch_results:
@@ -278,9 +293,6 @@ class PoolManager:
         return std_file
 
     def generate_sim_file(self, book_stem: str, lang_code: str) -> Optional[Path]:
-        from . import llm_utils
-        from . import validator
-
         logger.info(f"  -> Generating pool file: '{book_stem}.{lang_code}.sim.json'")
         sim_file_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.sim.json"
         std_target_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.std.json"
@@ -294,19 +306,18 @@ class PoolManager:
 
         llm_logger = LLMLogger(self.pool_dir / "llm_logs" / book_stem)
         
+        # (The logic for handling empty files and preparing items is unchanged)
         all_content_blocks = std_target_data.get("content", [])
         if not all_content_blocks:
             logger.error(f"The source file {std_target_path.name} contains no content blocks.")
             return None
 
         target_sentences = [block for block in all_content_blocks if block.get("block_type") == "sentence"]
-        
         if not target_sentences:
             logger.warning(f"The source file {std_target_path.name} contains content, but no blocks of type 'sentence'.")
             final_json_data = {"meta": {"book_name": book_stem, "language": lang_code, "tier_type": "sim", "schema_version": "pool-v1.0", "parent_std_file": std_target_path.name}, "content": [b for b in all_content_blocks if b.get("block_type") != "sentence"]}
             try:
                 with open(sim_file_path, "w", encoding="utf-8") as f: json.dump(final_json_data, f, indent=2, ensure_ascii=False)
-                logger.info(f"  -> Successfully saved empty (no sentences) '{sim_file_path.name}' to common pool.")
                 return sim_file_path
             except IOError as e:
                 logger.error(f"Failed to write empty .sim.json file: {e}"); return None
@@ -316,78 +327,66 @@ class PoolManager:
             for seg in s.get("segments", []):
                 text_to_simplify = seg.get("text", "")
                 if text_to_simplify.strip():
-                    all_items_to_simplify.append({
-                        "id": f"{s['s_id']}_{seg['seg_id']}",
-                        "text": text_to_simplify
-                    })
+                    all_items_to_simplify.append({ "id": f"{s['s_id']}_{seg['seg_id']}", "text": text_to_simplify })
+
+        # --- MODIFIED: Create a temporary config for the simplification job ---
+        temp_stage_config_simplify = {
+            "primary_model": "sonnet", # Good default for simplification
+            "fallback_model": "sonnet",
+            "max_api_retries": self.pipeline_config.get("max_api_retries", 3),
+            "retry_delay": self.pipeline_config.get("retry_delay", 7),
+            "batch_size_in_items": 10
+        }
         
         temp_simplify_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.simplify.temp.json"
+        # --- MODIFIED: Pass the new configs to the transactional helper ---
         simplified_results_map = self._run_transactional_llm_job(
             job_name="Pool-Simplification",
             system_prompt=llm_prompts.get_system_prompt("simplify_segments", self.resources["language_config"]),
             all_items=all_items_to_simplify,
             temp_progress_path=temp_simplify_path,
             llm_logger=llm_logger,
-            parser_type="single_line"
+            parser_type="single_line",
+            stage_config=temp_stage_config_simplify,
+            models_config=self.models_config
         )
         if simplified_results_map is None: return None
         
+        # (The rest of the function for processing and saving the .sim.json file is unchanged)
         output_content = []
         spacy_model = self.spacy_models.get(lang_code)
-        
         for block in std_target_data.get("content", []):
             if block.get("block_type") != "sentence":
                 output_content.append(block)
                 continue
-
             s_id = block['s_id']
             new_segments_data = []
             new_full_text_parts = []
-            
             for seg in block.get("segments", []):
                 lookup_key = f"{s_id}_{seg['seg_id']}"
                 original_seg_text = seg.get("text", "")
                 new_seg_text = simplified_results_map.get(lookup_key, original_seg_text)
-
                 if original_seg_text.endswith(' ') and not new_seg_text.endswith(' '):
                     new_seg_text += ' '
-
                 new_segments_data.append({"seg_id": seg['seg_id'], "text": new_seg_text})
                 new_full_text_parts.append(new_seg_text)
-
             simpler_full_text = "".join(new_full_text_parts)
             full_doc = spacy_model(simpler_full_text)
             token_to_lemma = {token.text: helper.normalize_spanish_lemma(token.lemma_) for token in full_doc if not token.is_punct and not token.is_space}
             all_sentence_lemmas = {lemma for lemma in token_to_lemma.values() if lemma}
-
             for seg_data in new_segments_data:
                 seg_doc = spacy_model(seg_data["text"])
                 token_list = helper.create_golden_token_stream(seg_data["text"], seg_doc)
                 seg_lemmas = {token_to_lemma.get(t['v']) for t in token_list if t['t'] == 'w' and token_to_lemma.get(t['v'])}
-                
                 for token in token_list:
                     if token['t'] == 'w':
                         lemma = token_to_lemma.get(token['v'])
-                        if lemma:
-                            token['l'] = [lemma]
-
+                        if lemma: token['l'] = [lemma]
                 seg_data["tokenized_text"] = token_list
                 seg_data["lemmas"] = sorted(list(l for l in seg_lemmas if l))
-
-            output_content.append({
-                "block_type": "sentence",
-                "s_id": s_id,
-                "full_text": simpler_full_text,
-                "lemmas": sorted(list(all_sentence_lemmas)),
-                "segments": new_segments_data,
-            })
-
-        final_meta = {
-            "book_name": book_stem, "language": lang_code, "tier_type": "sim", 
-            "schema_version": "pool-v1.0", "parent_std_file": std_target_path.name
-        }
+            output_content.append({ "block_type": "sentence", "s_id": s_id, "full_text": simpler_full_text, "lemmas": sorted(list(all_sentence_lemmas)), "segments": new_segments_data })
+        final_meta = { "book_name": book_stem, "language": lang_code, "tier_type": "sim", "schema_version": "pool-v1.0", "parent_std_file": std_target_path.name }
         final_json_data = {"meta": final_meta, "content": output_content}
-
         try:
             logger.info(f"  -> Validating final generated sim data for '{book_stem}.{lang_code}'...")
             for sentence_block in output_content:
@@ -398,18 +397,15 @@ class PoolManager:
                         reconstructed = "".join(t['v'] for t in seg.get("tokenized_text", []))
                         if reconstructed != seg.get("text"):
                             raise validator.ValidationError(f"Token reconstruction for s_id {sentence_block['s_id']} seg_id {seg['seg_id']} failed.")
-
             with open(sim_file_path, "w", encoding="utf-8") as f: json.dump(final_json_data, f, indent=2, ensure_ascii=False)
             logger.info(f"  -> Successfully saved '{sim_file_path.name}' to common pool.")
             if temp_simplify_path.exists(): temp_simplify_path.unlink()
-            
             return sim_file_path
         except (IOError, validator.ValidationError) as e:
             logger.error(f"Failed to write or validate .sim.json file to {sim_file_path}: {e}"); return None
 
-    def _run_transactional_llm_job(self, job_name: str, system_prompt: str, all_items: List[Dict], temp_progress_path: Path, llm_logger: Any, parser_type: str) -> Optional[Dict[str, str]]:
-        from . import llm_utils
-
+    # --- MODIFIED: The signature of this helper now includes the config dictionaries ---
+    def _run_transactional_llm_job(self, job_name: str, system_prompt: str, all_items: List[Dict], temp_progress_path: Path, llm_logger: Any, parser_type: str, stage_config: Dict, models_config: Dict) -> Optional[Dict[str, str]]:
         completed_items = {}
         if temp_progress_path.exists():
             try:
@@ -425,19 +421,21 @@ class PoolManager:
             logger.info(f"      -> {job_name} is already complete.")
             return completed_items
 
-        BATCH_SIZE = 10
-        batch_num = 0
-        for i in range(0, len(items_for_this_run), BATCH_SIZE):
-            batch_num += 1
-            batch = items_for_this_run[i:i + BATCH_SIZE]
+        batch_size = stage_config.get("batch_size_in_items", 10)
+        for i in range(0, len(items_for_this_run), batch_size):
+            batch_num = (i // batch_size) + 1
+            batch = items_for_this_run[i:i + batch_size]
             
+            # --- MODIFIED: Pass the configs down to the utility function ---
             batch_results = llm_utils.run_llm_batch_job(
                 llm_client=self.llm_client,
                 job_name=job_name,
                 system_prompt=system_prompt,
                 items_to_process=batch,
                 llm_logger=llm_logger,
-                parser_type=parser_type
+                parser_type=parser_type,
+                stage_config=stage_config,
+                models_config=models_config
             )
 
             if not batch_results:
@@ -456,6 +454,7 @@ class PoolManager:
         
         return completed_items
 
+    # (The _parse_source_file function is unchanged)
     def _parse_source_file(self, file_path: Path) -> List[Dict[str, Any]]:
         text = file_path.read_text(encoding="utf-8")
         lines = text.splitlines()[1:]

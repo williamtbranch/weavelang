@@ -2,6 +2,9 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+dev_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(dev_root))
+print(f"\n--- [TRACE] Forcefully added '{dev_root}' to Python's path. ---\n")
 import re
 from typing import Optional, Dict, Any
 from .stanza_segmenter import EnglishStanzaProcessor, SpanishStanzaProcessor
@@ -9,7 +12,8 @@ from .stages import (
     AssembleTiers, 
     GenerateSimpleTarget, 
     FinalizeSimpleTarget,
-    GenerateDiglotMap,
+    GeneratePhraseMap, 
+    ApplyPhraseMappings, 
     GenerateInverseDiglotMap,
     FinalizeMappings,
     FinalizeBook,
@@ -39,13 +43,14 @@ from .pool_manager import PoolManager
 # --- The pipeline stages list is now temporarily empty ---
 # We will rebuild this list in Phase 3 of our plan.
 PIPELINE_STAGES = [
-    AssembleTiers,
-    GenerateSimpleTarget,
-    FinalizeSimpleTarget,
-    GenerateDiglotMap,
-    GenerateInverseDiglotMap,
-    FinalizeMappings,
-    FinalizeBook,
+    AssembleTiers,              # Stage 1: Gathers data from the common pool.
+    GenerateSimpleTarget,       # Stage 2: Creates the simple Spanish translation.
+    FinalizeSimpleTarget,       # Stage 3: Tokenizes and lemmatizes the simple Spanish.
+    GeneratePhraseMap,          # Stage 4 (NEW): Creates the raw phrase map using the new prompt.
+    ApplyPhraseMappings,        # Stage 5 (NEW): Applies the map, creating virtual tokens.
+    GenerateInverseDiglotMap,   # Stage 6: Creates the inverse map (unchanged for now).
+    FinalizeMappings,           # Stage 7: Finalizes lemmas in all maps.
+    FinalizeBook,               # Stage 8: Cleans up and saves the final JSON.
 ]
 
 # ... (get_logger, build_language_config, get_source_lang_from_file functions remain the same) ...
@@ -57,10 +62,10 @@ def get_logger() -> logging.Logger:
     log_formatter = logging.Formatter(
         "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
     )
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
 
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
+    console_handler.setLevel(logging.DEBUG)
     console_handler.setFormatter(log_formatter)
     logger.addHandler(console_handler)
 
