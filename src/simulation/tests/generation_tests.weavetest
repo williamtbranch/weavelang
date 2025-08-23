@@ -533,3 +533,70 @@
         (assert-text "Take a walk.")
     )
 )
+
+(test-case "L1 Weaving with Multi-Word Atoms"
+    (sentence
+        (L0 // Dummy L0 data designed to fail the >50% inverse diglot rule
+            (S "adv" (lem20000))
+            (S "[[adv-mod1]] [[adv-mod2]]" (lem19999 lem19998))
+            (ID 
+                (adv-mod1 lem19997 eng-sub1)
+                (adv-mod2 lem19996 eng-sub2)
+            )
+        )
+        (L1
+            (S "Un cierto rey tenía un jardín." (lem1 lem2 lem3 lem99 lem5 lem6))
+            (D 
+                (A__certain__king lem1__lem2__lem3 Un__cierto__rey t)
+                (had lem4 tenía t)
+                (a lem5 un t)
+                (garden lem998 jardín t)
+            )
+            (E "[[A certain king]] [[had]] [[a]] [[garden]].")
+        )
+    )
+    (sub-test "at level 10, weaves phrases, not words"
+        (level 10) 
+        (assert-level SimpleHybrid)
+        (assert-text "Un cierto rey tenía un garden.")
+    )
+)
+
+(test-case "L1 Weaving with Multi-Word Atoms Across Segments"
+    (sentence
+        (L0 // Dummy L0 data designed to fail the >50% inverse diglot rule in BOTH segments
+            (S "adv1" (lem20000))
+            (S "[[adv-mod1]] [[adv-mod2]]" (lem19999 lem19998))
+            (ID 
+                (adv-mod1 lem19997 eng-sub1)
+                (adv-mod2 lem19996 eng-sub2)
+            )
+
+            (S "adv2" (lem19995))
+            (S "[[adv-mod3]] [[adv-mod4]]" (lem19994 lem19993))
+            (ID 
+                (adv-mod3 lem19992 eng-sub3)
+                (adv-mod4 lem19991 eng-sub4)
+            )
+        )
+        (L1
+            (S "El zorro rápido " (lem10 lem11))
+            (D 
+                (The__quick__fox lem10__lem11 El__zorro__rápido t)
+            )
+            (E "[[The quick fox]] ")
+
+            (S "saltó sobre el perro." (lem12 lem998 lem14 lem15))
+            (D 
+                (jumped__over lem12__lem997 saltó__sobre t)
+                (the__dog lem14__lem15 el__perro t)
+            )
+            (E "[[jumped over]] [[the dog]].")
+        )
+    )
+    (sub-test "at level 20, weaves phrases across segments"
+        (level 20)
+        (assert-level SimpleHybrid)
+        (assert-text "El zorro rápido jumped over el perro.")
+    )
+)
