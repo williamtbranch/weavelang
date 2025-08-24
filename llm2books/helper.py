@@ -20,35 +20,38 @@ def create_golden_token_stream(original_sentence: str, nlp_doc: Any) -> List[Dic
     """
     Creates a single, perfectly spaced stream of B/W tokens by using the
     original sentence string as the ground truth for spacing.
-    This version is compatible with both SpaCy Doc and Stanza Sentence objects.
+    This version is compatible with both SpaCy Doc and Stanza Sentence objects
+    and is robust against tokenizer failures.
     """
     if not original_sentence:
         return []
 
-    # --- NEW: DYNAMIC DISPATCH BASED ON OBJECT TYPE ---
+    # --- DYNAMIC DISPATCH LOGIC RESTORED ---
     if isinstance(nlp_doc, SpacyDoc):
-        # This is the SpaCy code path
         token_iterator = nlp_doc
         get_start_char = lambda tok: tok.idx
         get_end_char = lambda tok: tok.idx + len(tok.text)
         get_type = lambda tok: 'w' if not tok.is_punct and not tok.is_space else 'b'
     elif isinstance(nlp_doc, stanza.models.common.doc.Sentence):
-        # This is the Stanza code path
-        # Stanza's sentence object is not directly iterable for words, we iterate its tokens' words
         token_iterator = [word for token in nlp_doc.tokens for word in token.words]
         get_start_char = lambda word: word.start_char
         get_end_char = lambda word: word.end_char
         get_type = lambda word: 'w' if word.upos != 'PUNCT' else 'b'
     else:
-        raise TypeError(f"Unsupported NLP document type: {type(nlp_doc)}")
-    # --- END DYNAMIC DISPATCH ---
+        raise TypeError(f"Unsupported NLP document type for golden stream: {type(nlp_doc)}")
+    # --- END OF RESTORED LOGIC ---
 
-    # Step 1: Raw slice based on token indices.
     raw_stream = []
     last_idx = 0
     for token in token_iterator:
         start_char = get_start_char(token)
         end_char = get_end_char(token)
+        
+        # --- ROBUSTNESS CHECK FOR STANZA'S BUG ---
+        if start_char is None or end_char is None:
+            # We log this but no longer crash, allowing the stream to be built from valid tokens.
+            logger.warning(f"Skipping a Stanza token with missing char indices in sentence: '{original_sentence}'")
+            continue
         
         if start_char > last_idx:
             raw_stream.append({'t': 'b', 'v': original_sentence[last_idx:start_char]})
@@ -61,7 +64,6 @@ def create_golden_token_stream(original_sentence: str, nlp_doc: Any) -> List[Dic
     if last_idx < len(original_sentence):
         raw_stream.append({'t': 'b', 'v': original_sentence[last_idx:]})
 
-    # Step 2: Merge pass for consecutive types.
     if not raw_stream: return [{'t': 'b', 'v': ''}]
     
     merged_stream = [raw_stream[0]]
@@ -71,30 +73,23 @@ def create_golden_token_stream(original_sentence: str, nlp_doc: Any) -> List[Dic
         else:
             merged_stream.append(token)
 
-    # Step 3: Contraction merge pass (w, b(""), w -> w).
     final_stream = []
     i = 0
     while i < len(merged_stream):
         if (i + 2 < len(merged_stream) and
             merged_stream[i]['t'] == 'w' and
-            merged_stream[i+1]['t'] == 'b' and
-            merged_stream[i+1]['v'] == '' and
+            merged_stream[i+1]['t'] == 'b' and not merged_stream[i+1]['v'] and
             merged_stream[i+2]['t'] == 'w'):
-            
-            merged_word = merged_stream[i]['v'] + merged_stream[i+2]['v']
-            final_stream.append({'t': 'w', 'v': merged_word})
-            i += 3
+            merged_stream[i]['v'] += merged_stream[i+2]['v']
+            final_stream.append(merged_stream[i])
+            i += 2
         else:
             final_stream.append(merged_stream[i])
-            i += 1
+        i += 1
             
-    # Final check to ensure BWBWB invariant start/end.
-    if not final_stream:
-        return [{'t': 'b', 'v': ''}]
-    if final_stream[0]['t'] == 'w':
-        final_stream.insert(0, {'t': 'b', 'v': ''})
-    if final_stream[-1]['t'] == 'w':
-        final_stream.append({'t': 'b', 'v': ''})
+    if not final_stream: return [{'t': 'b', 'v': ''}]
+    if final_stream[0]['t'] == 'w': final_stream.insert(0, {'t': 'b', 'v': ''})
+    if final_stream[-1]['t'] == 'w': final_stream.append({'t': 'b', 'v': ''})
         
     return final_stream
 

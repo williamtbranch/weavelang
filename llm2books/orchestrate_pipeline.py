@@ -1,7 +1,11 @@
 import argparse
 import logging
 import sys
+import pprint
 from pathlib import Path
+print("\n--- [DEBUG] Python sys.path Investigation ---")
+pprint.pprint(sys.path)
+print("--- [DEBUG] End of sys.path ---\n")
 dev_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(dev_root))
 print(f"\n--- [TRACE] Forcefully added '{dev_root}' to Python's path. ---\n")
@@ -12,6 +16,7 @@ from .stages import (
     AssembleTiers, 
     GenerateSimpleTarget, 
     FinalizeSimpleTarget,
+    FinalizeSimplerAdvTarget, # <-- NEW
     GeneratePhraseMap, 
     ApplyPhraseMappings, 
     GenerateInverseDiglotMap,
@@ -43,14 +48,15 @@ from .pool_manager import PoolManager
 # --- The pipeline stages list is now temporarily empty ---
 # We will rebuild this list in Phase 3 of our plan.
 PIPELINE_STAGES = [
-    AssembleTiers,              # Stage 1: Gathers data from the common pool.
-    GenerateSimpleTarget,       # Stage 2: Creates the simple Spanish translation.
-    FinalizeSimpleTarget,       # Stage 3: Tokenizes and lemmatizes the simple Spanish.
-    GeneratePhraseMap,          # Stage 4 (NEW): Creates the raw phrase map using the new prompt.
-    ApplyPhraseMappings,        # Stage 5 (NEW): Applies the map, creating virtual tokens.
-    GenerateInverseDiglotMap,   # Stage 6: Creates the inverse map (unchanged for now).
-    FinalizeMappings,           # Stage 7: Finalizes lemmas in all maps.
-    FinalizeBook,               # Stage 8: Cleans up and saves the final JSON.
+    AssembleTiers,              # Stage 1
+    GenerateSimpleTarget,       # Stage 2
+    FinalizeSimpleTarget,       # Stage 3
+    FinalizeSimplerAdvTarget,   # Stage 4 (NEW)
+    GeneratePhraseMap,          # Stage 5
+    ApplyPhraseMappings,        # Stage 6
+    GenerateInverseDiglotMap,   # Stage 7
+    FinalizeMappings,           # Stage 8
+    FinalizeBook,               # Stage 9
 ]
 
 # ... (get_logger, build_language_config, get_source_lang_from_file functions remain the same) ...

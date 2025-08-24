@@ -79,6 +79,7 @@ class Stage(ABC):
     def _save_output_data(self, data: Dict[str, Any], status: str) -> bool:
         # This function should only save the data, not modify the status field itself,
         # as the status is now managed within the blocks.
+        print(f"\n--- [DEBUG] Stage '{self.stage_name}' (Number {self.stage_number}) is SAVING to: {self.output_path}\n")
         try:
             with open(self.output_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)

@@ -115,57 +115,45 @@ def _parse_singleline_llm_response(raw_text: str) -> Dict[str, str]:
 # --- INSTRUMENTED PARSER WITH DEBUG LOGGING ---
 def _parse_llm_mappings_by_id(raw_text: str) -> Dict[str, str]:
     """
-    Parses the LLM response using a state machine with detailed logging and
-    a corrected, more flexible regex for sentence and segment IDs.
+    Parses the LLM response using a state machine to handle the specific
+    S_ID -> MAPPINGS -> VALIDATION structure, robustly ignoring other sections.
     """
-    logger.debug("--- [PARSER START] ---")
     parsed = {}
     current_id = None
     collecting_mappings = False
     
-    # --- THIS IS THE FIX ---
-    # The regex now matches 'S' followed by digits, optionally followed
-    # by an underscore and more alphanumeric characters (like another 'S' and digits).
-    id_marker_regex = re.compile(r"^\s*(S\d+(?:_[A-Za-z0-9_]+)?):")
+    id_marker_regex = re.compile(r"^\s*(S\d+(?:_[A-Za-z0-9_]+)?):(.*)")
 
-    for i, line in enumerate(raw_text.splitlines()):
-        logger.debug(f"  [PARSER] Line {i+1}: '{line[:80]}'")
-        
+    for line in raw_text.splitlines():
         match = id_marker_regex.match(line)
         if match:
-            new_id = match.group(1)
-            logger.debug(f"    -> Found new ID marker: '{new_id}'. Resetting state.")
+            new_id, rest_of_line = match.group(1), match.group(2).strip()
             current_id = new_id
             parsed.setdefault(current_id, [])
             collecting_mappings = False
+            if rest_of_line:
+                parsed[current_id].append(rest_of_line)
             continue
 
         if current_id:
             line_upper = line.strip().upper()
 
             if line_upper.startswith("MAPPINGS:"):
-                logger.debug(f"    -> Entering MAPPINGS section for '{current_id}'.")
                 collecting_mappings = True
                 continue
             
             if line_upper.startswith("VALIDATION:") or line_upper.startswith("SPANISH_TRANSLATION:"):
-                if collecting_mappings:
-                    logger.debug(f"    -> Exiting MAPPINGS section for '{current_id}'.")
                 collecting_mappings = False
                 continue
 
-            if collecting_mappings and line.strip():
-                logger.debug(f"    -> Collecting line for '{current_id}': '{line.strip()}'")
+            if not collecting_mappings and line.strip():
+                 parsed[current_id].append(line)
+            elif collecting_mappings and line.strip():
                 parsed[current_id].append(line)
-        else:
-            logger.debug("    -> Skipping line (no active ID).")
 
-    final_parsed = {
-        key: "\n".join(lines) for key, lines in parsed.items() if lines
-    }
+    final_parsed = { key: "\n".join(lines).strip() for key, lines in parsed.items() if lines }
     
     if not final_parsed and raw_text.strip():
-        logger.debug("  [PARSER] No ID markers found. Treating as one anonymous block.")
         in_mappings = False
         mapping_lines = []
         for line in raw_text.splitlines():
@@ -173,9 +161,6 @@ def _parse_llm_mappings_by_id(raw_text: str) -> Dict[str, str]:
             if line.strip().upper().startswith("VALIDATION:"): break
             if in_mappings: mapping_lines.append(line)
         if mapping_lines:
-            anonymous_content = "\n".join(mapping_lines)
-            logger.debug(f"  [PARSER] Found anonymous mapping content:\n{anonymous_content[:200]}...")
-            return {"ANONYMOUS_BLOCK": anonymous_content}
+            return {"ANONYMOUS_BLOCK": "\n".join(mapping_lines)}
 
-    logger.debug(f"--- [PARSER END] Returning {len(final_parsed)} parsed items. Keys: {list(final_parsed.keys())} ---")
     return final_parsed

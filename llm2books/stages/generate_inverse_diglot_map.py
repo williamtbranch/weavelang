@@ -14,7 +14,7 @@ class GenerateInverseDiglotMap(LLMStage):
             book_stem=book_stem,
             cli_args=cli_args,
             common_resources=common_resources,
-            stage_number=6,
+            stage_number=7,
             stage_name="GenerateInverseDiglotMap"
         )
         self.parser_type = "multi_line"
@@ -49,18 +49,20 @@ class GenerateInverseDiglotMap(LLMStage):
                     })
         return items_to_process
 
+    #
     def process_llm_results_for_block(self, block: Dict, llm_results: Dict[str, str]) -> Dict:
         """
         Parses the LLM's response and builds the inverse diglot map.
-        This version uses a sentence-level index for the words.
+        This version uses a segment-level index for the words.
         """
         mappings = block.setdefault("mappings", {})
         inv_diglot_map = mappings.setdefault("simpler_adv_target_to_base_inv_diglot", {})
         
         simpler_adv_tier = next((t for t in block["tiers"] if t["tier_id"] == "simpler_advanced_target"), {})
 
-        # --- THIS IS THE FIX for sentence-level indexing ---
-        sentence_word_index_counter = 0
+        # --- FIX START ---
+        # The sentence-level counter has been removed. The index will now be
+        # calculated locally within each segment loop.
 
         for seg in simpler_adv_tier.get("segments", []):
             seg_id = seg["seg_id"]
@@ -78,6 +80,8 @@ class GenerateInverseDiglotMap(LLMStage):
                 seg_entries = []
                 word_tokens = [tok for tok in seg.get("tokenized_text", []) if tok.get("t") == "w"]
 
+                # This index is now local to the segment, resetting for each one.
+                segment_word_index_counter = 0
                 for token in word_tokens:
                     target_word = token.get("v")
                     base_sub = response_map.get(target_word, "NO_SUB")
@@ -85,10 +89,12 @@ class GenerateInverseDiglotMap(LLMStage):
                     if ' ' in base_sub:
                         base_sub = "NO_SUB"
 
-                    seg_entries.append([sentence_word_index_counter, "TBD", base_sub])
-                    sentence_word_index_counter += 1
+                    seg_entries.append([segment_word_index_counter, "TBD", base_sub])
+                    segment_word_index_counter += 1
 
                 inv_diglot_map[seg_id] = seg_entries
+        
+        # --- FIX END ---
 
         block.setdefault("processing_status", {})[self.stage_name] = "COMPLETED"
         return block

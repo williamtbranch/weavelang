@@ -14,7 +14,7 @@ class FinalizeMappings(SpaCyStage):
             book_stem=book_stem,
             cli_args=cli_args,
             common_resources=common_resources,
-            stage_number=7,
+            stage_number=8,
             stage_name="FinalizeMappings"
         )
 
