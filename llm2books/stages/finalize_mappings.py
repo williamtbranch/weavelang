@@ -14,7 +14,7 @@ class FinalizeMappings(SpaCyStage):
             book_stem=book_stem,
             cli_args=cli_args,
             common_resources=common_resources,
-            stage_number=8,
+            stage_number=9,
             stage_name="FinalizeMappings"
         )
 
@@ -25,31 +25,22 @@ class FinalizeMappings(SpaCyStage):
 
         for block in data.get("content_blocks", []):
             if block.get("block_type") == "sentence":
-                # --- Finalize the Simple Diglot Map ---
+                # --- Finalize the Simple Diglot Map (Unchanged) ---
                 diglot_map = block.get("mappings", {}).get("simple_target_to_base_diglot", {})
                 for seg_id, entries in diglot_map.items():
                     for entry in entries:
-                        # entry is [base_word_di, "TBD", "exact_target_form", is_viable_bool]
                         is_viable, target_phrase = entry[3], entry[2]
-                        
-                        # --- THIS IS THE DEFINITIVE FIX ---
-                        lemmas_list = [] # Default to an empty list
+                        lemmas_list = []
                         if is_viable and target_phrase:
-                            # Process the entire phrase with SpaCy
                             doc = spacy_target(target_phrase)
-                            # Extract, normalize, and filter lemmas for all tokens
                             lemmas_list = [
                                 helper.normalize_spanish_lemma(token.lemma_)
                                 for token in doc if not token.is_punct and not token.is_space
                             ]
-                            # Remove any empty strings that might result
                             lemmas_list = [lemma for lemma in lemmas_list if lemma]
-                        
-                        # Replace "TBD" with the final list of lemmas
                         entry[1] = lemmas_list
-                        # --- END OF FIX ---
 
-                # --- Finalize the Inverse Diglot Map (This logic is still single-word) ---
+                # --- REFACTORED: Finalize the Inverse Diglot Map ---
                 inv_diglot_map = block.get("mappings", {}).get("simpler_adv_target_to_base_inv_diglot", {})
                 simpler_adv_tier = next((t for t in block.get("tiers", []) if t["tier_id"] == "simpler_advanced_target"), None)
                 if simpler_adv_tier and inv_diglot_map:
@@ -57,20 +48,29 @@ class FinalizeMappings(SpaCyStage):
                         seg = next((s for s in simpler_adv_tier.get("segments", []) if s["seg_id"] == seg_id), None)
                         if not seg: continue
                         
-                        word_tokens = [tok for tok in seg.get("tokenized_text", []) if tok.get("t") == "w"]
+                        # The tokens are now virtual (fused) tokens
+                        virtual_word_tokens = [tok for tok in seg.get("tokenized_text", []) if tok.get("t") == "w"]
+                        
                         for entry in entries:
-                            word_index = entry[0]
-                            target_word = word_tokens[word_index].get("v") if word_index < len(word_tokens) else None
-                            lemma_str = ""
-                            if target_word:
-                                doc = spacy_target(target_word)
-                                main_token = next((t for t in doc if not t.is_punct and not t.is_space), None)
-                                lemma_str = helper.normalize_spanish_lemma(main_token.lemma_ if main_token else target_word)
-                            entry[1] = lemma_str
+                            # entry is [virtual_token_index, "TBD", "eng_substitute"]
+                            v_token_index = entry[0]
+                            
+                            spanish_phrase = virtual_word_tokens[v_token_index].get("v") if v_token_index < len(virtual_word_tokens) else None
+                            
+                            lemmas_list = []
+                            if spanish_phrase:
+                                doc = spacy_target(spanish_phrase)
+                                lemmas_list = [
+                                    helper.normalize_spanish_lemma(token.lemma_)
+                                    for token in doc if not token.is_punct and not token.is_space
+                                ]
+                                lemmas_list = [lemma for lemma in lemmas_list if lemma]
+
+                            entry[1] = lemmas_list # Replace "TBD" with the list of lemmas
 
                 block.setdefault("processing_status", {})[self.stage_name] = "COMPLETED"
 
-        logger.info("      -> Validating mapping integrity...")
+        logger.info("      -> Validating mapping integrity...")    
         try:
             for block in data.get("content_blocks", []):
                 if block.get("block_type") == "sentence":

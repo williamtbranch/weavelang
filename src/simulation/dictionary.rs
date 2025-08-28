@@ -82,13 +82,18 @@ impl GlobalLemmaDictionary {
                         }
                     }
                 }
+                // --- THIS IS THE FIX ---
                 for (_, entries) in &s_sentence.mappings.adv_target_to_base_inv_diglot {
-                     for (_, lemma, _) in entries {
-                        self.get_id_or_insert(lemma);
+                     // 'lemmas' is now a Vec<String>
+                     for (_, lemmas, _) in entries {
+                        // We must loop through the vector
+                        for lemma in lemmas {
+                            self.get_id_or_insert(lemma);
+                        }
                     }
                 }
+                // --- END OF FIX ---
             }
         }
     }
 }
-//*** END FILE: src/simulation/dictionary.rs ***//

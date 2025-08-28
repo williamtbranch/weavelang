@@ -28,33 +28,33 @@ Last Updated: (Date of this session)
 
 #### Phase 2: Rust Engine Integration & Debugging (Current Phase)
 
-[ ] 2.1: **Fix `simple_target` Text Reconstruction Bug:**
+[x] 2.1: **Fix `simple_target` Text Reconstruction Bug:**
     - [x] Write a failing unit test in `test_data_reconstruction.py` that asserts `full_text` is correctly reconstructed from segments.
-    - [ ] **CURRENT TASK:** Modify `FinalizeSimpleTarget` (Stage 3) to correctly join segment `text` properties to form the `full_text` with proper spacing.
+    - [x]  **CURRENT TASK:** Modify `FinalizeSimpleTarget` (Stage 3) to correctly join segment `text` properties to form the `full_text` with proper spacing.
 
-[ ] 2.2: **Add `di` keys to `simpler_advanced_target`:**
-    - [ ] **Problem:** This tier is missing `di` keys, making the inverse diglot map unusable.
-    - [ ] Create a new stage, `FinalizeSimplerAdvTarget` (Stage 4), to run after `GenerateSimpleTarget` and before `GeneratePhraseMap`.
+[x] 2.2: **Add `di` keys to `simpler_advanced_target`:**
+    - [x] **Problem:** This tier is missing `di` keys, making the inverse diglot map unusable.
+    - [x] Create a new stage, `FinalizeSimplerAdvTarget` (Stage 4), to run after `GenerateSimpleTarget` and before `GeneratePhraseMap`.
     - [x] Write a failing unit test in `test_data_reconstruction.py` that asserts `di` keys are present and sequential.
-    - [ ] Implement the logic in the new `FinalizeSimplerAdvTarget` stage to tokenize and add `di` keys.
-    - [ ] Re-number all subsequent stages in the orchestrator and their class definitions.
+    - [x] Implement the logic in the new `FinalizeSimplerAdvTarget` stage to tokenize and add `di` keys.
+    - [x] Re-number all subsequent stages in the orchestrator and their class definitions.
 
-[ ] 2.3: **Fix `inverse_diglot_map` Lemma Population:**
-    - [ ] **Problem:** The map contains empty lemmas due to the missing `di` keys.
-    - [ ] Once task 2.2 is complete, verify that the existing logic in `FinalizeMappings` correctly populates the lemmas. No new code should be needed, but verification is critical.
+[x] 2.3: **Fix `inverse_diglot_map` Lemma Population:**
+    - [x] **Problem:** The map contains empty lemmas due to the missing `di` keys.
+    - [x] Once task 2.2 is complete, verify that the existing logic in `FinalizeMappings` correctly populates the lemmas. No new code should be needed, but verification is critical.
 
 #### Phase 3: Final Validation & Refinement
 
-[ ] 3.1: **Refactor Rust `core_algo` for Phrase-Weaving:**
-    - [ ] Modify the `L1 Simple Hybrid` logic to iterate through the phrase-atoms in `simple_target_to_base_diglot` instead of single English words.
-    - [ ] Ensure the new failing `weavetest` cases pass after the refactor.
+[x] 3.1: **Refactor Rust `core_algo` for Phrase-Weaving:**
+    - [x] Modify the `L1 Simple Hybrid` logic to iterate through the phrase-atoms in `simple_target_to_base_diglot` instead of single English words.
+    - [x] Ensure the new failing `weavetest` cases pass after the refactor.
 
-[ ] 3.2: **Refactor `GenerateInverseDiglotMap`:**
-    - [ ] Once the entire system is stable, refactor Stage 6 to support multi-word inverse mappings, mirroring the successful design of Stage 4/5.
+[x] 3.2: **Refactor `GenerateInverseDiglotMap`:**
+    - [x] Once the entire system is stable, refactor Stage 6 to support multi-word inverse mappings, mirroring the successful design of Stage 4/5.
 
-[ ] 3.3: Perform a final, full-corpus run and analyze the quality of the generated text at all levels. Tune Rust engine parameters as needed.
+[x] 3.3: Perform a final, full-corpus run and analyze the quality of the generated text at all levels. Tune Rust engine parameters as needed.
 
-#### Phase 4: Replicate multi-word diglot functionality from L1 to L0 inverse diglot
+[x] #### Phase 4: Replicate multi-word diglot functionality from L1 to L0 inverse diglot
 #### Phase 5: Finalize level system
 #### Phase 6: Work in level cap into Simpler Sentences using LLM feedback
 #### Phase 7: Implement stretch system for the engine

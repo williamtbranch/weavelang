@@ -5,6 +5,7 @@ from llm2books.validator import (
     validate_base_tier_diglot_indices,
     validate_exhaustive_diglot_mapping,
     validate_exhaustive_inverse_diglot_mapping,
+    validate_segment_reconstruction,
     ValidationError
 )
 
@@ -263,3 +264,34 @@ def test_inverse_diglot_mapping_fails_on_mismatch():
         validate_exhaustive_inverse_diglot_mapping(mock_sentence_block)
     assert "Expected 1 mapping entries, but found 2" in str(excinfo.value)
     assert "S1.A1" in str(excinfo.value)
+
+def test_segment_reconstruction_happy_path():
+    """Tests that validation passes when segment texts perfectly reconstruct full_text."""
+    mock_tier = {
+        "tier_id": "test",
+        "full_text": "hijo fue.",
+        "segments": [
+            {"text": "hijo "},
+            {"text": "fue."}
+        ]
+    }
+    try:
+        validate_segment_reconstruction(mock_tier)
+    except ValidationError as e:
+        pytest.fail(f"Segment reconstruction validation failed unexpectedly: {e}")
+
+def test_segment_reconstruction_fails_on_mushed_words():
+    """This test proves the 'hijofue' bug by checking for reconstruction failure."""
+    mock_tier = {
+        "tier_id": "test",
+        "full_text": "hijo fue.",
+        "segments": [
+            {"text": "hijo"}, # Missing the trailing space
+            {"text": "fue."}
+        ]
+    }
+    with pytest.raises(ValidationError) as excinfo:
+        validate_segment_reconstruction(mock_tier)
+    
+    assert "Segment reconstruction failed" in str(excinfo.value)
+    assert "Got:      'hijofue.'" in str(excinfo.value)

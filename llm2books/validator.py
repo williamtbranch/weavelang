@@ -173,10 +173,12 @@ def validate_exhaustive_diglot_mapping(sentence_block: Dict[str, Any]):
                     f"Mismatch between word count and mapping entry count. "
                     f"Expected {word_token_count} mapping entries, but found {mapping_entry_count}."
                 )
+
 def validate_exhaustive_inverse_diglot_mapping(sentence_block: Dict[str, Any]):
     """
     Validates that for every 'simpler_advanced_target' segment, the number
     of word tokens matches the number of entries in the inverse diglot map.
+    This check is run after token fusing, so 'word tokens' may be multi-word phrases.
 
     Args:
         sentence_block: The dict for a single sentence block from the JSON.
@@ -200,16 +202,23 @@ def validate_exhaustive_inverse_diglot_mapping(sentence_block: Dict[str, Any]):
         if not seg_id:
             continue
 
+        # This now correctly counts our potentially fused "virtual tokens"
         word_token_count = sum(1 for token in segment.get("tokenized_text", []) if token.get("t") == "w")
         
+        # We now check if the key exists OR if the segment had no words to begin with.
         if seg_id in inv_diglot_map:
             mapping_entry_count = len(inv_diglot_map[seg_id])
             
             if word_token_count != mapping_entry_count:
                 raise ValidationError(
                     f"Exhaustive Inverse Diglot Mapping failed for {s_id}.{seg_id}: "
-                    f"Mismatch between word count and mapping entry count. "
+                    f"Mismatch between word token count and mapping entry count. "
                     f"Expected {word_token_count} mapping entries, but found {mapping_entry_count}."
+                )
+        elif word_token_count > 0:
+             raise ValidationError(
+                    f"Exhaustive Inverse Diglot Mapping failed for {s_id}.{seg_id}: "
+                    f"Segment contains {word_token_count} word token(s) but has no entry in the inverse diglot map."
                 )
 
 def validate_segment_reconstruction(tier: Dict[str, Any]):

@@ -1,5 +1,3 @@
-# In llm2books/pool_manager.py
-
 import json
 import logging
 import re
@@ -14,13 +12,6 @@ from .llm_logger import LLMLogger
 logger = logging.getLogger("pipeline")
 
 class PoolManager:
-    # ... (The __init__, get_book_resources, _translate_and_generate_std,
-    #      _run_transactional_llm_job, and _parse_source_file methods are all correct
-    #      and can remain as they were in the last fully working version I sent.
-    #      The bug is solely within generate_std_file and generate_sim_file) ...
-
-    # For clarity, here is the full correct file.
-
     def __init__(self, content_project_dir: Path, resources: Dict[str, Any]):
         self.content_project_root = content_project_dir
         self.resources = resources
@@ -37,62 +28,166 @@ class PoolManager:
         self.stanza_processors = self.resources.get("stanza_processors", {})
 
     def get_book_resources(self, book_stem: str, base_lang: str, target_lang: str) -> Optional[Dict[str, Path]]:
+        """
+        Main entry point that ensures all required pool assets for a pipeline run exist,
+        generating them via a lazy-loading, dependency-aware process.
+        """
         logger.info(f"--- PoolManager: Gathering resources for '{book_stem}' ({base_lang} -> {target_lang}) ---")
-        base_std_path = self.derived_texts_dir / f"{book_stem}.{base_lang}.std.json"
-        target_std_path = self.derived_texts_dir / f"{book_stem}.{target_lang}.std.json"
-        target_sim_path = self.derived_texts_dir / f"{book_stem}.{target_lang}.sim.json"
-        if not base_std_path.exists():
-            if not self.generate_std_file(book_stem, base_lang): return None
-        if not target_std_path.exists():
-            if not self._translate_and_generate_std(book_stem, base_lang, target_lang): return None
-        if not target_sim_path.exists():
-            if not self.generate_sim_file(book_stem, target_lang): return None
-        logger.info("--- PoolManager: All required resources are available. ---")
-        return {"base_std": base_std_path, "target_std": target_std_path, "target_sim": target_sim_path}
+        self.book_stem = book_stem # Store book_stem for helper methods
+        
+        try:
+            # --- THIS IS THE FIX ---
+            # Each call is now checked immediately. If any fails, the function returns None.
+            base_std_path = self._get_or_create_std_json(base_lang)
+            if not base_std_path: return None
+
+            target_std_path = self._get_or_create_std_json(target_lang)
+            if not target_std_path: return None
+
+            target_sim_path = self._get_or_create_sim_json(target_lang)
+            if not target_sim_path: return None
+            # --- END OF FIX ---
+            
+            logger.info("--- PoolManager: All required resources are now available. ---")
+            return {
+                "base_std": base_std_path,
+                "target_std": target_std_path,
+                "target_sim": target_sim_path,
+            }
+        except FileNotFoundError as e:
+            logger.error(f"Halting due to critical error: {e}")
+            return None
+
+
+    def _get_or_create_std_json(self, required_lang: str) -> Optional[Path]:
+        """Lazy getter for a .std.json file. Handles generation and translation dependencies."""
+        std_path = self.derived_texts_dir / f"{self.book_stem}.{required_lang}.std.json"
+        if std_path.exists():
+            logger.info(f"  -> Found existing asset: '{std_path.name}'")
+            return std_path
+        
+        logger.info(f"  -> Asset '{std_path.name}' not found. Attempting to generate...")
+        
+        # Find the ultimate source text
+        source_info = self._find_true_source_file()
+        if not source_info:
+            raise FileNotFoundError(f"Source text file for '{self.book_stem}' not found in {self.source_texts_dir}.")
+        true_source_lang, _ = source_info
+        
+        if true_source_lang == required_lang:
+            # The source is already the correct language, just generate it.
+            return self.generate_std_file(self.book_stem, required_lang)
+        else:
+            # We need a translation. First, recursively ensure the source .std.json exists.
+            logger.info(f"    -> Dependency: '{std_path.name}' requires '{true_source_lang}' source. Checking for '{self.book_stem}.{true_source_lang}.std.json'...")
+            source_std_path = self._get_or_create_std_json(true_source_lang)
+            if not source_std_path:
+                logger.error(f"Failed to generate dependency '{true_source_lang}.std.json' for translation.")
+                return None
+            
+            # Now that the dependency is met, perform the translation.
+            return self._translate_and_generate_std(self.book_stem, true_source_lang, required_lang)
+
+    def _get_or_create_sim_json(self, target_lang: str) -> Optional[Path]:
+        """Lazy getter for a .sim.json file."""
+        sim_path = self.derived_texts_dir / f"{self.book_stem}.{target_lang}.sim.json"
+        if sim_path.exists():
+            logger.info(f"  -> Found existing asset: '{sim_path.name}'")
+            return sim_path
+        
+        logger.info(f"  -> Asset '{sim_path.name}' not found. Attempting to generate...")
+        
+        # Dependency: requires the .std.json file of the same language
+        logger.info(f"    -> Dependency: '{sim_path.name}' requires '{self.book_stem}.{target_lang}.std.json'.")
+        target_std_path = self._get_or_create_std_json(target_lang)
+        if not target_std_path:
+            logger.error(f"Failed to generate dependency '{target_lang}.std.json' for simplification.")
+            return None
+            
+        return self.generate_sim_file(self.book_stem, target_lang)
+
+    def _find_true_source_file(self) -> Optional[tuple[str, Path]]:
+        """Scans for the source text file for the current book_stem."""
+        glob_pattern = f"{self.book_stem}.*.txt"
+        found_files = list(self.source_texts_dir.glob(glob_pattern))
+        if not found_files: return None
+        
+        source_file = found_files[0]
+        parts = source_file.stem.split('.')
+        if len(parts) > 1: return parts[-1], source_file
+        return None
 
     def _translate_and_generate_std(self, book_stem: str, from_lang: str, to_lang: str) -> Optional[Path]:
         logger.info(f"    -> Translating '{book_stem}' from '{from_lang}' to '{to_lang}'...")
-        source_path = self.source_texts_dir / f"{book_stem}.{from_lang}.txt"
-        source_items = self._parse_source_file(source_path)
-        items_to_translate = [{"id": item['s_id'], "text": item['text']} for item in source_items if item['type'] == 'sentence']
+        source_std_path = self.derived_texts_dir / f"{book_stem}.{from_lang}.std.json"
+        try:
+            with open(source_std_path, 'r', encoding='utf-8') as f: source_data = json.load(f)
+            source_items = source_data.get("content", [])
+        except (IOError, json.JSONDecodeError) as e:
+            logger.error(f"Could not read source .std.json for translation: {e}"); return None
+
+        items_to_translate = [{"id": item['s_id'], "text": item['full_text']} for item in source_items if item.get('block_type') == 'sentence']
         
+        # --- THIS IS THE FIX ---
+        # Build a temporary language_config for this specific translation pair
+        temp_lang_config = {"base_code": from_lang, "target_code": to_lang, "manifest": self.lang_manifest, "pair_prompt_dir": None}
+        pair_key = f"{from_lang}-{to_lang}"
+        if pair_key in self.lang_manifest.get("pair", {}):
+            temp_lang_config["pair_prompt_dir"] = self.lang_manifest["pair"][pair_key].get("prompt_dir")
+        # --- END OF FIX ---
+
         temp_path = self.derived_texts_dir / f"{book_stem}.{to_lang}.translation.temp.json"
-        prompt = llm_prompts.get_system_prompt("translate_text", self.resources["language_config"]).format(
+        prompt = llm_prompts.get_system_prompt("translate_text", temp_lang_config).format(
             source_language_name=self.lang_manifest.get(from_lang, {}).get("name", from_lang),
             target_language_name=self.lang_manifest.get(to_lang, {}).get("name", to_lang)
         )
         config = {"primary_model": "sonnet", "fallback_model": "sonnet", **self.pipeline_config}
 
         translations = self._run_transactional_llm_job(
-            f"Pool-Translation", prompt, items_to_translate, temp_path,
+            f"Pool-Translation-{from_lang}-to-{to_lang}", prompt, items_to_translate, temp_path,
             LLMLogger(self.pool_dir / "llm_logs" / book_stem), "single_line", config, self.models_config
         )
         if translations is None: return None
         
-        if len(translations) != len(items_to_translate):
-            logger.error("Integrity Check FAILED: Translation count mismatch."); return None
-        logger.info("Integrity Check PASSED: Translation count matches source count.")
+        # --- THIS IS THE FIX ---
+        # Integrity check the translation results *before* trying to generate the file.
+        source_sentence_count = len(items_to_translate)
+        if len(translations) != source_sentence_count:
+            logger.error(f"Translation Integrity Check FAILED: Expected {source_sentence_count} translations, but received {len(translations)}.")
+            return None
+        logger.info("Translation Integrity Check PASSED.")
+        # --- END OF FIX ---
 
         final_items = [
-            ({'type': 'sentence', 's_id': item['s_id'], 'text': translations.get(item['s_id'], "")} 
-             if item['type'] == 'sentence' else item) for item in source_items
+            ({'type': 'sentence', 's_id': item['s_id'], 'text': translations.get(item['s_id'], "")}
+             if item.get('block_type') == 'sentence' else {'type': 'chapter', 'text': item['text']}) # Ensure type is set
+            for item in source_items
         ]
         
         std_file = self.generate_std_file(book_stem, to_lang, translated_items=final_items)
         if std_file and temp_path.exists(): temp_path.unlink()
         return std_file
 
+    # --- The following methods (generate_std_file, generate_sim_file, etc.)
+    # can remain exactly as they were in our last fully working version.
+    # I am including them here for completeness. ---
+
     def generate_std_file(self, book_stem: str, lang_code: str, translated_items: Optional[List[Dict]] = None) -> Optional[Path]:
         logger.info(f"  -> Generating pool file: '{book_stem}.{lang_code}.std.json'")
         std_file_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.std.json"
         
-        source_items = translated_items if translated_items is not None else self._parse_source_file(self.source_texts_dir / f"{book_stem}.{lang_code}.txt")
+        if translated_items is not None:
+            source_items = translated_items
+        else:
+            source_file_path = self.source_texts_dir / f"{book_stem}.{lang_code}.txt"
+            source_items = self._parse_source_file(source_file_path)
         
+        source_sentence_count = sum(1 for item in source_items if item.get('type') == 'sentence')
+
         stanza_processor: StanzaLanguageProcessor = self.resources['stanza_processors'][lang_code]
         spacy_model = self.resources['spacy_models'][lang_code]
             
         output_content = []
-        source_sentence_count = sum(1 for item in source_items if item.get('type') == 'sentence')
 
         for item in source_items:
             if item['type'] == 'chapter':
@@ -103,15 +198,9 @@ class PoolManager:
                 s_id, full_text = item['s_id'], item['text']
                 if not full_text.strip(): continue
 
-                # --- THIS IS THE CORRECTED LOGIC ---
-                # 1. Use SpaCy to create the spacy_doc. This is our source of truth for tokens.
                 spacy_doc = spacy_model(full_text)
-                # 2. Pass the spacy_doc to the helper. This avoids Stanza's tokenizer entirely.
                 golden_stream = helper.create_golden_token_stream(full_text, spacy_doc)
-                
-                # 3. Use Stanza ONLY for its high-quality segmentation.
                 segments_text = stanza_processor.segment_sentence(full_text)
-                # --- END OF CORRECTED LOGIC ---
                 
                 word_tokens = [tok for tok in golden_stream if tok['t'] == 'w']
                 current_word_idx = 0
@@ -173,7 +262,6 @@ class PoolManager:
         except IOError as e:
             logger.error(f"Failed to write .std.json file: {e}"); return None
 
-    # ... The generate_sim_file and other helpers are also included in the full replacement ...
     def generate_sim_file(self, book_stem: str, lang_code: str) -> Optional[Path]:
         sim_file_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.sim.json"
         std_target_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.std.json"
@@ -204,8 +292,9 @@ class PoolManager:
             s_id = s_block['s_id']
             new_segs, new_text_parts = [], []
             for seg in s_block["segments"]:
-                new_seg_text = results.get(f"{s_id}_{seg['seg_id']}", seg["text"])
-                if seg["text"].endswith(' ') and not new_seg_text.endswith(' '): new_seg_text += ' '
+                original_seg_text = seg["text"]
+                new_seg_text = results.get(f"{s_id}_{seg['seg_id']}", original_seg_text)
+                if original_seg_text.endswith(' ') and not new_seg_text.endswith(' '): new_seg_text += ' '
                 new_segs.append({"seg_id": seg['seg_id'], "text": new_seg_text})
                 new_text_parts.append(new_seg_text)
             

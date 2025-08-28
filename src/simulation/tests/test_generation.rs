@@ -234,7 +234,7 @@ fn compile_dsl_sentence_to_numerical(
              if let Some((_, _, inv_spec)) = chunk.iter().collect_tuple() {
                 if let DslSegmentSpecEnum::InvDiglot { tuples } = &inv_spec.spec {
                     let entries = tuples.iter().enumerate().map(|(idx, t)| {
-                        (idx, t.spanish_lemma.clone(), t.english_substitute.clone())
+                        (idx, t.spanish_lemmas.clone(), t.english_substitute.clone())
                     }).collect();
                     json_sentence.mappings.adv_target_to_base_inv_diglot.insert(seg_id.clone(), entries);
                 }

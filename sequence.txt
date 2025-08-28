@@ -1,26 +1,78 @@
-%level 2 
+%level 1
+quijote_test
 test
-%level 10 
+%level 2
+quijote_test
+test
+%level 3
+quijote_test
+test
+%level 5
+quijote_test
+test
+%level 10
+quijote_test
+test
+%level 15
+quijote_test
 test
 %level 20 
+quijote_test
 test
-%level 40 
+%level 26 
+quijote_test
 test
-%level 80 
+%level 33 
+quijote_test
 test
-%level 200 
+%level 41 
+quijote_test
 test
-%level 400 
+%level 50 
+quijote_test
 test
-%level 800 
+%level 61 
+quijote_test
 test
-%level 1600 
+%level 61 
+quijote_test
 test
-%level 3200 
+%level 75 
+quijote_test
 test
-%level 6400 
+%level 91 
+quijote_test
 test
-%level 12800 
+%level 61 
+quijote_test
 test
-%level 25600 
+%level 122 
+quijote_test
+test
+%level 137 
+quijote_test
+test
+%level 169 
+quijote_test
+test
+%level 211 
+quijote_test
+test
+%level 270 
+quijote_test
+test
+%level 355 
+quijote_test
+test
+%level 491 
+quijote_test
+test
+%level 762 
+quijote_test
+test
+%level 1306 
+quijote_test
+test
+%level 2393 
+quijote_test
 test

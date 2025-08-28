@@ -99,13 +99,16 @@ fn try_build_advanced_weave(
             final_parts.push(bundle.simpler_text_backgrounds[i].clone());
             
             let diglot_entry = bundle.inverse_diglot_map_numerical.get(i).unwrap();
-            let (_, lemma_id, eng_sub) = diglot_entry;
+            //
+            let (_, lemma_ids, eng_sub) = diglot_entry;
 
             if eng_sub == "PROPER_NOUN" {
                 final_parts.push(word_token.text.clone());
-            } else if profile.is_lemma_active(*lemma_id) {
-                temp_collected_lemmas.push(*lemma_id);
+            } else if are_lemmas_active(lemma_ids, profile, dictionary) {
+                // Use .extend() to add all elements from the vector.
+                temp_collected_lemmas.extend(lemma_ids);
                 final_parts.push(word_token.text.clone());
+            // --- END OF FIX ---
             } else if eng_sub == "NO_SUB" {
                 inverse_diglot_is_viable = false;
                 break;

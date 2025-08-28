@@ -1,9 +1,8 @@
-# In llm2books/phrase_mapper_helpers.py
-
 import re
 from typing import List, Dict, Any
 
 from .stages.base import logger # Import the pipeline logger
+from .validator import ValidationError # Import the custom exception
 
 class SemanticAtom:
     """
@@ -24,57 +23,83 @@ class SemanticAtom:
         return self.di == other.di and self.en_words == other.en_words and self.es_phrase == other.es_phrase
 
 def _normalize_for_matching(text: str) -> str:
-    """Helper function to strip punctuation and normalize for matching."""
+    """Helper function to strip all punctuation and normalize for matching."""
     s = re.sub(r'[^\w\s]', '', text)
     return re.sub(r'\s+', ' ', s).strip().lower()
+
+def _strip_punctuation(text: str) -> str:
+    """Strips leading/trailing punctuation and whitespace from a string."""
+    # This regex removes any character that is not a word character or whitespace from the start/end.
+    s = re.sub(r'^[^\w\s]+|[^\w\s]+$', '', text)
+    return s.strip()
+
+#
+def _normalize_for_alignment(text: str) -> str:
+    """A stricter normalization for alignment checks. Removes spaces, hyphens, and apostrophes."""
+    return re.sub(r"[^\w]", '', text).lower()
 
 def parse_llm_phrase_map_to_atoms(raw_map_lines: List[str], original_word_tokens: List[Dict]) -> List[SemanticAtom]:
     """
     Parses the raw phrase map and aligns it with the original word tokens
-    to create a preliminary list of SemanticAtoms.
+    using a "sliding window" token-aware matching algorithm. This is the
+    definitive, robust version.
     """
     semantic_atoms = []
     token_cursor = 0
 
-    # Parse the en_phrase -> es_phrase lines from the LLM output
     parsed_map = []
     for line in raw_map_lines:
         if '->' in line:
             parts = line.split('->', 1)
             if len(parts) == 2:
-                en_phrase, es_phrase = parts[0].strip(), parts[1].strip()
+                en_phrase = _strip_punctuation(parts[0])
+                es_phrase = _strip_punctuation(parts[1])
                 if en_phrase:
                     parsed_map.append({'en_phrase': en_phrase, 'es_phrase': es_phrase})
 
     for mapping in parsed_map:
-        en_phrase, es_phrase = mapping['en_phrase'], mapping['es_phrase']
-        norm_phrase = _normalize_for_matching(en_phrase)
-        if not norm_phrase: continue
-        num_words_in_phrase = len(norm_phrase.split())
+        llm_source_phrase, target_phrase = mapping['en_phrase'], mapping['es_phrase']
+        
+        # Normalize the LLM phrase once for comparison
+        normalized_llm_phrase = _normalize_for_alignment(llm_source_phrase)
+        if not normalized_llm_phrase:
+            continue
 
-        if token_cursor + num_words_in_phrase > len(original_word_tokens):
-            raise ValueError(f"Phrase map is longer than the token stream. Mismatch at phrase: '{en_phrase}'")
+        search_substring_tokens = []
+        found_match = False
+        
+        for i in range(token_cursor, len(original_word_tokens)):
+            search_substring_tokens.append(original_word_tokens[i])
+            
+            # Reconstruct the text from the current window of SpaCy tokens WITHOUT adding spaces
+            reconstructed_spacy_text = "".join(t['v'] for t in search_substring_tokens)
+            
+            # Compare the normalized, space-less, punctuation-less strings
+            if _normalize_for_alignment(reconstructed_spacy_text) == normalized_llm_phrase:
+                atom = SemanticAtom(
+                    di=search_substring_tokens[0]['di'],
+                    en_words=[t['v'] for t in search_substring_tokens],
+                    es_phrase=target_phrase
+                )
+                semantic_atoms.append(atom)
+                
+                token_cursor += len(search_substring_tokens)
+                found_match = True
+                break
 
-        token_slice = original_word_tokens[token_cursor : token_cursor + num_words_in_phrase]
-        slice_text = " ".join(t['v'] for t in token_slice)
-
-        if _normalize_for_matching(slice_text) != norm_phrase:
+        if not found_match:
             raise ValueError(
                 f"LLM phrase map does not align with token stream. "
-                f"Expected phrase starting with '{en_phrase}', but found tokens forming '{slice_text}'."
+                f"Could not find a matching token sequence for LLM phrase: '{llm_source_phrase}'"
             )
 
-        atom = SemanticAtom(
-            di=token_slice[0]['di'],
-            en_words=[t['v'] for t in token_slice],
-            es_phrase=es_phrase
-        )
-        semantic_atoms.append(atom)
-        token_cursor += num_words_in_phrase
-
     if token_cursor != len(original_word_tokens):
-        raise ValueError(f"The phrase map did not exhaustively cover all source tokens. "
-                         f"Processed {token_cursor}/{len(original_word_tokens)} words.")
+        remaining_tokens = " ".join(t['v'] for t in original_word_tokens[token_cursor:])
+        raise ValueError(
+            f"The phrase map did not exhaustively cover all source tokens. "
+            f"Processed {token_cursor}/{len(original_word_tokens)} words. "
+            f"Remaining tokens: '{remaining_tokens}'"
+        )
 
     return semantic_atoms
 

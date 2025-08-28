@@ -5,5 +5,6 @@ from .finalize_simpler_adv_target import FinalizeSimplerAdvTarget
 from .generate_phrase_map import GeneratePhraseMap
 from .apply_phrase_mappings import ApplyPhraseMappings
 from .generate_inverse_diglot_map import GenerateInverseDiglotMap
+from .apply_inverse_phrase_mappings import ApplyInversePhraseMappings
 from .finalize_mappings import FinalizeMappings
 from .finalize_book import FinalizeBook

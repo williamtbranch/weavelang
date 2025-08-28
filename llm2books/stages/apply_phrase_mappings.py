@@ -73,6 +73,88 @@ class ApplyPhraseMappings(SpaCyStage):
 
         return data
 
+    def _rebuild_tier_and_map(self, original_base_tier, sanitized_atoms):
+        # --- This version incorporates the fix for rebuilding the segment 'text' field ---
+        new_diglot_map = {}
+        new_tier = {
+            "tier_id": "base",
+            "full_text": original_base_tier['full_text'],
+            "segments": []
+        }
+        
+        # Create a flat stream of the new "virtual" tokens
+        new_token_stream = []
+        flat_original_tokens = [token for seg in original_base_tier.get("segments", []) for token in seg.get("tokenized_text", [])]
+        original_token_cursor = 0
+        atom_map_by_di = {atom.di: atom for atom in sanitized_atoms}
+
+        while original_token_cursor < len(flat_original_tokens):
+            token = flat_original_tokens[original_token_cursor]
+            if token['t'] == 'b':
+                new_token_stream.append(token)
+                original_token_cursor += 1
+                continue
+            
+            # It's a 'w' token
+            current_di = token.get('di')
+            if current_di in atom_map_by_di:
+                atom = atom_map_by_di[current_di]
+                
+                consumed_text = ""
+                words_to_consume = len(atom.en_words)
+                words_consumed = 0
+                temp_cursor = original_token_cursor
+                
+                while temp_cursor < len(flat_original_tokens) and words_consumed < words_to_consume:
+                    sub_token = flat_original_tokens[temp_cursor]
+                    consumed_text += sub_token['v']
+                    if sub_token['t'] == 'w':
+                        words_consumed += 1
+                    temp_cursor += 1
+                
+                virtual_token = token.copy()
+                virtual_token['v'] = consumed_text
+                new_token_stream.append(virtual_token)
+                original_token_cursor = temp_cursor
+            else: # Should not happen with exhaustive mapping
+                new_token_stream.append(token)
+                original_token_cursor += 1
+        
+        # Re-bucket the new flat stream into the original segment structure
+        new_token_stream_cursor = 0
+        for original_seg in original_base_tier['segments']:
+            new_seg_tokens = []
+            original_text_len = len("".join(t['v'] for t in original_seg['tokenized_text']))
+            current_seg_len = 0
+            
+            while new_token_stream_cursor < len(new_token_stream) and current_seg_len < original_text_len:
+                token = new_token_stream[new_token_stream_cursor]
+                new_seg_tokens.append(token)
+                current_seg_len += len(token['v'])
+                new_token_stream_cursor += 1
+            
+            reconstructed_text = "".join(t['v'] for t in new_seg_tokens)
+            new_seg = {
+                "seg_id": original_seg['seg_id'],
+                "tokenized_text": new_seg_tokens,
+                "text": reconstructed_text # Rebuild the text field from the new tokens
+            }
+            new_tier['segments'].append(new_seg)
+
+        # Create the final diglot map
+        for atom in sanitized_atoms:
+            is_viable = atom.es_phrase.upper() != "NO_SUB"
+            diglot_map_entry = [atom.di, "TBD", atom.es_phrase, is_viable]
+            
+            first_word_di = atom.di
+            seg_id_for_atom = next(
+                seg['seg_id'] for seg in new_tier['segments'] 
+                for tok in seg['tokenized_text'] if tok.get('di') == first_word_di
+            )
+            new_diglot_map.setdefault(seg_id_for_atom, []).append(diglot_map_entry)
+
+        return new_tier, new_diglot_map
+
     def _rebuild_base_tier_and_map(self, original_base_tier, sanitized_atoms):
         new_diglot_map = {}
         new_token_stream = []
@@ -104,6 +186,7 @@ class ApplyPhraseMappings(SpaCyStage):
             # Consume all tokens (W and B) that make up this atom
             words_to_consume = len(atom.en_words)
             words_consumed = 0
+            aggregated_lemmas = set()
             consumed_text = ""
             start_cursor = original_token_cursor
             
@@ -126,49 +209,26 @@ class ApplyPhraseMappings(SpaCyStage):
             "full_text": original_base_tier['full_text'],
             "segments": []
         }
-        
-        new_token_cursor = 0
-        for original_seg in original_base_tier['segments']:
-            num_tokens_in_original_seg = len(original_seg['tokenized_text'])
-            
-            # This is complex: we need to find the new tokens that correspond to the old ones.
-            # A simpler way is to map new tokens back to their original segment.
-            # For now, let's rebuild the segment text from the new stream.
-            
-            # Rebuild a new token stream segment by segment
-            new_seg_tokens = []
-            new_text_parts = []
-            
-            # Find the start/end DIs for the original segment
-            original_seg_dis = {tok['di'] for tok in original_seg['tokenized_text'] if 'di' in tok}
-            if not original_seg_dis: # Segment is punctuation only
-                 new_base_tier['segments'].append(original_seg)
-                 continue
 
-            min_di, max_di = min(original_seg_dis), max(original_seg_dis)
-
-            # Find corresponding atoms
-            atoms_in_seg = [atom for atom in sanitized_atoms if min_di <= atom.di <= max_di]
-
-            # Rebuild token stream for this segment
-            # This is tricky. Let's simplify by re-tokenizing the original segment text
-            # and then applying the fusions. For now, let's just copy the original and plan to fix.
-            # TODO: This is the hard part - correctly re-bucketing the new fused tokens.
-            # A simpler approach for now that is correct but less efficient:
-            
-        # Re-bucket the new flat stream into the original segment structure
+        # 
         new_token_stream_cursor = 0
         for original_seg in original_base_tier['segments']:
-            new_seg = {"seg_id": original_seg['seg_id'], "tokenized_text": [], "text": original_seg['text']}
-            original_text_len = len(original_seg['text'])
+            new_seg_tokens = []
+            original_text_len = len("".join(t['v'] for t in original_seg['tokenized_text']))
             current_seg_len = 0
             
             while new_token_stream_cursor < len(new_token_stream) and current_seg_len < original_text_len:
                 token = new_token_stream[new_token_stream_cursor]
-                new_seg['tokenized_text'].append(token)
+                new_seg_tokens.append(token)
                 current_seg_len += len(token['v'])
                 new_token_stream_cursor += 1
             
+            reconstructed_text = "".join(t['v'] for t in new_seg_tokens)
+            new_seg = {
+                "seg_id": original_seg['seg_id'],
+                "tokenized_text": new_seg_tokens,
+                "text": reconstructed_text # Rebuild the text field from the new tokens
+            }
             new_base_tier['segments'].append(new_seg)
 
         return new_base_tier, new_diglot_map
@@ -196,12 +256,10 @@ class ApplyPhraseMappings(SpaCyStage):
                 raise validator.ValidationError(f"S_ID {s_id}: Segment ID mismatch at index {i}.")
 
             # 2b. Reconstruct text from new tokens and compare to original segment text
-            reconstructed_text = "".join(token['v'] for token in new_seg['tokenized_text'])
-            if reconstructed_text != original_seg['text']:
+            reconstructed_token_text = "".join(token['v'] for token in new_seg['tokenized_text'])
+            if reconstructed_token_text != new_seg['text']:
                 raise validator.ValidationError(
-                    f"S_ID {s_id}, Seg {original_seg['seg_id']}: Text reconstruction failed after refactor.\n"
-                    f"  Expected: '{original_seg['text']}'\n"
-                    f"  Got:      '{reconstructed_text}'"
+                    f"S_ID {s_id}, Seg {original_seg['seg_id']}: Internal inconsistency. Reconstructed token text does not match the new segment text field."
                 )
         
         logger.debug(f"S_ID {s_id}: Reconstruction validation passed.")

@@ -71,7 +71,7 @@ pub struct NumericalAdvSegmentBundle {
     pub adv_lemma_ids: Vec<u32>,
     pub simpler_text_original: String,
     pub simpler_lemma_ids: Vec<u32>,
-    pub inverse_diglot_map_numerical: Vec<(String, u32, String)>,
+    pub inverse_diglot_map_numerical: Vec<(String, Vec<u32>, String)>,
     pub simpler_text_words: Vec<WordToken>,
     pub simpler_text_backgrounds: Vec<String>,
 }

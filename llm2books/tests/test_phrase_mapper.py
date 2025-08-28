@@ -141,3 +141,30 @@ def test_sanitize_internal_punctuation_atom_is_invalidated():
     sanitized = sanitize_atoms("S_TEST", atoms, tier_with_comma)
 
     assert sanitized == expected_sanitized
+
+def test_parse_llm_atoms_strips_punctuation_from_llm_output():
+    """
+    Ensures that the parser's programmatic safeguard correctly strips
+    punctuation from LLM output, even if the LLM includes it by mistake.
+    """
+    # ARRANGE
+    # Mock LLM output where the LLM has incorrectly included punctuation.
+    raw_map_lines = [
+        "El gato. -> The cat.",
+        "se sentó -> sat down"
+    ]
+    # Mock token stream for "El gato. se sentó"
+    word_tokens = [
+        {'t': 'w', 'v': 'El', 'di': 0}, {'t': 'w', 'v': 'gato', 'di': 1},
+        {'t': 'w', 'v': 'se', 'di': 2}, {'t': 'w', 'v': 'sentó', 'di': 3}
+    ]
+    
+    # ACT
+    result_atoms = parse_llm_phrase_map_to_atoms(raw_map_lines, word_tokens)
+
+    # ASSERT
+    # The es_phrase should be clean, without the period.
+    assert result_atoms[0].es_phrase == "The cat"
+    # The en_words list should also be clean.
+    assert result_atoms[0].en_words == ["El", "gato"]
+    assert len(result_atoms) == 2

@@ -110,5 +110,5 @@ pub struct JsonMappingsV2 {
     #[serde(default)]
     pub simple_target_to_base_diglot: HashMap<String, Vec<(usize, Vec<String>, String, bool)>>,
     #[serde(default, rename = "simpler_adv_target_to_base_inv_diglot")]
-    pub adv_target_to_base_inv_diglot: HashMap<String, Vec<(usize, String, String)>>,
+    pub adv_target_to_base_inv_diglot: HashMap<String, Vec<(usize, Vec<String>, String)>>,
 }

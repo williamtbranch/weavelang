@@ -600,3 +600,42 @@
         (assert-text "El zorro rápido jumped over el perro.")
     )
 )
+
+(test-case "L0 Inverse Diglot Phrase Weaving"
+    (sentence
+        (L0
+            (S "adv-seg1-text" (lem1999))
+            (S "[[El]] [[gato]] [[se sentó]] [[en]] [[la]] [[alfombra]]." (lem1 lem2 lem3000 lem4 lem5 lem6 lem7))
+            (ID
+              (El lem1 The)
+              (gato lem2 cat)
+              (se__sentó lem3__lem4 sat__down)
+              (en lem5 on)
+              (la lem6 the)
+              (alfombra lem1998 carpet) // lem998 is the poison pill
+            )
+        )
+        (L1 // This is the fallback content
+            (S "L1 fallback text" (lem1))
+            (D (dummy lem2 dummy t))
+            (E "[[L1 fallback text]]")
+        )
+    )
+
+    (sub-test "at level 1000, L0 fails due to one unknown lemma in a phrase"
+        (level 1000) // Knows everything except lem998
+        (assert-level AdvancedWeave)
+        // The weave fails on the last phrase, so it substitutes.
+        (assert-text "El gato se sentó en la carpet.")
+    )
+    (sub-test "at level 5, L0 fails on multiple phrases"
+        (level 5) // Only knows lem1-5. Fails on "gato", "se sentó", "alfombra".
+        (assert-level AdvancedWeave)
+        (assert-text "El gato se sentó en the carpet.")
+    )
+    (sub-test "at level 1, L0 fails completely and falls back to L1"
+        (level 1) // Knows almost nothing. The substitution ratio is too high.
+        (assert-level SimpleHybrid)
+        (assert-text "L1 fallback text")
+    )
+)

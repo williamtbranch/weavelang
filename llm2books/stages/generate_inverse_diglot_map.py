@@ -19,6 +19,7 @@ class GenerateInverseDiglotMap(LLMStage):
         )
         self.parser_type = "multi_line"
 
+    #
     def get_system_prompt(self) -> str:
         return llm_prompts.get_system_prompt("generate_inverse_diglot_map", self.resources["language_config"])
 
@@ -50,51 +51,41 @@ class GenerateInverseDiglotMap(LLMStage):
         return items_to_process
 
     #
+    def get_system_prompt(self) -> str:
+        # We need a new, dedicated prompt for this task.
+        return llm_prompts.get_system_prompt("generate_inverse_phrase_map", self.resources["language_config"])
+
+    def prepare_llm_items(self, book_data: Dict) -> List[Dict]:
+        items_to_process = []
+        for block in book_data.get("content_blocks", []):
+            if block.get("block_type") == "sentence":
+                simpler_adv_tier = next((t for t in block["tiers"] if t["tier_id"] == "simpler_advanced_target"), None)
+                if not simpler_adv_tier: continue
+                
+                # We now send the full, clean text of the tier to the LLM
+                prompt_text = simpler_adv_tier["full_text"]
+                
+                items_to_process.append({
+                    "id": block['s_id'],
+                    "text": prompt_text
+                })
+        return items_to_process
+
     def process_llm_results_for_block(self, block: Dict, llm_results: Dict[str, str]) -> Dict:
         """
-        Parses the LLM's response and builds the inverse diglot map.
-        This version uses a segment-level index for the words.
+        Stores the raw LLM phrase map output for the next stage to process.
         """
-        mappings = block.setdefault("mappings", {})
-        inv_diglot_map = mappings.setdefault("simpler_adv_target_to_base_inv_diglot", {})
-        
-        simpler_adv_tier = next((t for t in block["tiers"] if t["tier_id"] == "simpler_advanced_target"), {})
-
-        # --- FIX START ---
-        # The sentence-level counter has been removed. The index will now be
-        # calculated locally within each segment loop.
-
-        for seg in simpler_adv_tier.get("segments", []):
-            seg_id = seg["seg_id"]
-            lookup_key = f"{block['s_id']}_{seg_id}"
-
-            if lookup_key in llm_results:
-                response_text = llm_results[lookup_key]
-                response_map = {}
-                for line in response_text.splitlines():
-                    if '->' in line:
-                        parts = line.split('->', 1)
-                        if len(parts) == 2:
-                            response_map[parts[0].strip()] = parts[1].strip()
-
-                seg_entries = []
-                word_tokens = [tok for tok in seg.get("tokenized_text", []) if tok.get("t") == "w"]
-
-                # This index is now local to the segment, resetting for each one.
-                segment_word_index_counter = 0
-                for token in word_tokens:
-                    target_word = token.get("v")
-                    base_sub = response_map.get(target_word, "NO_SUB")
-
-                    if ' ' in base_sub:
-                        base_sub = "NO_SUB"
-
-                    seg_entries.append([segment_word_index_counter, "TBD", base_sub])
-                    segment_word_index_counter += 1
-
-                inv_diglot_map[seg_id] = seg_entries
-        
-        # --- FIX END ---
+        s_id = block['s_id']
+        if s_id in llm_results:
+            # We no longer parse here. We just store the raw lines.
+            raw_map_str = llm_results[s_id]
+            
+            # Basic validation can still happen here
+            if '->' not in raw_map_str:
+                 logger.warning(f"S_ID {s_id}: LLM response for inverse phrase map did not contain '->'. Storing empty map.")
+                 block.setdefault("mappings", {})["raw_inverse_phrase_map"] = []
+            else:
+                block.setdefault("mappings", {})["raw_inverse_phrase_map"] = raw_map_str.splitlines()
 
         block.setdefault("processing_status", {})[self.stage_name] = "COMPLETED"
         return block

@@ -49,8 +49,6 @@ def create_golden_token_stream(original_sentence: str, nlp_doc: Any) -> List[Dic
         
         # --- ROBUSTNESS CHECK FOR STANZA'S BUG ---
         if start_char is None or end_char is None:
-            # We log this but no longer crash, allowing the stream to be built from valid tokens.
-            logger.warning(f"Skipping a Stanza token with missing char indices in sentence: '{original_sentence}'")
             continue
         
         if start_char > last_idx:

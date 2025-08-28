@@ -3,12 +3,6 @@ import logging
 import sys
 import pprint
 from pathlib import Path
-print("\n--- [DEBUG] Python sys.path Investigation ---")
-pprint.pprint(sys.path)
-print("--- [DEBUG] End of sys.path ---\n")
-dev_root = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(dev_root))
-print(f"\n--- [TRACE] Forcefully added '{dev_root}' to Python's path. ---\n")
 import re
 from typing import Optional, Dict, Any
 from .stanza_segmenter import EnglishStanzaProcessor, SpanishStanzaProcessor
@@ -16,10 +10,11 @@ from .stages import (
     AssembleTiers, 
     GenerateSimpleTarget, 
     FinalizeSimpleTarget,
-    FinalizeSimplerAdvTarget, # <-- NEW
+    FinalizeSimplerAdvTarget,
     GeneratePhraseMap, 
     ApplyPhraseMappings, 
     GenerateInverseDiglotMap,
+    ApplyInversePhraseMappings, # <-- NEW
     FinalizeMappings,
     FinalizeBook,
 )
@@ -51,12 +46,13 @@ PIPELINE_STAGES = [
     AssembleTiers,              # Stage 1
     GenerateSimpleTarget,       # Stage 2
     FinalizeSimpleTarget,       # Stage 3
-    FinalizeSimplerAdvTarget,   # Stage 4 (NEW)
+    FinalizeSimplerAdvTarget,   # Stage 4
     GeneratePhraseMap,          # Stage 5
     ApplyPhraseMappings,        # Stage 6
     GenerateInverseDiglotMap,   # Stage 7
-    FinalizeMappings,           # Stage 8
-    FinalizeBook,               # Stage 9
+    ApplyInversePhraseMappings, # Stage 8 (NEW)
+    FinalizeMappings,           # Stage 9 (Renumbered)
+    FinalizeBook,               # Stage 10 (Renumbered)
 ]
 
 # ... (get_logger, build_language_config, get_source_lang_from_file functions remain the same) ...

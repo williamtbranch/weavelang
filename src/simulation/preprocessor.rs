@@ -87,17 +87,26 @@ pub fn json_sentence_to_numerical(
         
         let inv_diglot_mapping = s_sentence.mappings.adv_target_to_base_inv_diglot.get(&adv_seg.seg_id).cloned().unwrap_or_default();
         let (simpler_text_words, simpler_text_backgrounds) = map_tokenized_text(&simpler_seg.tokenized_text);
-
         NumericalAdvSegmentBundle {
             a_id_str: adv_seg.seg_id.clone(),
             adv_text_original: adv_seg.text.clone(),
             adv_lemma_ids: string_lemmas_to_ids(&adv_seg.lemmas, dictionary),
             simpler_text_original: simpler_seg.text.clone(),
             simpler_lemma_ids: string_lemmas_to_ids(&simpler_seg.lemmas, dictionary),
-            inverse_diglot_map_numerical: inv_diglot_mapping.iter().map(|(sentence_word_idx, lemma, sub)| {
-                let original_word = all_simpler_tier_words.get(*sentence_word_idx)
+            inverse_diglot_map_numerical: inv_diglot_mapping.iter().map(|(_sentence_word_idx, lemmas, sub)| {
+                let original_word = all_simpler_tier_words.get(*_sentence_word_idx)
                     .map_or("", |token| &token.value);
-                (original_word.to_string(), dictionary.get_id_or_insert(lemma), sub.clone())
+                
+                // --- THIS IS THE FIX ---
+                // We are mapping over the `lemmas` Vec<String> to produce a Vec<u32>.
+                // The explicit type annotation `: Vec<u32>` makes the intent clear.
+                let current_entry_lemma_ids: Vec<u32> = lemmas
+                    .iter()
+                    .map(|l_str| dictionary.get_id_or_insert(l_str))
+                    .collect();
+                
+                (original_word.to_string(), current_entry_lemma_ids, sub.clone())
+                // --- END OF FIX ---
             }).collect(),
             simpler_text_words,
             simpler_text_backgrounds,

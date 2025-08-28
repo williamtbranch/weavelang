@@ -50,7 +50,7 @@ pub struct DslDiglotTuple {
 #[derive(Debug, Clone)]
 pub struct DslInvDiglotTuple {
     pub _spanish_word: String,
-    pub spanish_lemma: String,
+    pub spanish_lemmas: Vec<String>,
     pub english_substitute: String,
 }
 
@@ -290,10 +290,23 @@ fn parse_diglot_tuple(pair: Pair<Rule>) -> DslDiglotTuple {
 
 fn parse_inv_diglot_tuple(pair: Pair<Rule>) -> DslInvDiglotTuple {
     let mut inner = pair.into_inner();
+    let spanish_word = inner.next().unwrap().as_str().to_string().replace("__", " ");
+    
+    // --- THIS IS THE FIX ---
+    // Split the combined lemma string into a vector of individual lemma strings.
+    let combined_lemmas_str = inner.next().unwrap().as_str();
+    let spanish_lemmas = combined_lemmas_str
+        .split("__")
+        .map(|s| s.to_string())
+        .collect();
+    // --- END OF FIX ---
+
+    let english_substitute = inner.next().unwrap().as_str().to_string().replace("__", " ");
+
     DslInvDiglotTuple {
-        _spanish_word: inner.next().unwrap().as_str().to_string(),
-        spanish_lemma: inner.next().unwrap().as_str().to_string(),
-        english_substitute: inner.next().unwrap().as_str().to_string(),
+        _spanish_word: spanish_word,
+        spanish_lemmas,
+        english_substitute,
     }
 }
 
