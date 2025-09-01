@@ -108,7 +108,10 @@ pub struct JsonTierV2 {
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct JsonMappingsV2 {
     #[serde(default)]
-    pub simple_target_to_base_diglot: HashMap<String, Vec<(usize, Vec<String>, String, bool)>>,
+    // The tuple now has 5 elements: (base_di, lemmas, form, viable, eng_word_count)
+    pub simple_target_to_base_diglot: HashMap<String, Vec<(usize, Vec<String>, String, bool, usize)>>,
+    
     #[serde(default, rename = "simpler_adv_target_to_base_inv_diglot")]
-    pub adv_target_to_base_inv_diglot: HashMap<String, Vec<(usize, Vec<String>, String)>>,
+    // The tuple for the inverse map is already correct with 4 elements.
+    pub adv_target_to_base_inv_diglot: HashMap<String, Vec<(usize, Vec<String>, String, usize)>>,
 }

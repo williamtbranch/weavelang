@@ -31,22 +31,44 @@ fn log_analysis_to_file(
     segment_stats: &HashMap<SegmentType, usize>,
     total_sentences: usize,
     final_profile: &NumericalLearnerProfile,
+    // --- NEW PARAMETERS ---
+    total_spanish_words: usize,
+    total_english_words: usize,
 ) -> Result<(), std::io::Error> {
     let mut file = OpenOptions::new().create(true).append(true).open(log_file_path)?;
-    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let timestamp = chrono::Local::now().format("%Y-m-%d %H:%M:%S").to_string();
+
+    let total_output_words = total_spanish_words + total_english_words;
+    let english_percentage = if total_output_words > 0 {
+        (total_english_words as f32 / total_output_words as f32) * 100.0
+    } else {
+        0.0
+    };
+
     writeln!(file, "--- Analysis for Book Instance: {} (at {}) ---", book_instance_unique_id, timestamp)?;
+    
+    // --- NEW: Add the word count summary block ---
+    writeln!(file, "  Output Word Count Summary:")?;
+    writeln!(file, "    Total Spanish Words: {:>5}", total_spanish_words)?;
+    writeln!(file, "    Total English Words: {:>5}", total_english_words)?;
+    writeln!(file, "    -------------------------")?;
+    writeln!(file, "    Total Output Words:  {:>5}", total_output_words)?;
+    writeln!(file, "    English Percentage:  {:>5.2}%", english_percentage)?;
+    // --- END: New block ---
+
     let total_sentences_float = total_sentences as f32;
     if total_sentences_float > 0.0 {
-        writeln!(file, "  Sentence Level Distribution:")?;
+        writeln!(file, "\n  Sentence Level Distribution:")?;
         let get_level_count = |level: OutputLevel| -> usize { *level_stats.get(&level).unwrap_or(&0) };
         let l0_count = get_level_count(OutputLevel::AdvancedWeave);
         let l1_count = get_level_count(OutputLevel::SimpleHybrid);
         writeln!(file, "    L0 Advanced Weave: {:>5} sentences ({:>6.2}%)", l0_count, (l0_count as f32 / total_sentences_float) * 100.0)?;
         writeln!(file, "    L1 Simple Hybrid:  {:>5} sentences ({:>6.2}%)", l1_count, (l1_count as f32 / total_sentences_float) * 100.0)?;
     } else { writeln!(file, "  No sentences processed for this instance.")?; }
+    
     let total_segments = segment_stats.values().sum::<usize>();
     if total_segments > 0 {
-        writeln!(file, "  Segment Type Distribution (Total: {} segments):", total_segments)?;
+        writeln!(file, "\n  Segment Type Distribution (Total: {} segments):", total_segments)?;
         let get_segment_count = |seg_type: SegmentType| -> usize { *segment_stats.get(&seg_type).unwrap_or(&0) };
         let as_count = get_segment_count(SegmentType::AdvancedSpanish);
         let ms_count = get_segment_count(SegmentType::ModerateSpanish);
@@ -62,9 +84,10 @@ fn log_analysis_to_file(
         writeln!(file, "    ED (English Diglot):   {:>5} segments ({:>6.2}%)", ed_count, (ed_count as f32 / total_segments_float) * 100.0)?;
         writeln!(file, "    EN (English):          {:>5} segments ({:>6.2}%)", en_count, (en_count as f32 / total_segments_float) * 100.0)?;
     }
-    writeln!(file, "  Final Profile State:")?;
+    
+    writeln!(file, "\n  Final Profile State:")?;
     writeln!(file, "    Activated Lemmas: {}", final_profile.vocabulary.len())?;
-    writeln!(file, "---------------------------------------------------------\n")?;
+    writeln!(file, "----------------------------------------------------------------------\n")?;
     Ok(())
 }
 
@@ -300,6 +323,9 @@ pub fn run_corpus_generation(
         let mut book_level_stats = HashMap::new();
         let mut book_segment_stats = HashMap::new();
 
+        let mut total_spanish_words_for_book = 0;
+        let mut total_english_words_for_book = 0;
+
         for (_sentence_idx, n_sentence) in numerical_chapter.sentences_numerical.iter().enumerate() {
             /* 
             if let Some(lemmas_to_activate) = activation_map.get(&sentence_idx) {
@@ -316,7 +342,8 @@ pub fn run_corpus_generation(
                 &global_lemma_dictionary,
                 args.inverse_diglot_threshold,
             );
-            
+            total_spanish_words_for_book += output.spanish_word_count;
+            total_english_words_for_book += output.english_word_count;
             let s_sentence_json = json_chapter.content_blocks.iter().find_map(|cb| match cb {
                 JsonContentBlock::Sentence(s) if s.s_id == n_sentence.sentence_id_str => Some(s), _ => None,
             }).ok_or("Mismatch between numerical and json sentences")?;
@@ -361,11 +388,19 @@ pub fn run_corpus_generation(
         fs::write(&tts_output_file_path, final_cleaned_text)?;
         println!("  Saved TTS file to: {}", filename);
         
-        log_analysis_to_file(&analysis_log_path, &filename, &book_level_stats, &book_segment_stats, numerical_chapter.sentences_numerical.len(), &learner_profile)?;
 
         state.current_start_level = target_final_level;
+    log_analysis_to_file(
+            &analysis_log_path,
+            &filename,
+            &book_level_stats,
+            &book_segment_stats,
+            numerical_chapter.sentences_numerical.len(),
+            &learner_profile,
+            total_spanish_words_for_book,
+            total_english_words_for_book,
+        )?;
     }
-
     // --- DEBUG: Confirming loop finished ---
     println!("[DEBUG] Finished looping through sequence file. Total book stems found and processed: {}", book_stems_found);
     println!("\n[INFO] Batch generation job finished.");

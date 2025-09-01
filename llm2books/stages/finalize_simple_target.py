@@ -41,7 +41,7 @@ class FinalizeSimpleTarget(SpaCyStage):
                         continue
 
                     seg_doc = spacy_target(raw_seg_text)
-                    final_token_list = helper.create_golden_token_stream(raw_seg_text, seg_doc)
+                    final_token_list = helper.create_golden_token_stream(seg_doc)
                     
                     seg_lemmas = set()
                     for token in final_token_list:

@@ -122,94 +122,55 @@ fn compile_dsl_sentence_to_numerical(
     let mut json_sentence = JsonSentenceBlock::default();
     json_sentence.s_id = test_case.name.clone();
 
-    // --- L0 Inverse Diglot Integrity Validation ---
+    // --- L0 Inverse Diglot Integrity Validation (Unchanged) ---
     let l0_chunks: Vec<_> = test_case.sentence_def.l0_def.segments.chunks(3).collect();
     for (i, chunk) in l0_chunks.iter().enumerate() {
         if chunk.len() == 1 && matches!(&chunk[0].spec, DslSegmentSpecEnum::Spanish {..}) {
-             continue; // This is a valid L0 failure test case, skip validation.
+             continue;
         }
         if chunk.len() != 3 {
-            panic!(
-                "Test Case '{}': L0 definition is malformed. Expected groups of 3 (S, S, ID), but found a group of size {} at index {}.",
-                test_case.name, chunk.len(), i
-            );
+            panic!( "Test Case '{}': L0 is malformed. Expected groups of 3 (S, S, ID), found group of size {} at index {}.", test_case.name, chunk.len(), i);
         }
         let simpler_text_spec = &chunk[1].spec;
         let inv_diglot_spec = &chunk[2].spec;
-
         if let (DslSegmentSpecEnum::Spanish { tokens: simpler_tokens, .. }, DslSegmentSpecEnum::InvDiglot { tuples }) = (simpler_text_spec, inv_diglot_spec) {
             let word_count = simpler_tokens.iter().filter(|t| t.token_type == JsonTokenType::Word).count();
-            let tuple_count = tuples.len();
-
-            if word_count != tuple_count {
-                panic!(
-                    "Test Case '{}': L0 data mismatch in segment bundle {}. Simpler text has {} words, but Inverse Diglot map has {} entries. They must match.",
-                    test_case.name, i + 1, word_count, tuple_count
-                );
+            if word_count != tuples.len() {
+                panic!( "Test Case '{}': L0 mismatch in segment {}. Simpler text has {} words, ID map has {} entries.", test_case.name, i + 1, word_count, tuples.len());
             }
         } else {
-             panic!(
-                "Test Case '{}': L0 definition is malformed. Expected (S, S, ID) structure in segment bundle {}.",
-                test_case.name, i + 1
-            );
+             panic!( "Test Case '{}': L0 is malformed. Expected (S, S, ID) structure in segment {}.", test_case.name, i + 1);
         }
     }
     
-    // --- L1 Simple Diglot Integrity Validation ---
+    // --- L1 Simple Diglot Integrity Validation (Unchanged) ---
     let l1_chunks: Vec<_> = test_case.sentence_def.l1_def.segments.chunks(3).collect();
     for (i, chunk) in l1_chunks.iter().enumerate() {
         if chunk.len() != 3 {
-             panic!(
-                "Test Case '{}': L1 definition is malformed. Expected groups of 3 (S, D, E), but found a group of size {} at index {}.",
-                test_case.name, chunk.len(), i
-            );
+             panic!("Test Case '{}': L1 is malformed. Expected groups of 3 (S, D, E), found group of size {} at index {}.", test_case.name, chunk.len(), i);
         }
         let diglot_spec = &chunk[1].spec;
         let english_spec = &chunk[2].spec;
-
         if let (DslSegmentSpecEnum::Diglot { tuples }, DslSegmentSpecEnum::English { tokens }) = (diglot_spec, english_spec) {
             let word_token_count = tokens.iter().filter(|t| t.token_type == JsonTokenType::Word).count();
-            let diglot_tuple_count = tuples.len();
-
-            if word_token_count != diglot_tuple_count {
-                panic!(
-                    "Test Case '{}': L1 data integrity failure in segment bundle {}. English spec has {} [[word]] tokens, but Diglot spec has {} mapping tuples. They MUST match 1-to-1.",
-                    test_case.name, i + 1, word_token_count, diglot_tuple_count
-                );
+            if word_token_count != tuples.len() {
+                panic!("Test Case '{}': L1 mismatch in segment {}. English spec has {} [[word]] tokens, Diglot spec has {} tuples.", test_case.name, i + 1, word_token_count, tuples.len());
             }
         }
     }
     
-    // --- Now, build the tiers since validation passed ---
-
-    let l0_spanish_segments: Vec<_> = test_case.sentence_def.l0_def.segments.iter()
-        .filter(|s| matches!(&s.spec, DslSegmentSpecEnum::Spanish {..}))
-        .cloned()
-        .collect();
-
+    // --- Build Tiers (Unchanged) ---
+    let l0_spanish_segments: Vec<_> = test_case.sentence_def.l0_def.segments.iter().filter(|s| matches!(&s.spec, DslSegmentSpecEnum::Spanish {..})).cloned().collect();
     let mut adv_target_tier = build_single_tier(&l0_spanish_segments, "A", |i, _| i % 2 == 0);
     adv_target_tier.tier_id = "advanced_target".to_string();
-
     let mut simpler_adv_target_tier = build_single_tier(&l0_spanish_segments, "A", |i, _| i % 2 != 0);
     simpler_adv_target_tier.tier_id = "simpler_advanced_target".to_string();
-
-    let mut base_tier = build_single_tier(&test_case.sentence_def.l1_def.segments, "S", |_, s| {
-        matches!(&s.spec, DslSegmentSpecEnum::English{..})
-    });
+    let mut base_tier = build_single_tier(&test_case.sentence_def.l1_def.segments, "S", |_, s| matches!(&s.spec, DslSegmentSpecEnum::English{..}));
     base_tier.tier_id = "base".to_string();
-
-    let mut simple_target_tier = build_single_tier(&test_case.sentence_def.l1_def.segments, "S", |_, s| {
-        matches!(&s.spec, DslSegmentSpecEnum::Spanish{..})
-    });
+    let mut simple_target_tier = build_single_tier(&test_case.sentence_def.l1_def.segments, "S", |_, s| matches!(&s.spec, DslSegmentSpecEnum::Spanish{..}));
     simple_target_tier.tier_id = "simple_target".to_string();
     
-    let reconstruct_and_set_full_text = |tier: &mut JsonTierV2| {
-        let text = tier.segments.iter()
-           .map(|s| s.text.clone())
-           .collect::<String>();
-        tier.full_text = text;
-    };
-    
+    let reconstruct_and_set_full_text = |tier: &mut JsonTierV2| { tier.full_text = tier.segments.iter().map(|s| s.text.clone()).collect::<String>(); };
     reconstruct_and_set_full_text(&mut base_tier);
     reconstruct_and_set_full_text(&mut simple_target_tier);
     reconstruct_and_set_full_text(&mut adv_target_tier);
@@ -217,24 +178,32 @@ fn compile_dsl_sentence_to_numerical(
     
     json_sentence.tiers = vec![base_tier, simple_target_tier, adv_target_tier, simpler_adv_target_tier];
 
-    for (i, chunk) in test_case.sentence_def.l1_def.segments.chunks(3).enumerate() {
+    // --- Build Mappings with Pre-calculated Counts (THIS IS THE FIX) ---
+    for (i, chunk) in l1_chunks.iter().enumerate() {
         let seg_id = format!("S{}", i + 1);
-        if let Some((_, dig_spec, _)) = chunk.iter().collect_tuple() {
-            if let DslSegmentSpecEnum::Diglot { tuples } = &dig_spec.spec {
-                let entries = tuples.iter().enumerate().map(|(idx, t)| {
-                    (idx, t.replacement_lemmas.clone(), t.replacement_word.clone(), t.is_viable)
+        if let Some((_, dig_spec, eng_spec)) = chunk.iter().collect_tuple() {
+            if let (DslSegmentSpecEnum::Diglot { tuples }, DslSegmentSpecEnum::English { tokens: eng_tokens }) = (&dig_spec.spec, &eng_spec.spec) {
+                let entries = tuples.iter().zip(eng_tokens.iter().filter(|t| t.token_type == JsonTokenType::Word)).map(|(t, eng_tok)| {
+                    let eng_word_count = eng_tok.value.split_whitespace().count();
+                    // The first element should be the diglot_index from the token, not a string length.
+                    let base_di = eng_tok.diglot_index.unwrap_or(0); 
+                    (base_di, t.replacement_lemmas.clone(), t.replacement_word.clone(), t.is_viable, eng_word_count)
                 }).collect();
                 json_sentence.mappings.simple_target_to_base_diglot.insert(seg_id.clone(), entries);
             }
         }
     }
+
     for (i, chunk) in l0_chunks.iter().enumerate() {
         let seg_id = format!("A{}", i + 1);
         if chunk.len() == 3 {
-             if let Some((_, _, inv_spec)) = chunk.iter().collect_tuple() {
-                if let DslSegmentSpecEnum::InvDiglot { tuples } = &inv_spec.spec {
-                    let entries = tuples.iter().enumerate().map(|(idx, t)| {
-                        (idx, t.spanish_lemmas.clone(), t.english_substitute.clone())
+             if let Some((_, simpler_spec, inv_spec)) = chunk.iter().collect_tuple() {
+                if let (DslSegmentSpecEnum::Spanish { tokens: simpler_tokens, .. }, DslSegmentSpecEnum::InvDiglot { tuples }) = (&simpler_spec.spec, &inv_spec.spec) {
+                    let word_tokens: Vec<_> = simpler_tokens.iter().filter(|t| t.token_type == JsonTokenType::Word).collect();
+                    let entries = tuples.iter().zip(word_tokens.iter()).map(|(t, simpler_tok)| {
+                        // HERE is where we calculate the count for the inverse diglot entry.
+                        let eng_word_count = t.english_substitute.split_whitespace().count();
+                        (simpler_tok.value.len(), t.spanish_lemmas.clone(), t.english_substitute.clone(), eng_word_count)
                     }).collect();
                     json_sentence.mappings.adv_target_to_base_inv_diglot.insert(seg_id.clone(), entries);
                 }

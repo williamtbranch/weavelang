@@ -9,6 +9,8 @@ from . import helper, llm_prompts, validator, llm_utils
 from .stanza_segmenter import StanzaLanguageProcessor
 from .llm_logger import LLMLogger
 
+from . import helper
+
 logger = logging.getLogger("pipeline")
 
 class PoolManager:
@@ -171,7 +173,7 @@ class PoolManager:
     # --- The following methods (generate_std_file, generate_sim_file, etc.)
     # can remain exactly as they were in our last fully working version.
     # I am including them here for completeness. ---
-
+            #
     def generate_std_file(self, book_stem: str, lang_code: str, translated_items: Optional[List[Dict]] = None) -> Optional[Path]:
         logger.info(f"  -> Generating pool file: '{book_stem}.{lang_code}.std.json'")
         std_file_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.std.json"
@@ -195,12 +197,20 @@ class PoolManager:
                 continue
             
             if item['type'] == 'sentence':
-                s_id, full_text = item['s_id'], item['text']
-                if not full_text.strip(): continue
+                s_id, original_text = item['s_id'], item['text']
+                if not original_text.strip(): continue
 
+                # --- THE FINAL, CORRECT LOGIC ---
+                # 1. Pre-process text for consistent tokenization.
+                full_text = helper.preprocess_for_spacy(original_text)
+
+                # 2. Process the CLEAN text with both libraries.
                 spacy_doc = spacy_model(full_text)
-                golden_stream = helper.create_golden_token_stream(full_text, spacy_doc)
                 segments_text = stanza_processor.segment_sentence(full_text)
+                
+                # 3. Generate the golden stream from the clean doc object.
+                golden_stream = helper.create_golden_token_stream(spacy_doc)
+                # --- END OF FINAL LOGIC ---
                 
                 word_tokens = [tok for tok in golden_stream if tok['t'] == 'w']
                 current_word_idx = 0
@@ -247,7 +257,6 @@ class PoolManager:
                     segments_data.append({ "seg_id": f"S{i+1}", "text": seg_text, "tokenized_text": bucket, "lemmas": sorted(list(seg_lemmas))})
                 
                 output_content.append({ "block_type": "sentence", "s_id": s_id, "full_text": full_text, "lemmas": sorted(list(all_lemmas)), "segments": segments_data })
-
         output_sentence_count = sum(1 for block in output_content if block.get('block_type') == 'sentence')
         if source_sentence_count != output_sentence_count:
             logger.error(f"Integrity Check FAILED for '{std_file_path.name}': Source had {source_sentence_count} sentences, but output has {output_sentence_count}. Halting.")
@@ -305,7 +314,7 @@ class PoolManager:
             
             for seg_data in new_segs:
                 seg_doc = spacy(seg_data["text"])
-                tokens = helper.create_golden_token_stream(seg_data["text"], seg_doc)
+                tokens = helper.create_golden_token_stream(seg_doc)
                 seg_lemmas = {lemma_map.get(t['v']) for t in tokens if t['t'] == 'w' and lemma_map.get(t['v'])}
                 for t in tokens:
                     if t['t'] == 'w' and (l := lemma_map.get(t['v'])): t['l'] = [l]

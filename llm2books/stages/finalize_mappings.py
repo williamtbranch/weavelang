@@ -25,11 +25,26 @@ class FinalizeMappings(SpaCyStage):
 
         for block in data.get("content_blocks", []):
             if block.get("block_type") == "sentence":
-                # --- Finalize the Simple Diglot Map (Unchanged) ---
+                #
+                base_tier = next((t for t in block.get("tiers", []) if t["tier_id"] == "base"), None)
+                
+                # Create a lookup map for base tier virtual tokens by their diglot index
+                base_token_map = {}
+                if base_tier:
+                    for seg in base_tier.get("segments", []):
+                        for token in seg.get("tokenized_text", []):
+                            if token.get("t") == "w" and "di" in token:
+                                base_token_map[token["di"]] = token
+
                 diglot_map = block.get("mappings", {}).get("simple_target_to_base_diglot", {})
                 for seg_id, entries in diglot_map.items():
+                    # We will build a new list of entries with the correct 5-element structure
+                    new_entries = []
                     for entry in entries:
-                        is_viable, target_phrase = entry[3], entry[2]
+                        # Original entry is [base_di, "TBD", target_phrase, is_viable]
+                        base_di, _, target_phrase, is_viable = entry
+                        
+                        # --- Lemma Logic (Unchanged) ---
                         lemmas_list = []
                         if is_viable and target_phrase:
                             doc = spacy_target(target_phrase)
@@ -38,7 +53,19 @@ class FinalizeMappings(SpaCyStage):
                                 for token in doc if not token.is_punct and not token.is_space
                             ]
                             lemmas_list = [lemma for lemma in lemmas_list if lemma]
-                        entry[1] = lemmas_list
+                        
+                        # --- NEW: Word Count Logic ---
+                        eng_word_count = 0
+                        base_token = base_token_map.get(base_di)
+                        if base_token:
+                            # Count the words in the English virtual token's value
+                            eng_word_count = len(base_token.get("v", "").split())
+                        
+                        # Append the new 5-element tuple to our list
+                        new_entries.append([base_di, lemmas_list, target_phrase, is_viable, eng_word_count])
+                    
+                    # Replace the old 4-element list with the new 5-element list
+                    diglot_map[seg_id] = new_entries
 
                 # --- REFACTORED: Finalize the Inverse Diglot Map ---
                 inv_diglot_map = block.get("mappings", {}).get("simpler_adv_target_to_base_inv_diglot", {})

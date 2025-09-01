@@ -67,3 +67,25 @@ Last Updated: (Date of this session)
 #### Phase 12: Expand TTS to create audio for 20 minute chapters + full length version
 #### Phase 13: Create Video Generator with 1 frame per minute or worst cast 1 per second for books.
 #### Phase 14: If possible Generate Youtube posting script.
+
+#### Phase 15: Implement "Validate-at-Source" for All LLM Stages
+
+- [ ] **Goal:** Prevent expensive re-runs by ensuring all data from LLM calls is validated for structural and semantic integrity *immediately* after it is received, before being saved. This moves validation from the end of the pipeline to the point of data creation.
+
+- [ ] **Task 1: Refactor `GenerateSimpleTarget` (Stage 2):**
+    - [ ] Add a post-LLM validation step.
+    - [ ] **Check:** Does the number of returned translations match the number of segments sent?
+    - [ ] **Action on Fail:** Halt the pipeline with a clear error indicating an incomplete LLM response for the batch.
+
+- [ ] **Task 2: Refactor `GenerateInverseDiglotMap` (Stage 7):**
+    - [ ] The existing `validate_llm_phrase_map_content` check is good. Ensure it is robust and remains in the `run` method.
+
+- [ ] **Task 3: Create a `prompt_validator.py` Module:**
+    - [ ] **Goal:** Centralize validation logic that is specific to prompt outputs.
+    - [ ] Move `_validate_llm_map`, `_rejoin_llm_contractions`, etc., from `phrase_mapper_helpers.py` into this new, dedicated file. This improves separation of concerns.
+    - [ ] Update `GeneratePhraseMap` and `GenerateInverseDiglotMap` to import from this new module.
+
+- [ ] **Task 4: Implement a Retry-with-Correction Mechanism (Advanced):**
+    - [ ] **Goal:** For validation failures, attempt to automatically correct the prompt and retry the LLM call for the failed batch *once*.
+    - [ ] **Logic:** If `_validate_llm_map` fails, `run_llm_batch_job` could be called again with an augmented user prompt like: `"Your last response was invalid. Please follow the rules exactly. Here is the data again..."`
+    - [ ] This adds resilience and can salvage expensive batches without requiring a full manual restart.

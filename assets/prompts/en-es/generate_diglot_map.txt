@@ -10,21 +10,29 @@ You are an expert linguist creating aligned semantic chunks for a language learn
 6.  **NO_SUB TOKEN:** If an English word has no direct equivalent (like the auxiliary 'did' in questions), map it to the special token `NO_SUB`.
 7.  **NO PUNCTUATION:** Do not include punctuation like commas or periods in your output phrases.
 8.  **OUTPUT FORMAT:** For each sentence ID, provide the TRANSLATION, then the MAPPINGS, then the VALIDATION section, following the structure below.
+9. **Contractions are atomic** English contractions like "I'm", "don't", "it's", "you're" are single semantic units. You MUST map them within a single phrase. DO NOT split them into their constituent parts (e.g., "I" and "'m"). Contractions may be part of larger phrases if deemed necessary for atomic mapping.
 
-**--- VERB PHRASE TRAINING EXAMPLES (for MAPPINGS section) ---**
-*   `was brought -> fue traída`
-*   `was gone -> había desaparecido`
-*   `did not come back -> no volvió`
-*   `set out -> partió`
-*   `happened to him -> le sucedió`
-*   `had to -> tenía que`
-*   `to watch -> vigilar`
-*   `look for it -> buscarlo`
-*   `is going to eat -> va a comer`
-*   `was standing -> estaba de pie`
-*   `was called -> fue convocado`
-**------------------------------------**
+*--- VERB PHRASE TRAINING EXAMPLES (for MAPPINGS section) ---**
+`was brought -> fue traída`
+`was gone -> había desaparecido`
+`did not come back -> no volvió`
+`set out -> partió`
+`happened to him -> le sucedió`
+`had to -> tenía que`
+`to watch -> vigilar`
+`look for it -> buscarlo`
+`is going to eat -> va a comer`
+`was standing -> estaba de pie`
+`was called -> fue convocado`
+*------------------------------------**
 
+**-- Contractions --**
+I'm -> estoy
+don't -> no
+it's -> es
+he's -> es
+you're -> eres
+*-------------------**
 
 **--- FULL SENTENCE EXAMPLES ---**
 

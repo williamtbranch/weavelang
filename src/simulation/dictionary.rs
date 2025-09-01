@@ -73,9 +73,9 @@ impl GlobalLemmaDictionary {
                     }
                 }
                 for (_, entries) in &s_sentence.mappings.simple_target_to_base_diglot {
-                    for (_, lemmas, _, viable) in entries {
+                    // The tuple now has 5 elements. We add `_eng_wc` to match the structure.
+                    for (_, lemmas, _, viable, _eng_wc) in entries {
                         if *viable {
-                            // Correctly iterate through the Vec<String> of lemmas
                             for lemma in lemmas {
                                 self.get_id_or_insert(lemma);
                             }
@@ -85,7 +85,7 @@ impl GlobalLemmaDictionary {
                 // --- THIS IS THE FIX ---
                 for (_, entries) in &s_sentence.mappings.adv_target_to_base_inv_diglot {
                      // 'lemmas' is now a Vec<String>
-                     for (_, lemmas, _) in entries {
+                     for (_, lemmas, _, _) in entries {
                         // We must loop through the vector
                         for lemma in lemmas {
                             self.get_id_or_insert(lemma);

@@ -7,11 +7,11 @@ use crate::simulation::numerical_types::{
 use crate::types::json_types::{
     JsonChapter, JsonContentBlock, JsonSentenceBlock, JsonTokenV2, JsonTokenType,
 };
-
 pub fn json_chapter_to_numerical(
     json_chapter: &JsonChapter,
     dictionary: &mut GlobalLemmaDictionary,
 ) -> (NumericalChapter, Vec<usize>) {
+
     let mut english_word_counts: Vec<usize> = Vec::new();
 
     let sentences_numerical: Vec<NumericalProcessedSentence> = json_chapter
@@ -87,39 +87,35 @@ pub fn json_sentence_to_numerical(
         
         let inv_diglot_mapping = s_sentence.mappings.adv_target_to_base_inv_diglot.get(&adv_seg.seg_id).cloned().unwrap_or_default();
         let (simpler_text_words, simpler_text_backgrounds) = map_tokenized_text(&simpler_seg.tokenized_text);
+
         NumericalAdvSegmentBundle {
             a_id_str: adv_seg.seg_id.clone(),
             adv_text_original: adv_seg.text.clone(),
             adv_lemma_ids: string_lemmas_to_ids(&adv_seg.lemmas, dictionary),
             simpler_text_original: simpler_seg.text.clone(),
             simpler_lemma_ids: string_lemmas_to_ids(&simpler_seg.lemmas, dictionary),
-            inverse_diglot_map_numerical: inv_diglot_mapping.iter().map(|(_sentence_word_idx, lemmas, sub)| {
-                let original_word = all_simpler_tier_words.get(*_sentence_word_idx)
+            // --- THIS IS THE CHANGE ---
+            // We now map the 4-element tuple from JSON to our 4-element numerical tuple.
+            inverse_diglot_map_numerical: inv_diglot_mapping.iter().map(|(_v_token_idx, lemmas, sub, eng_wc)| {
+                // The original_word part of the tuple is now less critical as we don't peer into it,
+                // but we'll keep it for potential debugging.
+                let original_word = all_simpler_tier_words.get(*_v_token_idx)
                     .map_or("", |token| &token.value);
-                
-                // --- THIS IS THE FIX ---
-                // We are mapping over the `lemmas` Vec<String> to produce a Vec<u32>.
-                // The explicit type annotation `: Vec<u32>` makes the intent clear.
-                let current_entry_lemma_ids: Vec<u32> = lemmas
-                    .iter()
-                    .map(|l_str| dictionary.get_id_or_insert(l_str))
-                    .collect();
-                
-                (original_word.to_string(), current_entry_lemma_ids, sub.clone())
-                // --- END OF FIX ---
+                let lemma_ids = lemmas.iter().map(|l| dictionary.get_id_or_insert(l)).collect();
+                (original_word.to_string(), lemma_ids, sub.clone(), *eng_wc)
             }).collect(),
+            // --- END OF CHANGE ---
             simpler_text_words,
             simpler_text_backgrounds,
         }
     }).collect();
-    
     let sims_l3_segments_numerical: Vec<NumericalSegmentData> = simple_target_tier.segments.iter().map(|s| {
         NumericalSegmentData {
             id_str: s.seg_id.clone(),
             text_original: s.text.clone(),
         }
     }).collect();
-
+    // This is a complex section that also needs updating for the ED word count
     let phrase_alignments_l3_to_eng_numerical: Vec<NumericalPhraseAlignmentToEng> = base_tier.segments.iter().map(|base_seg| {
         let simple_seg = simple_target_tier.segments.iter()
             .find(|s| s.seg_id == base_seg.seg_id)
@@ -144,11 +140,13 @@ pub fn json_sentence_to_numerical(
             lemma_ids: string_lemmas_to_ids(&s.lemmas, dictionary),
         }
     }).collect();
-
+    
+    // We also need to add the eng_word_count to the NumericalDiglotEntry for ED tallying
     let diglot_map_numerical: Vec<NumericalDiglotSegmentMap> = s_sentence.mappings.simple_target_to_base_diglot.iter().map(|(seg_id, entries)| {
         NumericalDiglotSegmentMap {
             s_segment_id_str: seg_id.clone(),
-            entries: entries.iter().map(|(base_di, lemmas, form, viable)| {
+            // The closure now accepts a 5-element tuple.
+            entries: entries.iter().map(|(base_di, lemmas, form, viable, eng_wc)| {
                 let base_word = base_tier.segments.iter()
                     .flat_map(|s| &s.tokenized_text)
                     .find(|t| t.diglot_index == Some(*base_di))
@@ -160,6 +158,8 @@ pub fn json_sentence_to_numerical(
                     spa_lemma_ids: lemmas.iter().map(|s| dictionary.get_id_or_insert(s)).collect(),
                     exact_spa_form_original: form.clone(),
                     viable: *viable,
+                    // We now use the pre-calculated count directly from the tuple.
+                    eng_word_count: *eng_wc,
                 }
             }).collect()
         }

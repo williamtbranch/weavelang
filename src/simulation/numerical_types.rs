@@ -56,6 +56,7 @@ pub struct NumericalDiglotEntry {
     pub spa_lemma_ids: Vec<u32>, // Changed from a single u32
     pub exact_spa_form_original: String,
     pub viable: bool,
+    pub eng_word_count: usize,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -71,7 +72,7 @@ pub struct NumericalAdvSegmentBundle {
     pub adv_lemma_ids: Vec<u32>,
     pub simpler_text_original: String,
     pub simpler_lemma_ids: Vec<u32>,
-    pub inverse_diglot_map_numerical: Vec<(String, Vec<u32>, String)>,
+    pub inverse_diglot_map_numerical: Vec<(String, Vec<u32>, String, usize)>,
     pub simpler_text_words: Vec<WordToken>,
     pub simpler_text_backgrounds: Vec<String>,
 }

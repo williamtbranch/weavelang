@@ -1,60 +1,77 @@
 import pytest
-from llm2books.phrase_mapper_helpers import parse_llm_phrase_map_to_atoms, SemanticAtom
+import pprint
+from llm2books.phrase_mapper_helpers import align_and_parse_to_atoms, SemanticAtom
 from llm2books.validator import ValidationError
+from llm2books.helper import create_golden_token_stream, preprocess_for_spacy
 
-# --- Test Case 1: The Possessive 's Bug ---
+# ... (The first 3 fixtures are correct and unchanged) ...
 @pytest.fixture
-def spacy_tokens_possessive():
-    # Ground truth from SpaCy for "...our knight's misfortune..."
-    return [
-        {'t': 'w', 'v': 'our', 'di': 4},
-        {'t': 'w', 'v': 'knight', 'di': 5},
-        {'t': 'w', 'v': "'s", 'di': 6},
-        {'t': 'w', 'v': 'misfortune', 'di': 7},
-    ]
+def raw_spacy_tokens_possessive():
+    return [ {'t': 'w', 'v': 'our', 'di': 0}, {'t': 'b', 'v': ' '}, {'t': 'w', 'v': 'knight', 'di': 1}, {'t': 'b', 'v': ''}, {'t': 'w', 'v': "'s", 'di': 2}, {'t': 'b', 'v': ' '}, {'t': 'w', 'v': 'misfortune', 'di': 3} ]
+@pytest.fixture
+def raw_spacy_tokens_hyphenated():
+    return [ {'t': 'w', 'v': 'never', 'di': 0}, {'t': 'b', 'v': '-'}, {'t': 'w', 'v': 'before', 'di': 1}, {'t': 'b', 'v': '-'}, {'t': 'w', 'v': 'imagined', 'di': 2}, {'t': 'b', 'v': ' '}, {'t': 'w', 'v': 'adventure', 'di': 3} ]
+@pytest.fixture
+def raw_spacy_tokens_contraction():
+    return [ {'t': 'w', 'v': 'I', 'di': 0}, {'t': 'b', 'v': ''}, {'t': 'w', 'v': "'m", 'di': 1}, {'t': 'b', 'v': ' '}, {'t': 'w', 'v': 'half', 'di': 2}, {'t': 'b', 'v': ' '}, {'t': 'w', 'v': 'asleep', 'di': 3} ]
 
-def test_aligns_possessive_phrase_correctly(spacy_tokens_possessive):
-    """
-    Ensures the parser can correctly align an LLM phrase like "knight's"
-    with the two separate tokens SpaCy produces ('knight', "'s").
-    """
-    llm_map = [
-        "our -> nuestro",
-        "knight's -> caballero", # The problematic phrase
-        "misfortune -> desgracia"
+@pytest.fixture
+def raw_spacy_tokens_s153(spacy_en_model):
+    """A robust fixture that PRE-PROCESSES text before tokenizing."""
+    text = "says old Dives, in his red silken wrapper—(he had a redder one afterwards) pooh, pooh!"
+    
+    processed_text = preprocess_for_spacy(text)
+    doc = spacy_en_model(processed_text)
+    
+    raw_tokens = create_golden_token_stream(doc)
+    di_counter = 0
+    for token in raw_tokens:
+        if token['t'] == 'w':
+            token['di'] = di_counter
+            di_counter += 1
+            
+    return raw_tokens
+
+# --- Golden Test Case ---
+def test_golden_case_from_dp_aligner():
+    spacy_raw_tokens = [
+        {'t': 'w', 'v': "apple", 'di': 0}, {'t': 'b', 'v': ' '}, {'t': 'w', 'v': "now", 'di': 1}, {'t': 'b', 'v': ' '},
+        {'t': 'w', 'v': "and", 'di': 2}, {'t': 'b', 'v': ' '}, {'t': 'w', 'v': "go", 'di': 3}, {'t': 'b', 'v': ' '},
+        {'t': 'w', 'v': "couldn't", 'di': 4}, {'t': 'b', 'v': ' '}, {'t': 'w', 'v': "sam", 'di': 5}, {'t': 'b', 'v': ' '},
+        {'t': 'w', 'v': "no-go", 'di': 6}, {'t': 'b', 'v': ' '}, {'t': 'w', 'v': "and", 'di': 7},
     ]
-    
-    atoms = parse_llm_phrase_map_to_atoms(llm_map, spacy_tokens_possessive)
-    
+    llm_map = [ "apple -> manzana", "now -> ahora", "and -> y", "go -> ir", "couldn't -> no podia", "deep -> profundo", "no-go -> prohibido", "and -> y" ]
+    atoms = align_and_parse_to_atoms(llm_map, spacy_raw_tokens)
+    assert len(atoms) == 8
+    sam_atom = next((a for a in atoms if a.di == 5), None)
+    nogo_atom = next((a for a in atoms if a.di == 6), None)
+    assert sam_atom is not None and sam_atom.es_phrase == "NO_SUB"
+    assert nogo_atom is not None and nogo_atom.es_phrase == "prohibido"
+
+# --- Alignment & Grouping Tests ---
+def test_aligns_possessive_phrase_correctly(raw_spacy_tokens_possessive):
+    llm_map = ["our -> nuestro", "knight's -> caballero", "misfortune -> desgracia"]
+    atoms = align_and_parse_to_atoms(llm_map, raw_spacy_tokens_possessive)
     assert len(atoms) == 3
-    assert atoms[1].en_words == ["knight", "'s"]
-    assert atoms[1].es_phrase == "caballero"
-    assert atoms[1].di == 5 # DI of the first token in the phrase
+    assert atoms[1].en_words == ["knight's"]
 
-# --- Test Case 2: The Hyphenated Word Bug ---
-@pytest.fixture
-def spacy_tokens_hyphenated():
-    # Ground truth from SpaCy for "...never-before-imagined adventure..."
-    return [
-        {'t': 'w', 'v': 'never', 'di': 10},
-        {'t': 'w', 'v': 'before', 'di': 11},
-        {'t': 'w', 'v': 'imagined', 'di': 12},
-        {'t': 'w', 'v': 'adventure', 'di': 13},
-    ]
-
-def test_aligns_hyphenated_phrase_correctly(spacy_tokens_hyphenated):
-    """
-    Ensures the parser can correctly align an LLM phrase like "never-before-imagined"
-    with the multiple tokens SpaCy produces.
-    """
-    llm_map = [
-        "never-before-imagined -> jamás imaginada", # The problematic phrase
-        "adventure -> aventura"
-    ]
-    
-    atoms = parse_llm_phrase_map_to_atoms(llm_map, spacy_tokens_hyphenated)
-    
+def test_aligns_hyphenated_phrase_correctly(raw_spacy_tokens_hyphenated):
+    llm_map = ["never-before-imagined -> jamás imaginada", "adventure -> aventura"]
+    atoms = align_and_parse_to_atoms(llm_map, raw_spacy_tokens_hyphenated)
     assert len(atoms) == 2
-    assert atoms[0].en_words == ["never", "before", "imagined"]
-    assert atoms[0].es_phrase == "jamás imaginada"
-    assert atoms[0].di == 10
+    assert atoms[0].en_words == ["never-before-imagined"]
+
+def test_aligns_contraction_phrase_correctly(raw_spacy_tokens_contraction):
+    llm_map = ["I'm -> estoy", "half asleep -> medio dormido"]
+    atoms = align_and_parse_to_atoms(llm_map, raw_spacy_tokens_contraction)
+    assert len(atoms) == 2
+    assert atoms[0].en_words == ["I'm"]
+
+def test_parser_handles_em_dash_adjacent_word(raw_spacy_tokens_s153):
+    llm_map_lines = [ "says -> dice", "old -> viejo", "Dives -> Dives", "in -> en", "his -> su", "red -> roja", "silken -> de seda", "wrapper -> bata", "he -> tenía", "had -> NO_SUB", "a -> una", "redder -> más roja", "one -> NO_SUB", "afterwards -> después", "pooh -> bah", "pooh -> bah" ]
+    atoms = align_and_parse_to_atoms(llm_map_lines, raw_spacy_tokens_s153)
+    assert len(atoms) == 16
+    wrapper_atom = next((a for a in atoms if a.di == 7), None)
+    he_atom = next((a for a in atoms if a.di == 8), None)
+    assert wrapper_atom is not None and wrapper_atom.en_words == ['wrapper']
+    assert he_atom is not None and he_atom.en_words == ['he']

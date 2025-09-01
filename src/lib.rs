@@ -28,7 +28,6 @@ pub use simulation::dictionary::GlobalLemmaDictionary;
 pub use simulation::numerical_types::{
     NumericalLearnerProfile, NumericalChapter, NumericalProcessedSentence,
 };
-// --- THIS IS THE FIX: Export the correct function ---
 pub use simulation::preprocessor::json_chapter_to_numerical;
 
 // --- UPDATED EXPORTS FROM core_algo.rs ---

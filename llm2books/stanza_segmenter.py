@@ -91,7 +91,7 @@ class StanzaLanguageProcessor(ABC):
         if not tree or not tree.children: return [original_sentence]
 
         # Step 1: Get the "Golden Token Stream" - our source of truth for characters.
-        golden_stream = helper.create_golden_token_stream(original_sentence, doc.sentences[0])
+        golden_stream = helper.create_golden_token_stream(doc.sentences[0])
         
         # Step 2: Get the hierarchical word groupings from Stanza.
         initial_tuples = self._get_hierarchical_segments(tree.children[0])
