@@ -16,6 +16,7 @@ from .stages import (
     GenerateInverseDiglotMap,
     ApplyInversePhraseMappings, # <-- NEW
     FinalizeMappings,
+    FinalizeBaseTier,
     FinalizeBook,
 )
 
@@ -50,7 +51,8 @@ PIPELINE_STAGES = [
     GenerateInverseDiglotMap,   # Stage 5
     ApplyInversePhraseMappings, # Stage 6
     FinalizeMappings,           # Stage 7
-    FinalizeBook,               # Stage 8
+    FinalizeBaseTier,           # Stage 8
+    FinalizeBook,               # Stage 9
 ]
 
 # ... (get_logger, build_language_config, get_source_lang_from_file functions remain the same) ...

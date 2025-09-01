@@ -7,4 +7,5 @@ from .apply_phrase_mappings import ApplyPhraseMappings
 from .generate_inverse_diglot_map import GenerateInverseDiglotMap
 from .apply_inverse_phrase_mappings import ApplyInversePhraseMappings
 from .finalize_mappings import FinalizeMappings
+from .finalize_base_tier import FinalizeBaseTier
 from .finalize_book import FinalizeBook
