@@ -1,4 +1,7 @@
-use serde::{Deserialize, Deserializer};
+// In src/types/json_types.rs
+
+// --- FIX IS HERE: Add `Serialize` to the list of imports ---
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Deserialize, Debug, Clone, Default)]
@@ -6,7 +9,7 @@ pub struct JsonChapterMarkerBlock {
     pub text: String,
 }
 
-#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum JsonTokenType {
     #[serde(rename = "b")]
@@ -21,7 +24,7 @@ impl Default for JsonTokenType {
     }
 }
 
-#[derive(Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct JsonTokenV2 {
     #[serde(rename = "t")]
     pub token_type: JsonTokenType,
@@ -33,6 +36,7 @@ pub struct JsonTokenV2 {
     pub lemmas: Vec<String>,
 }
 
+// NOTE: The `SegmentOnDisk` helper is only used for Deserialization, so it doesn't need Serialize.
 #[derive(Deserialize)]
 struct SegmentOnDisk {
     seg_id: String,
@@ -41,7 +45,7 @@ struct SegmentOnDisk {
     lemmas: Vec<String>,
 }
 
-#[derive(Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(from = "SegmentOnDisk")]
 pub struct JsonSegmentV2 {
     pub seg_id: String,
@@ -53,10 +57,12 @@ pub struct JsonSegmentV2 {
 
 impl From<SegmentOnDisk> for JsonSegmentV2 {
     fn from(temp: SegmentOnDisk) -> Self {
-        let reconstructed_text = temp.tokenized_text.iter()
+        let reconstructed_text = temp
+            .tokenized_text
+            .iter()
             .map(|token| token.value.as_str())
             .collect::<String>();
-        
+
         JsonSegmentV2 {
             seg_id: temp.seg_id,
             text: reconstructed_text,
@@ -108,10 +114,7 @@ pub struct JsonTierV2 {
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct JsonMappingsV2 {
     #[serde(default)]
-    // The tuple now has 5 elements: (base_di, lemmas, form, viable, eng_word_count)
     pub simple_target_to_base_diglot: HashMap<String, Vec<(usize, Vec<String>, String, bool, usize)>>,
-    
     #[serde(default, rename = "simpler_adv_target_to_base_inv_diglot")]
-    // The tuple for the inverse map is already correct with 4 elements.
     pub adv_target_to_base_inv_diglot: HashMap<String, Vec<(usize, Vec<String>, String, usize)>>,
 }

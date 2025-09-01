@@ -19,7 +19,7 @@ class GeneratePhraseMap(LLMStage):
             book_stem=book_stem,
             cli_args=cli_args,
             common_resources=common_resources,
-            stage_number=5,
+            stage_number=3,
             stage_name="GeneratePhraseMap"
         )
         self.parser_type = "multi_line"

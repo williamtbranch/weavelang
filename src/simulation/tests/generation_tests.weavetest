@@ -33,29 +33,18 @@
         )
 
         (L1
-            (S "ssa1 ssa2 ssa3 " (lem18 lem5 lem7))
             (D
               (dsa1 lem18 dea1)
               (dsa2 lem9 dea2)
               (dsa3 lem3 dea3)
-            )
-            (E "[[dsa1]] [[dsa2]] [[dsa3]] ")
-            
-            (S "ssb1 ssb2 ssb3 " (lem41 lem38 lem37))
-            (D
               (dsb1 lem10 deb1)
               (dsb2 lem31 deb2)
               (dsb3 lem21 deb3)
-            )
-            (E "[[dsb1]] [[dsb2]] [[dsb3]] ")
-            
-            (S "ssc1 ssc2 ssc3 " (lem21 lem11 lem19))
-            (D
               (ec1 lem31 dec1)
               (ec2 lem10 dec2)
               (ec3 lem19 dec3)
             )
-            (E "[[ec1]] [[ec2]] [[ec3]]")
+            (E "[[dsa1]] [[dsa2]] [[dsa3]] [[dsb1]] [[dsb2]] [[dsb3]] [[ec1]] [[ec2]] [[ec3]]")
         )
     )
     (sub-test "Advanced weave at 100"
@@ -90,17 +79,17 @@
     )
     (sub-test "at level 40, falls back to L1 at this threshold"
         (level 40)
-        (assert-text "ssa1 ssa2 ssa3 deb1 deb2 deb3 ssc1 ssc2 ssc3")
+        (assert-text "dea1 dea2 dea3 deb1 deb2 deb3 dec1 dec2 dec3")
         (assert-level SimpleHybrid) 
     )
     (sub-test "at level 30, falls back to L1 at this threshold"
         (level 30)
-        (assert-text "ssa1 ssa2 ssa3 deb1 dsb2 deb3 ssc1 ssc2 ssc3")
+        (assert-text "dea1 dea2 dea3 deb1 dsb2 deb3 ec1 dec2 dec3")
         (assert-level SimpleHybrid) 
     )
     (sub-test "at level 20, falls back to L1 at this threshold"
         (level 20)
-        (assert-text "ssa1 ssa2 ssa3 deb1 dsb2 dsb3 ec1 dec2 dec3")
+        (assert-text "dea1 dea2 dea3 deb1 dsb2 dsb3 ec1 dec2 dec3")
         (assert-level SimpleHybrid) 
     )
     (sub-test "at level 10, falls back to L1 at this threshold"
@@ -142,18 +131,17 @@
             )
         )
         (L1
-            (S "No hay duda " (lem20 lem30 lem300))
-            (D (There lem21 Hay t) (is lem2 NO_SUB f) (no lem16 ninguna t) (doubt lem17 duda t))
-            (E "[[There]] [[is]] [[no]] [[doubt]] ")
-            
-            (S "de que Marley estaba muerto." (lem45 de que estar muerto))
-            (D
-              (that lem3 que t)
-              (Marley lem1 PROPER_NOUN t) //PROPER_NOUN should never get used even if 't' flag set
-              (was lem5 estaba t)
-              (dead muerto muerto t)
+            (D (There lem21 Hay t)
+               (is lem2 NO_SUB f)
+               (no lem16 ninguna t)
+               (doubt lem17 duda t)
+               (that lem3 que t)
+               (Marley lem1 PROPER_NOUN t) //PROPER_NOUN should never get used even if 't' flag set
+               (was lem5 estaba t)
+               (dead muerto muerto t)
             )
-            (E "[[that]] [[Marley]] [[was]] [[dead]].")
+            (E "[[There]] [[is]] [[no]] [[doubt]] [[that]] [[Marley]] [[was]] [[dead]].")
+            
         )
     )
     (sub-test "at level 20, should produce L0 inverse diglot without literal PROPER_NOUN"
@@ -183,7 +171,6 @@
             )
         )
         (L1
-            (S "l1-fallback" (lem1))
             (D (fallback-e lem2 fb-d t))
             (E "[[fallback-e]]")
         )
@@ -219,26 +206,19 @@
         )
 
         (L1
-            (S "\"Sí\", dijo el Rey; " (lem1 lem2 lem3 lem4))
             (D
               (Yes lem1 Sí t)
               (said lem2 dijo t)
               (the lem3 el t)
               (King lem4 Rey t)
-            )
-            (E "\"[[Yes]]\", [[said]] [[the]] [[King]]; ")
-
-            (S "¿qué es el sonido?" (lem5 lem6 lem7 lem8))
-            (D
               (what lem5 qué t)
               (is lem6 es t)
               (that lem7 ese t)
               (sound lem8 sonido t)
             )
-            (E "[[what]] [[is]] [[that]] [[sound]]?")
+            (E "\"[[Yes]]\", [[said]] [[the]] [[King]]; [[what]] [[is]] [[that]] [[sound]]?")
         )
     )
-
     (sub-test "L0: Inverse diglot substitution that handles punctuation"
       (level 206)
       (assert-level AdvancedWeave)
@@ -265,21 +245,16 @@
         )    
 
         (L1
-            (S "ssa1 ssa2 ssa3 " (lem88 lem5 lem7))
             (D
               (dsa1 lem8 NO_SUB)
               (dsa2 lem9 NO_SUB t)
               (dsa3 lem3 NO_SUB f)
-            )
-            (E "[[dsa1]] [[dsa2]] [[dsa3]] ")
-            
-            (S "ssb1 ssb2 ssb3" (lem41 lem38 lem37))
-            (D
               (dsb1 lem11 NO_SUB)
               (dsb2 lem3 deb2)
               (dsb3 lem2 NO_SUB)
             )
-            (E "[[dsb1]] [[dsb2]] [[dsb3]]")
+            (E "[[dsa1]] [[dsa2]] [[dsa3]] [[dsb1]] [[dsb2]] [[dsb3]]")
+            
         )
       )
     
@@ -304,21 +279,16 @@
         )    
 
         (L1
-            (S "ssa1 ssa2 ssa3 " (lem88 lem5 lem7))
             (D
               (dsa1 lem8 sp1)
               (dsa2 lem9 sp2 t)
               (dsa3 lem3 sp3 f)
-            )
-            (E "[[dsa1]] [[dsa2]] [[dsa3]] ")
-            
-            (S "ssb1 ssb2 ssb3" (lem41 lem38 lem37))
-            (D
               (dsb1 lem11 spb2 t)
               (dsb2 lem3 spb3 f)
               (dsb3 lem2 spb3)
             )
-            (E "[[dsb1]] [[dsb2]] [[dsb3]]")
+            (E "[[dsa1]] [[dsa2]] [[dsa3]] [[dsb1]] [[dsb2]] [[dsb3]]")
+            
         )
       )
     
@@ -354,20 +324,15 @@
 
         (L1
             // This is the fallback content the test will assert against.
-            (S "Una prueba simple " (lem1 lem2 lem3))
             (D
               (A lem1 A t)
-              (simple lem2 simple t)
+              (simple lem2 ssimple t)
               (test lem3 prueba t)
-            )
-            (E "[[A]] [[simple]] [[test]] ")
-
-            (S "El segundo" (lem4 lem5))
-            (D
               (The lem4 El t)
               (second lem5 segundo t)
             )
-            (E "[[The]] [[second]]")
+            (E "[[A]] [[simple]] [[test]] [[The]] [[second]]")
+
         )
     )
 
@@ -375,7 +340,7 @@
       (level 100) // Knows all lemmas except the poison pill lem500.
       (assert-level SimpleHybrid) // Must fall back to L1.
       // At level 100, the L1 simple spanish phrases are fully known.
-      (assert-text "Una prueba simple El segundo")
+      (assert-text "A ssimple prueba El segundo")
     )
 )
 
@@ -402,24 +367,14 @@
             )
         )
         (L1
-            (S "Él dijo" (lem10 lem11))
             (D
               (He lem10 Él t)
               (said lem11 dijo t)
-            )
-            (E "[[He]] [[said]]")
-
-            (S ", " ()) // Lonely punctuation segment
-            (D)
-            (E ", ")
-
-            (S "\"es tarde.\"" (lem12 lem13))
-            (D
               (it lem14 se f)
               (is lem12 es t)
               (late lem13 tarde t)
             )
-            (E "\"[[it]] [[is]] [[late]].\"")
+            (E "[[He]] [[said]], \"[[it]] [[is]] [[late]].\"")
         )
     )
 
@@ -447,7 +402,6 @@
           )
         )
         (L1
-            (S "\"¿Quién eres tú?\" dijo la Oruga." (lem1 lem2 lem3 lem4 lem5 lem6))
             (D // Diglot Map
               (Who lem10 Quién t)
               (are lem12 eres t)
@@ -467,40 +421,6 @@
     )
 )
 
-(test-case "Regression Test for L1 Diglot Indexing Bug"
-    (sentence
-        (L0 // This L0 will always fail because of lem999
-            (S "adv1" (lem999))
-            (S "[[adv2]] [[adv3]]" (lem999))
-            (ID
-              (adv2 lem997 dummy_sub)
-              (adv3 lem996 dummy_sub2)
-            )
-            
-        )
-        (L1
-            // Segment 1: The learner knows this segment completely.
-            (S "Segmento uno " (lem1 lem2))
-            (D (Seg lem10 seg t) (one lem11 uno t))
-            (E "[[Seg]] [[one]] ")
-
-            // Segment 2: The learner does NOT know `lem998`. This forces a fallback.
-            (S "Segmento dos " (lem3 lem998))
-            (D 
-                (Seg lem10 seg t)  // Known lemma
-                (two lem12 dos t)  // Known lemma
-            )
-            (E "[[Seg]] [[two]].")
-        )
-    )
-
-    (sub-test "at level 20, first seg is Spanish, second is diglot"
-        (level 20) // Knows lem1-20. Knows "seg", "uno", "dos". Does NOT know lem998.
-        (assert-level SimpleHybrid)
-        (assert-text "Segmento uno seg dos.")
-    )
-)
-
 (test-case "Phrase Diglot with Multiple Lemmas"
     (sentence
         (L0 (S "adv" (lem999)) // Fails L0
@@ -511,7 +431,6 @@
             )
         )
         (L1
-            (S "Take a walk." (lem998)) // Fails L1 Spanish
             (D 
                 // A single diglot tuple for the single English token.
                 // The source phrase is "Take a walk."
@@ -545,7 +464,6 @@
             )
         )
         (L1
-            (S "Un cierto rey tenía un jardín." (lem1 lem2 lem3 lem99 lem5 lem6))
             (D 
                 (A__certain__king lem1__lem2__lem3 Un__cierto__rey t)
                 (had lem4 tenía t)
@@ -559,45 +477,6 @@
         (level 10) 
         (assert-level SimpleHybrid)
         (assert-text "Un cierto rey tenía un garden.")
-    )
-)
-
-(test-case "L1 Weaving with Multi-Word Atoms Across Segments"
-    (sentence
-        (L0 // Dummy L0 data designed to fail the >50% inverse diglot rule in BOTH segments
-            (S "adv1" (lem20000))
-            (S "[[adv-mod1]] [[adv-mod2]]" (lem19999 lem19998))
-            (ID 
-                (adv-mod1 lem19997 eng-sub1)
-                (adv-mod2 lem19996 eng-sub2)
-            )
-
-            (S "adv2" (lem19995))
-            (S "[[adv-mod3]] [[adv-mod4]]" (lem19994 lem19993))
-            (ID 
-                (adv-mod3 lem19992 eng-sub3)
-                (adv-mod4 lem19991 eng-sub4)
-            )
-        )
-        (L1
-            (S "El zorro rápido " (lem10 lem11))
-            (D 
-                (The__quick__fox lem10__lem11 El__zorro__rápido t)
-            )
-            (E "[[The quick fox]] ")
-
-            (S "saltó sobre el perro." (lem12 lem998 lem14 lem15))
-            (D 
-                (jumped__over lem12__lem997 saltó__sobre t)
-                (the__dog lem14__lem15 el__perro t)
-            )
-            (E "[[jumped over]] [[the dog]].")
-        )
-    )
-    (sub-test "at level 20, weaves phrases across segments"
-        (level 20)
-        (assert-level SimpleHybrid)
-        (assert-text "El zorro rápido jumped over el perro.")
     )
 )
 
@@ -616,7 +495,6 @@
             )
         )
         (L1 // This is the fallback content
-            (S "L1 fallback text" (lem1))
             (D (dummy lem2 dummy t))
             (E "[[L1 fallback text]]")
         )

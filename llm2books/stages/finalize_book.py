@@ -16,7 +16,7 @@ class FinalizeBook(Stage):
             book_stem=book_stem,
             cli_args=cli_args,
             common_resources=common_resources,
-            stage_number=10,
+            stage_number=8,
             stage_name="FinalizeBook"
         )
         # Define the final output path in the library directory
@@ -40,8 +40,13 @@ class FinalizeBook(Stage):
         try:
             for block in book_data.get("content_blocks", []):
                 if block.get("block_type") == "sentence":
-                    validator.validate_exhaustive_diglot_mapping(block)
+                    #
+                    # ============================ START: REPLACEMENT CODE ============================
+                    # The simple_target_to_base_diglot map no longer exists,
+                    # so we remove its validation call. The inverse map validation remains.
+                    # validator.validate_exhaustive_diglot_mapping(block) <- DELETE THIS LINE
                     validator.validate_exhaustive_inverse_diglot_mapping(block)
+                    # ============================= END: REPLACEMENT CODE =============================
                     for tier in block.get("tiers", []):
                         validator.validate_segment_reconstruction(tier)
                         for seg in tier.get("segments", []):

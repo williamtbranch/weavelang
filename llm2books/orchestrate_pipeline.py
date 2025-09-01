@@ -8,8 +8,8 @@ from typing import Optional, Dict, Any
 from .stanza_segmenter import EnglishStanzaProcessor, SpanishStanzaProcessor
 from .stages import (
     AssembleTiers, 
-    GenerateSimpleTarget, 
-    FinalizeSimpleTarget,
+    #GenerateSimpleTarget, 
+    #FinalizeSimpleTarget,
     FinalizeSimplerAdvTarget,
     GeneratePhraseMap, 
     ApplyPhraseMappings, 
@@ -44,15 +44,13 @@ from .pool_manager import PoolManager
 # We will rebuild this list in Phase 3 of our plan.
 PIPELINE_STAGES = [
     AssembleTiers,              # Stage 1
-    GenerateSimpleTarget,       # Stage 2
-    FinalizeSimpleTarget,       # Stage 3
-    FinalizeSimplerAdvTarget,   # Stage 4
-    GeneratePhraseMap,          # Stage 5
-    ApplyPhraseMappings,        # Stage 6
-    GenerateInverseDiglotMap,   # Stage 7
-    ApplyInversePhraseMappings, # Stage 8 (NEW)
-    FinalizeMappings,           # Stage 9 (Renumbered)
-    FinalizeBook,               # Stage 10 (Renumbered)
+    FinalizeSimplerAdvTarget,   # Stage 2
+    GeneratePhraseMap,          # Stage 3
+    ApplyPhraseMappings,        # Stage 4
+    GenerateInverseDiglotMap,   # Stage 5
+    ApplyInversePhraseMappings, # Stage 6
+    FinalizeMappings,           # Stage 7
+    FinalizeBook,               # Stage 8
 ]
 
 # ... (get_logger, build_language_config, get_source_lang_from_file functions remain the same) ...

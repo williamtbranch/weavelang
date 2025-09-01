@@ -22,7 +22,7 @@ class ApplyPhraseMappings(SpaCyStage):
             book_stem=book_stem,
             cli_args=cli_args,
             common_resources=common_resources,
-            stage_number=6,
+            stage_number=4,
             stage_name="ApplyPhraseMappings"
         )
 

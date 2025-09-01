@@ -20,7 +20,7 @@ class ApplyInversePhraseMappings(SpaCyStage):
             book_stem=book_stem,
             cli_args=cli_args,
             common_resources=common_resources,
-            stage_number=8,
+            stage_number=6,
             stage_name="ApplyInversePhraseMappings"
         )
 

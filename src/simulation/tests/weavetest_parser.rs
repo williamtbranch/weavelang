@@ -33,15 +33,15 @@ pub struct DslSegmentSpec {
 
 #[derive(Debug, Clone)]
 pub enum DslSegmentSpecEnum {
-    Spanish { tokens: Vec<JsonTokenV2>, lemmas: Vec<String> },
+    Spanish { tokens: Vec<JsonTokenV2>, lemmas: Vec<String> }, // This can be renamed to Target in the future
     Diglot { tuples: Vec<DslDiglotTuple> },
-    English { tokens: Vec<JsonTokenV2> },
+    English { tokens: Vec<JsonTokenV2> }, // This can be renamed to Base in the future
     InvDiglot { tuples: Vec<DslInvDiglotTuple> },
 }
 
 #[derive(Debug, Clone)]
 pub struct DslDiglotTuple {
-    pub _word_to_replace: String,
+    pub word_to_replace: String,
     pub replacement_lemmas: Vec<String>,
     pub replacement_word: String,
     pub is_viable: bool,
@@ -49,9 +49,9 @@ pub struct DslDiglotTuple {
 
 #[derive(Debug, Clone)]
 pub struct DslInvDiglotTuple {
-    pub _spanish_word: String,
-    pub spanish_lemmas: Vec<String>,
-    pub english_substitute: String,
+    pub target_word: String, // Renamed for clarity
+    pub target_lemmas: Vec<String>, // Renamed for clarity
+    pub base_substitute: String, // Renamed for clarity
 }
 
 #[derive(Debug, Clone)]
@@ -59,7 +59,6 @@ pub enum DslAssertion {
     Level(String),
     Text(String),
 }
-
 
 #[derive(pest_derive::Parser)]
 #[grammar = "simulation/tests/generation_tests.pest"]
@@ -80,10 +79,7 @@ fn parse_string_literal_content(pair: Pair<Rule>) -> String {
                 match next_c {
                     '"' => result.push('"'),
                     '\\' => result.push('\\'),
-                    _ => {
-                        result.push(c);
-                        result.push(next_c);
-                    }
+                    _ => { result.push(c); result.push(next_c); }
                 }
             } else {
                 result.push(c);
@@ -94,7 +90,6 @@ fn parse_string_literal_content(pair: Pair<Rule>) -> String {
     }
     result
 }
-
 
 fn parse_test_case(pair: Pair<Rule>) -> DslTestCase {
     let mut inner = pair.into_inner();
@@ -144,39 +139,21 @@ fn tokenize_simple_string(content: &str) -> Vec<JsonTokenV2> {
     let mut tokens = Vec::new();
     let mut last_end = 0;
     let mut word_count = 0;
-    
-    let word_re = regex::Regex::new(r"[\w-]+").unwrap();
-
+    let word_re = regex::Regex::new(r"[\w'-]+").unwrap();
     for mat in word_re.find_iter(content) {
         if mat.start() > last_end {
-            tokens.push(JsonTokenV2 {
-                token_type: JsonTokenType::Background,
-                value: content[last_end..mat.start()].to_string(),
-                ..Default::default()
-            });
+            tokens.push(JsonTokenV2 { token_type: JsonTokenType::Background, value: content[last_end..mat.start()].to_string(), ..Default::default() });
         }
-        tokens.push(JsonTokenV2 {
-            token_type: JsonTokenType::Word,
-            value: mat.as_str().to_string(),
-            diglot_index: Some(word_count),
-            ..Default::default()
-        });
+        tokens.push(JsonTokenV2 { token_type: JsonTokenType::Word, value: mat.as_str().to_string(), diglot_index: Some(word_count), ..Default::default() });
         word_count += 1;
         last_end = mat.end();
     }
-
     if last_end < content.len() {
-        tokens.push(JsonTokenV2 {
-            token_type: JsonTokenType::Background,
-            value: content[last_end..].to_string(),
-            ..Default::default()
-        });
+        tokens.push(JsonTokenV2 { token_type: JsonTokenType::Background, value: content[last_end..].to_string(), ..Default::default() });
     }
-
     if tokens.is_empty() && !content.is_empty() {
         tokens.push(JsonTokenV2 { token_type: JsonTokenType::Background, value: content.to_string(), ..Default::default() });
     }
-    
     tokens
 }
 
@@ -184,44 +161,23 @@ fn tokenize_bracketed_phrase(content: &str) -> Vec<JsonTokenV2> {
     let mut tokens = Vec::new();
     let mut last_end = 0;
     let mut diglot_idx_counter = 0;
-    
     let word_re = regex::Regex::new(r"\[\[(.*?)\]\]").unwrap();
-
     for cap in word_re.captures_iter(content) {
         let full_match = cap.get(0).unwrap();
         let word_value = cap.get(1).unwrap().as_str();
-
         if full_match.start() > last_end {
-            tokens.push(JsonTokenV2 {
-                token_type: JsonTokenType::Background,
-                value: content[last_end..full_match.start()].to_string(),
-                ..Default::default()
-            });
+            tokens.push(JsonTokenV2 { token_type: JsonTokenType::Background, value: content[last_end..full_match.start()].to_string(), ..Default::default() });
         }
-        
-        tokens.push(JsonTokenV2 {
-            token_type: JsonTokenType::Word,
-            value: word_value.to_string(),
-            diglot_index: Some(diglot_idx_counter),
-            ..Default::default()
-        });
+        tokens.push(JsonTokenV2 { token_type: JsonTokenType::Word, value: word_value.to_string(), diglot_index: Some(diglot_idx_counter), ..Default::default() });
         diglot_idx_counter += 1;
-        
         last_end = full_match.end();
     }
-
     if last_end < content.len() {
-        tokens.push(JsonTokenV2 {
-            token_type: JsonTokenType::Background,
-            value: content[last_end..].to_string(),
-            ..Default::default()
-        });
+        tokens.push(JsonTokenV2 { token_type: JsonTokenType::Background, value: content[last_end..].to_string(), ..Default::default() });
     }
-
     if tokens.is_empty() && !content.is_empty() {
         return vec![JsonTokenV2 { token_type: JsonTokenType::Background, value: content.to_string(), ..Default::default() }];
     }
-    
     tokens
 }
 
@@ -242,20 +198,15 @@ fn parse_segment_spec(pair: Pair<Rule>) -> DslSegmentSpec {
                     Rule::stringLiteral => tokenize_simple_string(&content),
                     _ => unreachable!(),
                 }
-            } else {
-                vec![]
-            };
+            } else { vec![] };
 
             let lemmas = inner
                 .find(|p| p.as_rule() == Rule::lemmaList)
                 .map(|p| p.into_inner().map(|l| l.as_str().to_string()).collect())
                 .unwrap_or_default();
             
-            if rule == Rule::spanishSegment {
-                DslSegmentSpecEnum::Spanish { tokens, lemmas }
-            } else {
-                DslSegmentSpecEnum::English { tokens }
-            }
+            if rule == Rule::spanishSegment { DslSegmentSpecEnum::Spanish { tokens, lemmas } } 
+            else { DslSegmentSpecEnum::English { tokens } }
         }
         Rule::diglotSegment => DslSegmentSpecEnum::Diglot { tuples: inner.map(parse_diglot_tuple).collect() },
         Rule::invDiglotSegment => DslSegmentSpecEnum::InvDiglot { tuples: inner.map(parse_inv_diglot_tuple).collect() },
@@ -266,22 +217,14 @@ fn parse_segment_spec(pair: Pair<Rule>) -> DslSegmentSpec {
 
 fn parse_diglot_tuple(pair: Pair<Rule>) -> DslDiglotTuple {
     let mut inner = pair.into_inner();
-    let word_to_replace = inner.next().unwrap().as_str().to_string()
-        .replace("__", " "); // Also un-escape the source phrase
-    
+    let word_to_replace = inner.next().unwrap().as_str().to_string().replace("__", " ");
     let combined_lemmas_str = inner.next().unwrap().as_str();
-    let replacement_lemmas = combined_lemmas_str
-        .split("__")
-        .map(|s| s.to_string())
-        .collect();
-
-    let replacement_word = inner.next().unwrap().as_str().to_string()
-        .replace("__", " "); // Un-escape the target phrase
-
+    let replacement_lemmas = combined_lemmas_str.split("__").map(|s| s.to_string()).collect();
+    let replacement_word = inner.next().unwrap().as_str().to_string().replace("__", " ");
     let is_viable = inner.next().map_or(true, |p| p.as_str() == "t");
-
+    
     DslDiglotTuple {
-        _word_to_replace: word_to_replace,
+        word_to_replace,
         replacement_lemmas,
         replacement_word,
         is_viable,
@@ -290,23 +233,15 @@ fn parse_diglot_tuple(pair: Pair<Rule>) -> DslDiglotTuple {
 
 fn parse_inv_diglot_tuple(pair: Pair<Rule>) -> DslInvDiglotTuple {
     let mut inner = pair.into_inner();
-    let spanish_word = inner.next().unwrap().as_str().to_string().replace("__", " ");
-    
-    // --- THIS IS THE FIX ---
-    // Split the combined lemma string into a vector of individual lemma strings.
+    let target_word = inner.next().unwrap().as_str().to_string().replace("__", " ");
     let combined_lemmas_str = inner.next().unwrap().as_str();
-    let spanish_lemmas = combined_lemmas_str
-        .split("__")
-        .map(|s| s.to_string())
-        .collect();
-    // --- END OF FIX ---
-
-    let english_substitute = inner.next().unwrap().as_str().to_string().replace("__", " ");
-
+    let target_lemmas = combined_lemmas_str.split("__").map(|s| s.to_string()).collect();
+    let base_substitute = inner.next().unwrap().as_str().to_string().replace("__", " ");
+    
     DslInvDiglotTuple {
-        _spanish_word: spanish_word,
-        spanish_lemmas,
-        english_substitute,
+        target_word,
+        target_lemmas,
+        base_substitute,
     }
 }
 

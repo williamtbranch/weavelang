@@ -1,4 +1,7 @@
-use crate::profile::{LearnerLemmaInfo, LemmaState};
+// In src/simulation/numerical_types.rs
+
+use crate::profile::LearnerLemmaInfo;
+use crate::types::json_types::JsonSegmentV2; // Required for the new field
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -22,38 +25,17 @@ impl NumericalLearnerProfile {
     }
     pub fn activate_lemma(&mut self, lemma_id: u32) {
         if lemma_id != u32::MAX {
-            self.vocabulary.insert(lemma_id, LearnerLemmaInfo::default());
+            self.vocabulary
+                .insert(lemma_id, LearnerLemmaInfo::default());
         }
     }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct NumericalSegmentData {
-    pub id_str: String,
-    pub text_original: String,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct NumericalSegmentLemmas {
-    pub segment_id_str: String,
-    pub lemma_ids: Vec<u32>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct NumericalPhraseAlignmentToEng {
-    pub s_segment_id_str: String,
-    pub sims_l3_segment_text_original: String,
-    pub eng_span_text_original: String,
-    pub eng_span_word_count: usize,
-    pub eng_span_words: Vec<WordToken>,
-    pub eng_span_backgrounds: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NumericalDiglotEntry {
     pub base_word_di: usize,
     pub eng_word_original: String,
-    pub spa_lemma_ids: Vec<u32>, // Changed from a single u32
+    pub spa_lemma_ids: Vec<u32>,
     pub exact_spa_form_original: String,
     pub viable: bool,
     pub eng_word_count: usize,
@@ -81,18 +63,18 @@ pub struct NumericalAdvSegmentBundle {
 pub struct NumericalProcessedSentence {
     pub source_file_name_original: String,
     pub sentence_id_str: String,
+
+    // Base tier text and tokens are the source for the L1 fallback.
     pub eng_text_original: String,
     pub eng_text_word_count: usize,
+    pub base_tier_tokenized: Vec<JsonSegmentV2>,
+
+    // L0 data remains the same.
     pub adv_s_text_original: String,
     pub adv_sl_overall_lemma_ids: Vec<u32>,
     pub adv_segment_bundles_numerical: Vec<NumericalAdvSegmentBundle>,
-    pub simpler_adv_s_text_original: String,
-    pub simpler_adv_sl_overall_lemma_ids: Vec<u32>,
-    pub l3_sim_s_text_original: String,
-    pub l3_sim_sl_overall_lemma_ids: Vec<u32>,
-    pub sims_l3_segments_numerical: Vec<NumericalSegmentData>,
-    pub phrase_alignments_l3_to_eng_numerical: Vec<NumericalPhraseAlignmentToEng>,
-    pub l3_simsl_per_segment_numerical: Vec<NumericalSegmentLemmas>,
+
+    // The diglot map remains, used against the base tier.
     pub diglot_map_numerical: Vec<NumericalDiglotSegmentMap>,
 }
 
