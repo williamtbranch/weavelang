@@ -1,0 +1,59 @@
+The WeaveLang Adaptive Leveling System: A Guide
+1. Core Philosophy: Learner-Centric, Empirical, and Universal
+The WeaveLang leveling system is designed to solve a fundamental problem in language learning materials: a "Level 5" book from one series can feel completely different from a "Level 5" book from another. Our goal is to create a universal, empirical scale of difficulty that is consistent across all content.
+Our system is built on three core principles:
+Learner-Centric: Difficulty is not an inherent property of a text, but an interaction between the text and a learner's known vocabulary. Our entire model is based on simulating this interaction.
+Empirical: We do not guess what the levels should be. We use a data-driven research process to discover the vocabulary thresholds and text characteristics that constitute a meaningful jump in difficulty.
+Universal: A "User Level 20" in WeaveLang should represent a consistent cognitive load and comprehension experience, whether the source text is a simple fairy tale or a complex classic novel.
+2. The Two-Dimensional Difficulty Model: Decoupling Complexity
+We recognize that text difficulty has two primary axes: lexical complexity (the words used) and syntactic complexity (how the words are put together). The WeaveLang engine controls these axes independently using a Dual-Level Profile.
+F-Level (Fluency Level): This controls the syntactic and stylistic complexity.
+Mechanism: It governs the fallback from the natural, complex advanced_target tier to the simpler, more direct simpler_advanced_target tier in the L0 Weave.
+Purpose: It allows us to lock the grammatical difficulty of the content, ensuring the learner can master a certain level of sentence structure before being exposed to more complex phrasing.
+FE-Level (Foreign Exposure Level): This controls the lexical complexity.
+Mechanism: It governs the fallback from a target-language phrase to a base-language (English) phrase with diglot substitutions. It is defined by the number of words in the learner's known vocabulary.
+Purpose: It allows us to precisely manage the number of new words the learner is exposed to, ensuring the content remains comprehensible (i+1).
+The key innovation is the ability to freeze the F-Level while increasing the FE-Level. This forces the system to prioritize replacing base-language "crutches" with target-language vocabulary before it introduces more difficult grammar, directly addressing a key challenge in the intermediate learning plateau.
+3. The Metric: "Log-AVD" - A Universal Measure of Difficulty
+To create our universal scale, we need a metric that can accurately quantify the difficulty of any generated text. We use the Logarithmic Advanced Vocabulary Density (Log-AVD) Score.
+What it is: The Log-AVD score is the average of the natural logarithm of the frequency ranks of the 10% least frequent word instances in a given text.
+Why it works:
+It Focuses on the Challenge: By analyzing only the top 10% rarest word instances (the "Advanced Vocabulary"), it isolates the part of the text that is most challenging to the learner (the "+1").
+It's Robust to Skew: By using the logarithm of the ranks, it correctly models the Zipfian nature of language. A single extremely rare word doesn't disproportionately skew the score, making the metric stable.
+It's Universal: Because it's based on a master frequency list, the Log-AVD score of any text can be directly compared to the score of any other text, creating our "universal yardstick".
+4. The Four-Step Calibration Process: From Raw Text to Universal Levels
+This is the research process used to build the final leveling system. It is performed once to create the master scale and then used to calibrate all books in the library.
+Step 1: Establish "Ground Truth" Comprehension Profiles for Each Book
+Goal: To understand the maximum theoretical comprehension of a book at any given vocabulary size.
+Process:
+For each book in the corpus, run a simulation.
+Start with a vocabulary of 0 words and incrementally increase it (e.g., by 10 words at a time).
+At each increment, calculate the percentage of the book's total unique lemmas that are now "known".
+Output: A data file for each book mapping vocabulary size to percentage of lexical coverage (e.g., quijote_comprehension_profile.csv).
+Step 2: Define User Levels Based on Comprehension Jumps
+Goal: To define what a "User Level" means in terms of tangible learning progress.
+Process:
+We define a "User Level" as a 2% increase in comprehensible vocabulary over the previous level.
+Using the ground-truth data from Step 1, we run a binary search (or other efficient search algorithm) to find the precise vocabulary size needed to cross each 2% threshold (e.g., 90%, 92%, 94%...).
+Output: A master list that defines the target vocabulary size for each User Level (e.g., User Level 25 = 2850 words).
+Step 3: Create the Master AVD Scale (The "Yardstick")
+Goal: To correlate the abstract User Levels with a concrete, measurable Log-AVD score.
+Process:
+Create three canonical reference texts by taking stratified samples (~500 sentences each) from simple, moderate, and advanced literary works.
+For each User Level defined in Step 2, run the WeaveLang engine on the reference texts using that level's target vocabulary size.
+Calculate the Log-AVD score for the resulting output text.
+Output: The Master AVD Scale, a table that maps each User Level to a target Log-AVD Score. This is the universal yardstick of difficulty for the entire system.
+Step 4: Calibrate All Books Against the Master Scale
+Goal: To determine the specific F-Level and FE-Level settings required for any book to produce text that matches a universal User Level's difficulty.
+Process:
+For each book in the library, run a series of simulations with various combinations of F-Level and FE-Level settings.
+For each generated output, calculate its Log-AVD score.
+Find the F-Level/FE-Level combination that produces a Log-AVD score closest to the target score for each User Level on the Master AVD Scale.
+Output: For each book's final JSON file, populate the user_level_map. This map is the final "recipe" that tells the engine exactly how to configure itself to produce a "User Level 20" output for that specific book.
+5. Final Output and The Learner's Experience
+When a user (or the run_corpus_gen.ps1 script) requests "User Level 20" for Don Quijote, the system performs the following:
+It opens quijote.json.
+It looks up "20" in the user_level_map.
+It finds the pre-calibrated recipe, e.g., { "f_level": 19, "fe_level": 19 }.
+It runs the generation algorithm using these specific F and FE levels.
+The result is a learning experience that is consistent, predictable, and intelligently scaffolded, fulfilling the core promise of the WeaveLang project.

@@ -99,12 +99,37 @@ def initialize_llm_client(provider: str) -> any:
     logger.critical(f"LLM provider '{provider}' is not supported."); return None
 
 def normalize_spanish_lemma(lemma_str: str) -> str:
+    """
+    Applies a series of cleaning and normalization steps to a raw Spanish lemma string,
+    handling all standard accented vowels, the ñ, and the ü with diaeresis.
+    """
     s = lemma_str.lower().strip().split(' ')[0]
-    s = s.replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
+    
+    # --- THIS IS THE DEFINITIVE FIX ---
+    # Handle accented vowels, ñ, and ü.
+    s = (s.replace('á', 'a')
+          .replace('é', 'e')
+          .replace('í', 'i')
+          .replace('ó', 'o')
+          .replace('ú', 'u')
+          .replace('ñ', 'n')
+          .replace('ü', 'u'))
+    # --- END OF DEFINITIVE FIX ---
+
+    # Strip any remaining non-word characters from the start and end
     s = re.sub(r'^[^\w]+|[^\w]+$', '', s)
-    if not s: return ""
+    if not s: 
+        return ""
+        
+    # Standard Unicode normalization
     s = unicodedata.normalize('NFC', s)
-    if re.search(r'[^a-z-]', s): return ""
+    
+    # Final validation to ensure the string only contains a-z and hyphens.
+    # This will now pass for words that originally had ñ or ü.
+    if re.search(r'[^a-z-]', s): 
+        # This can still catch unexpected characters, so it's good to keep.
+        return ""
+        
     return s
 
 def create_v2_token_list(span: Span) -> List[Dict[str, Any]]:
