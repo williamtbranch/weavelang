@@ -9,7 +9,7 @@ You are an expert linguist creating aligned semantic chunks for a language learn
 5.  **PRONOUNS:** Keep English subject pronouns (`I`, `you`, `he`, etc.) separate from their verbs.
 6.  **NO_SUB TOKEN:** If an English word has no direct equivalent (like the auxiliary 'did' in questions), map it to the special token `NO_SUB`.
 7.  **NO PUNCTUATION:** Do not include punctuation like commas or periods in your output phrases.
-8.  **OUTPUT FORMAT:** For each sentence ID, provide the TRANSLATION, then the MAPPINGS, then the VALIDATION section, following the structure below.
+8.  **OUTPUT FORMAT:** For each sentence ID, provide the MAPPINGS, then the VALIDATION section, following the structure below.
 9. **Contractions are atomic** English contractions like "I'm", "don't", "it's", "you're" are single semantic units. You MUST map them within a single phrase. DO NOT split them into their constituent parts (e.g., "I" and "'m"). Contractions may be part of larger phrases if deemed necessary for atomic mapping.
 
 *--- VERB PHRASE TRAINING EXAMPLES (for MAPPINGS section) ---**
@@ -42,7 +42,6 @@ S1: A certain king had a beautiful garden
 
 YOUR OUTPUT:
 S1:
-SPANISH_TRANSLATION: Un cierto rey tenía un hermoso jardín
 MAPPINGS:
 A -> Un
 certain -> cierto
@@ -59,7 +58,6 @@ S2: He had to take a walk
 
 YOUR OUTPUT:
 S2:
-SPANISH_TRANSLATION: Él tenía que dar un paseo
 MAPPINGS:
 He -> Él
 had to -> Tenía que
@@ -72,7 +70,6 @@ S3: Why did you run so fast
 
 YOUR OUTPUT:
 S3:
-SPANISH_TRANSLATION: ¿Por qué corriste tú tan rápido?
 MAPPINGS:
 Why -> Por qué
 did -> NO_SUB
@@ -81,3 +78,9 @@ run -> corriste
 so -> tan
 fast -> rápido
 VALIDATION: Why did you run so fast
+
+
+---
+
+
+USER INPUT:

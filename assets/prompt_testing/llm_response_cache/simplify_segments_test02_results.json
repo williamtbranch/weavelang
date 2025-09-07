@@ -1,0 +1,2367 @@
+[
+  {
+    "seg_id": "S1_S1",
+    "input_text": "Capítulo 0",
+    "output_text": "Capítulo 0"
+  },
+  {
+    "seg_id": "S2_S1",
+    "input_text": "LOS MISERABLES",
+    "output_text": "LOS MISERABLES"
+  },
+  {
+    "seg_id": "S3_S1",
+    "input_text": "Por Victor Hugo",
+    "output_text": "Por Victor Hugo"
+  },
+  {
+    "seg_id": "S4_S1",
+    "input_text": "Capítulo 0",
+    "output_text": "Capítulo 0"
+  },
+  {
+    "seg_id": "S5_S1",
+    "input_text": "LOS MISERABLES",
+    "output_text": "LOS MISERABLES"
+  },
+  {
+    "seg_id": "S6_S1",
+    "input_text": "Prefacio",
+    "output_text": "Prefacio"
+  },
+  {
+    "seg_id": "S7_S1",
+    "input_text": "Mientras existan, en virtud de ",
+    "output_text": "Mientras existan, por las"
+  },
+  {
+    "seg_id": "S7_S2",
+    "input_text": "las leyes y las costumbres, ",
+    "output_text": "leyes y las costumbres,"
+  },
+  {
+    "seg_id": "S7_S3",
+    "input_text": "decretos de condenación pronunciados por la sociedad, ",
+    "output_text": "decisiones de castigo dichas por la sociedad,"
+  },
+  {
+    "seg_id": "S7_S4",
+    "input_text": "creando artificialmente infiernos ",
+    "output_text": "haciendo lugares terribles"
+  },
+  {
+    "seg_id": "S7_S5",
+    "input_text": "en medio de la civilización de la tierra, ",
+    "output_text": "en medio de la vida civilizada de la tierra,"
+  },
+  {
+    "seg_id": "S7_S6",
+    "input_text": "y añadiendo el elemento del destino humano al destino divino; ",
+    "output_text": "y poniendo la parte del destino humano al destino divino;"
+  },
+  {
+    "seg_id": "S7_S7",
+    "input_text": "mientras los tres grandes ",
+    "output_text": "mientras los tres grandes"
+  },
+  {
+    "seg_id": "S7_S8",
+    "input_text": "problemas del siglo — la degradación del hombre por el pauperismo, ",
+    "output_text": "problemas del siglo — la destrucción del hombre por la pobreza,"
+  },
+  {
+    "seg_id": "S7_S9",
+    "input_text": "la corrupción de la mujer por el hambre, ",
+    "output_text": "la corrupción de la mujer por el hambre,"
+  },
+  {
+    "seg_id": "S7_S10",
+    "input_text": "la mutilación de los niños por la falta ",
+    "output_text": "el daño de los niños por la falta"
+  },
+  {
+    "seg_id": "S7_S11",
+    "input_text": "de luz — permanezcan sin resolver; ",
+    "output_text": "de luz — queden sin resolver;"
+  },
+  {
+    "seg_id": "S7_S12",
+    "input_text": "mientras sea posible la asfixia social en cualquier ",
+    "output_text": "mientras sea posible la muerte social en cualquier"
+  },
+  {
+    "seg_id": "S7_S13",
+    "input_text": "parte del mundo; en otras palabras, y con un significado aún más amplio, ",
+    "output_text": "parte del mundo; en otras palabras, y con un significado aún más grande,"
+  },
+  {
+    "seg_id": "S7_S14",
+    "input_text": "mientras existan la ",
+    "output_text": "mientras existan la"
+  },
+  {
+    "seg_id": "S7_S15",
+    "input_text": "ignorancia y la pobreza en la tierra, ",
+    "output_text": "no saber leer y ser pobre en el mundo,"
+  },
+  {
+    "seg_id": "S7_S16",
+    "input_text": "los libros de la naturaleza de Los Miserables no pueden ",
+    "output_text": "los libros de la vida de Los Miserables no pueden"
+  },
+  {
+    "seg_id": "S7_S17",
+    "input_text": "dejar de ser útiles.",
+    "output_text": "dejar de ayudar."
+  },
+  {
+    "seg_id": "S8_S1",
+    "input_text": "HAUTEVILLE HOUSE, 1862.",
+    "output_text": "CASA HAUTEVILLE, 1862."
+  },
+  {
+    "seg_id": "S9_S1",
+    "input_text": "VOLUMEN I FANTINA",
+    "output_text": "LIBRO UNO FANTINA"
+  },
+  {
+    "seg_id": "S10_S1",
+    "input_text": "LIBRO PRIMERO — UN HOMBRE JUSTO",
+    "output_text": "PARTE UNO — UN HOMBRE BUENO"
+  },
+  {
+    "seg_id": "S11_S1",
+    "input_text": "Capítulo I: — M. MYRIEL",
+    "output_text": "Capítulo I: — M. MYRIEL"
+  },
+  {
+    "seg_id": "S12_S1",
+    "input_text": "En 1815, M. Charles-François-Bienvenu Myriel era obispo de D ——",
+    "output_text": "En 1815, M. Charles-François-Bienvenu Myriel era obispo de D ——"
+  },
+  {
+    "seg_id": "S13_S1",
+    "input_text": "Era un anciano de unos setenta y cinco años de edad; ",
+    "output_text": "Era un hombre viejo de unos setenta y cinco años;"
+  },
+  {
+    "seg_id": "S13_S2",
+    "input_text": "había ocupado la sede de D —— desde 1806.",
+    "output_text": "había trabajado en D —— desde 1806."
+  },
+  {
+    "seg_id": "S14_S1",
+    "input_text": "Aunque este detalle no ",
+    "output_text": "Aunque esta cosa no"
+  },
+  {
+    "seg_id": "S14_S2",
+    "input_text": "tiene conexión alguna con la verdadera sustancia de lo que estamos a punto de relatar, ",
+    "output_text": "tiene conexión con la historia verdadera de lo que vamos a contar,"
+  },
+  {
+    "seg_id": "S14_S3",
+    "input_text": "no será superfluo, aunque sea meramente ",
+    "output_text": "será bueno, aunque sea solo"
+  },
+  {
+    "seg_id": "S14_S4",
+    "input_text": "por amor a la exactitud ",
+    "output_text": "por amor a decir la verdad"
+  },
+  {
+    "seg_id": "S14_S5",
+    "input_text": "en todos los puntos, ",
+    "output_text": "en todas las cosas,"
+  },
+  {
+    "seg_id": "S14_S6",
+    "input_text": "mencionar aquí los diversos rumores y comentarios que habían circulado acerca de él ",
+    "output_text": "decir aquí las cosas que la gente había dicho sobre él"
+  },
+  {
+    "seg_id": "S14_S7",
+    "input_text": "desde el momento mismo en que llegó a la diócesis.",
+    "output_text": "desde el momento cuando llegó al lugar."
+  },
+  {
+    "seg_id": "S15_S1",
+    "input_text": "Verdadero o falso, ",
+    "output_text": "Verdad o mentira,"
+  },
+  {
+    "seg_id": "S15_S2",
+    "input_text": "lo que se dice de los hombres ",
+    "output_text": "lo que se dice de los hombres"
+  },
+  {
+    "seg_id": "S15_S3",
+    "input_text": "ocupa a menudo un lugar tan importante en sus vidas, ",
+    "output_text": "es a menudo muy importante en sus vidas,"
+  },
+  {
+    "seg_id": "S15_S4",
+    "input_text": "y sobre todo en sus destinos, como aquello que hacen.",
+    "output_text": "y sobre todo en sus vidas, como eso que hacen."
+  },
+  {
+    "seg_id": "S16_S1",
+    "input_text": "M. Myriel era hijo de un consejero del Parlamento de Aix; por tanto, ",
+    "output_text": "M. Myriel era hijo de un hombre del gobierno de Aix; por tanto,"
+  },
+  {
+    "seg_id": "S16_S2",
+    "input_text": "pertenecía a la ",
+    "output_text": "era de la"
+  },
+  {
+    "seg_id": "S16_S3",
+    "input_text": "nobleza de toga.",
+    "output_text": "clase rica de trabajo."
+  },
+  {
+    "seg_id": "S17_S1",
+    "input_text": "Se decía que su padre, destinándolo a ser heredero de su propio cargo, lo había ",
+    "output_text": "Se decía que su padre, queriendo que fuera el próximo en su trabajo, lo había"
+  },
+  {
+    "seg_id": "S17_S2",
+    "input_text": "casado a muy temprana edad, a los ",
+    "output_text": "casado muy joven, a los"
+  },
+  {
+    "seg_id": "S17_S3",
+    "input_text": "dieciocho o veinte años, de acuerdo ",
+    "output_text": "dieciocho o veinte años, como"
+  },
+  {
+    "seg_id": "S17_S4",
+    "input_text": "con una costumbre bastante extendida en las familias parlamentarias.",
+    "output_text": "era normal en las familias del gobierno."
+  },
+  {
+    "seg_id": "S18_S1",
+    "input_text": "A pesar de este matrimonio, ",
+    "output_text": "A pesar de este matrimonio,"
+  },
+  {
+    "seg_id": "S18_S2",
+    "input_text": "sin embargo, ",
+    "output_text": "sin embargo,"
+  },
+  {
+    "seg_id": "S18_S3",
+    "input_text": "se decía que Charles Myriel dio mucho que hablar.",
+    "output_text": "se decía que Charles Myriel hizo hablar mucho a la gente."
+  },
+  {
+    "seg_id": "S19_S1",
+    "input_text": "Era bien formado, aunque ",
+    "output_text": "Era guapo, aunque"
+  },
+  {
+    "seg_id": "S19_S2",
+    "input_text": "más bien bajo de estatura, ",
+    "output_text": "más bien pequeño,"
+  },
+  {
+    "seg_id": "S19_S3",
+    "input_text": "elegante, gracioso, inteligente; ",
+    "output_text": "elegante, simpático, inteligente;"
+  },
+  {
+    "seg_id": "S19_S4",
+    "input_text": "toda la primera parte de su vida ",
+    "output_text": "toda la primera parte de su vida"
+  },
+  {
+    "seg_id": "S19_S5",
+    "input_text": "había estado consagrada al mundo y a la galantería.",
+    "output_text": "había vivido para la sociedad y las mujeres."
+  },
+  {
+    "seg_id": "S20_S1",
+    "input_text": "Llegó la Revolución; ",
+    "output_text": "Llegó la Revolución;"
+  },
+  {
+    "seg_id": "S20_S2",
+    "input_text": "los acontecimientos se sucedieron con precipitación; ",
+    "output_text": "las cosas pasaron muy rápido;"
+  },
+  {
+    "seg_id": "S20_S3",
+    "input_text": "las familias parlamentarias, diezmadas, ",
+    "output_text": "las familias del gobierno, que perdieron mucha gente,"
+  },
+  {
+    "seg_id": "S20_S4",
+    "input_text": "perseguidas, acosadas, se dispersaron.",
+    "output_text": "atacadas, perseguidas, se fueron a diferentes lugares."
+  },
+  {
+    "seg_id": "S21_S1",
+    "input_text": "M. Charles Myriel emigró ",
+    "output_text": "M. Charles Myriel se fue"
+  },
+  {
+    "seg_id": "S21_S2",
+    "input_text": "a Italia al mismo comienzo de la Revolución.",
+    "output_text": "a Italia cuando empezó la Revolución."
+  },
+  {
+    "seg_id": "S22_S1",
+    "input_text": "Allí su esposa murió ",
+    "output_text": "Allí su mujer murió"
+  },
+  {
+    "seg_id": "S22_S2",
+    "input_text": "de una enfermedad del pecho, de la ",
+    "output_text": "de una enfermedad del pecho, de la"
+  },
+  {
+    "seg_id": "S22_S3",
+    "input_text": "cual había sufrido ",
+    "output_text": "cual había estado enferma"
+  },
+  {
+    "seg_id": "S22_S4",
+    "input_text": "largo tiempo.",
+    "output_text": "mucho tiempo."
+  },
+  {
+    "seg_id": "S23_S1",
+    "input_text": "No tenía hijos.",
+    "output_text": "No tenía hijos."
+  },
+  {
+    "seg_id": "S24_S1",
+    "input_text": "¿Qué ocurrió después ",
+    "output_text": "¿Qué pasó después"
+  },
+  {
+    "seg_id": "S24_S2",
+    "input_text": "en el destino de M. Myriel?",
+    "output_text": "en la vida de M. Myriel?"
+  },
+  {
+    "seg_id": "S25_S1",
+    "input_text": "La ruina de la sociedad francesa de antaño, ",
+    "output_text": "La destrucción de la sociedad francesa de antes,"
+  },
+  {
+    "seg_id": "S25_S2",
+    "input_text": "la caída de su propia familia, ",
+    "output_text": "la caída de su propia familia,"
+  },
+  {
+    "seg_id": "S25_S3",
+    "input_text": "los espectáculos trágicos del '93, que fueron, quizás, aún más ",
+    "output_text": "las cosas terribles del '93, que fueron, tal vez, aún más"
+  },
+  {
+    "seg_id": "S25_S4",
+    "input_text": "alarmantes para los emigrados que los contemplaban desde la distancia, con los ",
+    "output_text": "peligrosas para los que se fueron que las veían desde lejos, con los"
+  },
+  {
+    "seg_id": "S25_S5",
+    "input_text": "poderes magnificadores del terror,— ¿acaso hicieron germinar en ",
+    "output_text": "poderes grandes del miedo,— ¿hicieron crecer en"
+  },
+  {
+    "seg_id": "S25_S6",
+    "input_text": "él las ideas ",
+    "output_text": "él las ideas"
+  },
+  {
+    "seg_id": "S25_S7",
+    "input_text": "de renuncia y soledad?",
+    "output_text": "de dejar todo y estar solo?"
+  },
+  {
+    "seg_id": "S26_S1",
+    "input_text": "¿Fue él, en medio de estas distracciones, ",
+    "output_text": "¿Fue él, entre estas cosas,"
+  },
+  {
+    "seg_id": "S26_S2",
+    "input_text": "estos afectos que absorbían su vida, ",
+    "output_text": "estos sentimientos que llenaban su vida,"
+  },
+  {
+    "seg_id": "S26_S3",
+    "input_text": "súbitamente herido por uno de esos golpes misteriosos y terribles ",
+    "output_text": "de repente golpeado por uno de esos golpes extraños y terribles"
+  },
+  {
+    "seg_id": "S26_S4",
+    "input_text": "que a veces abruman, ",
+    "output_text": "que a veces destrozan,"
+  },
+  {
+    "seg_id": "S26_S5",
+    "input_text": "al golpear su corazón, a un ",
+    "output_text": "al tocar su corazón, a un"
+  },
+  {
+    "seg_id": "S26_S6",
+    "input_text": "hombre a quien las catástrofes públicas no conmoverían, al golpear su ",
+    "output_text": "hombre a quien los problemas grandes no moverían, al tocar su"
+  },
+  {
+    "seg_id": "S26_S7",
+    "input_text": "existencia y su fortuna?",
+    "output_text": "vida y su dinero?"
+  },
+  {
+    "seg_id": "S27_S1",
+    "input_text": "Nadie habría podido decirlo: todo ",
+    "output_text": "Nadie había podido decirlo: todo"
+  },
+  {
+    "seg_id": "S27_S2",
+    "input_text": "lo que se sabía era ",
+    "output_text": "lo que se sabía era"
+  },
+  {
+    "seg_id": "S27_S3",
+    "input_text": "que cuando regresó de Italia era un sacerdote.",
+    "output_text": "que cuando volvió de Italia era un sacerdote."
+  },
+  {
+    "seg_id": "S28_S1",
+    "input_text": "En 1804, M. Myriel ",
+    "output_text": "En 1804, M. Myriel"
+  },
+  {
+    "seg_id": "S28_S2",
+    "input_text": "era el Cura de B ",
+    "output_text": "era el Cura de B"
+  },
+  {
+    "seg_id": "S28_S3",
+    "input_text": "—— [Brignolles].",
+    "output_text": "—— [Brignolles]."
+  },
+  {
+    "seg_id": "S29_S1",
+    "input_text": "Ya estaba avanzado en años, ",
+    "output_text": "Ya estaba viejo en años,"
+  },
+  {
+    "seg_id": "S29_S2",
+    "input_text": "y vivía de manera muy retirada.",
+    "output_text": "y vivía de manera muy sola."
+  },
+  {
+    "seg_id": "S30_S1",
+    "input_text": "Hacia la época de la coronación, ",
+    "output_text": "Hacia el tiempo de la coronación,"
+  },
+  {
+    "seg_id": "S30_S2",
+    "input_text": "algún asunto menor relacionado con su curato ",
+    "output_text": "algún problema pequeño con su iglesia"
+  },
+  {
+    "seg_id": "S30_S3",
+    "input_text": "— qué exactamente, ",
+    "output_text": "— qué exactamente,"
+  },
+  {
+    "seg_id": "S30_S4",
+    "input_text": "no se sabe con precisión ",
+    "output_text": "no se sabe bien"
+  },
+  {
+    "seg_id": "S30_S5",
+    "input_text": "— lo llevó a París.",
+    "output_text": "— lo llevó a París."
+  },
+  {
+    "seg_id": "S31_S1",
+    "input_text": "Entre otras personas poderosas a quienes acudió para solicitar ayuda para sus feligreses ",
+    "output_text": "Entre otras personas con poder a quienes fue para pedir ayuda para su gente"
+  },
+  {
+    "seg_id": "S31_S2",
+    "input_text": "estaba M. le Cardinal Fesch.",
+    "output_text": "estaba M. le Cardinal Fesch."
+  },
+  {
+    "seg_id": "S32_S1",
+    "input_text": "Un día, cuando el Emperador ",
+    "output_text": "Un día, cuando el Emperador"
+  },
+  {
+    "seg_id": "S32_S2",
+    "input_text": "había venido a visitar a su tío, ",
+    "output_text": "había venido a ver a su tío,"
+  },
+  {
+    "seg_id": "S32_S3",
+    "input_text": "el digno Cura, que esperaba en la antesala, ",
+    "output_text": "el buen Cura, que esperaba en la sala,"
+  },
+  {
+    "seg_id": "S32_S4",
+    "input_text": "se encontró presente cuando Su Majestad pasó.",
+    "output_text": "estuvo presente cuando Su Majestad pasó."
+  },
+  {
+    "seg_id": "S33_S1",
+    "input_text": "Napoleón, al encontrarse observado con cierta curiosidad por este anciano, se volvió y dijo abruptamente:—",
+    "output_text": "Napoleón, al verse mirado con interés por este hombre viejo, se dio vuelta y dijo de repente:—"
+  },
+  {
+    "seg_id": "S34_S1",
+    "input_text": "\"¿Quién es ",
+    "output_text": "\"¿Quién es"
+  },
+  {
+    "seg_id": "S34_S2",
+    "input_text": "este buen hombre que me está mirando fijamente?\"",
+    "output_text": "este buen hombre que me está mirando tanto?\""
+  },
+  {
+    "seg_id": "S35_S1",
+    "input_text": "\"Señor,\" ",
+    "output_text": "\"Señor,\""
+  },
+  {
+    "seg_id": "S35_S2",
+    "input_text": "dijo M. Myriel, ",
+    "output_text": "dijo M. Myriel,"
+  },
+  {
+    "seg_id": "S35_S3",
+    "input_text": "\"usted está mirando a un buen hombre, ",
+    "output_text": "\"usted está mirando a un buen hombre,"
+  },
+  {
+    "seg_id": "S35_S4",
+    "input_text": "y yo a un gran hombre.",
+    "output_text": "y yo a un gran hombre."
+  },
+  {
+    "seg_id": "S36_S1",
+    "input_text": "Cada uno de nosotros ",
+    "output_text": "Cada uno de nosotros"
+  },
+  {
+    "seg_id": "S36_S2",
+    "input_text": "puede beneficiarse de ello.\"",
+    "output_text": "puede ganar con esto.\""
+  },
+  {
+    "seg_id": "S37_S1",
+    "input_text": "Esa misma noche, ",
+    "output_text": "Esa misma noche,"
+  },
+  {
+    "seg_id": "S37_S2",
+    "input_text": "el Emperador preguntó al Cardenal el nombre ",
+    "output_text": "el Emperador preguntó al Cardenal el nombre"
+  },
+  {
+    "seg_id": "S37_S3",
+    "input_text": "del Cura, y algún tiempo después ",
+    "output_text": "del Cura, y un tiempo después"
+  },
+  {
+    "seg_id": "S37_S4",
+    "input_text": "M. Myriel quedó completamente asombrado al enterarse ",
+    "output_text": "M. Myriel se quedó muy sorprendido al saber"
+  },
+  {
+    "seg_id": "S37_S5",
+    "input_text": "de que había sido nombrado Obispo de D ——",
+    "output_text": "que había sido hecho Obispo de D ——"
+  },
+  {
+    "seg_id": "S38_S1",
+    "input_text": "¿Qué verdad había, ",
+    "output_text": "¿Qué verdad había,"
+  },
+  {
+    "seg_id": "S38_S2",
+    "input_text": "después de todo, ",
+    "output_text": "después de todo,"
+  },
+  {
+    "seg_id": "S38_S3",
+    "input_text": "en las historias que se inventaron sobre la primera parte de la vida de M. Myriel?",
+    "output_text": "en las historias que se hicieron sobre la primera parte de la vida de M. Myriel?"
+  },
+  {
+    "seg_id": "S39_S1",
+    "input_text": "Nadie lo sabía.",
+    "output_text": "Nadie lo sabía."
+  },
+  {
+    "seg_id": "S40_S1",
+    "input_text": "Muy pocas familias habían conocido ",
+    "output_text": "Muy pocas familias habían conocido"
+  },
+  {
+    "seg_id": "S40_S2",
+    "input_text": "a la familia Myriel ",
+    "output_text": "a la familia Myriel"
+  },
+  {
+    "seg_id": "S40_S3",
+    "input_text": "antes de la Revolución.",
+    "output_text": "antes de la Revolución."
+  },
+  {
+    "seg_id": "S41_S1",
+    "input_text": "M. Myriel tuvo que sufrir ",
+    "output_text": "M. Myriel tuvo que sufrir"
+  },
+  {
+    "seg_id": "S41_S2",
+    "input_text": "el destino de todo recién llegado en una pequeña ciudad, donde hay muchas bocas que hablan ",
+    "output_text": "lo que pasa a toda persona nueva en una ciudad pequeña, donde hay muchas personas que hablan"
+  },
+  {
+    "seg_id": "S41_S3",
+    "input_text": "y muy pocas cabezas que piensan.",
+    "output_text": "y muy pocas personas que piensan."
+  },
+  {
+    "seg_id": "S42_S1",
+    "input_text": "Se vio obligado a soportarlo aunque ",
+    "output_text": "Tuvo que aguantarlo aunque"
+  },
+  {
+    "seg_id": "S42_S2",
+    "input_text": "era obispo, y ",
+    "output_text": "era obispo, y"
+  },
+  {
+    "seg_id": "S42_S3",
+    "input_text": "porque era obispo.",
+    "output_text": "porque era obispo."
+  },
+  {
+    "seg_id": "S43_S1",
+    "input_text": "Pero después de todo, ",
+    "output_text": "Pero después de todo,"
+  },
+  {
+    "seg_id": "S43_S2",
+    "input_text": "los rumores con los que su nombre estaba relacionado ",
+    "output_text": "las cosas que decían sobre su nombre"
+  },
+  {
+    "seg_id": "S43_S3",
+    "input_text": "eran solo rumores — ruido, dichos, ",
+    "output_text": "eran solo cosas que decían — ruido, palabras,"
+  },
+  {
+    "seg_id": "S43_S4",
+    "input_text": "palabras; menos que ",
+    "output_text": "palabras; menos que"
+  },
+  {
+    "seg_id": "S43_S5",
+    "input_text": "palabras — palabres, ",
+    "output_text": "palabras — palabras malas,"
+  },
+  {
+    "seg_id": "S43_S6",
+    "input_text": "como lo expresa el enérgico lenguaje del Sur.",
+    "output_text": "como dice la forma fuerte de hablar del Sur."
+  },
+  {
+    "seg_id": "S44_S1",
+    "input_text": "Como quiera que fuese, ",
+    "output_text": "Como fuera,"
+  },
+  {
+    "seg_id": "S44_S2",
+    "input_text": "después de nueve años de poder episcopal y de residencia en D ",
+    "output_text": "después de nueve años de ser obispo y vivir en D"
+  },
+  {
+    "seg_id": "S44_S3",
+    "input_text": "——, todas las historias y temas de conversación ",
+    "output_text": "——, todas las historias y cosas de las que hablan"
+  },
+  {
+    "seg_id": "S44_S4",
+    "input_text": "que absorben a las pequeñas ciudades ",
+    "output_text": "que les gustan a las ciudades pequeñas"
+  },
+  {
+    "seg_id": "S44_S5",
+    "input_text": "y a la gente menuda al principio habían caído ",
+    "output_text": "y a la gente pequeña al principio habían terminado"
+  },
+  {
+    "seg_id": "S44_S6",
+    "input_text": "en profundo olvido.",
+    "output_text": "en gran olvido."
+  },
+  {
+    "seg_id": "S45_S1",
+    "input_text": "Nadie se habría atrevido a mencionarlos; nadie ",
+    "output_text": "Nadie se habría atrevido a hablar de ellos; nadie"
+  },
+  {
+    "seg_id": "S45_S2",
+    "input_text": "se habría atrevido a recordarlos.",
+    "output_text": "se habría atrevido a recordarlos."
+  },
+  {
+    "seg_id": "S46_S1",
+    "input_text": "M. Myriel había llegado ",
+    "output_text": "M. Myriel había llegado"
+  },
+  {
+    "seg_id": "S46_S2",
+    "input_text": "a D —— acompañado de una solterona anciana, Mademoiselle Baptistine, ",
+    "output_text": "a D —— con una mujer vieja soltera, Mademoiselle Baptistine,"
+  },
+  {
+    "seg_id": "S46_S3",
+    "input_text": "que era su hermana y diez años menor que él.",
+    "output_text": "que era su hermana y diez años menor que él."
+  },
+  {
+    "seg_id": "S47_S1",
+    "input_text": "Su única doméstica era ",
+    "output_text": "Su única trabajadora de casa era"
+  },
+  {
+    "seg_id": "S47_S2",
+    "input_text": "una sirvienta de la misma edad ",
+    "output_text": "una mujer que trabajaba de la misma edad"
+  },
+  {
+    "seg_id": "S47_S3",
+    "input_text": "que Mademoiselle Baptistine, llamada Madame Magloire, ",
+    "output_text": "que Mademoiselle Baptistine, llamada Madame Magloire,"
+  },
+  {
+    "seg_id": "S47_S4",
+    "input_text": "quien, después de haber sido la sirvienta de M. le Curé, ",
+    "output_text": "quien, después de haber sido la trabajadora de M. le Curé,"
+  },
+  {
+    "seg_id": "S47_S5",
+    "input_text": "asumía ahora el doble título de doncella de Mademoiselle ",
+    "output_text": "tomaba ahora el doble trabajo de ayudante de Mademoiselle"
+  },
+  {
+    "seg_id": "S47_S6",
+    "input_text": "y ama de llaves de Monseigneur.",
+    "output_text": "y jefa de casa de Monseigneur."
+  },
+  {
+    "seg_id": "S48_S1",
+    "input_text": "Mademoiselle Baptistine era una criatura larga, pálida, delgada y gentil; ",
+    "output_text": "Mademoiselle Baptistine era una persona alta, pálida, delgada y buena;"
+  },
+  {
+    "seg_id": "S48_S2",
+    "input_text": "realizaba el ideal expresado por la palabra \"respetable\"; ",
+    "output_text": "hacía real la idea expresada por la palabra \"respetable\";"
+  },
+  {
+    "seg_id": "S48_S3",
+    "input_text": "pues parece que una mujer debe ser ",
+    "output_text": "pues parece que una mujer debe ser"
+  },
+  {
+    "seg_id": "S48_S4",
+    "input_text": "madre para ser venerable.",
+    "output_text": "madre para ser respetada."
+  },
+  {
+    "seg_id": "S49_S1",
+    "input_text": "Nunca había sido hermosa; ",
+    "output_text": "Nunca había sido hermosa;"
+  },
+  {
+    "seg_id": "S49_S2",
+    "input_text": "toda su vida, que no había sido ",
+    "output_text": "toda su vida, que no había sido"
+  },
+  {
+    "seg_id": "S49_S3",
+    "input_text": "sino una sucesión de actos santos, ",
+    "output_text": "más que una serie de actos buenos,"
+  },
+  {
+    "seg_id": "S49_S4",
+    "input_text": "le había conferido finalmente ",
+    "output_text": "le había dado finalmente"
+  },
+  {
+    "seg_id": "S49_S5",
+    "input_text": "una especie de palidez y transparencia; ",
+    "output_text": "una cosa de color pálido y claro;"
+  },
+  {
+    "seg_id": "S49_S6",
+    "input_text": "y al avanzar en años había adquirido ",
+    "output_text": "y al pasar los años había conseguido"
+  },
+  {
+    "seg_id": "S49_S7",
+    "input_text": "lo que puede llamarse la belleza de ",
+    "output_text": "lo que se puede llamar la belleza de"
+  },
+  {
+    "seg_id": "S49_S8",
+    "input_text": "la bondad.",
+    "output_text": "la bondad."
+  },
+  {
+    "seg_id": "S50_S1",
+    "input_text": "Lo que había sido delgadez en su juventud ",
+    "output_text": "Lo que había sido delgada en su juventud"
+  },
+  {
+    "seg_id": "S50_S2",
+    "input_text": "se había vuelto transparencia en su madurez; ",
+    "output_text": "se había vuelto clara en su edad adulta;"
+  },
+  {
+    "seg_id": "S50_S3",
+    "input_text": "y esta diafanidad permitía que se viera el ángel.",
+    "output_text": "y esta claridad permitía que se viera el ángel."
+  },
+  {
+    "seg_id": "S51_S1",
+    "input_text": "Era un alma más que una virgen.",
+    "output_text": "Era un alma más que una mujer joven."
+  },
+  {
+    "seg_id": "S52_S1",
+    "input_text": "Su persona parecía hecha de una sombra; ",
+    "output_text": "Su persona parecía hecha de una sombra;"
+  },
+  {
+    "seg_id": "S52_S2",
+    "input_text": "apenas había suficiente cuerpo ",
+    "output_text": "apenas había suficiente cuerpo"
+  },
+  {
+    "seg_id": "S52_S3",
+    "input_text": "para proveer el sexo; ",
+    "output_text": "para mostrar el sexo;"
+  },
+  {
+    "seg_id": "S52_S4",
+    "input_text": "un poco de materia encerrando una luz; ",
+    "output_text": "un poco de materia con una luz;"
+  },
+  {
+    "seg_id": "S52_S5",
+    "input_text": "grandes ojos siempre caídos ",
+    "output_text": "grandes ojos siempre hacia abajo"
+  },
+  {
+    "seg_id": "S52_S6",
+    "input_text": "— un mero pretexto para que un alma permaneciera en la tierra.",
+    "output_text": "— una simple razón para que un alma quedara en la tierra."
+  },
+  {
+    "seg_id": "S53_S1",
+    "input_text": "Madame Magloire era una viejecita pequeña, gorda y blanca, ",
+    "output_text": "Señora Magloire era una mujer vieja pequeña, gorda y blanca,"
+  },
+  {
+    "seg_id": "S53_S2",
+    "input_text": "corpulenta y bulliciosa; ",
+    "output_text": "grande y activa;"
+  },
+  {
+    "seg_id": "S53_S3",
+    "input_text": "siempre sin aliento ",
+    "output_text": "siempre sin aire"
+  },
+  {
+    "seg_id": "S53_S4",
+    "input_text": "— en primer lugar, ",
+    "output_text": "— primero,"
+  },
+  {
+    "seg_id": "S53_S5",
+    "input_text": "por su actividad, ",
+    "output_text": "por su actividad,"
+  },
+  {
+    "seg_id": "S53_S6",
+    "input_text": "y después, por su asma.",
+    "output_text": "y después, por su problema de respirar."
+  },
+  {
+    "seg_id": "S54_S1",
+    "input_text": "A su llegada, ",
+    "output_text": "Cuando llegó,"
+  },
+  {
+    "seg_id": "S54_S2",
+    "input_text": "M. Myriel fue instalado ",
+    "output_text": "M. Myriel fue puesto"
+  },
+  {
+    "seg_id": "S54_S3",
+    "input_text": "en el palacio episcopal ",
+    "output_text": "en la casa grande del obispo"
+  },
+  {
+    "seg_id": "S54_S4",
+    "input_text": "con los honores requeridos por los decretos imperiales, que clasifican a un obispo ",
+    "output_text": "con el respeto que piden las leyes del emperador, que dicen que un obispo"
+  },
+  {
+    "seg_id": "S54_S5",
+    "input_text": "inmediatamente después de un general de división.",
+    "output_text": "va después de un general del ejército."
+  },
+  {
+    "seg_id": "S55_S1",
+    "input_text": "El alcalde y el presidente ",
+    "output_text": "El alcalde y el presidente"
+  },
+  {
+    "seg_id": "S55_S2",
+    "input_text": "le hicieron la primera visita, ",
+    "output_text": "le hicieron la primera visita,"
+  },
+  {
+    "seg_id": "S55_S3",
+    "input_text": "y él, a su vez, ",
+    "output_text": "y él, después,"
+  },
+  {
+    "seg_id": "S55_S4",
+    "input_text": "hizo la primera visita al general y al prefecto.",
+    "output_text": "hizo la primera visita al general y al prefecto."
+  },
+  {
+    "seg_id": "S56_S1",
+    "input_text": "Terminada la instalación, ",
+    "output_text": "Cuando terminó todo,"
+  },
+  {
+    "seg_id": "S56_S2",
+    "input_text": "la ciudad esperó ver a su obispo en acción.",
+    "output_text": "la ciudad esperó ver a su obispo trabajar."
+  },
+  {
+    "seg_id": "S57_S1",
+    "input_text": "Capítulo II: ",
+    "output_text": "Capítulo II:"
+  },
+  {
+    "seg_id": "S57_S2",
+    "input_text": "— M. MYRIEL SE CONVIERTE EN M. BIENVENIDO",
+    "output_text": "— M. MYRIEL SE CONVIERTE EN M. BIENVENIDO"
+  },
+  {
+    "seg_id": "S58_S1",
+    "input_text": "El palacio episcopal de D ",
+    "output_text": "La casa grande del obispo de D"
+  },
+  {
+    "seg_id": "S58_S2",
+    "input_text": "—— linda con el hospital.",
+    "output_text": "—— está al lado del hospital."
+  },
+  {
+    "seg_id": "S59_S1",
+    "input_text": "El palacio episcopal era ",
+    "output_text": "La casa grande del obispo era"
+  },
+  {
+    "seg_id": "S59_S2",
+    "input_text": "una casa enorme y hermosa, ",
+    "output_text": "una casa muy grande y bonita,"
+  },
+  {
+    "seg_id": "S59_S3",
+    "input_text": "construida de piedra ",
+    "output_text": "hecha de piedra"
+  },
+  {
+    "seg_id": "S59_S4",
+    "input_text": "a principios del siglo pasado por M. ",
+    "output_text": "al principio del siglo pasado por M."
+  },
+  {
+    "seg_id": "S59_S5",
+    "input_text": "Henri Puget, Doctor en Teología de la Facultad de París, Abad de ",
+    "output_text": "Henri Puget, Doctor en Teología de la Facultad de París, Abad de"
+  },
+  {
+    "seg_id": "S59_S6",
+    "input_text": "Simore, que había sido Obispo de ",
+    "output_text": "Simore, que había sido Obispo de"
+  },
+  {
+    "seg_id": "S59_S7",
+    "input_text": "D —— en 1712.",
+    "output_text": "D —— en 1712."
+  },
+  {
+    "seg_id": "S60_S1",
+    "input_text": "Este palacio era una genuina residencia señorial.",
+    "output_text": "Esta casa grande era una casa verdadera de gente rica."
+  },
+  {
+    "seg_id": "S61_S1",
+    "input_text": "Todo en él tenía ",
+    "output_text": "Todo en él tenía"
+  },
+  {
+    "seg_id": "S61_S2",
+    "input_text": "un aire grandioso,— ",
+    "output_text": "un aire muy grande,—"
+  },
+  {
+    "seg_id": "S61_S3",
+    "input_text": "los aposentos del Obispo, los salones, las cámaras, ",
+    "output_text": "los cuartos del Obispo, las salas, las habitaciones,"
+  },
+  {
+    "seg_id": "S61_S4",
+    "input_text": "el patio ",
+    "output_text": "el patio"
+  },
+  {
+    "seg_id": "S61_S5",
+    "input_text": "principal, que era muy grande, con paseos ",
+    "output_text": "principal, que era muy grande, con caminos"
+  },
+  {
+    "seg_id": "S61_S6",
+    "input_text": "que lo rodeaban bajo arcadas al viejo estilo ",
+    "output_text": "que lo rodeaban bajo arcos al estilo viejo"
+  },
+  {
+    "seg_id": "S61_S7",
+    "input_text": "florentino, y jardines plantados con ",
+    "output_text": "florentino, y jardines con"
+  },
+  {
+    "seg_id": "S61_S8",
+    "input_text": "árboles magníficos.",
+    "output_text": "árboles muy bonitos."
+  },
+  {
+    "seg_id": "S62_S1",
+    "input_text": "En el comedor, ",
+    "output_text": "En el comedor,"
+  },
+  {
+    "seg_id": "S62_S2",
+    "input_text": "una galería larga y soberbia ",
+    "output_text": "una sala larga y muy bonita"
+  },
+  {
+    "seg_id": "S62_S3",
+    "input_text": "que se situaba en la planta baja ",
+    "output_text": "que estaba en el piso de abajo"
+  },
+  {
+    "seg_id": "S62_S4",
+    "input_text": "y se abría a los jardines, ",
+    "output_text": "y se abría a los jardines,"
+  },
+  {
+    "seg_id": "S62_S5",
+    "input_text": "M. Henri Puget había recibido ",
+    "output_text": "M. Henri Puget había recibido"
+  },
+  {
+    "seg_id": "S62_S6",
+    "input_text": "con pompa, el 29 de julio de 1714, ",
+    "output_text": "con ceremonia, el 29 de julio de 1714,"
+  },
+  {
+    "seg_id": "S62_S7",
+    "input_text": "a Sus Señorías Charles Brûlart de Genlis, ",
+    "output_text": "a Sus Señorías Charles Brûlart de Genlis,"
+  },
+  {
+    "seg_id": "S62_S8",
+    "input_text": "arzobispo; Príncipe d'Embrun; Antoine de ",
+    "output_text": "arzobispo; Príncipe d'Embrun; Antoine de"
+  },
+  {
+    "seg_id": "S62_S9",
+    "input_text": "Mesgrigny, el capuchino, ",
+    "output_text": "Mesgrigny, el capuchino,"
+  },
+  {
+    "seg_id": "S62_S10",
+    "input_text": "Obispo de ",
+    "output_text": "Obispo de"
+  },
+  {
+    "seg_id": "S62_S11",
+    "input_text": "Grasse; Philippe de ",
+    "output_text": "Grasse; Philippe de"
+  },
+  {
+    "seg_id": "S62_S12",
+    "input_text": "Vendôme, Gran Prior ",
+    "output_text": "Vendôme, Gran Prior"
+  },
+  {
+    "seg_id": "S62_S13",
+    "input_text": "de Francia, Abad de ",
+    "output_text": "de Francia, Abad de"
+  },
+  {
+    "seg_id": "S62_S14",
+    "input_text": "Saint Honoré de Lérins; François de ",
+    "output_text": "Saint Honoré de Lérins; François de"
+  },
+  {
+    "seg_id": "S62_S15",
+    "input_text": "Berton de Crillon, obispo, Barón ",
+    "output_text": "Berton de Crillon, obispo, Barón"
+  },
+  {
+    "seg_id": "S62_S16",
+    "input_text": "de Vence; César de ",
+    "output_text": "de Vence; César de"
+  },
+  {
+    "seg_id": "S62_S17",
+    "input_text": "Sabran de Forcalquier, obispo, Señor ",
+    "output_text": "Sabran de Forcalquier, obispo, Señor"
+  },
+  {
+    "seg_id": "S62_S18",
+    "input_text": "de Glandève; y Jean ",
+    "output_text": "de Glandève; y Jean"
+  },
+  {
+    "seg_id": "S62_S19",
+    "input_text": "Soanen, Sacerdote del Oratorio, predicador ordinario del rey, obispo, ",
+    "output_text": "Soanen, Sacerdote del Oratorio, predicador ordinario del rey, obispo,"
+  },
+  {
+    "seg_id": "S62_S20",
+    "input_text": "Señor de Senez.",
+    "output_text": "Señor de Senez."
+  },
+  {
+    "seg_id": "S63_S1",
+    "input_text": "Los retratos de estos siete venerables personajes ",
+    "output_text": "Los retratos de estos siete hombres importantes"
+  },
+  {
+    "seg_id": "S63_S2",
+    "input_text": "decoraban este aposento; ",
+    "output_text": "adornaban este cuarto;"
+  },
+  {
+    "seg_id": "S63_S3",
+    "input_text": "y esta fecha memorable, el 29 de julio de 1714, ",
+    "output_text": "y esta fecha importante, el 29 de julio de 1714,"
+  },
+  {
+    "seg_id": "S63_S4",
+    "input_text": "estaba allí grabada en letras de oro sobre una tabla de mármol blanco.",
+    "output_text": "estaba allí escrita en letras de oro sobre una tabla de piedra blanca."
+  },
+  {
+    "seg_id": "S64_S1",
+    "input_text": "El hospital era un edificio bajo y estrecho ",
+    "output_text": "El hospital era un edificio bajo y pequeño"
+  },
+  {
+    "seg_id": "S64_S2",
+    "input_text": "de una sola planta, ",
+    "output_text": "de un solo piso,"
+  },
+  {
+    "seg_id": "S64_S3",
+    "input_text": "con un pequeño jardín.",
+    "output_text": "con un pequeño jardín."
+  },
+  {
+    "seg_id": "S65_S1",
+    "input_text": "Tres días después de su llegada, ",
+    "output_text": "Tres días después de llegar,"
+  },
+  {
+    "seg_id": "S65_S2",
+    "input_text": "el Obispo visitó el hospital.",
+    "output_text": "el Obispo visitó el hospital."
+  },
+  {
+    "seg_id": "S66_S1",
+    "input_text": "Terminada la visita, ",
+    "output_text": "Cuando terminó la visita,"
+  },
+  {
+    "seg_id": "S66_S2",
+    "input_text": "hizo que se rogara al director tuviera la ",
+    "output_text": "pidió que llamaran al director para que"
+  },
+  {
+    "seg_id": "S66_S3",
+    "input_text": "bondad de venir a su casa.",
+    "output_text": "viniera a su casa."
+  },
+  {
+    "seg_id": "S67_S1",
+    "input_text": "\"Señor director del hospital,\" le dijo, ",
+    "output_text": "\"Señor director del hospital,\" le dijo,"
+  },
+  {
+    "seg_id": "S67_S2",
+    "input_text": "\"¿cuántos enfermos tienen ustedes ",
+    "output_text": "\"¿cuántos enfermos tienen ustedes"
+  },
+  {
+    "seg_id": "S67_S3",
+    "input_text": "en este momento?\"",
+    "output_text": "ahora?\""
+  },
+  {
+    "seg_id": "S68_S1",
+    "input_text": "\"Veintiséis, Monseñor.\"",
+    "output_text": "\"Veintiséis, Monseñor.\""
+  },
+  {
+    "seg_id": "S69_S1",
+    "input_text": "\"Ese era el número que conté,\" ",
+    "output_text": "\"Ese era el número que conté,\""
+  },
+  {
+    "seg_id": "S69_S2",
+    "input_text": "dijo el Obispo.",
+    "output_text": "dijo el Obispo."
+  },
+  {
+    "seg_id": "S70_S1",
+    "input_text": "\"Las camas,\" prosiguió el director, ",
+    "output_text": "\"Las camas,\" siguió el director,"
+  },
+  {
+    "seg_id": "S70_S2",
+    "input_text": "\"están muy apretadas ",
+    "output_text": "\"están muy juntas"
+  },
+  {
+    "seg_id": "S70_S3",
+    "input_text": "unas contra otras.\"",
+    "output_text": "unas con otras.\""
+  },
+  {
+    "seg_id": "S71_S1",
+    "input_text": "\"Eso es lo que observé.\"",
+    "output_text": "\"Eso es lo que vi.\""
+  },
+  {
+    "seg_id": "S72_S1",
+    "input_text": "\"Las salas no son ",
+    "output_text": "\"Los cuartos no son"
+  },
+  {
+    "seg_id": "S72_S2",
+    "input_text": "más que cuartos, ",
+    "output_text": "más que cuartos,"
+  },
+  {
+    "seg_id": "S72_S3",
+    "input_text": "y es con dificultad que el aire puede renovarse en ellas.\"",
+    "output_text": "y es difícil que el aire pueda cambiar en ellos.\""
+  },
+  {
+    "seg_id": "S73_S1",
+    "input_text": "\"Así me lo parece.\"",
+    "output_text": "\"Así me parece.\""
+  },
+  {
+    "seg_id": "S74_S1",
+    "input_text": "\"Y luego, cuando hay un rayo de sol, ",
+    "output_text": "\"Y también, cuando hay un poco de sol,"
+  },
+  {
+    "seg_id": "S74_S2",
+    "input_text": "el jardín es muy pequeño para los convalecientes.\"",
+    "output_text": "el jardín es muy pequeño para los enfermos que se curan.\""
+  },
+  {
+    "seg_id": "S75_S1",
+    "input_text": "\"Eso era lo que me decía a mí mismo.\"",
+    "output_text": "\"Eso era lo que pensaba yo.\""
+  },
+  {
+    "seg_id": "S76_S1",
+    "input_text": "\"En caso de epidemias,— ",
+    "output_text": "En caso de enfermedades,—"
+  },
+  {
+    "seg_id": "S76_S2",
+    "input_text": "hemos tenido la fiebre tifoidea este año; ",
+    "output_text": "hemos tenido la fiebre mala este año;"
+  },
+  {
+    "seg_id": "S76_S3",
+    "input_text": "tuvimos el sudor inglés ",
+    "output_text": "tuvimos la enfermedad inglesa"
+  },
+  {
+    "seg_id": "S76_S4",
+    "input_text": "hace dos años, ",
+    "output_text": "hace dos años,"
+  },
+  {
+    "seg_id": "S76_S5",
+    "input_text": "y cien pacientes a veces,— ",
+    "output_text": "y cien enfermos a veces,—"
+  },
+  {
+    "seg_id": "S76_S6",
+    "input_text": "no sabemos qué hacer.\"",
+    "output_text": "no sabemos qué hacer."
+  },
+  {
+    "seg_id": "S77_S1",
+    "input_text": "\"Ese es el pensamiento que se me ocurrió.\"",
+    "output_text": "Esa es la idea que se me ocurrió."
+  },
+  {
+    "seg_id": "S78_S1",
+    "input_text": "\"¿Qué quiere ",
+    "output_text": "¿Qué quiere"
+  },
+  {
+    "seg_id": "S78_S2",
+    "input_text": "usted, Monseñor?\" ",
+    "output_text": "usted, Señor?"
+  },
+  {
+    "seg_id": "S78_S3",
+    "input_text": "dijo el director.",
+    "output_text": "dijo el director."
+  },
+  {
+    "seg_id": "S79_S1",
+    "input_text": "\"Hay que resignarse.\"",
+    "output_text": "Hay que aceptar."
+  },
+  {
+    "seg_id": "S80_S1",
+    "input_text": "Esta conversación tuvo lugar ",
+    "output_text": "Esta conversación pasó"
+  },
+  {
+    "seg_id": "S80_S2",
+    "input_text": "en la galería comedor de la planta baja.",
+    "output_text": "en el lugar grande para comer de la planta baja."
+  },
+  {
+    "seg_id": "S81_S1",
+    "input_text": "El Obispo permaneció en silencio por un momento; ",
+    "output_text": "El Obispo no habló por un momento;"
+  },
+  {
+    "seg_id": "S81_S2",
+    "input_text": "luego se volvió bruscamente ",
+    "output_text": "luego se movió rápido"
+  },
+  {
+    "seg_id": "S81_S3",
+    "input_text": "hacia el director del hospital.",
+    "output_text": "hacia el director del hospital."
+  },
+  {
+    "seg_id": "S82_S1",
+    "input_text": "\"Monsieur\", dijo, ",
+    "output_text": "Señor, dijo,"
+  },
+  {
+    "seg_id": "S82_S2",
+    "input_text": "\"¿cuántas camas ",
+    "output_text": "¿cuántas camas"
+  },
+  {
+    "seg_id": "S82_S3",
+    "input_text": "cree usted que cabría solo en esta sala?\"",
+    "output_text": "cree usted que entra solo en esta sala?"
+  },
+  {
+    "seg_id": "S83_S1",
+    "input_text": "\"¿El comedor de Monseñor?\" ",
+    "output_text": "¿El lugar para comer del Señor?"
+  },
+  {
+    "seg_id": "S83_S2",
+    "input_text": "exclamó el director estupefacto.",
+    "output_text": "dijo el director muy sorprendido."
+  },
+  {
+    "seg_id": "S84_S1",
+    "input_text": "El Obispo echó una mirada por el aposento, ",
+    "output_text": "El Obispo miró por el cuarto,"
+  },
+  {
+    "seg_id": "S84_S2",
+    "input_text": "y parecía estar tomando medidas y ",
+    "output_text": "y parecía estar midiendo y"
+  },
+  {
+    "seg_id": "S84_S3",
+    "input_text": "haciendo cálculos con los ojos.",
+    "output_text": "contando con los ojos."
+  },
+  {
+    "seg_id": "S85_S1",
+    "input_text": "\"Cabría fácilmente veinte camas\", ",
+    "output_text": "\"Cabrían fácil veinte camas\","
+  },
+  {
+    "seg_id": "S85_S2",
+    "input_text": "dijo, como hablando consigo mismo.",
+    "output_text": "dijo, como hablando solo."
+  },
+  {
+    "seg_id": "S86_S1",
+    "input_text": "Luego, alzando la voz:",
+    "output_text": "Luego, hablando fuerte:"
+  },
+  {
+    "seg_id": "S87_S1",
+    "input_text": "\"Oiga, Monsieur director del hospital, le voy ",
+    "output_text": "\"Oiga, señor director del hospital, le voy"
+  },
+  {
+    "seg_id": "S87_S2",
+    "input_text": "a decir algo.",
+    "output_text": "a decir algo."
+  },
+  {
+    "seg_id": "S88_S1",
+    "input_text": "Evidentemente aquí hay un error.",
+    "output_text": "Claro que aquí hay un error."
+  },
+  {
+    "seg_id": "S89_S1",
+    "input_text": "Ustedes son treinta y seis, en cinco o seis cuartos pequeños.",
+    "output_text": "Ustedes son treinta y seis, en cinco o seis cuartos pequeños."
+  },
+  {
+    "seg_id": "S90_S1",
+    "input_text": "Nosotros somos tres aquí, ",
+    "output_text": "Nosotros somos tres aquí,"
+  },
+  {
+    "seg_id": "S90_S2",
+    "input_text": "y tenemos espacio para sesenta.",
+    "output_text": "y tenemos lugar para sesenta."
+  },
+  {
+    "seg_id": "S91_S1",
+    "input_text": "Hay un error, ",
+    "output_text": "Hay un error,"
+  },
+  {
+    "seg_id": "S91_S2",
+    "input_text": "se lo digo; ",
+    "output_text": "se lo digo;"
+  },
+  {
+    "seg_id": "S91_S3",
+    "input_text": "ustedes tienen mi casa, ",
+    "output_text": "ustedes tienen mi casa,"
+  },
+  {
+    "seg_id": "S91_S4",
+    "input_text": "y yo tengo la suya.",
+    "output_text": "y yo tengo la suya."
+  },
+  {
+    "seg_id": "S92_S1",
+    "input_text": "Devuélvanme mi casa; ",
+    "output_text": "Denme mi casa;"
+  },
+  {
+    "seg_id": "S92_S2",
+    "input_text": "ustedes están en su hogar aquí.\"",
+    "output_text": "ustedes están en su casa aquí.\""
+  },
+  {
+    "seg_id": "S93_S1",
+    "input_text": "Al día siguiente los treinta ",
+    "output_text": "Al día siguiente los treinta"
+  },
+  {
+    "seg_id": "S93_S2",
+    "input_text": "y seis pacientes fueron instalados ",
+    "output_text": "y seis enfermos fueron puestos"
+  },
+  {
+    "seg_id": "S93_S3",
+    "input_text": "en el palacio del Obispo, y el Obispo se ",
+    "output_text": "en la casa grande del Obispo, y el Obispo se"
+  },
+  {
+    "seg_id": "S93_S4",
+    "input_text": "estableció en el hospital.",
+    "output_text": "fue a vivir en el hospital."
+  },
+  {
+    "seg_id": "S94_S1",
+    "input_text": "M. Myriel no tenía ",
+    "output_text": "M. Myriel no tenía"
+  },
+  {
+    "seg_id": "S94_S2",
+    "input_text": "propiedades, habiendo sido arruinada ",
+    "output_text": "cosas, porque había perdido todo"
+  },
+  {
+    "seg_id": "S94_S3",
+    "input_text": "su familia por la Revolución.",
+    "output_text": "su familia por la Guerra."
+  },
+  {
+    "seg_id": "S95_S1",
+    "input_text": "Su hermana recibía una renta anual de quinientos francos, ",
+    "output_text": "Su hermana recibía dinero cada año de quinientos francos,"
+  },
+  {
+    "seg_id": "S95_S2",
+    "input_text": "que bastaba para sus necesidades personales en la vicaría.",
+    "output_text": "que era bastante para lo que necesitaba en la casa del cura."
+  },
+  {
+    "seg_id": "S96_S1",
+    "input_text": "M. Myriel recibía del Estado, en su ",
+    "output_text": "M. Myriel recibía del gobierno, como"
+  },
+  {
+    "seg_id": "S96_S2",
+    "input_text": "calidad de obispo, un salario ",
+    "output_text": "obispo, dinero"
+  },
+  {
+    "seg_id": "S96_S3",
+    "input_text": "de quince mil francos.",
+    "output_text": "de quince mil francos."
+  },
+  {
+    "seg_id": "S97_S1",
+    "input_text": "El mismo día en que se instaló en el hospital, ",
+    "output_text": "El mismo día en que se fue a vivir en el hospital,"
+  },
+  {
+    "seg_id": "S97_S2",
+    "input_text": "M. Myriel dispuso de esta suma ",
+    "output_text": "M. Myriel usó este dinero"
+  },
+  {
+    "seg_id": "S97_S3",
+    "input_text": "de una vez por todas, ",
+    "output_text": "de una vez,"
+  },
+  {
+    "seg_id": "S97_S4",
+    "input_text": "de la siguiente manera.",
+    "output_text": "de esta manera."
+  },
+  {
+    "seg_id": "S98_S1",
+    "input_text": "Transcribimos aquí una nota hecha de su puño y letra:",
+    "output_text": "Escribimos aquí una nota hecha con su mano:"
+  },
+  {
+    "seg_id": "S99_S1",
+    "input_text": "NOTA SOBRE LA REGULACIÓN DE MIS GASTOS DOMÉSTICOS.",
+    "output_text": "NOTA SOBRE CÓMO GASTO MI DINERO EN CASA."
+  },
+  {
+    "seg_id": "S100_S1",
+    "input_text": "Para el pequeño seminario - 1,500 libras",
+    "output_text": "Para la escuela pequeña de curas - 1,500 libras"
+  },
+  {
+    "seg_id": "S101_S1",
+    "input_text": "Sociedad de la misión - 100 libras",
+    "output_text": "Grupo de la misión - 100 libras"
+  },
+  {
+    "seg_id": "S102_S1",
+    "input_text": "Para los lazaristas de Montdidier - 100 libras",
+    "output_text": "Para los curas de Montdidier - 100 libras"
+  },
+  {
+    "seg_id": "S103_S1",
+    "input_text": "Seminario para misiones extranjeras en París - 200 libras",
+    "output_text": "Escuela para trabajo en otros países en París - 200 libras"
+  },
+  {
+    "seg_id": "S104_S1",
+    "input_text": "Congregación del Espíritu Santo - 150 libras",
+    "output_text": "Grupo del Espíritu Santo - 150 libras"
+  },
+  {
+    "seg_id": "S105_S1",
+    "input_text": "Establecimientos religiosos de Tierra Santa - 100 libras",
+    "output_text": "Lugares religiosos de Tierra Santa - 100 libras"
+  },
+  {
+    "seg_id": "S106_S1",
+    "input_text": "Sociedades caritativas de maternidad - 300 libras",
+    "output_text": "Grupos de ayuda para madres - 300 libras"
+  },
+  {
+    "seg_id": "S107_S1",
+    "input_text": "Extra, para la de Arles - 50 libras",
+    "output_text": "Extra, para la de Arles - 50 libras"
+  },
+  {
+    "seg_id": "S108_S1",
+    "input_text": "Obra para el mejoramiento de las prisiones - 400 libras",
+    "output_text": "Trabajo para hacer mejor las cárceles - 400 libras"
+  },
+  {
+    "seg_id": "S109_S1",
+    "input_text": "Obra para el socorro y liberación de prisioneros - 500 libras",
+    "output_text": "Trabajo para ayuda y libertad de presos - 500 libras"
+  },
+  {
+    "seg_id": "S110_S1",
+    "input_text": "Para liberar padres de familia encarcelados por deudas - 1,000 libras",
+    "output_text": "Para liberar padres de familia en la cárcel por deudas - 1,000 libras"
+  },
+  {
+    "seg_id": "S111_S1",
+    "input_text": "Adición al salario de los maestros pobres de la diócesis - 2,000 libras",
+    "output_text": "Más dinero al salario de los maestros pobres de la diócesis - 2,000 libras"
+  },
+  {
+    "seg_id": "S112_S1",
+    "input_text": "Granero público de los Altos Alpes - 100 libras",
+    "output_text": "Lugar público de comida de los Altos Alpes - 100 libras"
+  },
+  {
+    "seg_id": "S113_S1",
+    "input_text": "Congregación de las damas de D ",
+    "output_text": "Grupo de las señoras de D"
+  },
+  {
+    "seg_id": "S113_S2",
+    "input_text": "——, de Manosque y de Sisteron, ",
+    "output_text": "——, de Manosque y de Sisteron,"
+  },
+  {
+    "seg_id": "S113_S3",
+    "input_text": "para la instrucción gratuita de niñas pobres - 1,500 libras",
+    "output_text": "para la enseñanza gratis de niñas pobres - 1,500 libras"
+  },
+  {
+    "seg_id": "S114_S1",
+    "input_text": "Para los pobres - 6,000 libras",
+    "output_text": "Para los pobres - 6,000 libras"
+  },
+  {
+    "seg_id": "S115_S1",
+    "input_text": "Mis gastos personales - 1,000 libras",
+    "output_text": "Mi dinero personal - 1,000 libras"
+  },
+  {
+    "seg_id": "S116_S1",
+    "input_text": "Total - 15,000 libras",
+    "output_text": "Total - 15,000 libras"
+  },
+  {
+    "seg_id": "S117_S1",
+    "input_text": "El señor Myriel no ",
+    "output_text": "El señor Myriel no"
+  },
+  {
+    "seg_id": "S117_S2",
+    "input_text": "hizo cambio alguno en esta disposición ",
+    "output_text": "hizo cambio alguno en esta lista"
+  },
+  {
+    "seg_id": "S117_S3",
+    "input_text": "durante todo el período que ocupó la sede de D ——",
+    "output_text": "durante todo el tiempo que ocupó la sede de D ——"
+  },
+  {
+    "seg_id": "S118_S1",
+    "input_text": "Como se ha visto, ",
+    "output_text": "Como se ha visto,"
+  },
+  {
+    "seg_id": "S118_S2",
+    "input_text": "él lo llamaba regular los gastos de su casa.",
+    "output_text": "él lo llamaba controlar el dinero de su casa."
+  },
+  {
+    "seg_id": "S119_S1",
+    "input_text": "Esta disposición fue aceptada ",
+    "output_text": "Esta decisión fue aceptada"
+  },
+  {
+    "seg_id": "S119_S2",
+    "input_text": "con absoluta sumisión por la señorita Baptistine.",
+    "output_text": "con total obediencia por la señorita Baptistine."
+  },
+  {
+    "seg_id": "S120_S1",
+    "input_text": "Esta santa mujer consideraba ",
+    "output_text": "Esta mujer buena pensaba"
+  },
+  {
+    "seg_id": "S120_S2",
+    "input_text": "a Monseñor de D ",
+    "output_text": "en Monseñor de D"
+  },
+  {
+    "seg_id": "S120_S3",
+    "input_text": "—— como a la vez su hermano y su obispo, ",
+    "output_text": "—— como su hermano y su obispo,"
+  },
+  {
+    "seg_id": "S120_S4",
+    "input_text": "su amigo según la carne ",
+    "output_text": "su amigo por la familia"
+  },
+  {
+    "seg_id": "S120_S5",
+    "input_text": "y su superior según la Iglesia.",
+    "output_text": "y su jefe por la Iglesia."
+  },
+  {
+    "seg_id": "S121_S1",
+    "input_text": "Ella simplemente lo amaba ",
+    "output_text": "Ella simplemente lo amaba"
+  },
+  {
+    "seg_id": "S121_S2",
+    "input_text": "y lo veneraba.",
+    "output_text": "y lo respetaba."
+  },
+  {
+    "seg_id": "S122_S1",
+    "input_text": "Cuando él hablaba, ",
+    "output_text": "Cuando él hablaba,"
+  },
+  {
+    "seg_id": "S122_S2",
+    "input_text": "ella se inclinaba; ",
+    "output_text": "ella se ponía hacia abajo;"
+  },
+  {
+    "seg_id": "S122_S3",
+    "input_text": "cuando él actuaba, ",
+    "output_text": "cuando él hacía algo,"
+  },
+  {
+    "seg_id": "S122_S4",
+    "input_text": "ella le daba su adhesión.",
+    "output_text": "ella le daba su apoyo."
+  },
+  {
+    "seg_id": "S123_S1",
+    "input_text": "Su única sirvienta, Madame Magloire, ",
+    "output_text": "Su única criada, Madame Magloire,"
+  },
+  {
+    "seg_id": "S123_S2",
+    "input_text": "refunfuñaba un poco.",
+    "output_text": "se quejaba un poco."
+  },
+  {
+    "seg_id": "S124_S1",
+    "input_text": "Se observará que Monseñor el Obispo ",
+    "output_text": "Se verá que Monseñor el Obispo"
+  },
+  {
+    "seg_id": "S124_S2",
+    "input_text": "se había reservado para sí mismo ",
+    "output_text": "se había guardado para él mismo"
+  },
+  {
+    "seg_id": "S124_S3",
+    "input_text": "solamente mil libras, que, añadidas a la pensión de Mademoiselle Baptistine, ",
+    "output_text": "solamente mil libras, que, con el dinero de Mademoiselle Baptistine,"
+  },
+  {
+    "seg_id": "S124_S4",
+    "input_text": "hacían mil quinientos francos al año.",
+    "output_text": "hacían mil quinientos francos al año."
+  },
+  {
+    "seg_id": "S125_S1",
+    "input_text": "Con estos mil quinientos francos ",
+    "output_text": "Con estos mil quinientos francos"
+  },
+  {
+    "seg_id": "S125_S2",
+    "input_text": "subsistían estas dos ancianas y el anciano.",
+    "output_text": "vivían estas dos mujeres viejas y el hombre viejo."
+  },
+  {
+    "seg_id": "S126_S1",
+    "input_text": "Y cuando un cura de aldea ",
+    "output_text": "Y cuando un cura del pueblo"
+  },
+  {
+    "seg_id": "S126_S2",
+    "input_text": "venía a D ",
+    "output_text": "venía a D"
+  },
+  {
+    "seg_id": "S126_S3",
+    "input_text": "——, el Obispo aún encontraba ",
+    "output_text": "——, el Obispo aún encontraba"
+  },
+  {
+    "seg_id": "S126_S4",
+    "input_text": "medios para agasajarlo, gracias a la severa economía de Madame Magloire y ",
+    "output_text": "maneras para tratarlo bien, gracias al cuidado con el dinero de Madame Magloire y"
+  },
+  {
+    "seg_id": "S126_S5",
+    "input_text": "a la inteligente administración de Mademoiselle Baptistine.",
+    "output_text": "al trabajo inteligente de Mademoiselle Baptistine."
+  },
+  {
+    "seg_id": "S127_S1",
+    "input_text": "Un día, después de haber estado en D ",
+    "output_text": "Un día, después de haber estado en D"
+  },
+  {
+    "seg_id": "S127_S2",
+    "input_text": "—— cerca de tres meses, ",
+    "output_text": "—— cerca de tres meses,"
+  },
+  {
+    "seg_id": "S127_S3",
+    "input_text": "el Obispo dijo:—",
+    "output_text": "el Obispo dijo:—"
+  },
+  {
+    "seg_id": "S128_S1",
+    "input_text": "\"¡Y aún ",
+    "output_text": "\"¡Y aún"
+  },
+  {
+    "seg_id": "S128_S2",
+    "input_text": "me siento bastante apretado con todo esto!\"",
+    "output_text": "me siento con poco dinero con todo esto!\""
+  },
+  {
+    "seg_id": "S129_S1",
+    "input_text": "\"¡Ya lo creo!\" ",
+    "output_text": "\"¡Ya lo creo!\""
+  },
+  {
+    "seg_id": "S129_S2",
+    "input_text": "exclamó Madame Magloire.",
+    "output_text": "gritó Madame Magloire."
+  },
+  {
+    "seg_id": "S130_S1",
+    "input_text": "\"Monseñor ni siquiera ",
+    "output_text": "\"Monseñor ni siquiera"
+  },
+  {
+    "seg_id": "S130_S2",
+    "input_text": "ha reclamado la asignación que el departamento le ",
+    "output_text": "ha pedido el dinero que el departamento le"
+  },
+  {
+    "seg_id": "S130_S3",
+    "input_text": "debe por los gastos de su carruaje en la ciudad ",
+    "output_text": "debe por los gastos de su coche en la ciudad"
+  },
+  {
+    "seg_id": "S130_S4",
+    "input_text": "y por sus viajes por la diócesis.",
+    "output_text": "y por sus viajes por la diócesis."
+  },
+  {
+    "seg_id": "S131_S1",
+    "input_text": "Era costumbre de los obispos en tiempos pasados.\"",
+    "output_text": "Era costumbre de los obispos en tiempos pasados.\""
+  },
+  {
+    "seg_id": "S132_S1",
+    "input_text": "\"¡Alto!\" ",
+    "output_text": "\"¡Alto!\""
+  },
+  {
+    "seg_id": "S132_S2",
+    "input_text": "gritó el Obispo, ",
+    "output_text": "gritó el Obispo,"
+  },
+  {
+    "seg_id": "S132_S3",
+    "input_text": "\"tiene usted razón, Madame Magloire.\"",
+    "output_text": "\"usted tiene razón, Madame Magloire.\""
+  },
+  {
+    "seg_id": "S133_S1",
+    "input_text": "E hizo su demanda.",
+    "output_text": "E hizo su pedido."
+  },
+  {
+    "seg_id": "S134_S1",
+    "input_text": "Algún tiempo después el Consejo General ",
+    "output_text": "Algún tiempo después el grupo de hombres importantes"
+  },
+  {
+    "seg_id": "S134_S2",
+    "input_text": "tomó esta demanda en consideración ",
+    "output_text": "pensó en este pedido"
+  },
+  {
+    "seg_id": "S134_S3",
+    "input_text": "y le votó una suma anual de tres mil francos, ",
+    "output_text": "y le dio una cantidad de dinero cada año de tres mil francos,"
+  },
+  {
+    "seg_id": "S134_S4",
+    "input_text": "bajo este rubro:",
+    "output_text": "con este nombre:"
+  },
+  {
+    "seg_id": "S135_S1",
+    "input_text": "Asignación a M. el Obispo ",
+    "output_text": "Dinero para el Obispo"
+  },
+  {
+    "seg_id": "S135_S2",
+    "input_text": "para gastos de carruaje, ",
+    "output_text": "para gastos de coche,"
+  },
+  {
+    "seg_id": "S135_S3",
+    "input_text": "gastos de correo y ",
+    "output_text": "gastos de cartas y"
+  },
+  {
+    "seg_id": "S135_S4",
+    "input_text": "gastos de visitas pastorales.",
+    "output_text": "gastos de visitas de trabajo."
+  },
+  {
+    "seg_id": "S136_S1",
+    "input_text": "Esto provocó un gran clamor ",
+    "output_text": "Esto hizo que muchas personas se enojaran mucho"
+  },
+  {
+    "seg_id": "S136_S2",
+    "input_text": "entre los burgueses locales; ",
+    "output_text": "entre los hombres ricos de la ciudad;"
+  },
+  {
+    "seg_id": "S136_S3",
+    "input_text": "y un senador del Imperio, antiguo miembro del Consejo de los Quinientos que favoreció el 18 ",
+    "output_text": "y un hombre importante del gobierno, que antes trabajaba con otros hombres importantes y que ayudó el 18"
+  },
+  {
+    "seg_id": "S136_S4",
+    "input_text": "Brumario, y que estaba provisto ",
+    "output_text": "Brumario, y que tenía"
+  },
+  {
+    "seg_id": "S136_S5",
+    "input_text": "de una magnífica oficina senatorial en las cercanías de la ciudad de D ——, escribió a M. Bigot ",
+    "output_text": "una oficina muy buena cerca de la ciudad de D ——, escribió a M. Bigot"
+  },
+  {
+    "seg_id": "S136_S6",
+    "input_text": "de Préameneu, el ministro de culto ",
+    "output_text": "de Préameneu, el ministro de religión"
+  },
+  {
+    "seg_id": "S136_S7",
+    "input_text": "público, una nota muy airada ",
+    "output_text": "del país, una carta muy enojada"
+  },
+  {
+    "seg_id": "S136_S8",
+    "input_text": "y confidencial sobre el asunto, de ",
+    "output_text": "y secreta sobre el problema, de"
+  },
+  {
+    "seg_id": "S136_S9",
+    "input_text": "la cual extraemos estas líneas auténticas:—",
+    "output_text": "la cual tomamos estas líneas verdaderas:—"
+  },
+  {
+    "seg_id": "S137_S1",
+    "input_text": "\"¿Gastos de carruaje?",
+    "output_text": "¿Gastos de coche?"
+  },
+  {
+    "seg_id": "S138_S1",
+    "input_text": "¿Qué se puede hacer ",
+    "output_text": "¿Qué se puede hacer"
+  },
+  {
+    "seg_id": "S138_S2",
+    "input_text": "con eso en una ciudad de menos de cuatro mil habitantes?",
+    "output_text": "con eso en una ciudad de menos de cuatro mil personas?"
+  },
+  {
+    "seg_id": "S139_S1",
+    "input_text": "¿Gastos de viajes?",
+    "output_text": "¿Gastos de viajes?"
+  },
+  {
+    "seg_id": "S140_S1",
+    "input_text": "¿Para qué sirven ",
+    "output_text": "¿Para qué sirven"
+  },
+  {
+    "seg_id": "S140_S2",
+    "input_text": "estos viajes, en primer lugar?",
+    "output_text": "estos viajes, en primer lugar?"
+  },
+  {
+    "seg_id": "S141_S1",
+    "input_text": "Además, ¿cómo ",
+    "output_text": "Además, ¿cómo"
+  },
+  {
+    "seg_id": "S141_S2",
+    "input_text": "puede realizarse el servicio de postas en ",
+    "output_text": "puede hacerse el trabajo de correos en"
+  },
+  {
+    "seg_id": "S141_S3",
+    "input_text": "estas partes montañosas?",
+    "output_text": "estas partes de montañas?"
+  },
+  {
+    "seg_id": "S142_S1",
+    "input_text": "No hay caminos.",
+    "output_text": "No hay caminos."
+  },
+  {
+    "seg_id": "S143_S1",
+    "input_text": "Nadie viaja sino a caballo.",
+    "output_text": "Nadie viaja sino a caballo."
+  },
+  {
+    "seg_id": "S144_S1",
+    "input_text": "Incluso el puente entre Durance y Château-Arnoux apenas puede ",
+    "output_text": "Incluso el puente entre Durance y Château-Arnoux apenas puede"
+  },
+  {
+    "seg_id": "S144_S2",
+    "input_text": "soportar yuntas de bueyes.",
+    "output_text": "aguantar grupos de bueyes."
+  },
+  {
+    "seg_id": "S145_S1",
+    "input_text": "Todos estos sacerdotes son ",
+    "output_text": "Todos estos sacerdotes son"
+  },
+  {
+    "seg_id": "S145_S2",
+    "input_text": "así, codiciosos y avaros.",
+    "output_text": "así, codiciosos y avaros."
+  },
+  {
+    "seg_id": "S146_S1",
+    "input_text": "Este hombre hacía el papel del buen sacerdote cuando llegó ",
+    "output_text": "Este hombre hacía el papel del buen sacerdote cuando llegó"
+  },
+  {
+    "seg_id": "S146_S2",
+    "input_text": "por primera vez.",
+    "output_text": "por primera vez."
+  },
+  {
+    "seg_id": "S147_S1",
+    "input_text": "Ahora hace como los demás; ",
+    "output_text": "Ahora hace como los otros;"
+  },
+  {
+    "seg_id": "S147_S2",
+    "input_text": "debe tener un carruaje y una silla de posta, ",
+    "output_text": "debe tener un coche y una silla de correos,"
+  },
+  {
+    "seg_id": "S147_S3",
+    "input_text": "debe tener lujos, como los obispos de antaño.",
+    "output_text": "debe tener lujos, como los obispos de antes."
+  },
+  {
+    "seg_id": "S148_S1",
+    "input_text": "¡Oh, todo este clero!",
+    "output_text": "¡Oh, todos estos hombres de la iglesia!"
+  },
+  {
+    "seg_id": "S149_S1",
+    "input_text": "Las cosas no irán ",
+    "output_text": "Las cosas no van a ir"
+  },
+  {
+    "seg_id": "S149_S2",
+    "input_text": "bien, señor Conde, ",
+    "output_text": "bien, señor Conde,"
+  },
+  {
+    "seg_id": "S149_S3",
+    "input_text": "hasta que el Emperador nos ",
+    "output_text": "hasta que el Emperador nos"
+  },
+  {
+    "seg_id": "S149_S4",
+    "input_text": "haya liberado de estos bribones de gorro negro.",
+    "output_text": "haya salvado de estos malos hombres de gorro negro."
+  },
+  {
+    "seg_id": "S150_S1",
+    "input_text": "¡Abajo el Papa! [Los asuntos se estaban enredando con Roma.]",
+    "output_text": "¡Abajo el Papa! [Los problemas se hacían difíciles con Roma.]"
+  },
+  {
+    "seg_id": "S151_S1",
+    "input_text": "Por mi parte, ",
+    "output_text": "Por mi parte,"
+  },
+  {
+    "seg_id": "S151_S2",
+    "input_text": "yo soy solo por César.",
+    "output_text": "yo soy solo por César."
+  },
+  {
+    "seg_id": "S152_S1",
+    "input_text": "Etcétera, etcétera.",
+    "output_text": "Y más, y más."
+  },
+  {
+    "seg_id": "S153_S1",
+    "input_text": "Por otra parte, ",
+    "output_text": "Por otra parte,"
+  },
+  {
+    "seg_id": "S153_S2",
+    "input_text": "este asunto proporcionó gran deleite ",
+    "output_text": "este problema dio mucha alegría"
+  },
+  {
+    "seg_id": "S153_S3",
+    "input_text": "a la señora Magloire.",
+    "output_text": "a la señora Magloire."
+  },
+  {
+    "seg_id": "S154_S1",
+    "input_text": "\"Bien\", ",
+    "output_text": "\"Bien\","
+  },
+  {
+    "seg_id": "S154_S2",
+    "input_text": "le dijo a la señorita Baptistine; ",
+    "output_text": "le dijo a la señorita Baptistine;"
+  },
+  {
+    "seg_id": "S154_S3",
+    "input_text": "\"Monseñor comenzó con otras personas, ",
+    "output_text": "\"Monseñor empezó con otras personas,"
+  },
+  {
+    "seg_id": "S154_S4",
+    "input_text": "pero ha tenido que terminar consigo mismo, después de todo.",
+    "output_text": "pero ha tenido que terminar con él mismo, después de todo."
+  },
+  {
+    "seg_id": "S155_S1",
+    "input_text": "Ha regulado todas sus caridades.",
+    "output_text": "Ha puesto orden a todo su dinero para ayudar."
+  },
+  {
+    "seg_id": "S156_S1",
+    "input_text": "¡Ahora aquí están ",
+    "output_text": "¡Ahora aquí están"
+  },
+  {
+    "seg_id": "S156_S2",
+    "input_text": "tres mil francos para nosotras!",
+    "output_text": "tres mil francos para nosotras!"
+  },
+  {
+    "seg_id": "S157_S1",
+    "input_text": "¡Por fin!\"",
+    "output_text": "¡Por fin!\""
+  },
+  {
+    "seg_id": "S158_S1",
+    "input_text": "Esa misma tarde el Obispo escribió ",
+    "output_text": "Esa misma tarde el Obispo escribió"
+  },
+  {
+    "seg_id": "S158_S2",
+    "input_text": "y entregó a su hermana ",
+    "output_text": "y dio a su hermana"
+  },
+  {
+    "seg_id": "S158_S3",
+    "input_text": "un memorándum concebido en los siguientes términos:",
+    "output_text": "una nota hecha con estas palabras:"
+  },
+  {
+    "seg_id": "S159_S1",
+    "input_text": "GASTOS DE CARRUAJE Y CIRCUITO.",
+    "output_text": "GASTOS DE COCHE Y VIAJES."
+  },
+  {
+    "seg_id": "S160_S1",
+    "input_text": "Para proporcionar sopa de carne ",
+    "output_text": "Para dar sopa de carne"
+  },
+  {
+    "seg_id": "S160_S2",
+    "input_text": "a los pacientes del hospital - 1.500 libras",
+    "output_text": "a los enfermos del hospital - 1.500 libras"
+  },
+  {
+    "seg_id": "S161_S1",
+    "input_text": "Para la sociedad caritativa de maternidad de Aix - 250 libras",
+    "output_text": "Para el grupo de ayuda de madres de Aix - 250 libras"
+  },
+  {
+    "seg_id": "S162_S1",
+    "input_text": "Para la sociedad caritativa de maternidad de Draguignan - 250 libras",
+    "output_text": "Para el grupo de ayuda de madres de Draguignan - 250 libras"
+  },
+  {
+    "seg_id": "S163_S1",
+    "input_text": "Para los expósitos - 500 libras",
+    "output_text": "Para los niños sin padres - 500 libras"
+  },
+  {
+    "seg_id": "S164_S1",
+    "input_text": "Para los huérfanos - 500 libras",
+    "output_text": "Para los niños sin familia - 500 libras"
+  },
+  {
+    "seg_id": "S165_S1",
+    "input_text": "Total - 3,000 libras",
+    "output_text": "Total - 3,000 libras"
+  },
+  {
+    "seg_id": "S166_S1",
+    "input_text": "Tal era el presupuesto del señor Myriel.",
+    "output_text": "Así era el plan de dinero del señor Myriel."
+  },
+  {
+    "seg_id": "S167_S1",
+    "input_text": "En cuanto a las prerrogativas episcopales fortuitas, ",
+    "output_text": "En cuanto al dinero extra del obispo,"
+  },
+  {
+    "seg_id": "S167_S2",
+    "input_text": "los honorarios por amonestaciones matrimoniales, dispensas, ",
+    "output_text": "el dinero por avisos de boda, permisos,"
+  },
+  {
+    "seg_id": "S167_S3",
+    "input_text": "bautismos privados, ",
+    "output_text": "bautismos privados,"
+  },
+  {
+    "seg_id": "S167_S4",
+    "input_text": "sermones, bendiciones de iglesias o capillas, matrimonios, etc., ",
+    "output_text": "charlas, bendiciones de iglesias o capillas, bodas, etc.,"
+  },
+  {
+    "seg_id": "S167_S5",
+    "input_text": "el Obispo las cobraba ",
+    "output_text": "el Obispo las cobraba"
+  },
+  {
+    "seg_id": "S167_S6",
+    "input_text": "a los ricos con tanto mayor aspereza cuanto que las otorgaba a los necesitados.",
+    "output_text": "a los ricos con más fuerza porque las daba gratis a los pobres."
+  },
+  {
+    "seg_id": "S168_S1",
+    "input_text": "Con el tiempo, ",
+    "output_text": "Con el tiempo,"
+  },
+  {
+    "seg_id": "S168_S2",
+    "input_text": "comenzaron a fluir las ofrendas de dinero.",
+    "output_text": "empezó a llegar dinero de regalos."
+  },
+  {
+    "seg_id": "S169_S1",
+    "input_text": "Los que tenían y los que carecían ",
+    "output_text": "Los que tenían y los que no tenían"
+  },
+  {
+    "seg_id": "S169_S2",
+    "input_text": "llamaban a la puerta del señor Myriel,— estos últimos ",
+    "output_text": "llamaban a la puerta del señor Myriel,— estos últimos"
+  },
+  {
+    "seg_id": "S169_S3",
+    "input_text": "en busca ",
+    "output_text": "en busca"
+  },
+  {
+    "seg_id": "S169_S4",
+    "input_text": "de la limosna que los primeros venían a depositar.",
+    "output_text": "de la ayuda que los primeros venían a dar."
+  },
+  {
+    "seg_id": "S170_S1",
+    "input_text": "En menos de un año ",
+    "output_text": "En menos de un año"
+  },
+  {
+    "seg_id": "S170_S2",
+    "input_text": "el Obispo se había convertido ",
+    "output_text": "el Obispo se había vuelto"
+  },
+  {
+    "seg_id": "S170_S3",
+    "input_text": "en el tesorero de toda benevolencia ",
+    "output_text": "en el guardián de toda bondad"
+  },
+  {
+    "seg_id": "S170_S4",
+    "input_text": "y el cajero de todos los menesterosos.",
+    "output_text": "y el que daba a todos los pobres."
+  },
+  {
+    "seg_id": "S171_S1",
+    "input_text": "Considerables sumas de dinero ",
+    "output_text": "Mucho dinero"
+  },
+  {
+    "seg_id": "S171_S2",
+    "input_text": "pasaban por sus manos, ",
+    "output_text": "pasaba por sus manos,"
+  },
+  {
+    "seg_id": "S171_S3",
+    "input_text": "pero nada podía inducirle a ",
+    "output_text": "pero nada podía hacerle"
+  },
+  {
+    "seg_id": "S171_S4",
+    "input_text": "hacer cambio alguno en su modo de vida, o ",
+    "output_text": "hacer cambio alguno en su modo de vida, o"
+  },
+  {
+    "seg_id": "S171_S5",
+    "input_text": "añadir algo superfluo a sus escasas necesidades.",
+    "output_text": "añadir algo extra a sus pocas necesidades."
+  }
+]

@@ -17,7 +17,7 @@ $ModulePath = "llm2books.orchestrate_pipeline"
 # --- Execution Control ---
 # These arguments control a single pipeline run for a specific book and language pair.
 #$BookToProcess = "quijote_test"    # The book stem, e.g., "Grimm", "test". This is now MANDATORY.
-$BookToProcess = "test"    # The book stem, e.g., "Grimm", "test". This is now MANDATORY.
+$BookToProcess = "LesMis"    # The book stem, e.g., "Grimm", "test". This is now MANDATORY.
 $BaseLang      = "en"      # The base language for this run.
 $TargetLang    = "es"      # The target language for this run.
 $StopAfterStage = 0

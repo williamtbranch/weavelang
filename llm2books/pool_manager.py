@@ -28,6 +28,50 @@ class PoolManager:
         self.pipeline_config = self.resources.get("pipeline_config", {})
         self.spacy_models = self.resources.get("spacy_models", {})
         self.stanza_processors = self.resources.get("stanza_processors", {})
+        self.stages_config = self.resources.get("stages_config", {})
+    
+    def _batch_segments_by_sentence(
+        self,
+        sentences: List[Dict[str, Any]],
+        stage_config: Dict[str, Any]
+    ) -> List[List[Dict[str, str]]]:
+        """
+        Creates batches of segments, ensuring that all segments from a single
+        sentence are always in the same batch.
+        """
+        all_batches = []
+        current_batch = []
+        # Fallback if not defined in config
+        batch_size_in_items = stage_config.get("batch_size_in_items", 50) 
+
+        for sentence in sentences:
+            s_id = sentence['s_id']
+            segments_for_sentence = [
+                {
+                    "id": f"{s_id}_{seg['seg_id']}",
+                    "text": " ".join(seg.get("text", "").strip().split())
+                }
+                for seg in sentence.get("segments", []) if seg.get("text", "").strip()
+            ]
+
+            if not segments_for_sentence:
+                continue
+
+            # If adding the new sentence would exceed the batch size,
+            # finalize the current batch and start a new one.
+            if current_batch and (len(current_batch) + len(segments_for_sentence) > batch_size_in_items):
+                all_batches.append(current_batch)
+                current_batch = []
+
+            # Add all segments from this sentence to the current batch.
+            current_batch.extend(segments_for_sentence)
+
+        # Add the last remaining batch if it's not empty.
+        if current_batch:
+            all_batches.append(current_batch)
+            
+        logger.info(f"      -> Grouped {sum(len(b) for b in all_batches)} segments into {len(all_batches)} sentence-aware batches.")
+        return all_batches
 
     def get_book_resources(self, book_stem: str, base_lang: str, target_lang: str) -> Optional[Dict[str, Path]]:
         """
@@ -130,20 +174,23 @@ class PoolManager:
 
         items_to_translate = [{"id": item['s_id'], "text": item['full_text']} for item in source_items if item.get('block_type') == 'sentence']
         
-        # --- THIS IS THE FIX ---
         # Build a temporary language_config for this specific translation pair
         temp_lang_config = {"base_code": from_lang, "target_code": to_lang, "manifest": self.lang_manifest, "pair_prompt_dir": None}
         pair_key = f"{from_lang}-{to_lang}"
         if pair_key in self.lang_manifest.get("pair", {}):
             temp_lang_config["pair_prompt_dir"] = self.lang_manifest["pair"][pair_key].get("prompt_dir")
-        # --- END OF FIX ---
-
+        stage_job_config = self.stages_config.get("PoolManager_Translation", {})
         temp_path = self.derived_texts_dir / f"{book_stem}.{to_lang}.translation.temp.json"
         prompt = llm_prompts.get_system_prompt("translate_text", temp_lang_config).format(
             source_language_name=self.lang_manifest.get(from_lang, {}).get("name", from_lang),
             target_language_name=self.lang_manifest.get(to_lang, {}).get("name", to_lang)
         )
-        config = {"primary_model": "sonnet", "fallback_model": "sonnet", **self.pipeline_config}
+
+        config = {**self.pipeline_config, **stage_job_config}
+        
+        prompt = llm_prompts.get_system_prompt("translate_text", temp_lang_config).format(
+            # ...
+        )
 
         translations = self._run_transactional_llm_job(
             f"Pool-Translation-{from_lang}-to-{to_lang}", prompt, items_to_translate, temp_path,
@@ -271,29 +318,81 @@ class PoolManager:
         except IOError as e:
             logger.error(f"Failed to write .std.json file: {e}"); return None
 
+    #
     def generate_sim_file(self, book_stem: str, lang_code: str) -> Optional[Path]:
         sim_file_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.sim.json"
         std_target_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.std.json"
-        with open(std_target_path, 'r', encoding='utf-8') as f: std_data = json.load(f)
+        with open(std_target_path, 'r', encoding='utf-8') as f:
+            std_data = json.load(f)
 
         sentences = [b for b in std_data.get("content", []) if b.get("block_type") == "sentence"]
         if not sentences:
             logger.warning("Source has no sentences. Creating empty sim file.")
-            with open(sim_file_path, "w", encoding="utf-8") as f: json.dump({**std_data, "content": [b for b in std_data.get("content", []) if b.get("block_type") != "sentence"]}, f, indent=2, ensure_ascii=False)
+            with open(sim_file_path, "w", encoding="utf-8") as f:
+                json.dump({**std_data, "content": [b for b in std_data.get("content", []) if b.get("block_type") != "sentence"]}, f, indent=2, ensure_ascii=False)
             return sim_file_path
 
-        items_to_simplify = [{"id": f"{s['s_id']}_{seg['seg_id']}", "text": seg["text"]} for s in sentences for seg in s["segments"] if seg["text"].strip()]
-        
+        # --- This block replaces the old `items_to_simplify` and `_run_transactional_llm_job` call ---
+
+        # 1. Setup common resources for the LLM job
         temp_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.simplify.temp.json"
-        prompt = llm_prompts.get_system_prompt("simplify_segments", self.resources["language_config"])
-        config = {"primary_model": "sonnet", "fallback_model": "sonnet", **self.pipeline_config}
+        from_lang = self.resources.get("language_config", {}).get("base_code", "en")
+        temp_lang_config = {
+            "base_code": from_lang,
+            "target_code": lang_code,
+            "manifest": self.lang_manifest,
+            "pair_prompt_dir": self.lang_manifest.get("pair", {}).get(f"{from_lang}-{lang_code}", {}).get("prompt_dir")
+        }
+        prompt = llm_prompts.get_system_prompt("simplify_segments", temp_lang_config)
+        stage_job_config = self.stages_config.get("PoolManager_Simplification", {})
+        config = {**self.pipeline_config, **stage_job_config}
+        llm_logger = LLMLogger(self.pool_dir / "llm_logs" / book_stem)
+
+        # 2. Create sentence-aware batches using the new helper function
+        segment_batches = self._batch_segments_by_sentence(sentences, config)
+
+        # 3. Load progress from the temporary cache file
+        completed_results = {}
+        if temp_path.exists():
+            try:
+                with open(temp_path, 'r', encoding='utf-8') as f:
+                    completed_results = json.load(f)
+            except (IOError, json.JSONDecodeError):
+                logger.warning(f"Could not read cache file at {temp_path}. Starting fresh.")
+                completed_results = {}
+
+        # 4. Loop through batches, process only the needed ones, and save progress
+        for i, batch in enumerate(segment_batches):
+            batch_ids = {item['id'] for item in batch}
+            if batch_ids.issubset(completed_results.keys()):
+                logger.info(f"      -> Skipping batch {i+1}/{len(segment_batches)}, all segments already processed.")
+                continue
+
+            items_to_run_in_batch = [item for item in batch if item['id'] not in completed_results]
+            
+            if not items_to_run_in_batch: # Should be caught by the issubset check, but as a safeguard
+                continue
+
+            logger.info(f"      -> Processing batch {i+1}/{len(segment_batches)} ({len(items_to_run_in_batch)} new segments)...")
+
+            batch_results_list = llm_utils.run_llm_batch_job(
+                self.llm_client, "Pool-Simplification", prompt, items_to_run_in_batch,
+                llm_logger, "single_line", config, self.models_config
+            )
+
+            if batch_results_list is None:
+                return None  # Halt the entire process on LLM failure
+            
+            for item in batch_results_list:
+                completed_results[item['id']] = item['llm_response']
+            
+            with open(temp_path, 'w', encoding='utf-8') as f:
+                json.dump(completed_results, f, indent=2)
         
-        results = self._run_transactional_llm_job(
-            "Pool-Simplification", prompt, items_to_simplify, temp_path,
-            LLMLogger(self.pool_dir / "llm_logs" / book_stem), "single_line", config, self.models_config
-        )
-        if results is None: return None
-        
+        # `results` now contains all simplified segments for the book
+        results = completed_results
+
+        # --- The rest of the function (processing results) remains the same ---
         spacy = self.resources['spacy_models'][lang_code]
         output_content = [b for b in std_data.get("content", []) if b.get("block_type") != "sentence"]
 
@@ -302,8 +401,14 @@ class PoolManager:
             new_segs, new_text_parts = [], []
             for seg in s_block["segments"]:
                 original_seg_text = seg["text"]
-                new_seg_text = results.get(f"{s_id}_{seg['seg_id']}", original_seg_text)
-                if original_seg_text.endswith(' ') and not new_seg_text.endswith(' '): new_seg_text += ' '
+                lookup_key = f"{s_id}_{seg['seg_id']}"
+
+                simplified_text = results.get(lookup_key, "").strip()
+                new_seg_text = simplified_text if simplified_text else original_seg_text
+                
+                if original_seg_text.endswith(' ') and not new_seg_text.endswith(' '):
+                    new_seg_text += ' '
+                
                 new_segs.append({"seg_id": seg['seg_id'], "text": new_seg_text})
                 new_text_parts.append(new_seg_text)
             
@@ -317,16 +422,19 @@ class PoolManager:
                 tokens = helper.create_golden_token_stream(seg_doc)
                 seg_lemmas = {lemma_map.get(t['v']) for t in tokens if t['t'] == 'w' and lemma_map.get(t['v'])}
                 for t in tokens:
-                    if t['t'] == 'w' and (l := lemma_map.get(t['v'])): t['l'] = [l]
+                    if t['t'] == 'w' and (l := lemma_map.get(t['v'])):
+                        t['l'] = [l]
                 seg_data["tokenized_text"] = tokens
                 seg_data["lemmas"] = sorted([l for l in seg_lemmas if l])
 
             output_content.append({"block_type": "sentence", "s_id": s_id, "full_text": full_text, "lemmas": sorted(list(all_lemmas)), "segments": new_segs})
         
         final_data = {"meta": {**std_data['meta'], "tier_type": "sim"}, "content": output_content}
-        with open(sim_file_path, "w", encoding="utf-8") as f: json.dump(final_data, f, indent=2, ensure_ascii=False)
+        with open(sim_file_path, "w", encoding="utf-8") as f:
+            json.dump(final_data, f, indent=2, ensure_ascii=False)
         logger.info(f"  -> Successfully saved '{sim_file_path.name}'.")
-        if temp_path.exists(): temp_path.unlink()
+        if temp_path.exists():
+            temp_path.unlink()
         return sim_file_path
 
     def _run_transactional_llm_job(self, job_name, system_prompt, all_items, temp_progress_path, llm_logger, parser_type, stage_config, models_config):

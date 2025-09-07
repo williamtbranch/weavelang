@@ -10,7 +10,7 @@ from ..phrase_mapper_helpers import align_and_parse_to_atoms
 
 class GeneratePhraseMap(LLMStage):
     """
-    Stage 5: Generates a phrase-based mapping and IMMEDIATELY validates it
+    Stage 3: Generates a phrase-based mapping and IMMEDIATELY validates it
     against the source tokens before saving. This prevents pipeline pollution
     from malformed LLM responses.
     """
@@ -34,16 +34,20 @@ class GeneratePhraseMap(LLMStage):
                 base_tier = next((t for t in block["tiers"] if t["tier_id"] == "base"), None)
                 if not base_tier: continue
                 
-                prompt_text = base_tier["full_text"]
-                
-                # We now prepare the ground-truth tokens here for the validator.
+                # ============================ START: REPLACEMENT CODE ============================
+                # Clean the full_text to be a single, space-separated line
+                # to ensure consistent prompting.
+                prompt_text = " ".join(base_tier.get("full_text", "").strip().split())
+                # ============================= END: REPLACEMENT CODE =============================
+
                 word_tokens_for_validation = [
                     token for seg in base_tier.get("segments", [])
                     for token in seg.get("tokenized_text", [])
                     if token.get("t") == "w"
                 ]
                 
-                if not word_tokens_for_validation: continue
+                if not word_tokens_for_validation or not prompt_text:
+                    continue
                 
                 items_to_process.append({
                     "id": block['s_id'],

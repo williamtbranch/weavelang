@@ -167,6 +167,7 @@ class LLMStage(Stage, ABC):
         """Processes LLM results for a single content_block and returns the updated block."""
         pass
 
+    #
     def run(self) -> bool:
         from ..llm_logger import LLMLogger
         from .. import llm_utils
@@ -196,55 +197,85 @@ class LLMStage(Stage, ABC):
 
         if not items_for_this_run:
             logger.info("      -> All items for this stage are already complete.")
-            # Ensure the top-level status is also marked complete if we're skipping
+            # Ensure the output file reflects this completion status
+            for block in input_data.get("content_blocks", []):
+                if block.get("block_type") == "sentence":
+                    if block.get("processing_status", {}).get(self.stage_name) != "COMPLETED":
+                        block.setdefault("processing_status", {})[self.stage_name] = "COMPLETED"
+            
             return self._save_output_data(input_data, "COMPLETED")
 
         logger.info(f"      -> Processing {len(items_for_this_run)} new items for the LLM.")
-        llm_logger = LLMLogger(self.llm_logger_dir)
-        system_prompt = self.get_system_prompt()
-
-        #
+        
+        # --- NEW: Group items by sentence ID first ---
         items_by_sid = {}
         for item in items_for_this_run:
             s_id = item['id'].split('_')[0]
             items_by_sid.setdefault(s_id, []).append(item)
 
-        total_sids = len(items_by_sid)
-        processed_sids = 0
-        for s_id, items_for_sid in items_by_sid.items():
-            processed_sids += 1
-            logger.info(f"      -> Processing sentence {s_id} ({processed_sids}/{total_sids})...")
+        # Get batch size from the stage's specific config, with a fallback.
+        batch_size = self.stage_config.get("batch_size_in_items", 10)
+        
+        # --- NEW: Create sentence-aware batches ---
+        sentence_batches = []
+        current_batch = []
+        # Sort by s_id to ensure deterministic processing order
+        sorted_sids = sorted(items_by_sid.keys(), key=lambda x: int(x[1:]))
 
-            llm_results = llm_utils.run_llm_batch_job(
+        for s_id in sorted_sids:
+            items_for_sentence = items_by_sid[s_id]
+            # If adding the new sentence's items would exceed the batch size,
+            # finalize the current batch and start a new one.
+            if current_batch and (len(current_batch) + len(items_for_sentence) > batch_size):
+                sentence_batches.append(current_batch)
+                current_batch = []
+            
+            current_batch.extend(items_for_sentence)
+        
+        # Add the last remaining batch
+        if current_batch:
+            sentence_batches.append(current_batch)
+
+        llm_logger = LLMLogger(self.llm_logger_dir)
+        system_prompt = self.get_system_prompt()
+        
+        # Loop through the correctly formed sentence-aware batches
+        total_batches = len(sentence_batches)
+        for i, batch_items in enumerate(sentence_batches):
+            logger.info(f"      -> Processing batch {i + 1}/{total_batches}...")
+
+            llm_results_list = llm_utils.run_llm_batch_job(
                 llm_client=self.resources['llm_client'],
                 job_name=self.stage_name,
                 system_prompt=system_prompt,
-                items_to_process=items_for_sid,
+                items_to_process=batch_items,
                 llm_logger=llm_logger,
                 parser_type=self.parser_type,
-                # --- THIS IS THE FIX ---
                 stage_config=self.stage_config,
                 models_config=self.models_config
             )
-            #
 
-            if llm_results is None:
-                logger.error(f"LLM batch failed for sentence {s_id}. Halting stage.")
+            if llm_results_list is None:
                 return False
 
-            block_to_update = next((b for b in input_data['content_blocks'] if b.get('s_id') == s_id), None)
-            if block_to_update:
-                response_map = {item['id']: item['llm_response'] for item in llm_results}
-                updated_block = self.process_llm_results_for_block(block_to_update, response_map)
-                
-                for i, block in enumerate(input_data['content_blocks']):
-                    if block.get('s_id') == s_id:
-                        input_data['content_blocks'][i] = updated_block
-                        break
-                
-                if not self._save_output_data(input_data, "PARTIAL"):
-                    logger.error(f"Failed to save progress after processing {s_id}. Halting.")
-                    return False
+            results_by_sid = {}
+            for item in llm_results_list:
+                s_id = item['id'].split('_')[0]
+                results_by_sid.setdefault(s_id, {})[item['id']] = item['llm_response']
+
+            for s_id, llm_results_for_sid in results_by_sid.items():
+                block_to_update = next((b for b in input_data['content_blocks'] if b.get('s_id') == s_id), None)
+                if block_to_update:
+                    updated_block = self.process_llm_results_for_block(block_to_update, llm_results_for_sid)
+                    
+                    for block_idx, block in enumerate(input_data['content_blocks']):
+                        if block.get('s_id') == s_id:
+                            input_data['content_blocks'][block_idx] = updated_block
+                            break
+            
+            if not self._save_output_data(input_data, "PARTIAL"):
+                logger.error("Failed to save progress after processing batch. Halting.")
+                return False
         
         logger.info("      -> All items for this stage have been processed.")
         return self._save_output_data(input_data, "COMPLETED")

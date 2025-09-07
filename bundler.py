@@ -6,7 +6,7 @@ DEFAULT_OUTPUT_FILE = "mono.out"
 DEFAULT_EXTENSIONS = ['.zig', '.py', '.md', '.txt', '.rs', '.ps1', '.toml', '.pest', '.weavetest'] # Added .rs and .toml
 #DEFAULT_EXTENSIONS = ['.py','.txt','.ps1', '.toml'] # Added .rs and .toml
 DEFAULT_IGNORE_PATHS_OR_NAMES = [
-    '.git', '__pycache__', 'es_master_frequency_list.txt', 'zig-cache', 'zig-out', 'stage', 'data', 'output_audio', '.venv', '.ven', '.ven.old', 'assets', 'requirements.txt',
+    '.git', '__pycache__', 'es_master_frequency_list.txt', 'old_frequency_list_bad.txt' 'zig-cache', 'zig-out', 'stage', 'data', 'output_audio', '.venv', '.ven', '.ven.old', 'assets', 'requirements.txt',
     DEFAULT_OUTPUT_FILE, 'mono.in', '.DS_Store',
     'target', # Added Rust target directory
 ]
@@ -17,9 +17,18 @@ END_MARKER_TPL = "//*** END FILE: {} ***//"
 
 def should_ignore(current_path_abs, base_for_rel_path_calc, ignore_list):
     base_name = os.path.basename(current_path_abs)
+
+    # --- NEW RULE ---
+    # Rule 1: Ignore any file or directory starting with "xx"
+    if base_name.startswith("xx"):
+        return True
+    # --- END NEW RULE ---
+    
+    # Rule 2: Ignore if the base name is in the ignore list
     if base_name in ignore_list:
         return True 
 
+    # Rule 3: Ignore if the relative path matches a pattern in the ignore list
     try:
         relative_current_path = os.path.relpath(current_path_abs, base_for_rel_path_calc).replace(os.sep, '/')
     except ValueError:
@@ -30,20 +39,14 @@ def should_ignore(current_path_abs, base_for_rel_path_calc, ignore_list):
             normalized_pattern = pattern.replace(os.sep, '/')
             if relative_current_path == normalized_pattern:
                 return True
-            # Check if current_path_abs is a directory and the pattern is a prefix
-            # e.g. ignore "target" should ignore "target/debug"
             if os.path.isdir(current_path_abs) and relative_current_path.startswith(normalized_pattern + '/'):
                  return True
-            # Check if pattern is for a directory and current_path_abs is inside it
-            # e.g. ignore "src/old_stuff" should ignore "src/old_stuff/file.rs"
-            if normalized_pattern.endswith('/') and relative_current_path.startswith(normalized_pattern): # pattern is dir
+            if normalized_pattern.endswith('/') and relative_current_path.startswith(normalized_pattern):
                 return True
-            if not normalized_pattern.endswith('/') and pattern + '/' == relative_current_path + '/': # basename dir match
+            if not normalized_pattern.endswith('/') and pattern + '/' == relative_current_path + '/':
                  return True
 
-
     return False
-
 
 def bundle_files(paths_to_bundle, output_file, extensions, ignore_list):
     with open(output_file, 'w', encoding='utf-8') as outfile:

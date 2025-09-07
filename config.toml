@@ -53,6 +53,17 @@ retry_delay = 7
 # --- Per-Stage Configuration ---
 # This section remains the same.
 [stages]
+
+    [stages.PoolManager_Translation]
+    primary_model = "sonnet"
+    fallback_model = "sonnet"
+    batch_size_in_items = 20 # You can tune this
+
+    [stages.PoolManager_Simplification]
+    primary_model = "sonnet" # You could change this to "haiku" to experiment
+    fallback_model = "sonnet"
+    batch_size_in_items = 20 # Simplification is faster, can use a larger batch
+
     [stages.InitializeBookTiers]
     primary_model = "sonnet"
     fallback_model = "sonnet"

@@ -9,7 +9,7 @@ from .. import validator
 
 class ApplyInversePhraseMappings(SpaCyStage):
     """
-    New Stage 8: Refactors the simpler_advanced_target tier based on a phrase map.
+    New Stage 6: Refactors the simpler_advanced_target tier based on a phrase map.
     - Parses the raw phrase map from Stage 7 using the robust DP aligner.
     - Sanitizes the resulting "semantic atoms".
     - Rebuilds the `simpler_advanced_target` tier by fusing tokens into "virtual tokens".
@@ -69,13 +69,14 @@ class ApplyInversePhraseMappings(SpaCyStage):
                         break
                 
                 block["mappings"]["simpler_adv_target_to_base_inv_diglot"] = new_inv_diglot_map
-                
                 temp_validation_block = {
-                    "s_id": s_id, "tiers": [new_tier],
+                    "s_id": s_id,
+                    "tiers": [new_tier],
                     "mappings": {"simpler_adv_target_to_base_inv_diglot": new_inv_diglot_map}
                 }
                 validator.validate_exhaustive_inverse_diglot_mapping(temp_validation_block)
                 logger.debug(f"S_ID {s_id}: In-stage validation of inverse map passed.")
+                
 
                 if "raw_inverse_phrase_map" in block["mappings"]:
                     del block["mappings"]["raw_inverse_phrase_map"]

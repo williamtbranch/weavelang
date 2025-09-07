@@ -15,8 +15,14 @@ CHECKPOINT_LEVELS = [2000, 3000, 4000, 5000, 10000, 15000, 20000, 25000, 30000, 
 DEFAULT_FREQ_LIST = "assets/es_master_frequency_list.txt"
 
 def normalize_spanish_lemma(lemma_str: str) -> str:
-    s = lemma_str.lower().strip()
-    s = s.replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
+    s = lemma_str.lower().strip().split(' ')[0]
+    s = (s.replace('á', 'a')
+          .replace('é', 'e')
+          .replace('í', 'i')
+          .replace('ó', 'o')
+          .replace('ú', 'u')
+          .replace('ñ', 'n')
+          .replace('ü', 'u'))
     s = re.sub(r'^[^\w]+|[^\w]+$', '', s)
     if not s: return ""
     s = unicodedata.normalize('NFC', s)

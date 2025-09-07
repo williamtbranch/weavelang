@@ -29,14 +29,18 @@ def normalize_spanish_lemma(lemma_str: str) -> str:
     Applies a series of cleaning and normalization steps to a raw lemma string.
     This logic MUST be kept in sync with the rest of the pipeline.
     """
-    s = lemma_str.lower().strip()
-    s = s.replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
+    s = lemma_str.lower().strip().split(' ')[0]
+    s = (s.replace('á', 'a')
+          .replace('é', 'e')
+          .replace('í', 'i')
+          .replace('ó', 'o')
+          .replace('ú', 'u')
+          .replace('ñ', 'n')
+          .replace('ü', 'u'))
     s = re.sub(r'^[^\w]+|[^\w]+$', '', s)
-    if not s:
-        return ""
+    if not s: return ""
     s = unicodedata.normalize('NFC', s)
-    if re.search(r'[^a-z-]', s):
-        return ""
+    if re.search(r'[^a-z-]', s): return ""
     return s
 
 def load_frequency_list(freq_list_path: Path) -> dict[str, int] | None:

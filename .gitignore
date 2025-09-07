@@ -8,5 +8,6 @@ mono.out
 *.log
 voices.txt
 .venv
+xx*
 weavelang_pipeline.egg-info
 temp

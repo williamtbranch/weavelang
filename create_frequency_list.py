@@ -11,14 +11,38 @@ import os # For getting file size
 
 # --- Normalization Function (kept the same) ---
 def normalize_and_clean_lemma(lemma_str: str) -> str:
-    s = lemma_str.lower().strip()
-    s = s.replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
+    """
+    Applies a series of cleaning and normalization steps to a raw Spanish lemma string,
+    handling all standard accented vowels, the ñ, and the ü with diaeresis.
+    """
+    # 1. Lowercase, strip whitespace, and handle multi-word lemmas by taking the first word.
+    s = lemma_str.lower().strip().split(' ')[0]
+    
+    # 2. Explicitly replace all special Spanish characters with their base Latin equivalents.
+    #    This is the core of the fix.
+    s = (s.replace('á', 'a')
+          .replace('é', 'e')
+          .replace('í', 'i')
+          .replace('ó', 'o')
+          .replace('ú', 'u')
+          .replace('ñ', 'n')  # Handles words like 'año' -> 'ano'
+          .replace('ü', 'u')) # Handles words like 'pingüino' -> 'pinguino'
+
+    # 3. Strip any remaining non-word characters from the start and end (handles ¿, ¡, etc.)
     s = re.sub(r'^[^\w]+|[^\w]+$', '', s)
-    if not s:
+    
+    # 4. If the string is now empty (e.g., it was just punctuation), return.
+    if not s: 
         return ""
+        
+    # 5. Standard Unicode normalization for consistency.
     s = unicodedata.normalize('NFC', s)
-    if re.search(r'[^a-z-]', s):
+    
+    # 6. Final validation. Because we converted ñ->n and ü->u, this regex now works correctly.
+    #    It ensures we only have a-z and hyphens, discarding any truly strange characters.
+    if re.search(r'[^a-z-]', s): 
         return ""
+        
     return s
 
 # --- Configuration ---
