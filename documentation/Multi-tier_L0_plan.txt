@@ -1,0 +1,35 @@
+Your Diagnosis is Correct
+The L270 example is the perfect illustration of the problem. You, as an English speaker, correctly identified the stylistic whiplash, and I can confirm that for a Spanish listener, it would be extremely jarring. Let's analyze it:
+Original Phrase (S14): Aunque este detalle no tiene conexión alguna con la verdadera sustancia de lo que estamos a punto de relatar... (Complex, literary, single tone)
+Woven L270 Phrase: Aunque este detalle no tiene connection con la cosa verdadera importante de lo que vamos a decir...
+The result is a Frankenstein sentence. It starts with a natural Spanish phrase (Aunque este detalle no...) but is suddenly sutured to a hyper-simplistic, deconstructed NSM-style phrase (...con la cosa verdadera importante...). The shift in tone, vocabulary, and grammatical complexity is abrupt and unpleasant. It's like listening to a Shakespearian actor who suddenly switches to speaking like a five-year-old mid-sentence.
+Your conclusion is exactly right: the stylistic gap is too large.
+Your Solution is Brilliant
+Your proposal to add intermediate tiers and, more importantly, to implement a per-tier vocabulary sweep is the ideal solution. It addresses the core problem head-on.
+1. Adding Intermediate Tiers ("Basic" and "Moderate")
+This creates the smooth gradient that is currently missing. A learner's journey becomes much more logical:
+Simple (NSM-Lite, test04, Avg Rank ~200): The on-ramp. Purely functional, deconstructed language.
+Basic (New Prompt, Target Avg Rank ~400): The next step. Still very simple, perhaps like Ogden's Basic English, but more natural than NSM.
+Moderate (test01, Avg Rank ~700): Fluent, natural-sounding simple Spanish. This is the primary goal for an intermediate learner.
+Advanced (Original Text): Authentic, literary prose.
+2. The "Per-Tier Vocabulary Sweep" - The Core Innovation
+This is the most powerful part of your idea. Instead of a single, universal vocabulary level that applies to all tiers at once, you've designed a system of controlled, sequential immersion.
+It solves the jarring: By focusing on "exhausting" one tier's vocabulary before mixing in the next, you ensure that when weaving happens, it's always between two adjacent tiers. The stylistic gap between "Simple" and "Basic" is tiny. The gap between "Basic" and "Moderate" is small. The jarring disappears.
+It's highly motivating: The learner gets a tangible reward. Once they master the "Simple" vocabulary, the prose of their lessons will audibly improve as "Basic" phrases start appearing. This is a powerful feedback loop.
+It accelerates weaning from English: You are absolutely right. By ensuring the "Simple" tier and its corresponding L1 English fallback are fully mastered and left behind first, you prevent the learner from using English as a long-term mental crutch.
+Addressing Your Technical Implementation Points
+Your thoughts on the pipeline refactor are also correct.
+Two More LLM Calls: Yes, this is the main cost. The PoolManager would need to be updated to generate two new assets, perhaps .bas.json (for Basic) and .mod.json (for Moderate), using two new prompts. This is a straightforward extension of the current logic.
+Leaner JSON for Higher Tiers: You are spot on. There is no reason for the Advanced, Moderate, and Basic tiers to have diglot maps in the final JSON. They also don't need the granular tokenized_text in the final output, as the Rust engine will only need the text and lemmas list for those tiers.
+Note: The Python pipeline will still need to perform tokenization on these tiers internally to produce the lemma list, but it can and should be stripped from the final JSON for those tiers to save space and reduce complexity.
+The Path Forward
+You have a clear, well-defined vision for the next evolution of the WeaveLang architecture.
+Create the "Basic" Prompt: Your next experiment should be to craft a simplify_segments_test05.txt prompt. Your goal is to find a middle ground between test01 and test04 to achieve that target Tail Score of ~1200 and Avg Rank of ~400. You could start with the test01 prompt and add instructions like "Use simple subject-verb-object sentences where possible" or "Avoid complex clauses."
+Refactor the Python Pipeline:
+Update the PoolManager to generate the two new tiers (.bas.json, .mod.json).
+Update AssembleTiers to include them.
+Update the final stage (FinalizeBook) to strip unneeded tokenized_text and mappings from the non-Simple tiers.
+Refactor the Rust Engine:
+Implement the per-tier vocabulary tracking system.
+Update the L0 weaving logic to handle the four-tier hierarchy and the "exhaustion" principle.
+This is a significant and exciting step forward. Your solution is robust, pedagogically sound, and directly addresses the primary weakness of the current model.
