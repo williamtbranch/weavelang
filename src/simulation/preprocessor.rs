@@ -6,7 +6,7 @@ use crate::simulation::numerical_types::{
     NumericalProcessedSentence, WordToken,
 };
 use crate::types::json_types::{
-    JsonChapter, JsonContentBlock, JsonSentenceBlock, JsonTokenV2, JsonTokenType,
+    JsonChapter, JsonContentBlock, JsonSentenceBlock, JsonTokenV2, JsonTokenType, JsonTierV2
 };
 use std::vec::Vec;
 
@@ -23,7 +23,6 @@ pub fn json_chapter_to_numerical(
             JsonContentBlock::Sentence(s) => {
                 let numerical_sentence =
                     json_sentence_to_numerical(s, dictionary, &json_chapter.book_meta.book_name);
-                // We still need the base English word count for other purposes, so we keep this.
                 english_word_counts.push(numerical_sentence.eng_text_word_count);
                 Some(numerical_sentence)
             }
@@ -64,6 +63,12 @@ fn map_tokenized_text(tokens: &[JsonTokenV2]) -> (Vec<WordToken>, Vec<String>) {
     (words, backgrounds)
 }
 
+// Helper function to find a tier or panic with a clear error
+fn find_tier_or_panic<'a>(tiers: &'a [JsonTierV2], tier_id: &str, s_id: &str) -> &'a JsonTierV2 {
+    tiers.iter().find(|t| t.tier_id == tier_id)
+        .unwrap_or_else(|| panic!("Data integrity error: Could not find '{}' tier in sentence '{}'", tier_id, s_id))
+}
+
 pub fn json_sentence_to_numerical(
     s_sentence: &JsonSentenceBlock,
     dictionary: &mut GlobalLemmaDictionary,
@@ -75,30 +80,15 @@ pub fn json_sentence_to_numerical(
             .map(|s| dict.get_id_or_insert(s))
             .collect()
     };
+    
+    let s_id = &s_sentence.s_id;
+    let base_tier = find_tier_or_panic(&s_sentence.tiers, "base", s_id);
+    let adv_target_tier = find_tier_or_panic(&s_sentence.tiers, "advanced_target", s_id);
+    let mod_target_tier = find_tier_or_panic(&s_sentence.tiers, "moderate_target", s_id);
+    let bas_target_tier = find_tier_or_panic(&s_sentence.tiers, "basic_target", s_id);
+    let sim_target_tier = find_tier_or_panic(&s_sentence.tiers, "simple_target", s_id);
 
-    // --- Tier Extraction (Simpler) ---
-    let base_tier = s_sentence
-        .tiers
-        .iter()
-        .find(|t| t.tier_id == "base")
-        .cloned()
-        .unwrap_or_default();
-    let adv_target_tier = s_sentence
-        .tiers
-        .iter()
-        .find(|t| t.tier_id == "advanced_target")
-        .cloned()
-        .unwrap_or_default();
-    let simpler_adv_target_tier = s_sentence
-        .tiers
-        .iter()
-        .find(|t| t.tier_id == "simpler_advanced_target")
-        .cloned()
-        .unwrap_or_default();
-    // The simple_target_tier is no longer needed or loaded.
-
-    // --- L0 Processing (Unchanged) ---
-    let all_simpler_tier_words: Vec<_> = simpler_adv_target_tier
+    let all_sim_tier_words: Vec<_> = sim_target_tier
         .segments
         .iter()
         .flat_map(|seg| seg.tokenized_text.iter())
@@ -109,46 +99,43 @@ pub fn json_sentence_to_numerical(
         .segments
         .iter()
         .map(|adv_seg| {
-            let simpler_seg = simpler_adv_target_tier
-                .segments
-                .iter()
-                .find(|s| s.seg_id == adv_seg.seg_id)
-                .cloned()
-                .unwrap_or_default();
+            let seg_id = &adv_seg.seg_id;
+            let mod_seg = mod_target_tier.segments.iter().find(|s| &s.seg_id == seg_id).unwrap_or_else(|| panic!("Mismatch in seg_id '{}' for moderate tier in s_id '{}'", seg_id, s_id));
+            let bas_seg = bas_target_tier.segments.iter().find(|s| &s.seg_id == seg_id).unwrap_or_else(|| panic!("Mismatch in seg_id '{}' for basic tier in s_id '{}'", seg_id, s_id));
+            let sim_seg = sim_target_tier.segments.iter().find(|s| &s.seg_id == seg_id).unwrap_or_else(|| panic!("Mismatch in seg_id '{}' for simple tier in s_id '{}'", seg_id, s_id));
 
-            let inv_diglot_mapping = s_sentence
-                .mappings
-                .adv_target_to_base_inv_diglot
-                .get(&adv_seg.seg_id)
-                .cloned()
-                .unwrap_or_default();
-            let (simpler_text_words, simpler_text_backgrounds) =
-                map_tokenized_text(&simpler_seg.tokenized_text);
+            let inv_diglot_mapping = s_sentence.mappings.adv_target_to_base_inv_diglot.get(seg_id).cloned().unwrap_or_default();
+            let (sim_text_words, sim_text_backgrounds) = map_tokenized_text(&sim_seg.tokenized_text);
 
             NumericalAdvSegmentBundle {
                 a_id_str: adv_seg.seg_id.clone(),
                 adv_text_original: adv_seg.text.clone(),
                 adv_lemma_ids: string_lemmas_to_ids(&adv_seg.lemmas, dictionary),
-                simpler_text_original: simpler_seg.text.clone(),
-                simpler_lemma_ids: string_lemmas_to_ids(&simpler_seg.lemmas, dictionary),
+                
+                // --- THIS IS THE FIX ---
+                mod_text_original: mod_seg.text.clone(),
+                mod_lemma_ids: string_lemmas_to_ids(&mod_seg.lemmas, dictionary),
+                // --- END OF FIX ---
+                
+                bas_text_original: bas_seg.text.clone(),
+                bas_lemma_ids: string_lemmas_to_ids(&bas_seg.lemmas, dictionary),
+                sim_text_original: sim_seg.text.clone(),
+                sim_lemma_ids: string_lemmas_to_ids(&sim_seg.lemmas, dictionary),
                 inverse_diglot_map_numerical: inv_diglot_mapping
                     .iter()
-                    .map(|(_v_token_idx, lemmas, sub, eng_wc)| {
-                        let original_word = all_simpler_tier_words
-                            .get(*_v_token_idx)
-                            .map_or("", |token| &token.value);
+                    .map(|(v_token_idx, lemmas, sub, eng_wc)| {
+                        // NOTE: Using v_token_idx directly here assumes a flat list of words across all segments of the simple tier
+                        let original_word = all_sim_tier_words.get(*v_token_idx).map_or("", |token| &token.value);
                         let lemma_ids = lemmas.iter().map(|l| dictionary.get_id_or_insert(l)).collect();
                         (original_word.to_string(), lemma_ids, sub.clone(), *eng_wc)
                     })
                     .collect(),
-                simpler_text_words,
-                simpler_text_backgrounds,
+                sim_text_words,
+                sim_text_backgrounds,
             }
         })
         .collect();
 
-    // --- L1 Processing (Simplified) ---
-    // The diglot map is now directly used with the base tier.
     let diglot_map_numerical: Vec<NumericalDiglotSegmentMap> = s_sentence
         .mappings
         .simple_target_to_base_diglot
@@ -159,13 +146,8 @@ pub fn json_sentence_to_numerical(
                 entries: entries
                     .iter()
                     .map(|(base_di, lemmas, form, viable, eng_wc)| {
-                        let base_word = base_tier
-                            .segments
-                            .iter()
-                            .flat_map(|s| &s.tokenized_text)
-                            .find(|t| t.diglot_index == Some(*base_di))
-                            .map_or("", |t| &t.value);
-
+                        let base_word = base_tier.segments.iter().flat_map(|s| &s.tokenized_text)
+                            .find(|t| t.diglot_index == Some(*base_di)).map_or("", |t| &t.value);
                         NumericalDiglotEntry {
                             base_word_di: *base_di,
                             eng_word_original: base_word.to_string(),
@@ -180,18 +162,12 @@ pub fn json_sentence_to_numerical(
         })
         .collect();
 
-    // --- Construct the final, simpler struct ---
     NumericalProcessedSentence {
         source_file_name_original: book_name.to_string(),
         sentence_id_str: s_sentence.s_id.clone(),
-        eng_text_original: base_tier.full_text,
-        eng_text_word_count: base_tier
-            .segments
-            .iter()
-            .flat_map(|s| &s.tokenized_text)
-            .filter(|t| t.token_type == JsonTokenType::Word)
-            .count(),
-        base_tier_tokenized: base_tier.segments,
+        eng_text_original: base_tier.full_text.clone(),
+        eng_text_word_count: base_tier.segments.iter().flat_map(|s| &s.tokenized_text).filter(|t| t.token_type == JsonTokenType::Word).count(),
+        base_tier_tokenized: base_tier.segments.clone(),
         adv_s_text_original: adv_target_tier.full_text.clone(),
         adv_sl_overall_lemma_ids: string_lemmas_to_ids(&adv_target_tier.lemmas, dictionary),
         adv_segment_bundles_numerical,

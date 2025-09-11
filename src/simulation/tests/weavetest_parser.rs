@@ -11,9 +11,19 @@ pub struct DslTestCase {
 #[derive(Debug, Clone)]
 pub struct DslSubTest {
     pub name: String,
-    pub learner_level: u32,
+    pub learner_level: DslLearnerLevel,
     pub assertions: Vec<DslAssertion>,
 }
+
+#[derive(Debug, Clone, Default)]
+pub struct DslLearnerLevel {
+    pub sim: u32,
+    pub bas: u32,
+    pub mod_level: u32,
+    pub adv: u32,
+}
+
+pub const EXHAUSTED_LEVEL: u32 = u32::MAX;
 
 #[derive(Debug, Clone)]
 pub struct DslSentenceDef {
@@ -33,9 +43,9 @@ pub struct DslSegmentSpec {
 
 #[derive(Debug, Clone)]
 pub enum DslSegmentSpecEnum {
-    Spanish { tokens: Vec<JsonTokenV2>, lemmas: Vec<String> }, // This can be renamed to Target in the future
+    Spanish { tokens: Vec<JsonTokenV2>, lemmas: Vec<String> },
     Diglot { tuples: Vec<DslDiglotTuple> },
-    English { tokens: Vec<JsonTokenV2> }, // This can be renamed to Base in the future
+    English { tokens: Vec<JsonTokenV2> },
     InvDiglot { tuples: Vec<DslInvDiglotTuple> },
 }
 
@@ -49,9 +59,9 @@ pub struct DslDiglotTuple {
 
 #[derive(Debug, Clone)]
 pub struct DslInvDiglotTuple {
-    pub target_word: String, // Renamed for clarity
-    pub target_lemmas: Vec<String>, // Renamed for clarity
-    pub base_substitute: String, // Renamed for clarity
+    pub target_word: String,
+    pub target_lemmas: Vec<String>,
+    pub base_substitute: String,
 }
 
 #[derive(Debug, Clone)]
@@ -111,17 +121,44 @@ fn parse_sub_test(pair: Pair<Rule>) -> DslSubTest {
     let mut inner = pair.into_inner();
     let name = parse_string_literal_content(inner.next().unwrap());
     let body_pair = inner.next().unwrap();
-    let mut learner_level = 0;
+    let mut learner_level = DslLearnerLevel::default();
     let mut assertions = Vec::new();
     for part in body_pair.into_inner() {
         match part.as_rule() {
-            Rule::learner_level => learner_level = part.into_inner().next().unwrap().as_str().parse().unwrap(),
+            Rule::learner_level => learner_level = parse_learner_level(part),
             Rule::assertion => assertions.push(parse_assertion(part)),
             _ => (),
         }
     }
     DslSubTest { name, learner_level, assertions }
 }
+
+fn parse_learner_level(pair: Pair<Rule>) -> DslLearnerLevel {
+    let mut level = DslLearnerLevel::default();
+    for def_pair in pair.into_inner() { // def_pair.as_rule() is 'level_def'
+        // --- THIS IS THE FIX ---
+        // We need to get the inner pair to find the actual rule (sim_level, etc.)
+        let inner_pair = def_pair.into_inner().next().unwrap();
+        let rule = inner_pair.as_rule();
+        let value_pair = inner_pair.into_inner().next().unwrap();
+        // --- END OF FIX ---
+        
+        let value = match value_pair.as_str() {
+            "exhausted" => EXHAUSTED_LEVEL,
+            num_str => num_str.parse().unwrap(),
+        };
+        
+        match rule {
+            Rule::sim_level => level.sim = value,
+            Rule::bas_level => level.bas = value,
+            Rule::mod_level => level.mod_level = value,
+            Rule::adv_level => level.adv = value,
+            _ => unreachable!("Unexpected rule in learner_level: {:?}", rule),
+        }
+    }
+    level
+}
+
 
 fn parse_sentence_def(pair: Pair<Rule>) -> DslSentenceDef {
     let mut inner = pair.into_inner();

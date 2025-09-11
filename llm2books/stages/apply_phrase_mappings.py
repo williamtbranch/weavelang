@@ -3,15 +3,12 @@
 from typing import Any, Dict, List
 
 from .base import SpaCyStage, logger
-# --- THIS IS THE FIX ---
-# Import the new master function and remove the old parser import.
 from ..phrase_mapper_helpers import align_and_parse_to_atoms, sanitize_atoms
-# --- END OF FIX ---
 from .. import validator
 
 class ApplyPhraseMappings(SpaCyStage):
     """
-    Stage 6: A robust refactorer using a DP alignment algorithm.
+    Stage 4: A robust refactorer using a DP alignment algorithm.
     - Uses a unified parser to create "semantic atoms" from noisy LLM data.
     - Sanitizes the atoms against segment and punctuation boundaries.
     - Rebuilds the `base` tier by fusing tokens into "virtual tokens".
@@ -33,6 +30,7 @@ class ApplyPhraseMappings(SpaCyStage):
 
             raw_map_lines = block.get("mappings", {}).get("raw_phrase_map", [])
             if not raw_map_lines:
+                block.setdefault("mappings", {})["simple_target_to_base_diglot"] = {}
                 block.setdefault("processing_status", {})[self.stage_name] = "COMPLETED"
                 continue
 
@@ -45,10 +43,7 @@ class ApplyPhraseMappings(SpaCyStage):
             try:
                 original_word_tokens = [t for seg in base_tier["segments"] for t in seg["tokenized_text"] if t['t'] == 'w']
                 
-                # --- THIS IS THE FIX ---
-                # Call the new unified parser.
                 initial_atoms = align_and_parse_to_atoms(raw_map_lines, original_word_tokens)
-                # --- END OF FIX ---
                 
                 sanitized_atoms = sanitize_atoms(s_id, initial_atoms, base_tier)
 
@@ -56,13 +51,15 @@ class ApplyPhraseMappings(SpaCyStage):
 
                 self._validate_reconstruction(s_id, base_tier, new_base_tier)
                 
+                # Replace the old tier with the new one IN-PLACE for validation
                 for i, tier in enumerate(block["tiers"]):
                     if tier["tier_id"] == "base":
                         block["tiers"][i] = new_base_tier
                         break
                 
                 block["mappings"]["simple_target_to_base_diglot"] = new_diglot_map
-                del block["mappings"]["raw_phrase_map"] 
+                if "raw_phrase_map" in block["mappings"]:
+                    del block["mappings"]["raw_phrase_map"] 
 
                 block.setdefault("processing_status", {})[self.stage_name] = "COMPLETED"
 
@@ -71,13 +68,20 @@ class ApplyPhraseMappings(SpaCyStage):
                 block.setdefault("processing_status", {})[self.stage_name] = f"FAILED: {e}"
                 self._save_output_data(data, "PARTIAL_FAILED")
                 raise
+        
+        # --- RE-ADD VALIDATION STEP ---
+        # Add the check here to fail fast, before saving the corrupted output.
+        logger.info("      -> Running in-stage validation for exhaustive diglot mapping...")
+        for block in data.get("content_blocks", []):
+            if block.get("block_type") == "sentence":
+                # This validation is now active within Stage 4
+                validator.validate_exhaustive_diglot_mapping(block)
+        logger.info("      -> In-stage validation passed.")
+        # --- END RE-ADD VALIDATION STEP ---
+
         return data
 
-    # The rest of the file (_rebuild_base_tier_and_map, _validate_reconstruction) remains unchanged.
     def _rebuild_base_tier_and_map(self, original_base_tier, sanitized_atoms):
-        """
-        A robust, segment-aware method to rebuild the base tier and diglot map.
-        """
         new_diglot_map = {}
         new_base_tier = {
             "tier_id": "base",
@@ -85,10 +89,8 @@ class ApplyPhraseMappings(SpaCyStage):
             "segments": []
         }
         
-        # Create a lookup map for atoms by their starting diglot index
         atom_map_by_di = {atom.di: atom for atom in sanitized_atoms}
 
-        # Iterate through the original segments, processing each one individually
         for original_seg in original_base_tier['segments']:
             new_seg_tokens = []
             map_entries_for_seg = []
@@ -99,7 +101,6 @@ class ApplyPhraseMappings(SpaCyStage):
             while token_cursor < len(original_tokens):
                 token = original_tokens[token_cursor]
                 
-                # If it's a background token, just append it and continue
                 if token['t'] == 'b':
                     new_seg_tokens.append(token)
                     token_cursor += 1
@@ -107,17 +108,14 @@ class ApplyPhraseMappings(SpaCyStage):
                 
                 current_di = token.get('di')
                 
-                # Check if this word token is the start of a multi-word atom
-                if current_di in atom_map_by_di:
+                if current_di is not None and current_di in atom_map_by_di:
                     atom = atom_map_by_di[current_di]
                     
-                    # --- Create the virtual token ---
                     words_in_atom = len(atom.en_words)
                     words_consumed = 0
                     consumed_text = ""
                     temp_cursor = token_cursor
                     
-                    # Consume all tokens (word and background) that make up this atom
                     while temp_cursor < len(original_tokens) and words_consumed < words_in_atom:
                         sub_token = original_tokens[temp_cursor]
                         consumed_text += sub_token['v']
@@ -125,23 +123,19 @@ class ApplyPhraseMappings(SpaCyStage):
                             words_consumed += 1
                         temp_cursor += 1
                     
-                    # The new virtual token inherits the 'di' from the first original token
                     new_seg_tokens.append({'t': 'w', 'v': consumed_text, 'di': atom.di})
                     
-                    # --- Create the diglot map entry ---
                     is_viable = atom.es_phrase.upper() != "NO_SUB"
                     map_entries_for_seg.append([atom.di, "TBD", atom.es_phrase, is_viable])
                     
-                    # Advance the main cursor past all consumed tokens
                     token_cursor = temp_cursor
                 else:
-                    # This should not happen if sanitize_atoms works correctly, but as a fallback:
-                    # Treat as a single, unmapped word.
                     new_seg_tokens.append(token)
-                    map_entries_for_seg.append([current_di, "TBD", "NO_SUB", False])
+                    if current_di is not None:
+                        map_entries_for_seg.append([current_di, "TBD", "NO_SUB", False])
+                    
                     token_cursor += 1
 
-            # Finalize the new segment
             reconstructed_text = "".join(t['v'] for t in new_seg_tokens)
             new_seg = {
                 "seg_id": original_seg['seg_id'],

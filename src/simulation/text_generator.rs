@@ -34,7 +34,9 @@ pub fn generate_raw_text_from_levels(
                         .iter()
                         .map(|choice| match choice {
                             L0SegmentChoice::Adv(t)
-                            | L0SegmentChoice::SimplerAdv(t)
+                            | L0SegmentChoice::Mod(t)
+                            | L0SegmentChoice::Bas(t)
+                            | L0SegmentChoice::Sim(t)
                             | L0SegmentChoice::InverseDiglot(t) => t.clone(),
                         })
                         .collect::<String>()

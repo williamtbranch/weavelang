@@ -1,0 +1,519 @@
+// ===========================================
+// WeaveLang Test Suite - v8.0
+// Uses unified, self-validating DSL
+// ===========================================
+
+(test-case "All advanced Segments - sentenceA"
+
+    (sentence
+        (L0
+            (S "sa1 sa2 sa3 " (lem99 lem95 lem97))
+            (S "[[ma1]] [[ma2]] [[ma3]] " (lem44 lem55 lem46))
+            (ID
+              (ma1 lem35 rdea1)
+              (ma2 lem36 rdea2)
+              (ma3 lem37 rdea3)
+            )
+            
+            (S "sb1 sb2 sb3 " (lem88 lem89 lem87))
+            (S "[[mb1]] [[mb2]] [[mb3]] " (lem41 lem41 lem54))
+            (ID
+              (mb1 lem1 rdeb1)
+              (mb2 lem51 rdeb2)
+              (mb3 lem3 rdeb3)
+            )
+            
+            (S "sc1 sc2 sc3 " (lem77 lem78 lem79))
+            (S "[[mc1]] [[mc2]] [[mc3]] " (lem60 lem62 lem59))
+            (ID
+              (mc1 lem61 rdec1)
+              (mc2 lem48 rdec2) //leve40 exceeds 50% rule at this point.
+              (mc3 lem39 rdec3)
+            )
+        )
+
+        (L1
+            (D
+              (dsa1 lem18 dea1)
+              (dsa2 lem9 dea2)
+              (dsa3 lem3 dea3)
+              (dsb1 lem10 deb1)
+              (dsb2 lem31 deb2)
+              (dsb3 lem21 deb3)
+              (ec1 lem31 dec1)
+              (ec2 lem10 dec2)
+              (ec3 lem19 dec3)
+            )
+            (E "[[dsa1]] [[dsa2]] [[dsa3]] [[dsb1]] [[dsb2]] [[dsb3]] [[ec1]] [[ec2]] [[ec3]]")
+        )
+    )
+    (sub-test "Advanced weave at 100"
+      (level 100)
+      (assert-text "sa1 sa2 sa3 sb1 sb2 sb3 sc1 sc2 sc3")
+      (assert-level AdvancedWeave) 
+    )
+    (sub-test "at level 90, falls back to Moderate Spanish in column A"
+        (level 90)
+        (assert-text "ma1 ma2 ma3 sb1 sb2 sb3 sc1 sc2 sc3")
+        (assert-level AdvancedWeave) 
+    )
+    (sub-test "at level 80, falls back to Moderate Spanish in column A&B"
+        (level 80)
+        (assert-text "ma1 ma2 ma3 mb1 mb2 mb3 sc1 sc2 sc3")
+        (assert-level AdvancedWeave) 
+    )
+    (sub-test "at level 70, falls back to Moderate Spanish in column A&B&C"
+        (level 70)
+        (assert-text "ma1 ma2 ma3 mb1 mb2 mb3 mc1 mc2 mc3")
+        (assert-level AdvancedWeave) 
+    )
+    (sub-test "at level 60, falls back to Moderate Spanish in column A&B id word 3 of column C"
+        (level 60)
+        (assert-text "ma1 ma2 ma3 mb1 mb2 mb3 rdec1 mc2 mc3")
+        (assert-level AdvancedWeave) 
+    )
+    (sub-test "at level 50, falls back to Moderate Spanish in column B id word 3 of column C"
+        (level 50)
+        (assert-text "ma1 ma2 ma3 mb1 rdeb2 mb3 rdec1 mc2 mc3")
+        (assert-level AdvancedWeave) 
+    )
+    (sub-test "at level 40, falls back to L1 at this threshold"
+        (level 40)
+        (assert-text "dea1 dea2 dea3 deb1 deb2 deb3 dec1 dec2 dec3")
+        (assert-level SimpleHybrid) 
+    )
+    (sub-test "at level 30, falls back to L1 at this threshold"
+        (level 30)
+        (assert-text "dea1 dea2 dea3 deb1 dsb2 deb3 ec1 dec2 dec3")
+        (assert-level SimpleHybrid) 
+    )
+    (sub-test "at level 20, falls back to L1 at this threshold"
+        (level 20)
+        (assert-text "dea1 dea2 dea3 deb1 dsb2 dsb3 ec1 dec2 dec3")
+        (assert-level SimpleHybrid) 
+    )
+    (sub-test "at level 10, falls back to L1 at this threshold"
+        (level 10)
+        (assert-text "dsa1 dea2 dea3 deb1 dsb2 dsb3 ec1 dec2 ec3")
+        (assert-level SimpleHybrid) 
+    )
+    (sub-test "at level 05, falls back to L1 at this threshold"
+        (level 5)
+        (assert-text "dsa1 dsa2 dea3 dsb1 dsb2 dsb3 ec1 ec2 ec3")
+        (assert-level SimpleHybrid) 
+    )
+    (sub-test "at level 0, falls back to L1 at this threshold"
+        (level 0)
+        (assert-text "dsa1 dsa2 dsa3 dsb1 dsb2 dsb3 ec1 ec2 ec3")
+        (assert-level SimpleHybrid) 
+    )
+)
+
+(test-case "Real World Bug - S26 from A Christmas Carol"
+    (sentence
+        (L0
+            (S "sANo hay duda de " (lem23 lem15 lem150 lem16))
+            (S "[[mANo]] [[hay]] [[duda]] [[de]] " (lem12 lem21 lem14 lem16)) 
+            (ID 
+                (mANo lem20 NO_SUB) 
+                (hay lem19 NO_SUB) 
+                (duda lem200 doubt) 
+                (de lem15 NO_SUB)
+            )
+            
+            (S "sBque Marley estaba muerto." (lem45 lem33 lem150))
+            (S "[[mBque]] [[Marley]] [[estaba]] [[muerto]]." (lem45 que estar muerto))
+            (ID 
+                (mBque lem10 NO_SUB) 
+                (Marley marley PROPER_NOUN) //We should never see "PROPER_NOUN" in final text. 
+                (estaba lem5 is) 
+                (muerto lem80 dead)
+            )
+        )
+        (L1
+            (D (There lem21 Hay t)
+               (is lem2 NO_SUB f)
+               (no lem16 ninguna t)
+               (doubt lem17 duda t)
+               (that lem3 que t)
+               (Marley lem1 PROPER_NOUN t) //PROPER_NOUN should never get used even if 't' flag set
+               (was lem5 estaba t)
+               (dead muerto muerto t)
+            )
+            (E "[[There]] [[is]] [[no]] [[doubt]] [[that]] [[Marley]] [[was]] [[dead]].")
+            
+        )
+    )
+    (sub-test "at level 20, should produce L0 inverse diglot without literal PROPER_NOUN"
+      (level 20)
+      (assert-text "mANo hay doubt de mBque Marley estaba dead.")
+    )
+    (sub-test "at level 15, should always produce L1 diglot without literal PROPER_NOUN"
+      (level 15)
+      (assert-text "There is no doubt que Marley estaba dead.")
+    )
+    (sub-test "at level 1000, should choose AdvS"
+        (level 1000)
+        (assert-text "sANo hay duda de sBque Marley estaba muerto.")
+        (assert-level AdvancedWeave) 
+    )
+)
+
+(test-case "Fingerprint test for context-aware lemmas"
+    (sentence
+        (L0
+            (S "adv-fails" (lem99))
+            (S "[[word1]] [[word2]] [[word3]]" (lem10 lem20 lem98)) // lem98 is the poison pill
+            (ID 
+                (word1 lem10 eng1) 
+                (word2 lem20 eng2) 
+                (word3 lem30 eng3)
+            )
+        )
+        (L1
+            (D (fallback-e lem2 fb-d t))
+            (E "[[fallback-e]]")
+        )
+    )
+
+    (sub-test "at level 50, proves separate lemma lists are used"
+        (level 50)
+        (assert-text "word1 word2 word3")
+        (assert-level AdvancedWeave)
+    )
+)
+
+(test-case "Punctuation Integrity During Diglot Substitution"
+    (sentence
+        (L0
+            (S "\"¡Claro!\", exclamó el Rey; " (lem301 lem302 lem303 lem304))
+            (S "\"¡[[Sí]]!\", [[dijo]] [[el]] [[Rey]]; " (lem201 lem202 lem203 lem204))
+            (ID
+              (Sí lem201 Yes)
+              (dijo lem202 said)
+              (el lem203 the)
+              (Rey lem204 King)
+            )
+
+            (S "¿qué es ese estruendo?" (lem305 lem306 lem307 lem308))
+            (S "¿[[qué]] [[es]] [[ese]] [[sonido]]?" (lem205 lem206 lem207 lem208))
+            (ID
+              (qué lem205 what)
+              (es lem206 is)
+              (ese lem207 that)
+              (sonido lem208 sound)
+            )
+        )
+
+        (L1
+            (D
+              (Yes lem1 Sí t)
+              (said lem2 dijo t)
+              (the lem3 el t)
+              (King lem4 Rey t)
+              (what lem5 qué t)
+              (is lem6 es t)
+              (that lem7 ese t)
+              (sound lem8 sonido t)
+            )
+            (E "\"[[Yes]]\", [[said]] [[the]] [[King]]; [[what]] [[is]] [[that]] [[sound]]?")
+        )
+    )
+    (sub-test "L0: Inverse diglot substitution that handles punctuation"
+      (level 206)
+      (assert-level AdvancedWeave)
+      (assert-text "\"¡Sí!\", dijo el Rey; ¿qué es that sound?")
+    )
+    (sub-test "L1: Regular diglot substitution that handles punctuation"
+      (level 7)
+      (assert-level SimpleHybrid)
+      (assert-text "\"Sí\", dijo el Rey; qué es ese sound?")
+    )
+)
+
+(test-case "Test insuring NO_SUB does not appear in L1 diglot "
+
+    (sentence
+        (L0
+            (S "sa1 sa2 sa3" (lem99 lem95 lem97))
+            (S "[[ma1]] [[ma2]] [[ma3]]" (lem44 lem55 lem46))
+            (ID
+              (ma1 lem85 rdea1)
+              (ma2 lem36 rdea2)
+              (ma3 lem37 rdea3)
+            )
+        )    
+
+        (L1
+            (D
+              (dsa1 lem8 NO_SUB)
+              (dsa2 lem9 NO_SUB t)
+              (dsa3 lem3 NO_SUB f)
+              (dsb1 lem11 NO_SUB)
+              (dsb2 lem3 deb2)
+              (dsb3 lem2 NO_SUB)
+            )
+            (E "[[dsa1]] [[dsa2]] [[dsa3]] [[dsb1]] [[dsb2]] [[dsb3]]")
+            
+        )
+      )
+    
+    (sub-test "English Diglot NO_SUB never gets used regardless of flag"
+      (level 10)
+      (assert-text "dsa1 dsa2 dsa3 dsb1 deb2 dsb3")
+      (assert-level SimpleHybrid) 
+    )
+)
+
+(test-case "Test insuring L1 diglots don't express when 'f' flag is set"
+
+    (sentence
+        (L0
+            (S "sa1 sa2 sa3" (lem99 lem95 lem97))
+            (S "[[ma1]] [[ma2]] [[ma3]]" (lem44 lem55 lem46))
+            (ID
+              (ma1 lem85 rdea1)
+              (ma2 lem36 rdea2)
+              (ma3 lem37 rdea3)
+            )
+        )    
+
+        (L1
+            (D
+              (dsa1 lem8 sp1)
+              (dsa2 lem9 sp2 t)
+              (dsa3 lem3 sp3 f)
+              (dsb1 lem11 spb2 t)
+              (dsb2 lem3 spb3 f)
+              (dsb3 lem2 spb3)
+            )
+            (E "[[dsa1]] [[dsa2]] [[dsa3]] [[dsb1]] [[dsb2]] [[dsb3]]")
+            
+        )
+      )
+    
+    (sub-test "English Diglot 'f' flag turns off diglot"
+      (level 10)
+      (assert-text "sp1 sp2 dsa3 dsb1 dsb2 spb3")
+      (assert-level SimpleHybrid) 
+    )
+)
+
+(test-case "L0 Fails on Unknown NO_SUB Lemma"
+    (sentence
+        (L0
+            // Segment A is designed to fail because of the 'de' lemma.
+            (S "Frase avanzada de prueba " (lem401 lem402 lem403 lem404))
+            (S "[[Una]] [[frase]] [[simple]] [[de]] [[prueba]] " (lem201 lem202 lem203 lem500 lem204))
+            (ID
+              (Una lem99 A)
+              (frase lem98 phrase)
+              (simple lem80 simple)
+              (de lem500 NO_SUB) // This is the trigger. lem500 is unknown.
+              (prueba lem204 test)
+            )
+
+            // Segment B is perfectly valid and would pass on its own.
+            (S "Otro segmento" (lem405 lem406))
+            (S "[[Segundo]] [[segmento]]" (lem205 lem206))
+            (ID
+              (Segundo lem2 Second)
+              (segmento lem20 segment)
+            )
+        )
+
+        (L1
+            // This is the fallback content the test will assert against.
+            (D
+              (A lem1 A t)
+              (simple lem2 ssimple t)
+              (test lem3 prueba t)
+              (The lem4 El t)
+              (second lem5 segundo t)
+            )
+            (E "[[A]] [[simple]] [[test]] [[The]] [[second]]")
+
+        )
+    )
+
+    (sub-test "L0 fails on unknown NO_SUB and falls back to L1"
+      (level 100) // Knows all lemmas except the poison pill lem500.
+      (assert-level SimpleHybrid) // Must fall back to L1.
+      // At level 100, the L1 simple spanish phrases are fully known.
+      (assert-text "A ssimple prueba El segundo")
+    )
+)
+
+(test-case "Lonely Punctuation Handling"
+    (sentence
+        (L0
+            (S "El hombre dijo" (lem210 lem211 lem212))
+            (S "[[El]] [[hombre]] [[dijo]]" (lem210 lem211 lem212))
+            (ID
+              (El lem210 The)
+              (hombre lem211 man)
+              (dijo lem212 said)
+            )
+
+            (S ": " ()) // Lonely punctuation segment
+            (S ": " ())
+            (ID)
+
+            (S "\"¡fue bueno!\"" (lem213 lem214))
+            (S "\"¡[[fue]] [[bueno]]!\"" (lem213 lem214))
+            (ID
+              (fue lem213 it-was)
+              (bueno lem214 good)
+            )
+        )
+        (L1
+            (D
+              (He lem10 Él t)
+              (said lem11 dijo t)
+              (it lem14 se f)
+              (is lem12 es t)
+              (late lem13 tarde t)
+            )
+            (E "[[He]] [[said]], \"[[it]] [[is]] [[late]].\"")
+        )
+    )
+
+    (sub-test "L0 falls back and joins lonely punctuation correctly"
+      (level 213)
+      (assert-level AdvancedWeave)
+      // FIX: Final assertion with correct spacing.
+      (assert-text "El hombre dijo: \"¡fue good!\"")
+    )
+    (sub-test "L1 falls back to English and joins lonely punctuation correctly"
+      (level 1)
+      (assert-level SimpleHybrid)
+      // FIX: Final assertion with correct spacing.
+      (assert-text "He said, \"it is late.\"")
+    )
+)
+
+(test-case "Bug Replication - Diglot with Punctuation and Proper Noun"
+    (sentence
+        (L0 (S "adv-fails" (lem999))
+          (S "[[adv-mod-fails]] [[adv-mod-failes2]]" (lem998))
+          (ID
+            (adv-mod-fails lem997 dummy)
+            (adv-mod-failes2 lem998 dummy2)
+          )
+        )
+        (L1
+            (D // Diglot Map
+              (Who lem10 Quién t)
+              (are lem12 eres t)
+              (you lem13 tú t)
+              (said lem4 dijo t)       // 'said' is lem4
+              (the lem5 el t)         // 'the' is lem5
+              (Caterpillar lem6 Caterpillar f)
+            )
+            (E "“[[Who]] [[are]] [[you]]?” [[said]] [[the]] [[Caterpillar]].")
+        )
+    )
+
+    (sub-test "Low level learner should get a diglot with correct substitution"
+      (level 5) // Learner knows lem1-5, so they know "said" and "the"
+      (assert-level SimpleHybrid) 
+      (assert-text "“Who are you?” dijo el Caterpillar.")
+    )
+)
+
+(test-case "Phrase Diglot with Multiple Lemmas"
+    (sentence
+        (L0 (S "adv" (lem999)) // Fails L0
+            (S "[[adv2]] [[adv3]]" (lem999))
+            (ID
+              (adv2 lem997 dummy_sub)
+              (adv3 lem996 dummy_sub2)
+            )
+        )
+        (L1
+            (D 
+                // A single diglot tuple for the single English token.
+                // The source phrase is "Take a walk."
+                // The lemmas are "lem8", "lem150", "lem95".
+                // The target phrase is "dar un paseo."
+                (Take__a__walk lem8__lem150__lem95 dar__un__paseo t)
+            )
+            (E "[[Take a walk]].") // A single atomic token.
+        )
+    )
+    (sub-test "at level 200, substitutes the multi-lemma phrase"
+        (level 200) // Knows all 3 lemmas.
+        (assert-level SimpleHybrid)
+        (assert-text "dar un paseo.")
+    )
+    (sub-test "at level 100, fails to substitute due to lem150"
+        (level 100) // Does not know lem150.
+        (assert-level SimpleHybrid)
+        (assert-text "Take a walk.")
+    )
+)
+
+(test-case "L1 Weaving with Multi-Word Atoms"
+    (sentence
+        (L0 // Dummy L0 data designed to fail the >50% inverse diglot rule
+            (S "adv" (lem20000))
+            (S "[[adv-mod1]] [[adv-mod2]]" (lem19999 lem19998))
+            (ID 
+                (adv-mod1 lem19997 eng-sub1)
+                (adv-mod2 lem19996 eng-sub2)
+            )
+        )
+        (L1
+            (D 
+                (A__certain__king lem1__lem2__lem3 Un__cierto__rey t)
+                (had lem4 tenía t)
+                (a lem5 un t)
+                (garden lem998 jardín t)
+            )
+            (E "[[A certain king]] [[had]] [[a]] [[garden]].")
+        )
+    )
+    (sub-test "at level 10, weaves phrases, not words"
+        (level 10) 
+        (assert-level SimpleHybrid)
+        (assert-text "Un cierto rey tenía un garden.")
+    )
+)
+
+(test-case "L0 Inverse Diglot Phrase Weaving"
+    (sentence
+        (L0
+            (S "adv-seg1-text" (lem1999))
+            (S "[[El]] [[gato]] [[se sentó]] [[en]] [[la]] [[alfombra]]." (lem1 lem2 lem3000 lem4 lem5 lem6 lem7))
+            (ID
+              (El lem1 The)
+              (gato lem2 cat)
+              (se__sentó lem3__lem4 sat__down)
+              (en lem5 on)
+              (la lem6 the)
+              (alfombra lem1998 carpet) // lem998 is the poison pill
+            )
+        )
+        (L1 // This is the fallback content
+            (D (dummy lem2 dummy t))
+            (E "[[L1 fallback text]]")
+        )
+    )
+
+    (sub-test "at level 1000, L0 fails due to one unknown lemma in a phrase"
+        (level 1000) // Knows everything except lem998
+        (assert-level AdvancedWeave)
+        // The weave fails on the last phrase, so it substitutes.
+        (assert-text "El gato se sentó en la carpet.")
+    )
+    (sub-test "at level 5, L0 fails on multiple phrases"
+        (level 5) // Only knows lem1-5. Fails on "gato", "se sentó", "alfombra".
+        (assert-level AdvancedWeave)
+        (assert-text "El gato se sentó en the carpet.")
+    )
+    (sub-test "at level 1, L0 fails completely and falls back to L1"
+        (level 1) // Knows almost nothing. The substitution ratio is too high.
+        (assert-level SimpleHybrid)
+        (assert-text "L1 fallback text")
+    )
+)

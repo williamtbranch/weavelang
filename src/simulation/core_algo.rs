@@ -3,29 +3,35 @@
 use super::numerical_types::{NumericalLearnerProfile, NumericalProcessedSentence};
 use crate::simulation::dictionary::GlobalLemmaDictionary;
 use crate::simulation::frequency_manager;
-use crate::types::json_types::{JsonSegmentV2, JsonTokenType}; // Added for the new logic
+use crate::types::json_types::{JsonTokenType};
 use std::collections::HashMap;
 
-fn are_lemmas_active(
+// --- NEW HELPER FUNCTION ---
+// This function checks if all lemmas in a list are "known" based on a specific V-Level for that tier.
+fn are_lemmas_known(
     lemma_ids: &[u32],
-    profile: &NumericalLearnerProfile,
+    tier_v_level: u32,
     dictionary: &GlobalLemmaDictionary,
 ) -> bool {
     if lemma_ids.is_empty() {
+        return true; // A segment with no lemmas is always "known".
+    }
+    // A tier is considered "exhausted" if its v-level is MAX.
+    if tier_v_level == u32::MAX {
         return true;
     }
     lemma_ids.iter().all(|&id| {
-        if profile.is_lemma_active(id) {
-            return true;
-        }
         if let Some(lemma_str) = dictionary.get_str(id) {
-            if frequency_manager::get_rank_for_lemma(lemma_str).is_none() {
-                return true;
+            if let Some(rank) = frequency_manager::get_rank_for_lemma(lemma_str) {
+                // The core logic: the rank must be within the V-Level for this specific tier.
+                return rank <= tier_v_level;
             }
         }
-        false
+        // Lemmas not found in the frequency list (like proper nouns) are considered "known".
+        true
     })
 }
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum OutputLevel {
@@ -42,7 +48,9 @@ impl Default for OutputLevel {
 #[derive(Debug, Clone)]
 pub enum L0SegmentChoice {
     Adv(String),
-    SimplerAdv(String),
+    Mod(String),
+    Bas(String),
+    Sim(String),
     InverseDiglot(String),
 }
 
@@ -56,10 +64,16 @@ pub struct ChosenLevelOutput {
     pub english_word_count: usize,
 }
 
+// --- REWRITTEN FUNCTION ---
 fn try_build_advanced_weave(
     n_sentence: &NumericalProcessedSentence,
-    profile: &NumericalLearnerProfile,
+    profile: &NumericalLearnerProfile, // The profile is now used for the Inverse Diglot check
     dictionary: &GlobalLemmaDictionary,
+    // The single v_level is replaced by the four tier-specific v_levels
+    sim_v_level: u32,
+    bas_v_level: u32,
+    mod_v_level: u32,
+    adv_v_level: u32,
     inverse_diglot_threshold: f32,
 ) -> Option<ChosenLevelOutput> {
     if n_sentence.adv_segment_bundles_numerical.is_empty() {
@@ -72,29 +86,40 @@ fn try_build_advanced_weave(
     let mut english_words = 0;
 
     for bundle in &n_sentence.adv_segment_bundles_numerical {
-        if are_lemmas_active(&bundle.adv_lemma_ids, profile, dictionary) {
+        // --- The Four-Tier Cascade ---
+        if are_lemmas_known(&bundle.adv_lemma_ids, adv_v_level, dictionary) {
             l0_candidate_choices.push(L0SegmentChoice::Adv(bundle.adv_text_original.clone()));
             l0_collected_lemma_ids.extend(&bundle.adv_lemma_ids);
             spanish_words += bundle.adv_text_original.split_whitespace().count();
             continue;
         }
-
-        if are_lemmas_active(&bundle.simpler_lemma_ids, profile, dictionary) {
-            l0_candidate_choices
-                .push(L0SegmentChoice::SimplerAdv(bundle.simpler_text_original.clone()));
-            l0_collected_lemma_ids.extend(&bundle.simpler_lemma_ids);
-            spanish_words += bundle.simpler_text_original.split_whitespace().count();
+        if are_lemmas_known(&bundle.mod_lemma_ids, mod_v_level, dictionary) {
+            l0_candidate_choices.push(L0SegmentChoice::Mod(bundle.mod_text_original.clone()));
+            l0_collected_lemma_ids.extend(&bundle.mod_lemma_ids);
+            spanish_words += bundle.mod_text_original.split_whitespace().count();
+            continue;
+        }
+        if are_lemmas_known(&bundle.bas_lemma_ids, bas_v_level, dictionary) {
+            l0_candidate_choices.push(L0SegmentChoice::Bas(bundle.bas_text_original.clone()));
+            l0_collected_lemma_ids.extend(&bundle.bas_lemma_ids);
+            spanish_words += bundle.bas_text_original.split_whitespace().count();
+            continue;
+        }
+        if are_lemmas_known(&bundle.sim_lemma_ids, sim_v_level, dictionary) {
+            l0_candidate_choices.push(L0SegmentChoice::Sim(bundle.sim_text_original.clone()));
+            l0_collected_lemma_ids.extend(&bundle.sim_lemma_ids);
+            spanish_words += bundle.sim_text_original.split_whitespace().count();
             continue;
         }
 
-        let total_words_in_simpler_seg = bundle.simpler_text_words.len();
-        if total_words_in_simpler_seg == 0 {
+        // --- Inverse Diglot Fallback (based on the learner's actual profile) ---
+        let total_words_in_sim_seg = bundle.sim_text_words.len();
+        if total_words_in_sim_seg == 0 {
             l0_candidate_choices.push(L0SegmentChoice::InverseDiglot("".to_string()));
             continue;
         }
-
-        if bundle.simpler_text_words.len() != bundle.inverse_diglot_map_numerical.len() {
-            return None;
+        if bundle.sim_text_words.len() != bundle.inverse_diglot_map_numerical.len() {
+            return None; // Data integrity error
         }
 
         let mut final_parts: Vec<String> = Vec::new();
@@ -102,15 +127,15 @@ fn try_build_advanced_weave(
         let mut substitutions = 0;
         let mut inverse_diglot_is_viable = true;
 
-        for (i, word_token) in bundle.simpler_text_words.iter().enumerate() {
-            final_parts.push(bundle.simpler_text_backgrounds[i].clone());
+        for (i, word_token) in bundle.sim_text_words.iter().enumerate() {
+            final_parts.push(bundle.sim_text_backgrounds[i].clone());
             let diglot_entry = bundle.inverse_diglot_map_numerical.get(i).unwrap();
             let (_, lemma_ids, eng_sub, eng_wc) = diglot_entry;
 
             if eng_sub == "PROPER_NOUN" {
                 final_parts.push(word_token.text.clone());
                 spanish_words += 1;
-            } else if are_lemmas_active(lemma_ids, profile, dictionary) {
+            } else if profile.are_lemmas_active(lemma_ids) { // Check against the real profile
                 temp_collected_lemmas.extend(lemma_ids);
                 final_parts.push(word_token.text.clone());
                 spanish_words += 1;
@@ -123,12 +148,10 @@ fn try_build_advanced_weave(
                 english_words += eng_wc;
             }
         }
-        final_parts.push(bundle.simpler_text_backgrounds.last().unwrap().clone());
-
+        final_parts.push(bundle.sim_text_backgrounds.last().unwrap().clone());
         if !inverse_diglot_is_viable { return None; }
-
-        let substitution_ratio = substitutions as f32 / total_words_in_simpler_seg as f32;
-        if substitution_ratio > inverse_diglot_threshold && total_words_in_simpler_seg > 1 {
+        let substitution_ratio = substitutions as f32 / total_words_in_sim_seg as f32;
+        if substitution_ratio > inverse_diglot_threshold && total_words_in_sim_seg > 1 {
             return None;
         }
 
@@ -150,10 +173,15 @@ pub fn determine_and_annotate_sentence_expression(
     n_sentence: &mut NumericalProcessedSentence,
     profile: &NumericalLearnerProfile,
     dictionary: &GlobalLemmaDictionary,
+    // --- UPDATED SIGNATURE ---
+    sim_v_level: u32,
+    bas_v_level: u32,
+    mod_v_level: u32,
+    adv_v_level: u32,
     inverse_diglot_threshold: f32,
 ) -> ChosenLevelOutput {
     if let Some(l0_output) =
-        try_build_advanced_weave(n_sentence, profile, dictionary, inverse_diglot_threshold)
+        try_build_advanced_weave(n_sentence, profile, dictionary, sim_v_level, bas_v_level, mod_v_level, adv_v_level, inverse_diglot_threshold)
     {
         return l0_output;
     }
@@ -171,7 +199,6 @@ pub fn determine_and_annotate_sentence_expression(
         .map(|entry| (entry.base_word_di, entry))
         .collect();
 
-    // The base tier now only has one segment, so we get its tokens.
     let base_tokens = n_sentence
         .base_tier_tokenized
         .first()
@@ -183,18 +210,15 @@ pub fn determine_and_annotate_sentence_expression(
             continue;
         }
 
-        // It's a word token. Check for a substitution.
         let di = token.diglot_index.unwrap_or(usize::MAX);
         let mut substituted = false;
 
         if let Some(entry) = diglot_lookup.get(&di) {
             let is_metadata_token = entry.exact_spa_form_original == "PROPER_NOUN"
                 || entry.exact_spa_form_original == "NO_SUB";
-
-            if !is_metadata_token
-                && entry.viable
-                && are_lemmas_active(&entry.spa_lemma_ids, profile, dictionary)
-            {
+            
+            // L1 now checks against the simple tier's V-Level
+            if !is_metadata_token && entry.viable && are_lemmas_known(&entry.spa_lemma_ids, sim_v_level, dictionary) {
                 final_parts.push(entry.exact_spa_form_original.clone());
                 l1_collected_lemma_ids.extend(&entry.spa_lemma_ids);
                 spanish_words += entry.exact_spa_form_original.split_whitespace().count();

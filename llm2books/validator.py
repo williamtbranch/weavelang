@@ -176,7 +176,7 @@ def validate_exhaustive_diglot_mapping(sentence_block: Dict[str, Any]):
 
 def validate_exhaustive_inverse_diglot_mapping(sentence_block: Dict[str, Any]):
     """
-    Validates that for every 'simpler_advanced_target' segment, the number
+    Validates that for every 'simple_target' segment, the number
     of word tokens matches the number of entries in the inverse diglot map.
     This check is run after token fusing, so 'word tokens' may be multi-word phrases.
 
@@ -187,25 +187,25 @@ def validate_exhaustive_inverse_diglot_mapping(sentence_block: Dict[str, Any]):
         ValidationError: If the counts do not match for any segment.
     """
     s_id = sentence_block.get("s_id", "UnknownSentence")
-    simpler_adv_tier = next((
+    # --- CHANGE #1: Target the correct tier ---
+    source_tier = next((
         t for t in sentence_block.get("tiers", []) 
-        if t.get("tier_id") == "simpler_advanced_target"
+        if t.get("tier_id") == "simple_target"
     ), None)
     
-    if not simpler_adv_tier:
+    if not source_tier:
         return # Cannot validate if the tier does not exist
 
-    inv_diglot_map = sentence_block.get("mappings", {}).get("simpler_adv_target_to_base_inv_diglot", {})
+    # --- CHANGE #2: Target the correct map key ---
+    inv_diglot_map = sentence_block.get("mappings", {}).get("simple_target_to_base_inv_diglot", {})
 
-    for segment in simpler_adv_tier.get("segments", []):
+    for segment in source_tier.get("segments", []):
         seg_id = segment.get("seg_id")
         if not seg_id:
             continue
 
-        # This now correctly counts our potentially fused "virtual tokens"
         word_token_count = sum(1 for token in segment.get("tokenized_text", []) if token.get("t") == "w")
         
-        # We now check if the key exists OR if the segment had no words to begin with.
         if seg_id in inv_diglot_map:
             mapping_entry_count = len(inv_diglot_map[seg_id])
             

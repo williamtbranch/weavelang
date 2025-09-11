@@ -228,7 +228,8 @@ def test_inverse_diglot_mapping_happy_path():
     mock_sentence_block = {
         "s_id": "S1",
         "tiers": [{
-            "tier_id": "simpler_advanced_target",
+            # --- CHANGE #1: Use the new, correct tier_id ---
+            "tier_id": "simple_target",
             "segments": [{
                 "seg_id": "A1",
                 "tokenized_text": [
@@ -236,9 +237,12 @@ def test_inverse_diglot_mapping_happy_path():
                 ]
             }]
         }],
-        "mappings": { "simpler_adv_target_to_base_inv_diglot": {
-            "A1": [ [0, "l1", "sub1"], [1, "l2", "sub2"] ]
-        }}
+        "mappings": { 
+            # --- CHANGE #2: Use the new, correct map key ---
+            "simple_target_to_base_inv_diglot": {
+                "A1": [ [0, "l1", "sub1"], [1, "l2", "sub2"] ]
+            }
+        }
     }
     try:
         validate_exhaustive_inverse_diglot_mapping(mock_sentence_block)
@@ -250,15 +254,19 @@ def test_inverse_diglot_mapping_fails_on_mismatch():
     mock_sentence_block = {
         "s_id": "S1",
         "tiers": [{
-            "tier_id": "simpler_advanced_target",
+            # --- CHANGE #1: Use the new, correct tier_id ---
+            "tier_id": "simple_target", 
             "segments": [{
                 "seg_id": "A1",
                 "tokenized_text": [ {"t": "w", "v": "word1"} ] # One word
             }]
         }],
-        "mappings": { "simpler_adv_target_to_base_inv_diglot": {
-            "A1": [ [0, "l1", "sub1"], [1, "l2", "sub2"] ] # Two mappings
-        }}
+        "mappings": { 
+            # --- CHANGE #2: Use the new, correct map key ---
+            "simple_target_to_base_inv_diglot": {
+                "A1": [ [0, "l1", "sub1"], [1, "l2", "sub2"] ] # Two mappings
+            }
+        }
     }
     with pytest.raises(ValidationError) as excinfo:
         validate_exhaustive_inverse_diglot_mapping(mock_sentence_block)

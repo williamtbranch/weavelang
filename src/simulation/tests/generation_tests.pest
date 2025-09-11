@@ -1,6 +1,6 @@
 // =======================================
 // WeaveLang Generation Test Suite Grammar
-// v8.23 - Correct and Simple
+// v10.1 - "exhausted" keyword
 // =======================================
 
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
@@ -14,11 +14,20 @@ test_case_body = { sentence_def ~ (sub_test)+ }
 sub_test       = { "(" ~ "sub-test" ~ stringLiteral ~ sub_test_body ~ ")" }
 sub_test_body  = { learner_level ~ (assertion)+ }
 
-learner_level = { "(" ~ "level" ~ number ~ ")" }
+learner_level = { "(" ~ "level" ~ level_def+ ~ ")" }
+level_def     = { sim_level | bas_level | mod_level | adv_level }
+// --- MODIFIED RULES: Add 'exhausted' as an option ---
+level_value   = { number | "exhausted" }
+sim_level     = { "(" ~ "sim" ~ level_value ~ ")" }
+bas_level     = { "(" ~ "bas" ~ level_value ~ ")" }
+mod_level     = { "(" ~ "mod" ~ level_value ~ ")" }
+adv_level     = { "(" ~ "adv" ~ level_value ~ ")" }
+// --- END MODIFIED RULES ---
+
 assertion     = { (assert_level | assert_text) }
-assert_level  = { "(" ~ "assert-level" ~ level_value ~ ")" }
+assert_level  = { "(" ~ "assert-level" ~ output_level_value ~ ")" } // Renamed for clarity
 assert_text   = { "(" ~ "assert-text" ~ stringLiteral ~ ")" }
-level_value   = @{ "AdvancedWeave" | "SimpleHybrid" }
+output_level_value   = @{ "AdvancedWeave" | "SimpleHybrid" }
 
 sentence_def = { "(" ~ "sentence" ~ l0_column_body ~ l1_column_body ~ ")" }
 l0_column_body = { "(" ~ "L0" ~ segment_spec* ~ ")" }
@@ -34,17 +43,10 @@ englishSegment = { "(" ~ "E" ~ phrase? ~ ")" }
 diglotSegment  = { "(" ~ "D" ~ (diglotTuple)* ~ ")" }
 invDiglotSegment = { "(" ~ "ID" ~ (invDiglotTuple)* ~ ")" }
 
-// --- PRIMITIVES (Correctly Simplified) ---
-// tokenizedPhrase is just a string. We will parse [[...]] in Rust.
+// --- PRIMITIVES ---
 tokenizedPhrase = { "\"" ~ inner_string ~ "\"" } 
 stringLiteral   = { "\"" ~ inner_string ~ "\"" }
-//inner_string    = @{ ( "\\\"" | !"\"" ~ ANY )* }
 inner_string    = @{ ( "\\\\" | "\\\"" | !"\"" ~ ANY )* }
-
-// These are no longer needed here as they are handled by our Rust tokenizer
-// wordToken       = { ... }
-// background      = { ... }
-
 lemmaList     = { "(" ~ (identifier)* ~ ")" }
 viabilityFlag = { "t" | "f" }
 diglotTuple   = { "(" ~ identifier ~ identifier ~ identifier ~ viabilityFlag? ~ ")" }

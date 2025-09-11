@@ -4,15 +4,11 @@ import re
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 import time
-
 from . import helper, llm_prompts, validator, llm_utils
 from .stanza_segmenter import StanzaLanguageProcessor
 from .llm_logger import LLMLogger
-
 from . import helper
-
 logger = logging.getLogger("pipeline")
-
 class PoolManager:
     def __init__(self, content_project_dir: Path, resources: Dict[str, Any]):
         self.content_project_root = content_project_dir
@@ -29,7 +25,7 @@ class PoolManager:
         self.spacy_models = self.resources.get("spacy_models", {})
         self.stanza_processors = self.resources.get("stanza_processors", {})
         self.stages_config = self.resources.get("stages_config", {})
-    
+
     def _batch_segments_by_sentence(
         self,
         sentences: List[Dict[str, Any]],
@@ -82,7 +78,6 @@ class PoolManager:
         self.book_stem = book_stem # Store book_stem for helper methods
         
         try:
-            # --- THIS IS THE FIX ---
             # Each call is now checked immediately. If any fails, the function returns None.
             base_std_path = self._get_or_create_std_json(base_lang)
             if not base_std_path: return None
@@ -90,14 +85,21 @@ class PoolManager:
             target_std_path = self._get_or_create_std_json(target_lang)
             if not target_std_path: return None
 
+            target_mod_path = self._get_or_create_mod_json(target_lang)
+            if not target_mod_path: return None
+            
+            target_bas_path = self._get_or_create_bas_json(target_lang)
+            if not target_bas_path: return None
+
             target_sim_path = self._get_or_create_sim_json(target_lang)
             if not target_sim_path: return None
-            # --- END OF FIX ---
             
             logger.info("--- PoolManager: All required resources are now available. ---")
             return {
                 "base_std": base_std_path,
                 "target_std": target_std_path,
+                "target_mod": target_mod_path, # New
+                "target_bas": target_bas_path, # New
                 "target_sim": target_sim_path,
             }
         except FileNotFoundError as e:
@@ -134,6 +136,54 @@ class PoolManager:
             # Now that the dependency is met, perform the translation.
             return self._translate_and_generate_std(self.book_stem, true_source_lang, required_lang)
 
+    def _get_or_create_mod_json(self, target_lang: str) -> Optional[Path]:
+        """Lazy getter for a .mod.json file."""
+        mod_path = self.derived_texts_dir / f"{self.book_stem}.{target_lang}.mod.json"
+        if mod_path.exists():
+            logger.info(f"  -> Found existing asset: '{mod_path.name}'")
+            return mod_path
+
+        logger.info(f"  -> Asset '{mod_path.name}' not found. Attempting to generate...")
+        
+        # Dependency: requires the .std.json file of the same language
+        logger.info(f"    -> Dependency: '{mod_path.name}' requires '{self.book_stem}.{target_lang}.std.json'.")
+        target_std_path = self._get_or_create_std_json(target_lang)
+        if not target_std_path:
+            logger.error(f"Failed to generate dependency '{target_lang}.std.json' for moderate simplification.")
+            return None
+            
+        return self._generate_derived_file(
+            book_stem=self.book_stem,
+            lang_code=target_lang,
+            tier_suffix="mod",
+            prompt_name="simplify_segments_moderate",
+            job_name_suffix="Moderate"
+        )
+
+    def _get_or_create_bas_json(self, target_lang: str) -> Optional[Path]:
+        """Lazy getter for a .bas.json file."""
+        bas_path = self.derived_texts_dir / f"{self.book_stem}.{target_lang}.bas.json"
+        if bas_path.exists():
+            logger.info(f"  -> Found existing asset: '{bas_path.name}'")
+            return bas_path
+
+        logger.info(f"  -> Asset '{bas_path.name}' not found. Attempting to generate...")
+        
+        # Dependency: requires the .std.json file of the same language
+        logger.info(f"    -> Dependency: '{bas_path.name}' requires '{self.book_stem}.{target_lang}.std.json'.")
+        target_std_path = self._get_or_create_std_json(target_lang)
+        if not target_std_path:
+            logger.error(f"Failed to generate dependency '{target_lang}.std.json' for basic simplification.")
+            return None
+            
+        return self._generate_derived_file(
+            book_stem=self.book_stem,
+            lang_code=target_lang,
+            tier_suffix="bas",
+            prompt_name="simplify_segments_basic",
+            job_name_suffix="Basic"
+        )
+        
     def _get_or_create_sim_json(self, target_lang: str) -> Optional[Path]:
         """Lazy getter for a .sim.json file."""
         sim_path = self.derived_texts_dir / f"{self.book_stem}.{target_lang}.sim.json"
@@ -147,10 +197,16 @@ class PoolManager:
         logger.info(f"    -> Dependency: '{sim_path.name}' requires '{self.book_stem}.{target_lang}.std.json'.")
         target_std_path = self._get_or_create_std_json(target_lang)
         if not target_std_path:
-            logger.error(f"Failed to generate dependency '{target_lang}.std.json' for simplification.")
+            logger.error(f"Failed to generate dependency '{target_lang}.std.json' for simple simplification.")
             return None
             
-        return self.generate_sim_file(self.book_stem, target_lang)
+        return self._generate_derived_file(
+            book_stem=self.book_stem,
+            lang_code=target_lang,
+            tier_suffix="sim",
+            prompt_name="simplify_segments_simple", # Using the new specific prompt
+            job_name_suffix="Simple"
+        )
 
     def _find_true_source_file(self) -> Optional[tuple[str, Path]]:
         """Scans for the source text file for the current book_stem."""
@@ -209,7 +265,7 @@ class PoolManager:
 
         final_items = [
             ({'type': 'sentence', 's_id': item['s_id'], 'text': translations.get(item['s_id'], "")}
-             if item.get('block_type') == 'sentence' else {'type': 'chapter', 'text': item['text']}) # Ensure type is set
+            if item.get('block_type') == 'sentence' else {'type': 'chapter', 'text': item['text']}) # Ensure type is set
             for item in source_items
         ]
         
@@ -217,10 +273,6 @@ class PoolManager:
         if std_file and temp_path.exists(): temp_path.unlink()
         return std_file
 
-    # --- The following methods (generate_std_file, generate_sim_file, etc.)
-    # can remain exactly as they were in our last fully working version.
-    # I am including them here for completeness. ---
-            #
     def generate_std_file(self, book_stem: str, lang_code: str, translated_items: Optional[List[Dict]] = None) -> Optional[Path]:
         logger.info(f"  -> Generating pool file: '{book_stem}.{lang_code}.std.json'")
         std_file_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.std.json"
@@ -318,24 +370,22 @@ class PoolManager:
         except IOError as e:
             logger.error(f"Failed to write .std.json file: {e}"); return None
 
-    #
-    def generate_sim_file(self, book_stem: str, lang_code: str) -> Optional[Path]:
-        sim_file_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.sim.json"
+    def _generate_derived_file(self, book_stem: str, lang_code: str, tier_suffix: str, prompt_name: str, job_name_suffix: str) -> Optional[Path]:
+        derived_file_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.{tier_suffix}.json"
         std_target_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.std.json"
+        
         with open(std_target_path, 'r', encoding='utf-8') as f:
             std_data = json.load(f)
 
         sentences = [b for b in std_data.get("content", []) if b.get("block_type") == "sentence"]
         if not sentences:
-            logger.warning("Source has no sentences. Creating empty sim file.")
-            with open(sim_file_path, "w", encoding="utf-8") as f:
+            logger.warning(f"Source has no sentences. Creating empty {tier_suffix} file.")
+            with open(derived_file_path, "w", encoding="utf-8") as f:
                 json.dump({**std_data, "content": [b for b in std_data.get("content", []) if b.get("block_type") != "sentence"]}, f, indent=2, ensure_ascii=False)
-            return sim_file_path
+            return derived_file_path
 
-        # --- This block replaces the old `items_to_simplify` and `_run_transactional_llm_job` call ---
-
-        # 1. Setup common resources for the LLM job
-        temp_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.simplify.temp.json"
+        # Setup common resources for the LLM job
+        temp_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.{tier_suffix}.temp.json"
         from_lang = self.resources.get("language_config", {}).get("base_code", "en")
         temp_lang_config = {
             "base_code": from_lang,
@@ -343,15 +393,13 @@ class PoolManager:
             "manifest": self.lang_manifest,
             "pair_prompt_dir": self.lang_manifest.get("pair", {}).get(f"{from_lang}-{lang_code}", {}).get("prompt_dir")
         }
-        prompt = llm_prompts.get_system_prompt("simplify_segments", temp_lang_config)
+        prompt = llm_prompts.get_system_prompt(prompt_name, temp_lang_config)
         stage_job_config = self.stages_config.get("PoolManager_Simplification", {})
         config = {**self.pipeline_config, **stage_job_config}
         llm_logger = LLMLogger(self.pool_dir / "llm_logs" / book_stem)
-
-        # 2. Create sentence-aware batches using the new helper function
+        
         segment_batches = self._batch_segments_by_sentence(sentences, config)
-
-        # 3. Load progress from the temporary cache file
+        
         completed_results = {}
         if temp_path.exists():
             try:
@@ -361,27 +409,25 @@ class PoolManager:
                 logger.warning(f"Could not read cache file at {temp_path}. Starting fresh.")
                 completed_results = {}
 
-        # 4. Loop through batches, process only the needed ones, and save progress
         for i, batch in enumerate(segment_batches):
             batch_ids = {item['id'] for item in batch}
             if batch_ids.issubset(completed_results.keys()):
-                logger.info(f"      -> Skipping batch {i+1}/{len(segment_batches)}, all segments already processed.")
+                logger.info(f"      -> Skipping batch {i+1}/{len(segment_batches)} for {tier_suffix}, all segments already processed.")
                 continue
 
             items_to_run_in_batch = [item for item in batch if item['id'] not in completed_results]
             
-            if not items_to_run_in_batch: # Should be caught by the issubset check, but as a safeguard
-                continue
+            if not items_to_run_in_batch: continue
 
-            logger.info(f"      -> Processing batch {i+1}/{len(segment_batches)} ({len(items_to_run_in_batch)} new segments)...")
+            logger.info(f"      -> Processing batch {i+1}/{len(segment_batches)} for {tier_suffix} ({len(items_to_run_in_batch)} new segments)...")
 
             batch_results_list = llm_utils.run_llm_batch_job(
-                self.llm_client, "Pool-Simplification", prompt, items_to_run_in_batch,
+                self.llm_client, f"Pool-Simplification-{job_name_suffix}", prompt, items_to_run_in_batch,
                 llm_logger, "single_line", config, self.models_config
             )
 
             if batch_results_list is None:
-                return None  # Halt the entire process on LLM failure
+                return None
             
             for item in batch_results_list:
                 completed_results[item['id']] = item['llm_response']
@@ -389,10 +435,7 @@ class PoolManager:
             with open(temp_path, 'w', encoding='utf-8') as f:
                 json.dump(completed_results, f, indent=2)
         
-        # `results` now contains all simplified segments for the book
         results = completed_results
-
-        # --- The rest of the function (processing results) remains the same ---
         spacy = self.resources['spacy_models'][lang_code]
         output_content = [b for b in std_data.get("content", []) if b.get("block_type") != "sentence"]
 
@@ -429,14 +472,14 @@ class PoolManager:
 
             output_content.append({"block_type": "sentence", "s_id": s_id, "full_text": full_text, "lemmas": sorted(list(all_lemmas)), "segments": new_segs})
         
-        final_data = {"meta": {**std_data['meta'], "tier_type": "sim"}, "content": output_content}
-        with open(sim_file_path, "w", encoding="utf-8") as f:
+        final_data = {"meta": {**std_data['meta'], "tier_type": tier_suffix}, "content": output_content}
+        with open(derived_file_path, "w", encoding="utf-8") as f:
             json.dump(final_data, f, indent=2, ensure_ascii=False)
-        logger.info(f"  -> Successfully saved '{sim_file_path.name}'.")
+        logger.info(f"  -> Successfully saved '{derived_file_path.name}'.")
         if temp_path.exists():
             temp_path.unlink()
-        return sim_file_path
-
+        return derived_file_path
+        
     def _run_transactional_llm_job(self, job_name, system_prompt, all_items, temp_progress_path, llm_logger, parser_type, stage_config, models_config):
         completed = {}
         if temp_progress_path.exists():

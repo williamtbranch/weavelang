@@ -1,13 +1,11 @@
 // In src/simulation/tests/test_generation.rs
 
 use super::weavetest_parser::{
-    self, DslAssertion, DslSegmentSpecEnum, DslSubTest, DslTestCase,
+    self, DslAssertion, DslSegmentSpecEnum, DslSubTest, DslTestCase, EXHAUSTED_LEVEL,
 };
-// --- FIX #1: Add the missing import for JsonTokenV2 ---
 use crate::types::json_types::JsonTokenV2;
-// --- END FIX #1 ---
 use crate::simulation::core_algo::{
-    determine_and_annotate_sentence_expression, ChosenLevelOutput, OutputLevel,
+    determine_and_annotate_sentence_expression, ChosenLevelOutput, OutputLevel, L0SegmentChoice
 };
 use crate::simulation::dictionary::GlobalLemmaDictionary;
 use crate::simulation::frequency_manager;
@@ -38,17 +36,8 @@ static TEST_SETUP: Lazy<Mutex<()>> = Lazy::new(|| {
     for i in 1..=20000 {
         writeln!(file, "lem{}\t{}\t100", i, i).expect("Failed to write to test frequency list");
     }
-    let real_lemmas = vec![
-        "quien", "ser", "tu", "decir", "el", "de", "gusano", "sedar", "oruga", "quién", "tú",
-        "claro", "exclamar", "rey", "si", "que", "estar", "muerto", "no", "haber", "duda",
-        "frase", "avanzar", "prueba", "uno", "simple", "otro", "segmento", "segundo",
-        "hombre", "ir", "bueno", "tarde", "el", "ella", "dar", "paseo",
-    ];
-    let mut rank = 20001;
-    for lemma in real_lemmas {
-        writeln!(file, "{}\t{}\t100", lemma, rank).expect("Failed to write real lemma");
-        rank += 1;
-    }
+    // As requested, the "real lemmas" are no longer hardcoded here.
+    // Tests must use lemXXX definitions.
     frequency_manager::load_master_frequency_list(&test_freq_list_path)
         .expect("Failed to load test frequency list");
     guard
@@ -82,23 +71,27 @@ fn run_dsl_generation_test_suite() {
         for sub_test in &test_case.sub_tests {
             println!("\n  Sub-Test: [{}]", sub_test.name);
             let mut profile = NumericalLearnerProfile::new();
-            for i in 1..=sub_test.learner_level {
-                profile.activate_lemma(dictionary.get_id_or_insert(&format!("lem{}", i)));
-            }
-            let real_lemmas_to_activate = vec![
-                "dar", "uno", "paseo", "seg", "dos", "quién", "tú", "dijo", "el", "sí", "qué",
-                "es", "ese",
-            ];
-            for lemma in real_lemmas_to_activate {
-                if sub_test.learner_level >= dictionary.get_id(lemma).unwrap_or(u32::MAX) {
-                    profile.activate_lemma(dictionary.get_id_or_insert(lemma));
+            
+            // This profile is now ONLY for inverse diglot checks.
+            // We can simplify its population for now.
+            let levels = &sub_test.learner_level;
+            let highest_level = *[levels.sim, levels.bas, levels.mod_level, levels.adv].iter().max().unwrap_or(&0);
+            if highest_level < EXHAUSTED_LEVEL {
+                for i in 1..=highest_level {
+                    profile.activate_lemma(dictionary.get_id_or_insert(&format!("lem{}", i)));
                 }
             }
+
+
             let mut n_sentence_clone = numerical_sentence.clone();
             let output = determine_and_annotate_sentence_expression(
                 &mut n_sentence_clone,
                 &profile,
                 &dictionary,
+                levels.sim,
+                levels.bas,
+                levels.mod_level,
+                levels.adv,
                 0.5,
             );
             let raw_text = text_generator::generate_raw_text_from_levels(
@@ -152,197 +145,114 @@ fn compile_dsl_sentence_to_numerical(
     let mut json_sentence = JsonSentenceBlock::default();
     json_sentence.s_id = test_case.name.clone();
 
-    let mut base_tier = JsonTierV2 {
-        tier_id: "base".to_string(),
-        ..Default::default()
-    };
-    let mut adv_target_tier = JsonTierV2 {
-        tier_id: "advanced_target".to_string(),
-        ..Default::default()
-    };
-    let mut simpler_adv_target_tier = JsonTierV2 {
-        tier_id: "simpler_advanced_target".to_string(),
-        ..Default::default()
-    };
+    let mut base_tier = JsonTierV2 { tier_id: "base".to_string(), ..Default::default() };
+    let mut adv_target_tier = JsonTierV2 { tier_id: "advanced_target".to_string(), ..Default::default() };
+    let mut mod_target_tier = JsonTierV2 { tier_id: "moderate_target".to_string(), ..Default::default() };
+    let mut bas_target_tier = JsonTierV2 { tier_id: "basic_target".to_string(), ..Default::default() };
+    let mut sim_target_tier = JsonTierV2 { tier_id: "simple_target".to_string(), ..Default::default() };
 
-    let l0_spanish_segments: Vec<_> = test_case
-        .sentence_def
-        .l0_def
-        .segments
-        .iter()
+    // --- L0 Processing (Refactored for Multi-Segment) ---
+    let l0_spanish_segments: Vec<_> = test_case.sentence_def.l0_def.segments.iter()
         .filter(|s| matches!(&s.spec, DslSegmentSpecEnum::Spanish { .. }))
         .collect();
+    
+    // Group segments into chunks of 4 (Adv, Mod, Bas, Sim)
+    for (i, chunk) in l0_spanish_segments.chunks(4).enumerate() {
+        let seg_id = format!("A{}", i + 1);
 
-    adv_target_tier.segments = l0_spanish_segments
-        .iter()
-        .step_by(2)
-        .enumerate()
-        .map(|(i, s)| {
-            if let DslSegmentSpecEnum::Spanish { tokens, lemmas } = &s.spec {
-                JsonSegmentV2 {
-                    seg_id: format!("A{}", i + 1),
+        if chunk.len() != 4 {
+            panic!("DSL L0 Error: Spanish segments must be in groups of 4. Found a group with {} segments.", chunk.len());
+        }
+
+        // Helper closure to add a segment to a tier
+        let add_segment_to_tier = |tier: &mut JsonTierV2, segment_spec: &DslSegmentSpecEnum| {
+            if let DslSegmentSpecEnum::Spanish { tokens, lemmas } = segment_spec {
+                tier.segments.push(JsonSegmentV2 {
+                    seg_id: seg_id.clone(),
                     text: tokens.iter().map(|t| t.value.as_str()).collect(),
                     tokenized_text: tokens.clone(),
                     lemmas: lemmas.clone(),
-                }
-            } else {
-                unreachable!()
+                });
             }
-        })
-        .collect();
+        };
 
-    simpler_adv_target_tier.segments = l0_spanish_segments
-        .iter()
-        .skip(1)
-        .step_by(2)
-        .enumerate()
-        .map(|(i, s)| {
-            if let DslSegmentSpecEnum::Spanish { tokens, lemmas } = &s.spec {
-                JsonSegmentV2 {
-                    seg_id: format!("A{}", i + 1),
-                    text: tokens.iter().map(|t| t.value.as_str()).collect(),
-                    tokenized_text: tokens.clone(),
-                    lemmas: lemmas.clone(),
-                }
-            } else {
-                unreachable!()
-            }
-        })
-        .collect();
-
-    let l1_eng_tokens: Vec<JsonTokenV2> = test_case
-        .sentence_def
-        .l1_def
-        .segments
-        .iter()
-        .filter_map(|s| {
-            if let DslSegmentSpecEnum::English { tokens } = &s.spec {
-                Some(tokens.clone())
-            } else {
-                None
-            }
-        })
-        .flatten()
-        .collect();
+        add_segment_to_tier(&mut adv_target_tier, &chunk[0].spec);
+        add_segment_to_tier(&mut mod_target_tier, &chunk[1].spec);
+        add_segment_to_tier(&mut bas_target_tier, &chunk[2].spec);
+        add_segment_to_tier(&mut sim_target_tier, &chunk[3].spec);
+    }
+    
+    // --- L1 Processing (Unchanged) ---
+    let l1_eng_tokens: Vec<JsonTokenV2> = test_case.sentence_def.l1_def.segments.iter()
+        .filter_map(|s| if let DslSegmentSpecEnum::English { tokens } = &s.spec { Some(tokens.clone()) } else { None })
+        .flatten().collect();
 
     base_tier.segments.push(JsonSegmentV2 {
-        seg_id: "S1".to_string(),
+        seg_id: "S1".to_string(), // L1/base tier is still treated as a single segment
         text: l1_eng_tokens.iter().map(|t| t.value.as_str()).collect(),
         tokenized_text: l1_eng_tokens,
         ..Default::default()
     });
 
-    let l1_diglot_tuples: Vec<_> = test_case
-        .sentence_def
-        .l1_def
-        .segments
-        .iter()
-        .filter_map(|s| {
-            if let DslSegmentSpecEnum::Diglot { tuples } = &s.spec {
-                Some(tuples.clone())
-            } else {
-                None
-            }
-        })
-        .flatten()
-        .collect();
+    let l1_diglot_tuples: Vec<_> = test_case.sentence_def.l1_def.segments.iter()
+        .filter_map(|s| if let DslSegmentSpecEnum::Diglot { tuples } = &s.spec { Some(tuples.clone()) } else { None })
+        .flatten().collect();
 
     json_sentence.mappings.simple_target_to_base_diglot.insert(
         "S1".to_string(),
-        l1_diglot_tuples
-            .iter()
-            .enumerate()
-            .map(|(i, t)| {
-                (
-                    i,
-                    t.replacement_lemmas.clone(),
-                    t.replacement_word.clone(),
-                    t.is_viable,
-                    t.word_to_replace.split_whitespace().count(),
-                )
-            })
-            .collect(),
+        l1_diglot_tuples.iter().enumerate().map(|(i, t)| {
+            (i, t.replacement_lemmas.clone(), t.replacement_word.clone(), t.is_viable, t.word_to_replace.split_whitespace().count())
+        }).collect(),
     );
 
+    // --- Inverse Diglot Processing (Refactored for Multi-Segment) ---
+    let l0_inv_diglot_defs: Vec<_> = test_case.sentence_def.l0_def.segments.iter()
+        .filter(|s| matches!(&s.spec, DslSegmentSpecEnum::InvDiglot { .. }))
+        .collect();
+    
+    for (i, inv_diglot_def) in l0_inv_diglot_defs.iter().enumerate() {
+        if let DslSegmentSpecEnum::InvDiglot { tuples } = &inv_diglot_def.spec {
+            let seg_id = format!("A{}", i + 1);
+            let simple_seg = sim_target_tier.segments.get(i).expect("Missing Simple segment for Inverse Diglot mapping");
+            
+            let word_tokens: Vec<_> = simple_seg.tokenized_text.iter()
+                .filter(|t| t.token_type == JsonTokenType::Word)
+                .collect();
+
+            let entries = tuples.iter().zip(word_tokens.iter()).enumerate()
+                .map(|(idx, (t, _))| {
+                    let eng_word_count = t.base_substitute.split_whitespace().count();
+                    (idx, t.target_lemmas.clone(), t.base_substitute.clone(), eng_word_count)
+                }).collect();
+            
+            json_sentence.mappings.adv_target_to_base_inv_diglot.insert(seg_id, entries);
+        }
+    }
+
+    // --- Final Assembly (Unchanged) ---
     let reconstruct_and_set_full_text = |tier: &mut JsonTierV2| {
         tier.full_text = tier.segments.iter().map(|s| s.text.clone()).collect::<String>();
     };
     reconstruct_and_set_full_text(&mut base_tier);
     reconstruct_and_set_full_text(&mut adv_target_tier);
-    reconstruct_and_set_full_text(&mut simpler_adv_target_tier);
+    reconstruct_and_set_full_text(&mut mod_target_tier);
+    reconstruct_and_set_full_text(&mut bas_target_tier);
+    reconstruct_and_set_full_text(&mut sim_target_tier);
 
-    json_sentence.tiers = vec![base_tier, adv_target_tier, simpler_adv_target_tier];
-
-    let l0_chunks: Vec<_> = test_case.sentence_def.l0_def.segments.chunks(3).collect();
-    for (i, chunk) in l0_chunks.iter().enumerate() {
-        let seg_id = format!("A{}", i + 1);
-        if chunk.len() == 3 {
-            if let Some((_, simpler_spec, inv_spec)) = chunk.iter().collect_tuple() {
-                if let (
-                    DslSegmentSpecEnum::Spanish {
-                        tokens: simpler_tokens,
-                        ..
-                    },
-                    DslSegmentSpecEnum::InvDiglot { tuples },
-                ) = (&simpler_spec.spec, &inv_spec.spec)
-                {
-                    let word_tokens: Vec<_> = simpler_tokens
-                        .iter()
-                        .filter(|t| t.token_type == JsonTokenType::Word)
-                        .collect();
-                    let entries = tuples
-                        .iter()
-                        .zip(word_tokens.iter())
-                        .enumerate()
-                        .map(|(idx, (t, _))| {
-                            // --- FIX #2: Use the new field names ---
-                            let eng_word_count =
-                                t.base_substitute.split_whitespace().count();
-                            (
-                                idx,
-                                t.target_lemmas.clone(),
-                                t.base_substitute.clone(),
-                                eng_word_count,
-                            )
-                            // --- END FIX #2 ---
-                        })
-                        .collect();
-                    json_sentence
-                        .mappings
-                        .adv_target_to_base_inv_diglot
-                        .insert(seg_id.clone(), entries);
-                }
-            }
-        }
-    }
+    json_sentence.tiers = vec![base_tier, adv_target_tier, mod_target_tier, bas_target_tier, sim_target_tier];
 
     let mock_chapter = JsonChapter {
-        book_meta: JsonBookMetaV2 {
-            book_name: test_case.name.clone(),
-            ..Default::default()
-        },
+        book_meta: JsonBookMetaV2 { book_name: test_case.name.clone(), ..Default::default() },
         content_blocks: vec![JsonContentBlock::Sentence(json_sentence.clone())],
     };
 
-    let (numerical_chapter, _) =
-        preprocessor::json_chapter_to_numerical(&mock_chapter, dictionary);
-    (
-        numerical_chapter.sentences_numerical.into_iter().next().unwrap(),
-        json_sentence,
-    )
+    let (numerical_chapter, _) = preprocessor::json_chapter_to_numerical(&mock_chapter, dictionary);
+    (numerical_chapter.sentences_numerical.into_iter().next().unwrap(), json_sentence)
 }
 
 fn get_expected_text<'s>(sub_test: &'s DslSubTest) -> &'s str {
-    sub_test
-        .assertions
-        .iter()
-        .find_map(|a| {
-            if let DslAssertion::Text(txt) = a {
-                Some(txt.as_str())
-            } else {
-                None
-            }
-        })
+    sub_test.assertions.iter()
+        .find_map(|a| if let DslAssertion::Text(txt) = a { Some(txt.as_str()) } else { None })
         .unwrap_or("")
 }
 
@@ -356,26 +266,16 @@ fn run_assertions(
     for assertion in &sub_test.assertions {
         match assertion {
             DslAssertion::Level(expected_level_str) => {
-                let expected_level = if expected_level_str == "AdvancedWeave" {
-                    OutputLevel::AdvancedWeave
-                } else {
-                    OutputLevel::SimpleHybrid
-                };
+                let expected_level = if expected_level_str == "AdvancedWeave" { OutputLevel::AdvancedWeave } else { OutputLevel::SimpleHybrid };
                 if output.level != expected_level {
                     is_passed = false;
-                    reasons.push(format!(
-                        "Level Mismatch: Expected {:?}, got {:?}",
-                        expected_level, output.level
-                    ));
+                    reasons.push(format!("Level Mismatch: Expected {:?}, got {:?}", expected_level, output.level));
                 }
             }
             DslAssertion::Text(expected_text) => {
                 if actual_text != *expected_text {
                     is_passed = false;
-                    reasons.push(format!(
-                        "Text Mismatch: Expected '{}', got '{}'",
-                        expected_text, actual_text
-                    ));
+                    reasons.push(format!("Text Mismatch: Expected '{}', got '{}'", expected_text, actual_text));
                 }
             }
         }

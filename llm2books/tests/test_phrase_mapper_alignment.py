@@ -4,7 +4,6 @@ from llm2books.phrase_mapper_helpers import align_and_parse_to_atoms, SemanticAt
 from llm2books.validator import ValidationError
 from llm2books.helper import create_golden_token_stream, preprocess_for_spacy
 
-# ... (The first 3 fixtures are correct and unchanged) ...
 @pytest.fixture
 def raw_spacy_tokens_possessive():
     return [ {'t': 'w', 'v': 'our', 'di': 0}, {'t': 'b', 'v': ' '}, {'t': 'w', 'v': 'knight', 'di': 1}, {'t': 'b', 'v': ''}, {'t': 'w', 'v': "'s", 'di': 2}, {'t': 'b', 'v': ' '}, {'t': 'w', 'v': 'misfortune', 'di': 3} ]

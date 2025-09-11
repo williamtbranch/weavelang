@@ -8,13 +8,11 @@ from typing import Optional, Dict, Any
 from .stanza_segmenter import EnglishStanzaProcessor, SpanishStanzaProcessor
 from .stages import (
     AssembleTiers, 
-    #GenerateSimpleTarget, 
-    #FinalizeSimpleTarget,
-    FinalizeSimplerAdvTarget,
+    ProcessTargetTiers,
     GeneratePhraseMap, 
     ApplyPhraseMappings, 
     GenerateInverseDiglotMap,
-    ApplyInversePhraseMappings, # <-- NEW
+    ApplyInversePhraseMappings,
     FinalizeMappings,
     FinalizeBaseTier,
     FinalizeBook,
@@ -37,15 +35,14 @@ except ImportError:
 
 # --- Local Module Imports ---
 from . import helper
-from .stages.base import Stage # Keep Stage for now, we'll need it soon
+from .stages.base import Stage
 from .stanza_segmenter import EnglishStanzaProcessor
 from .pool_manager import PoolManager
 
-# --- The pipeline stages list is now temporarily empty ---
-# We will rebuild this list in Phase 3 of our plan.
+# The pipeline stages list is now updated with the new Stage 2
 PIPELINE_STAGES = [
     AssembleTiers,              # Stage 1
-    FinalizeSimplerAdvTarget,   # Stage 2
+    ProcessTargetTiers,         # Stage 2 (NEW)
     GeneratePhraseMap,          # Stage 3
     ApplyPhraseMappings,        # Stage 4
     GenerateInverseDiglotMap,   # Stage 5
@@ -55,7 +52,6 @@ PIPELINE_STAGES = [
     FinalizeBook,               # Stage 9
 ]
 
-# ... (get_logger, build_language_config, get_source_lang_from_file functions remain the same) ...
 def get_logger() -> logging.Logger:
     logger = logging.getLogger("pipeline")
     if logger.hasHandlers():
@@ -133,7 +129,7 @@ def main():
     
     args = parser.parse_args()
     
-    logger.info(f"--- WeaveLang Pipeline Orchestrator Initializing (V9 - Common Pool) ---")
+    logger.info(f"--- WeaveLang Pipeline Orchestrator Initializing (V10 - Multi-Tier) ---")
     logger.info(f"Run configured for Book: '{args.book_to_process}' ({args.base_lang} -> {args.target_lang})")
 
     # --- Load Configs and Initialize Resources ---
@@ -164,7 +160,6 @@ def main():
                 stanza_processors[lang_code] = EnglishStanzaProcessor()
             elif lang_code == 'es':
                 stanza_processors[lang_code] = SpanishStanzaProcessor()
-            # Add Spanish Stanza Processor when created
         except Exception as e:
             logger.critical(f"Failed to load language processors for '{lang_code}': {e}"); sys.exit(1)
     
@@ -191,11 +186,9 @@ def main():
     if book_resources:
         logger.info("--- All required pool files are available. Starting pair-specific pipeline. ---")
         
-        # Add the book_resources to the dictionary passed to the stages
         shared_resources['book_resources'] = book_resources
 
         pipeline_ok = True
-        #
         overall_success = True
         for StageClass in PIPELINE_STAGES:
             stage_instance = StageClass(args.book_to_process, args, shared_resources)
@@ -206,7 +199,7 @@ def main():
                 logger.error(f"Halting pipeline for '{args.book_to_process}' due to failure in stage: {stage_instance.stage_name}.")
                 overall_success = False
                 break
-            #
+            
             if args.stop_after_stage > 0 and stage_instance.stage_number == args.stop_after_stage:
                 logger.info(f"--- Pipeline stopped as requested after completing Stage {args.stop_after_stage}. ---")
                 overall_success = True # This was a successful, planned stop
@@ -215,7 +208,6 @@ def main():
         if overall_success:
              logger.info("Orchestrator finished successfully.")
              sys.exit(0)
-        #
         else:
              logger.error(f"--- Pipeline run FAILED for Book: [{args.book_to_process}] ---")
              sys.exit(1)
@@ -225,7 +217,4 @@ def main():
         sys.exit(1)
 
 if __name__ == "__main__":
-    print("--- [TRACE] This script is being run directly. ---")
-    # We are bypassing the __main__.py for this test
-    # and calling main() directly from here.
     main()

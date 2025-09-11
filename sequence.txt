@@ -1,78 +1,18 @@
-%level 1
-LesMis
-LesMis_mod
-%level 2
-LesMis
-LesMis_mod
-%level 3
-LesMis
-LesMis_mod
-%level 5
-LesMis
-LesMis_mod
-%level 10
-LesMis
-LesMis_mod
-%level 15
-LesMis
-LesMis_mod
-%level 20 
-LesMis
-LesMis_mod
-%level 26 
-LesMis
-LesMis_mod
-%level 33 
-LesMis
-LesMis_mod
-%level 41 
-LesMis
-LesMis_mod
-%level 50 
-LesMis
-LesMis_mod
-%level 61 
-LesMis
-LesMis_mod
-%level 61 
-LesMis
-LesMis_mod
-%level 75 
-LesMis
-LesMis_mod
-%level 91 
-LesMis
-LesMis_mod
-%level 61 
-LesMis
-LesMis_mod
-%level 122 
-LesMis
-LesMis_mod
-%level 137 
-LesMis
-LesMis_mod
-%level 169 
-LesMis
-LesMis_mod
-%level 211 
-LesMis
-LesMis_mod
-%level 270 
-LesMis
-LesMis_mod
-%level 355 
-LesMis
-LesMis_mod
-%level 491 
-LesMis
-LesMis_mod
-%level 762 
-LesMis
-LesMis_mod
-%level 1306 
-LesMis
-LesMis_mod
-%level 2393 
-LesMis
-LesMis_mod
+%level 0 0 0 0
+test
+%level 400 0 0 0
+test
+%level exhausted 0 0 0
+test
+%level exhausted 700 0 0
+test
+%level exhausted exhausted 0 0
+test
+%level exhausted exhausted 1200 0
+test
+%level exhausted exhausted exhausted 0 
+test
+%level exhausted exhausted exhausted 2000 
+test
+%level exhausted exhausted exhausted exhausted 
+test

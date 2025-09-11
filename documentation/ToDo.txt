@@ -1,91 +1,70 @@
-
 ================================================================================
-Project Plan: WeaveLang V9 - The Common Pool Architecture
+Project Plan: WeaveLang V10 - The Three-Tier Simplification Architecture
 Last Updated: (Date of this session)
 ================================================================================
 
 ### Primary Objectives & Guiding Principles
 
-- **Goal:** Implement a scalable, cost-effective data pipeline using a "Common Pool"
-  for reusable, pre-processed linguistic data.
-- **Architecture:** A two-part system. Part 1 is the "Pool Manager" which generates
-  and caches reusable, language-specific data. Part 2 is the "Pipeline Runner"
-  which consumes pooled data to generate pair-specific artifacts.
-- **Golden Rule:** Expensive, reusable operations are done ONCE and cached. Data integrity
-  between the Python producer and Rust consumer is paramount.
+- **Goal:** Implement a smoother, more pedagogically sound learning gradient by refactoring the pipeline and engine to support a three-tier simplification model (Simple, Basic, Moderate).
+- **Architecture:** The Python pipeline will produce these three distinct tiers of simplified text. The Rust engine will intelligently weave them together, prioritizing more natural prose as the learner's vocabulary grows.
+- **Golden Rule:** The "jarring" stylistic gap must be eliminated. The learner's journey should be a gradual ascent from functional, deconstructed language to fluent, natural prose, before reaching the final, literary text.
 
 ---
 ### Master Checklist
 ---
 
-#### Phase 1: Foundational Tooling & V9 Pipeline (Complete)
+#### Phase 1: Foundational Tooling & Prompt Engineering (Complete)
 
-[x] 1.1: Implement Common Pool Manager for reusable assets.
-[x] 1.2: Refactor pipeline into new V9 stages (Assemble, GenSimple, FinalizeSimple, etc.).
-[x] 1.3: Implement multi-word to multi-word phrase mapping (`GeneratePhraseMap`).
-[x] 1.4: Implement `base` tier refactoring to create "virtual tokens" (`ApplyPhraseMappings`).
-[x] 1.5: Successfully debugged and completed a full end-to-end run of the Python pipeline.
+[x] 1.1: Implement a robust, quantitative prompt rating system (`rate_prompts.py`).
+[x] 1.2: Fix critical bugs in text normalization and data parsing.
+[x] 1.3: Engineer and validate a "Simple" (NSM-Lite) prompt (`test04`) that successfully minimizes vocabulary complexity.
+[x] 1.4: Engineer and validate a "Moderate" (Natural) prompt (`test01`) that balances simplicity and fluency.
+[x] 1.5: Engineer and validate a "Basic" (Intermediate) prompt (`test07`) that successfully bridges the stylistic gap between Simple and Moderate.
 
-#### Phase 2: Rust Engine Integration & Debugging (Current Phase)
+#### Phase 2: Python Pipeline Refactor (Current Phase)
 
-[x] 2.1: **Fix `simple_target` Text Reconstruction Bug:**
-    - [x] Write a failing unit test in `test_data_reconstruction.py` that asserts `full_text` is correctly reconstructed from segments.
-    - [x]  **CURRENT TASK:** Modify `FinalizeSimpleTarget` (Stage 3) to correctly join segment `text` properties to form the `full_text` with proper spacing.
+- [ ] **Task 2.1: Refactor the PoolManager for Multi-Tier Generation**
+    - [ ] Modify `pool_manager.py` to generate three separate derived text assets for the target language. The `_get_or_create_sim_json` method will be the template.
+    - [ ] Create `_get_or_create_mod_json` which will use the `simplify_segments_moderate.txt` prompt.
+    - [ ] Create `_get_or_create_bas_json` which will use the `simplify_segments_basic.txt` prompt.
+    - [ ] The existing `_get_or_create_sim_json` will be updated to use the `simplify_segments_simple.txt` prompt.
 
-[x] 2.2: **Add `di` keys to `simpler_advanced_target`:**
-    - [x] **Problem:** This tier is missing `di` keys, making the inverse diglot map unusable.
-    - [x] Create a new stage, `FinalizeSimplerAdvTarget` (Stage 4), to run after `GenerateSimpleTarget` and before `GeneratePhraseMap`.
-    - [x] Write a failing unit test in `test_data_reconstruction.py` that asserts `di` keys are present and sequential.
-    - [x] Implement the logic in the new `FinalizeSimplerAdvTarget` stage to tokenize and add `di` keys.
-    - [x] Re-number all subsequent stages in the orchestrator and their class definitions.
+- [ ] **Task 2.2: Update Stage 1 (AssembleTiers) to Handle New Tiers**
+    - [ ] Modify `assemble_tiers.py` to load the new `.mod.json` and `.bas.json` files from the common pool.
+    - [ ] The stage will now assemble a JSON structure containing five tiers: `base`, `advanced_target`, `moderate_target`, `basic_target`, and `simple_target`.
 
-[x] 2.3: **Fix `inverse_diglot_map` Lemma Population:**
-    - [x] **Problem:** The map contains empty lemmas due to the missing `di` keys.
-    - [x] Once task 2.2 is complete, verify that the existing logic in `FinalizeMappings` correctly populates the lemmas. No new code should be needed, but verification is critical.
+- [ ] **Task 2.3: Refactor the Final Stage (FinalizeBook) for Lean Output**
+    - [ ] Modify `finalize_book.py` to perform selective cleanup.
+    - [ ] For the `advanced_target`, `moderate_target`, and `basic_target` tiers:
+        - [ ] Strip the `tokenized_text` key from each segment after lemmatization is complete, leaving only `seg_id`, `text`, and `lemmas`.
+    - [ ] For the `simple_target` tier, which is used for diglotting, all existing keys (`tokenized_text`, etc.) should be preserved.
+    - [ ] This ensures the final JSON is as lean as possible for the Rust engine.
 
-#### Phase 3: Final Validation & Refinement
+#### Phase 3: Rust Engine Refactor
 
-[x] 3.1: **Refactor Rust `core_algo` for Phrase-Weaving:**
-    - [x] Modify the `L1 Simple Hybrid` logic to iterate through the phrase-atoms in `simple_target_to_base_diglot` instead of single English words.
-    - [x] Ensure the new failing `weavetest` cases pass after the refactor.
+- [ ] **Task 3.1: Update JSON Parsing and Numerical Types**
+    - [ ] In `json_types.rs`, add `moderate_target` and `basic_target` to the data structures.
+    - [ ] In `numerical_types.rs`, update the `NumericalAdvSegmentBundle` struct to hold the text and lemma IDs for the `Moderate` and `Basic` tiers.
+    - [ ] Update `preprocessor.rs` to correctly map the new JSON tiers to the updated numerical structs.
 
-[x] 3.2: **Refactor `GenerateInverseDiglotMap`:**
-    - [x] Once the entire system is stable, refactor Stage 6 to support multi-word inverse mappings, mirroring the successful design of Stage 4/5.
+- [ ] **Task 3.2: Implement the New L0 Weaving Logic**
+    - [ ] In `core_algo.rs`, modify the `try_build_advanced_weave` function.
+    - [ ] Implement the new four-step fallback logic for each segment:
+        1. Attempt to use `Advanced` text.
+        2. If fails, attempt to use `Moderate` text.
+        3. If fails, attempt to use `Basic` text.
+        4. If fails, attempt to use `Simple` text.
+        5. If all fail, fall back to the Inverse Diglot mechanism using the `Simple` text as the base.
 
-[x] 3.3: Perform a final, full-corpus run and analyze the quality of the generated text at all levels. Tune Rust engine parameters as needed.
+- [ ] **Task 3.3: Update the WeaveLang Test Suite**
+    - [ ] Modify the `generation_tests.pest` grammar to support defining `Basic` and `Moderate` segments within the DSL.
+    - [ ] Update `weavetest_parser.rs` to parse this new structure.
+    - [ ] Create new test cases in `generation_tests.weavetest` that specifically assert the correct fallback behavior of the new four-tier weave. For example, create a test where a learner knows the "Basic" words but not the "Moderate" words, and assert that the "Basic" text is chosen.
 
-[x] #### Phase 4: Replicate multi-word diglot functionality from L1 to L0 inverse diglot
-#### Phase 5: Finalize level system
-#### Phase 6: Work in level cap into Simpler Sentences using LLM feedback
-#### Phase 7: Implement stretch system for the engine
-    - Book starts at level n and ends at either n+1 or 2% increased vocab based on book text - not frequency list
-    - These start and end vocab number calculations are saved into the json file itself for use by the engine
-#### Phase 8: Python pool stage add type of chapter marker set for every estimated 20 minutes of read time for publication equalized to keep all chapters approximately the same size.
-#### Phase 9: Develop TTS output filing system for auto generated complete all level books with 20 minute segments marked.
-#### Phase 10: Post processing LLM call system to create and save illustrations for each 20 minute section.
-#### Phase 11: Auto generation of book summaries for Youtube.
-#### Phase 12: Expand TTS to create audio for 20 minute chapters + full length version
-#### Phase 13: Create Video Generator with 1 frame per minute or worst cast 1 per second for books.
-#### Phase 14: If possible Generate Youtube posting script.
+#### Phase 4: Final Validation and Future Work
 
-#### Phase 15: Implement "Validate-at-Source" for All LLM Stages
-
-- [ ] **Goal:** Prevent expensive re-runs by ensuring all data from LLM calls is validated for structural and semantic integrity *immediately* after it is received, before being saved. This moves validation from the end of the pipeline to the point of data creation.
-
-- [ ] **Task 1: Refactor `GenerateSimpleTarget` (Stage 2):**
-    - [ ] Add a post-LLM validation step.
-    - [ ] **Check:** Does the number of returned translations match the number of segments sent?
-    - [ ] **Action on Fail:** Halt the pipeline with a clear error indicating an incomplete LLM response for the batch.
-
-- [ ] **Task 2: Refactor `GenerateInverseDiglotMap` (Stage 7):**
-    - [ ] The existing `validate_llm_phrase_map_content` check is good. Ensure it is robust and remains in the `run` method.
-
-- [ ] **Task 3: Create a `prompt_validator.py` Module:**
-    - [ ] **Goal:** Centralize validation logic that is specific to prompt outputs.
-    - [ ] Move `_validate_llm_map`, `_rejoin_llm_contractions`, etc., from `phrase_mapper_helpers.py` into this new, dedicated file. This improves separation of concerns.
-    - [ ] Update `GeneratePhraseMap` and `GenerateInverseDiglotMap` to import from this new module.
-
-- [ ] **Task 4: Implement a Retry-with-Correction Mechanism (Advanced):**
-    - [ ] **Goal:** For validation failures, attempt to automatically correct the prompt and retry the LLM call for the failed batch *once*.
-    - [ ] **Logic:** If `_validate_llm_map` fails, `run_llm_batch_job` could be called again with an augmented user prompt like: `"Your last response was invalid. Please follow the rules exactly. Here is the data again..."`
-    - [ ] This adds resilience and can salvage expensive batches without requiring a full manual restart.
+- [ ] **Task 4.1: Perform a Full Corpus Run:** Execute a full run of the new Python pipeline and Rust engine on a book like `LesMis`.
+- [ ] **Task 4.2: Analyze the New Output:**
+    - [ ] Qualitatively review the generated TTS text at various levels to confirm the "jarring" effect is gone.
+    - [ ] Analyze the new `corpus_analysis_log.txt` to see the distribution between the four segment types (`Adv`, `Mod`, `Bas`, `Sim`).
+- [ ] **Task 4.3: Plan the Per-Tier Vocabulary Sweep:** The current plan focuses on getting the data structure and weaving logic in place. The next major architectural step will be to implement the per-tier vocabulary exhaustion model we discussed. This will be WeaveLang V11.

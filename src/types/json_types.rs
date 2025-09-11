@@ -1,6 +1,5 @@
 // In src/types/json_types.rs
 
-// --- FIX IS HERE: Add `Serialize` to the list of imports ---
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -36,20 +35,20 @@ pub struct JsonTokenV2 {
     pub lemmas: Vec<String>,
 }
 
-// NOTE: The `SegmentOnDisk` helper is only used for Deserialization, so it doesn't need Serialize.
 #[derive(Deserialize)]
 struct SegmentOnDisk {
     seg_id: String,
+    #[serde(default)]
     tokenized_text: Vec<JsonTokenV2>,
     #[serde(default)]
     lemmas: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
-#[serde(from = "SegmentOnDisk")]
 pub struct JsonSegmentV2 {
     pub seg_id: String,
     pub text: String,
+    #[serde(default)]
     pub tokenized_text: Vec<JsonTokenV2>,
     #[serde(default)]
     pub lemmas: Vec<String>,
@@ -115,6 +114,8 @@ pub struct JsonTierV2 {
 pub struct JsonMappingsV2 {
     #[serde(default)]
     pub simple_target_to_base_diglot: HashMap<String, Vec<(usize, Vec<String>, String, bool, usize)>>,
-    #[serde(default, rename = "simpler_adv_target_to_base_inv_diglot")]
+    // --- CORRECTED NAME ---
+    // The key in the JSON is simple_target_to_base_inv_diglot
+    #[serde(default, rename = "simple_target_to_base_inv_diglot")]
     pub adv_target_to_base_inv_diglot: HashMap<String, Vec<(usize, Vec<String>, String, usize)>>,
 }

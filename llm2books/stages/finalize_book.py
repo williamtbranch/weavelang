@@ -6,11 +6,6 @@ from .base import Stage, logger
 from .. import validator
 
 class FinalizeBook(Stage):
-    """
-    Stage 6: Performs final validation on the completed JSON data structure
-    and copies the final output to the 'library' directory for consumption
-    by the Rust engine.
-    """
     def __init__(self, book_stem: str, cli_args: Any, common_resources: Dict[str, Any]):
         super().__init__(
             book_stem=book_stem,
@@ -19,11 +14,9 @@ class FinalizeBook(Stage):
             stage_number=9,
             stage_name="FinalizeBook"
         )
-        # Define the final output path in the library directory
         self.library_dir = self.content_project_root / "library"
         self.final_output_path = self.library_dir / f"{self.book_stem}.json"
 
-    #
     def run(self) -> bool:
         logger.info(f"Executing Stage {self.stage_number}: {self.stage_name} for '{self.book_stem}'")
         self.library_dir.mkdir(parents=True, exist_ok=True)
@@ -40,13 +33,9 @@ class FinalizeBook(Stage):
         try:
             for block in book_data.get("content_blocks", []):
                 if block.get("block_type") == "sentence":
-                    #
-                    # ============================ START: REPLACEMENT CODE ============================
-                    # The simple_target_to_base_diglot map no longer exists,
-                    # so we remove its validation call. The inverse map validation remains.
-                    # validator.validate_exhaustive_diglot_mapping(block) <- DELETE THIS LINE
+                    validator.validate_exhaustive_diglot_mapping(block)
                     validator.validate_exhaustive_inverse_diglot_mapping(block)
-                    # ============================= END: REPLACEMENT CODE =============================
+                    
                     for tier in block.get("tiers", []):
                         validator.validate_segment_reconstruction(tier)
                         for seg in tier.get("segments", []):
@@ -59,22 +48,36 @@ class FinalizeBook(Stage):
             logger.error(f"         Reason: {e}")
             return False
 
-        # --- NEW: FINAL CLEANUP STEP ---
         logger.info("      -> Cleaning up intermediate data for final output...")
+        tiers_to_strip_tokenized_text = [
+            "advanced_target",
+            "moderate_target",
+            "basic_target",
+        ]
+
         for block in book_data.get("content_blocks", []):
             if block.get("block_type") == "sentence":
-                # The golden_token_stream is no longer needed by the Rust consumer
                 if "golden_token_stream" in block:
                     del block["golden_token_stream"]
                 
-                # Remove temporary keys from tokens that Rust doesn't need
                 for tier in block.get("tiers", []):
+                    if tier["tier_id"] in tiers_to_strip_tokenized_text:
+                        for seg in tier.get("segments", []):
+                            # --- THIS IS THE FIX ---
+                            # 1. Explicitly build the 'text' field from the tokens.
+                            if "tokenized_text" in seg:
+                                seg["text"] = "".join(t.get("v", "") for t in seg["tokenized_text"])
+                            # 2. THEN delete the token list.
+                            if "tokenized_text" in seg:
+                                del seg["tokenized_text"]
+                            # --- END OF FIX ---
+                    
                     for seg in tier.get("segments", []):
-                        for token in seg.get("tokenized_text", []):
-                            if "seg_idx" in token:
-                                del token["seg_idx"]
-        # --- END OF CLEANUP ---
-
+                        if "tokenized_text" in seg: # Check again in case it wasn't stripped
+                            for token in seg.get("tokenized_text", []):
+                                if "seg_idx" in token:
+                                    del token["seg_idx"]
+        
         book_data.get("book_meta", {})["schema_version"] = "3.0"
         
         try:
@@ -85,9 +88,3 @@ class FinalizeBook(Stage):
         except IOError as e:
             logger.error(f"Failed to write final library file: {e}")
             return False
-
-    def _get_input_path(self):
-        # This stage reads from the previous stage (Stage 5)
-        prev_stage_num = self.stage_number - 1
-        prev_stage_dir = self.pipeline_run_dir / f"stage{prev_stage_num}"
-        return prev_stage_dir / f"{self.book_stem}.stage{prev_stage_num}.json"

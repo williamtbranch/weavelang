@@ -1,3 +1,4 @@
+# llm2books/phrase_mapper_helpers.py
 import re
 from typing import List, Dict, Any
 
@@ -40,7 +41,6 @@ def align_and_parse_to_atoms(raw_map_lines: List[str], raw_spacy_tokens: List[Di
     # 3. RE-GROUPING
     final_atoms = []
     
-    # --- FINAL, CORRECT RE-GROUPING LOGIC ---
     spacy_to_llm_phrase_map = {}
     for tag, src_i1, src_i2, dst_i1, dst_i2 in alignment_opcodes:
         if tag == 'equal':
@@ -75,11 +75,9 @@ def align_and_parse_to_atoms(raw_map_lines: List[str], raw_spacy_tokens: List[Di
         )
         final_atoms.append(atom)
         spacy_cursor = group_end_cursor
-    # --- END OF FINAL FIX ---
     
     return final_atoms
 
-# (sanitize_atoms remains unchanged)
 def sanitize_atoms(s_id: str, atoms: List[SemanticAtom], original_base_tier: Dict[str, Any]) -> List[SemanticAtom]:
     flat_original_tokens = [token for seg in original_base_tier.get("segments", []) for token in seg.get("tokenized_text", [])]
     di_to_seg_id: Dict[int, str] = {}
