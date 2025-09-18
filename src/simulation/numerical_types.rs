@@ -5,6 +5,25 @@ use crate::types::json_types::JsonSegmentV2;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub struct VLevelRecipe {
+    pub sim: u32,
+    pub bas: u32,
+    pub mod_v: u32,
+    pub adv: u32,
+}
+
+impl VLevelRecipe {
+    /// This inherent method calculates the "hidden" inverse diglot level by construction.
+    /// It is always the highest of the four tier levels in the recipe.
+    pub fn inv_diglot_level(&self) -> u32 {
+        *([self.sim, self.bas, self.mod_v, self.adv]
+            .iter()
+            .max()
+            .unwrap_or(&0))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WordToken {
     pub text: String,
@@ -84,6 +103,7 @@ pub struct NumericalProcessedSentence {
     pub adv_segment_bundles_numerical: Vec<NumericalAdvSegmentBundle>,
     pub diglot_map_numerical: Vec<NumericalDiglotSegmentMap>,
 }
+
 
 #[derive(Debug, Clone, Default)]
 pub struct NumericalChapter {

@@ -5,3 +5,13 @@ To understand 90% of the text, you need to know the top 3,030 lemmas.
 To understand 95% of the text, you need to know the top 7,289 lemmas.
 To understand 98% of the text, you need to know the top 23,273 lemmas.
 To understand 99% of the text, you need to know the top 60,226 lemmas.
+
+
+run 2 2025 09 12
+--- Corpus Lexical Coverage Analysis ---
+Total valid tokens in corpus: 2,778,589,715
+To understand 80% of the text, you need to know the top 1,038 lemmas.
+To understand 90% of the text, you need to know the top 3,099 lemmas.
+To understand 95% of the text, you need to know the top 7,438 lemmas.
+To understand 98% of the text, you need to know the top 23,733 lemmas.
+To understand 99% of the text, you need to know the top 61,412 lemmas.

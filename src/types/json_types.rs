@@ -54,6 +54,14 @@ pub struct JsonSegmentV2 {
     pub lemmas: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TierId {
+    Simple,
+    Basic,
+    Moderate,
+    Advanced,
+}
+
 impl From<SegmentOnDisk> for JsonSegmentV2 {
     fn from(temp: SegmentOnDisk) -> Self {
         let reconstructed_text = temp

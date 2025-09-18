@@ -2,6 +2,7 @@
 import re
 from pathlib import Path
 import sys
+import math
 
 # --- Configuration for TOML parsing ---
 try:
@@ -13,12 +14,15 @@ except ImportError:
         print("TOML library not found. Please install 'toml' or use Python 3.11+.")
         sys.exit(1)
 
-# --- Stanza Setup (replaces NLTK) ---
+# --- Stanza Setup ---
 try:
     import stanza
 except ImportError:
     print("Stanza library not found. Please run `pip install stanza`.")
     sys.exit(1)
+
+# --- NEW: Chunking Configuration ---
+TARGET_WORDS_PER_CHUNK = 3000
 
 # --- Regexes for Chapter/Section Detection ---
 BRACKETED_ARABIC_CHAPTER_REGEX = re.compile(r"^\s*\[\s*(\d+)\s*\]\s*$")
@@ -39,6 +43,8 @@ SPECIAL_SECTION_REGEX = re.compile(
     r"^\s*(PREFACE|INTRODUCTION|EPILOGUE|PROLOGUE|CONTENTS|APPENDIX|GLOSSARY|FORWARD|FOREWORD)(?:[:.\s]|$)",
     re.IGNORECASE,
 )
+# --- NEW: Word counting regex for chunking estimates ---
+WORD_COUNT_REGEX = re.compile(r'\b\w+\b')
 
 # --- Regexes for cleaning italics/underscores ---
 def clean_italics_and_underscores(text: str) -> str:
@@ -120,7 +126,6 @@ def filter_paragraph_lines_for_bracket_content(lines_in_raw_para: list[str]) -> 
             overall_cleaned_line_strings.append("".join(current_line_clean_chars))
         overall_junk_line_strings.append("".join(current_line_junk_chars))
     
-    # This now correctly returns the paragraph as a single string
     final_cleaned_text = " ".join(s.strip() for s in overall_cleaned_line_strings if s.strip())
     final_cleaned_text = re.sub(r'\s+', ' ', final_cleaned_text).strip()
 
@@ -134,6 +139,22 @@ def process_text_to_staged_format(
     staged_output_lines = []
     collected_junk_text_parts = []
     current_sentence_counter = initial_sentence_counter
+
+    # --- NEW: Chunking Logic - Pass 1: Word Count ---
+    total_word_count = len(WORD_COUNT_REGEX.findall(text_content))
+    num_chunks_float = total_word_count / TARGET_WORDS_PER_CHUNK
+    num_chunks_final = math.floor(num_chunks_float)
+    
+    if num_chunks_final > 0:
+        final_chunk_size = total_word_count // num_chunks_final
+        print(f"Book has {total_word_count} words. Will be split into {num_chunks_final} chunks of ~{final_chunk_size} words each.")
+    else:
+        final_chunk_size = total_word_count + 1 # Ensure we never chunk a small book
+        print(f"Book has {total_word_count} words. Too short to be chunked.")
+
+    words_in_current_chunk = 0
+    current_chunk_number = 1
+    # --- END NEW: Chunking Logic ---
 
     for raw_para_idx, raw_para_text_unstripped in enumerate(raw_paragraphs):
         raw_para_text = raw_para_text_unstripped.strip()
@@ -216,8 +237,6 @@ def process_text_to_staged_format(
                 current_sentence_counter += 1
         
         elif not paragraph_fully_handled and cleaned_para_text_for_processing:
-            # --- THIS IS THE ROBUST LOGIC BLOCK ---
-            # 1. Re-join lines with soft breaks into a single string.
             lines = cleaned_para_text_for_processing.strip().splitlines()
             rejoined_paragraph = " ".join(line.strip() for line in lines)
             rejoined_paragraph = re.sub(r'\s+', ' ', rejoined_paragraph).strip()
@@ -225,14 +244,12 @@ def process_text_to_staged_format(
             if not rejoined_paragraph:
                 continue
 
-            # 2. Now, sentence-split the re-joined paragraph with Stanza.
             try:
                 doc = stanza_nlp(rejoined_paragraph)
                 sentences_in_para = [sent.text for sent in doc.sentences]
             except Exception as e:
                 print(f"Warning: Stanza error processing paragraph: '{rejoined_paragraph[:100]}...'. Error: {e}. Skipping.")
                 continue
-            # --- END OF ROBUST LOGIC BLOCK ---
 
             for sent_text in sentences_in_para:
                 test_sent_alphanum = "".join(filter(str.isalnum, sent_text))
@@ -241,12 +258,27 @@ def process_text_to_staged_format(
                 cleaned_sentence = re.sub(r'\s+', ' ', sent_text).strip()
                 if not cleaned_sentence:
                     continue
+                
+                # Write the sentence first
                 staged_output_lines.append(f"{{S{current_sentence_counter}: {cleaned_sentence}}}")
                 current_sentence_counter += 1
+
+                # --- NEW: Chunking Logic - Pass 2: Marker Insertion ---
+                words_in_sentence = len(WORD_COUNT_REGEX.findall(cleaned_sentence))
+                words_in_current_chunk += words_in_sentence
+
+                if words_in_current_chunk >= final_chunk_size and current_chunk_number < num_chunks_final:
+                    chunk_marker = f"%%CHAPTER_MARKER%% %%chunk {current_chunk_number}%%"
+                    staged_output_lines.append(chunk_marker)
+                    print(f"  -> Inserted chunk marker {current_chunk_number} after {words_in_current_chunk} words.")
+                    
+                    # Reset for the next chunk
+                    words_in_current_chunk = 0
+                    current_chunk_number += 1
+                # --- END NEW: Chunking Logic ---
     
     final_all_junk_text = "\n\n".join(collected_junk_text_parts)
     return staged_output_lines, final_all_junk_text, current_sentence_counter
-
 def main():
     config = load_config()
     if not config:
@@ -316,6 +348,7 @@ def main():
             print(f"No processable output for '{raw_file_path.name}'.")
         
         try:
+            # --- THIS IS THE CORRECTED LINE ---
             with open(staged_text_file_path, 'w', encoding='utf-8') as f_s:
                 f_s.write(final_staged_text_output)
             print(f"Saved staged text to '{staged_text_file_path.name}'")
@@ -340,6 +373,5 @@ def main():
     print(f"Skipped {skipped_count} file(s).")
     if error_count > 0:
         print(f"Encountered errors in {error_count} file operation(s).")
-
 if __name__ == "__main__":
     main()

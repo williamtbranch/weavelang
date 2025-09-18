@@ -1,18 +1,36 @@
 %level 0 0 0 0
 test
+LesMis
 %level 400 0 0 0
 test
+LesMis
 %level exhausted 0 0 0
 test
-%level exhausted 700 0 0
+LesMis
+%level exhausted 1000 0 0
 test
+LesMis
 %level exhausted exhausted 0 0
 test
+LesMis
 %level exhausted exhausted 1200 0
 test
+LesMis
 %level exhausted exhausted exhausted 0 
 test
+LesMis
 %level exhausted exhausted exhausted 2000 
 test
+LesMis
 %level exhausted exhausted exhausted exhausted 
 test
+LesMis
+%level 20 0 0 0
+test
+LesMis
+%level 0 423 0 0
+LesMis
+%level 0 37 0 0
+LesMis
+%level 0 44 0 0
+LesMis

@@ -1,11 +1,21 @@
+// In src/config.rs
+
 use serde::Deserialize;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{PathBuf};
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Config {
     pub content_project_dir: String,
 }
+
+// --- NEW HELPER METHOD ---
+impl Config {
+    pub fn content_project_dir_path(&self) -> PathBuf {
+        PathBuf::from(&self.content_project_dir)
+    }
+}
+// --- END NEW HELPER METHOD ---
 
 pub fn load_config_from_file(file_path: &str) -> Result<Config, String> {
     match fs::read_to_string(file_path) {

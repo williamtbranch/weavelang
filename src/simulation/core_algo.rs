@@ -1,6 +1,6 @@
 // In src/simulation/core_algo.rs
 
-use super::numerical_types::{NumericalLearnerProfile, NumericalProcessedSentence};
+use super::numerical_types::{NumericalLearnerProfile, NumericalProcessedSentence, VLevelRecipe};
 use crate::simulation::dictionary::GlobalLemmaDictionary;
 use crate::simulation::frequency_manager;
 use crate::types::json_types::{JsonTokenType};
@@ -64,55 +64,54 @@ pub struct ChosenLevelOutput {
     pub english_word_count: usize,
 }
 
-// --- REWRITTEN FUNCTION ---
 fn try_build_advanced_weave(
     n_sentence: &NumericalProcessedSentence,
-    profile: &NumericalLearnerProfile, // The profile is now used for the Inverse Diglot check
     dictionary: &GlobalLemmaDictionary,
-    // The single v_level is replaced by the four tier-specific v_levels
-    sim_v_level: u32,
-    bas_v_level: u32,
-    mod_v_level: u32,
-    adv_v_level: u32,
+    // The four u32 levels are replaced by a single recipe struct.
+    v_levels: &VLevelRecipe,
     inverse_diglot_threshold: f32,
 ) -> Option<ChosenLevelOutput> {
     if n_sentence.adv_segment_bundles_numerical.is_empty() {
         return None;
     }
 
+    // --- THIS IS THE KEY CHANGE ---
+    // The inverse diglot level is now derived from the recipe by construction.
+    let inv_diglot_v_level = v_levels.inv_diglot_level();
+    
     let mut l0_candidate_choices: Vec<L0SegmentChoice> = Vec::new();
     let mut l0_collected_lemma_ids: Vec<u32> = Vec::new();
     let mut spanish_words = 0;
     let mut english_words = 0;
 
     for bundle in &n_sentence.adv_segment_bundles_numerical {
-        // --- The Four-Tier Cascade ---
-        if are_lemmas_known(&bundle.adv_lemma_ids, adv_v_level, dictionary) {
+        // --- The Four-Tier Cascade now uses fields from the struct ---
+        if are_lemmas_known(&bundle.adv_lemma_ids, v_levels.adv, dictionary) {
             l0_candidate_choices.push(L0SegmentChoice::Adv(bundle.adv_text_original.clone()));
             l0_collected_lemma_ids.extend(&bundle.adv_lemma_ids);
             spanish_words += bundle.adv_text_original.split_whitespace().count();
             continue;
         }
-        if are_lemmas_known(&bundle.mod_lemma_ids, mod_v_level, dictionary) {
+        if are_lemmas_known(&bundle.mod_lemma_ids, v_levels.mod_v, dictionary) {
             l0_candidate_choices.push(L0SegmentChoice::Mod(bundle.mod_text_original.clone()));
             l0_collected_lemma_ids.extend(&bundle.mod_lemma_ids);
             spanish_words += bundle.mod_text_original.split_whitespace().count();
             continue;
         }
-        if are_lemmas_known(&bundle.bas_lemma_ids, bas_v_level, dictionary) {
+        if are_lemmas_known(&bundle.bas_lemma_ids, v_levels.bas, dictionary) {
             l0_candidate_choices.push(L0SegmentChoice::Bas(bundle.bas_text_original.clone()));
             l0_collected_lemma_ids.extend(&bundle.bas_lemma_ids);
             spanish_words += bundle.bas_text_original.split_whitespace().count();
             continue;
         }
-        if are_lemmas_known(&bundle.sim_lemma_ids, sim_v_level, dictionary) {
+        if are_lemmas_known(&bundle.sim_lemma_ids, v_levels.sim, dictionary) {
             l0_candidate_choices.push(L0SegmentChoice::Sim(bundle.sim_text_original.clone()));
             l0_collected_lemma_ids.extend(&bundle.sim_lemma_ids);
             spanish_words += bundle.sim_text_original.split_whitespace().count();
             continue;
         }
 
-        // --- Inverse Diglot Fallback (based on the learner's actual profile) ---
+        // --- Inverse Diglot Fallback (Now uses the derived inv_diglot_v_level) ---
         let total_words_in_sim_seg = bundle.sim_text_words.len();
         if total_words_in_sim_seg == 0 {
             l0_candidate_choices.push(L0SegmentChoice::InverseDiglot("".to_string()));
@@ -135,7 +134,8 @@ fn try_build_advanced_weave(
             if eng_sub == "PROPER_NOUN" {
                 final_parts.push(word_token.text.clone());
                 spanish_words += 1;
-            } else if profile.are_lemmas_active(lemma_ids) { // Check against the real profile
+            // --- THIS LOGIC IS NOW CHANGED TO USE THE DERIVED LEVEL ---
+            } else if are_lemmas_known(lemma_ids, inv_diglot_v_level, dictionary) {
                 temp_collected_lemmas.extend(lemma_ids);
                 final_parts.push(word_token.text.clone());
                 spanish_words += 1;
@@ -171,22 +171,19 @@ fn try_build_advanced_weave(
 
 pub fn determine_and_annotate_sentence_expression(
     n_sentence: &mut NumericalProcessedSentence,
-    profile: &NumericalLearnerProfile,
+    profile: &NumericalLearnerProfile, // The real-world profile is now only for L1 fallbacks
     dictionary: &GlobalLemmaDictionary,
-    // --- UPDATED SIGNATURE ---
-    sim_v_level: u32,
-    bas_v_level: u32,
-    mod_v_level: u32,
-    adv_v_level: u32,
+    // The function now takes the single recipe struct
+    v_levels: &VLevelRecipe,
     inverse_diglot_threshold: f32,
 ) -> ChosenLevelOutput {
     if let Some(l0_output) =
-        try_build_advanced_weave(n_sentence, profile, dictionary, sim_v_level, bas_v_level, mod_v_level, adv_v_level, inverse_diglot_threshold)
+        try_build_advanced_weave(n_sentence, dictionary, v_levels, inverse_diglot_threshold)
     {
         return l0_output;
     }
 
-    // --- L1 FALLBACK: HOLISTIC TOKEN-BASED REBUILDER ---
+    // --- L1 FALLBACK: This logic is unchanged but now uses the learner's real profile ---
     let mut l1_collected_lemma_ids: Vec<u32> = Vec::new();
     let mut spanish_words = 0;
     let mut english_words = 0;
@@ -217,8 +214,8 @@ pub fn determine_and_annotate_sentence_expression(
             let is_metadata_token = entry.exact_spa_form_original == "PROPER_NOUN"
                 || entry.exact_spa_form_original == "NO_SUB";
             
-            // L1 now checks against the simple tier's V-Level
-            if !is_metadata_token && entry.viable && are_lemmas_known(&entry.spa_lemma_ids, sim_v_level, dictionary) {
+            // L1 now correctly checks against the real-world learner profile
+            if !is_metadata_token && entry.viable && profile.are_lemmas_active(&entry.spa_lemma_ids) {
                 final_parts.push(entry.exact_spa_form_original.clone());
                 l1_collected_lemma_ids.extend(&entry.spa_lemma_ids);
                 spanish_words += entry.exact_spa_form_original.split_whitespace().count();

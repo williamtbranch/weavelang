@@ -68,3 +68,34 @@ Last Updated: (Date of this session)
     - [ ] Qualitatively review the generated TTS text at various levels to confirm the "jarring" effect is gone.
     - [ ] Analyze the new `corpus_analysis_log.txt` to see the distribution between the four segment types (`Adv`, `Mod`, `Bas`, `Sim`).
 - [ ] **Task 4.3: Plan the Per-Tier Vocabulary Sweep:** The current plan focuses on getting the data structure and weaving logic in place. The next major architectural step will be to implement the per-tier vocabulary exhaustion model we discussed. This will be WeaveLang V11.
+
+#### Phase 2: Python Pipeline Refactor (Current Phase)
+
+- [ ] **Task 2.1: Refactor the PoolManager for Multi-Tier Generation**
+    - [ ] Modify `pool_manager.py` to generate three separate derived text assets for the target language. The `_get_or_create_sim_json` method will be the template.
+    - [ ] Create `_get_or_create_mod_json` which will use the `simplify_segments_moderate.txt` prompt.
+    - [ ] Create `_get_or_create_bas_json` which will use the `simplify_segments_basic.txt` prompt.
+    - [ ] The existing `_get_or_create_sim_json` will be updated to use the `simplify_segments_simple.txt` prompt.
+
+- [ ] **Task 2.2: Update Stage 1 (AssembleTiers) to Handle New Tiers**
+    - [ ] Modify `assemble_tiers.py` to load the new `.mod.json` and `.bas.json` files from the common pool.
+    - [ ] The stage will now assemble a JSON structure containing five tiers: `base`, `advanced_target`, `moderate_target`, `basic_target`, and `simple_target`.
+
+- [ ] **Task 2.3: Fix the "Empty Mapping" Bug in the Phrase Mapper**
+    - [ ] **Problem:** The current phrase mapper (`apply_phrase_mappings.py`) can generate invalid diglot map entries for phrases it fails to align, such as `[ 14, [], "", true, 3 ]`. This causes words to disappear from the final L1 text.
+    - [ ] **Solution:** Modify the logic in `phrase_mapper_helpers.py`. When a multi-word "semantic atom" is invalidated (e.g., for crossing a segment boundary or containing punctuation), it must be correctly broken down into its constituent single-word tokens, and each token must be given a `NO_SUB`, non-viable mapping.
+
+- [ ] **Task 2.4: Implement a New Semantic Validation Stage (Stage 4.5)**
+    - [ ] **Problem:** LLMs can produce intermittently "shifted" or nonsensical phrase maps that are syntactically valid but semantically wrong. For example, in `LesMis` sentence `S18`, the LLM incorrectly mapped English `talk` to Spanish `creó`. Our current DP aligner is too robust and "self-heals" this, hiding the underlying data corruption.
+    - [ ] **Solution:** Create a new pipeline stage, `ValidatePhraseMappings`, that runs after `ApplyPhraseMappings`.
+    - [ ] This stage will use a free, local sentence-transformer model (e.g., `paraphrase-multilingual-MiniLM-L12-v2`) to perform cross-lingual semantic validation.
+    - [ ] For each English phrase and its mapped Spanish phrase, it will calculate the cosine similarity of their vector embeddings.
+    - [ ] **Validation Rule:** If a sentence contains a significant number of mappings with a similarity score below a defined threshold (e.g., < 0.3), the entire sentence will be flagged with a status like `RETRY_SEMANTIC_FAIL`.
+    - [ ] The main pipeline orchestrator will be updated to handle this `RETRY` status, forcing the LLM to re-generate the failed sentence on the next run. This creates a self-correcting loop that guarantees the semantic integrity of our phrase maps.
+
+- [ ] **Task 2.5: Refactor the Final Stage (FinalizeBook) for Lean Output**
+    - [ ] Modify `finalize_book.py` to perform selective cleanup.
+    - [ ] For the `advanced_target`, `moderate_target`, and `basic_target` tiers:
+        - [ ] Strip the `tokenized_text` key from each segment after lemmatization is complete, leaving only `seg_id`, `text`, and `lemmas`.
+    - [ ] For the `simple_target` tier, which is used for diglotting, all existing keys (`tokenized_text`, etc.) should be preserved.
+    - [ ] This ensures the final JSON is as lean as possible for the Rust engine.

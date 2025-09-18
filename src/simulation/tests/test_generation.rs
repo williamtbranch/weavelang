@@ -10,7 +10,7 @@ use crate::simulation::core_algo::{
 use crate::simulation::dictionary::GlobalLemmaDictionary;
 use crate::simulation::frequency_manager;
 use crate::simulation::numerical_types::{
-    NumericalLearnerProfile, NumericalProcessedSentence,
+    NumericalLearnerProfile, NumericalProcessedSentence, VLevelRecipe,
 };
 use crate::simulation::preprocessor;
 use crate::simulation::text_generator;
@@ -82,18 +82,23 @@ fn run_dsl_generation_test_suite() {
                 }
             }
 
+            let v_levels = VLevelRecipe {
+                sim: levels.sim,
+                bas: levels.bas,
+                mod_v: levels.mod_level,
+                adv: levels.adv,
+            };
 
             let mut n_sentence_clone = numerical_sentence.clone();
+            // Call the function with the new, correct signature
             let output = determine_and_annotate_sentence_expression(
                 &mut n_sentence_clone,
                 &profile,
                 &dictionary,
-                levels.sim,
-                levels.bas,
-                levels.mod_level,
-                levels.adv,
+                &v_levels, // Pass the recipe struct
                 0.5,
             );
+
             let raw_text = text_generator::generate_raw_text_from_levels(
                 &[&json_sentence],
                 &[output.clone()],

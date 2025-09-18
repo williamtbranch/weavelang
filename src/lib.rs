@@ -1,3 +1,5 @@
+// In src/lib.rs
+
 pub mod config;
 pub mod corpus_generator;
 pub mod parsing;
@@ -23,3 +25,8 @@ pub use simulation::core_algo::{
 };
 pub use simulation::text_generator::generate_raw_text_from_levels;
 pub use corpus_generator::{run_corpus_generation};
+
+// --- THIS SECTION IS UPDATED ---
+pub use simulation::avd_hunter;
+// We now export our new unified function from the calibrator module.
+pub use simulation::calibrator::{self, run_unified_calibration};
