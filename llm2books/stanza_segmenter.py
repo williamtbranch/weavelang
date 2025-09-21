@@ -1,162 +1,284 @@
 import re
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Optional
 import stanza
-from . import helper
-from abc import ABC, abstractmethod
+from abc import ABC
+from enum import Enum, auto
 
-#
+def count_real_words(text: str) -> int:
+    """Helper to count 'real' words, ignoring punctuation."""
+    return len(re.findall(r'\b\w+\b', text))
+
+class Cut(Enum):
+    """Represents the decision for a potential cut point between words."""
+    UNKNOWN = auto()
+    VETO = auto()
+    MINOR = auto()
+    MAJOR = auto()
+    PRIORITY = auto()
+
+class PhraseNode:
+    """A simple class to represent a node in our custom phrase tree for analysis."""
+    def __init__(self, phrase_type: str, children: List['PhraseNode'] = None):
+        self.phrase_type = phrase_type
+        self.children = children if children else []
+        self.start_idx = -1
+        self.end_idx = -1
+
 class StanzaLanguageProcessor(ABC):
+    """
+    Final segmenter using a robust, multi-pass "cut-point analysis" algorithm.
+    It identifies potential cut points between words and applies a hierarchy of
+    rules to decide where to make the final splits.
+    """
+    PRIORITY_PUNCTUATION = {';', ':'}
+    NO_CUT_AFTER_XPOS = {'IN', 'DT', 'MD', 'TO', 'WDT', 'WP', 'WP$'}
+    VERB_GROUP_XPOS = {'MD', 'VB', 'VBD', 'VBG', 'VBN', 'VBP', 'VBZ'}
+    NO_CUT_BEFORE_XPOS = {'POS', 'RP'}
+    MAJOR_CUT_BEFORE_PHRASE = {'SBAR', 'PP'}
+    OPENING_PUNCT = {'“', '"', '‘', '(', '[', '{'}
+    CLOSING_PUNCT = {'”', '"', '’', ')', ']', '}'}
+    NO_CUT_BEFORE_PUNCT = {',', '.', ';', ':', '!', '?'}
+
+    def _apply_sbar_cuts(self, node: PhraseNode, words: List[stanza.models.common.doc.Word], cut_markers: List[Cut]):
+        """Applies a PRIORITY cut after an SBAR that is followed by a comma."""
+        if node.phrase_type == 'SBAR':
+            # The SBAR ends at word index node.end_idx.
+            # The word *after* the SBAR is at index node.end_idx + 1.
+            comma_idx = node.end_idx + 1
+            if comma_idx < len(words) and words[comma_idx].text == ',':
+                # The cut happens *after* the comma. The comma's word index is comma_idx.
+                # The cut marker index is the same as the word index.
+                cut_location = comma_idx
+                if cut_location < len(cut_markers):
+                    cut_markers[cut_location] = Cut.PRIORITY
+        
+        # Recurse through children
+        for child in node.children:
+            self._apply_sbar_cuts(child, words, cut_markers)
+
+
+    def _apply_short_quote_protection(self, words: List[stanza.models.common.doc.Word], cut_markers: List[Cut], max_internal_words: int = 8):
+        """Vetoes any non-priority cuts inside short quoted phrases."""
+        i = 0
+        while i < len(words):
+            word = words[i]
+            if word.text in self.OPENING_PUNCT:
+                start_quote_idx = i
+                for j in range(i + 1, len(words)):
+                    if words[j].text in self.CLOSING_PUNCT:
+                        end_quote_idx = j
+                        word_count = sum(1 for k in range(start_quote_idx + 1, end_quote_idx) if words[k].upos != 'PUNCT')
+                        if 0 < word_count <= max_internal_words:
+                            for k in range(start_quote_idx, end_quote_idx):
+                                if k < len(cut_markers) and cut_markers[k] != Cut.PRIORITY:
+                                    cut_markers[k] = Cut.VETO
+                        i = end_quote_idx
+                        break
+                # This else block prevents an infinite loop on an unclosed quote
+                else: 
+                    i += 1
+            else:
+                i += 1
+
     def __init__(self, lang_code: str):
         print(f"Initializing Stanza pipeline for '{lang_code}'...")
         try:
-            self.nlp = stanza.Pipeline(lang_code, processors='tokenize,pos,constituency', use_gpu=False)
+            self.nlp = stanza.Pipeline(lang_code, processors='tokenize,pos,constituency', use_gpu=False, logging_level='WARN')
             print(f"Stanza pipeline for '{lang_code}' loaded.")
         except Exception as e:
-            print(f"Failed to load Stanza pipeline for {lang_code}. Ensure models are downloaded. Error: {e}")
+            print(f"Failed to load Stanza pipeline for {lang_code}. Error: {e}")
             raise
-        self._quote_chars = ""
-        self.min_segment_size = 5
-        self.min_refine_size = 3
-
-    # --- HELPER METHODS (UNCHANGED) ---
-    def _count_real_words(self, text: str) -> int:
-        return len(re.findall(r'\w+', text))
-
-    def _get_hierarchical_segments(self, tree) -> List[Tuple[str, int]]:
-        return self._recursive_helper(tree)
-
-    def _recursive_helper(self, tree) -> List[Tuple[str, int]]:
-        if tree.is_leaf(): return [(tree.label, 1)]
-        segments_from_children = []
+        self.min_segment_words: int = 5
+    
+    def _build_phrase_tree_with_indices(self, tree, current_idx: int) -> Tuple[Optional[PhraseNode], int]:
+        """Builds a simplified tree from Stanza's output, annotating with word indices."""
+        if tree.is_leaf():
+            return None, current_idx + 1
+        
+        child_nodes = []
+        start_idx = current_idx
         for child in tree.children:
-            if child.is_leaf():
-                is_word = tree.label.isalpha()
-                segments_from_children.append((child.label, 1 if is_word else 0))
-            else:
-                segments_from_children.extend(self._recursive_helper(child))
-        stitched_segments = []
-        for text, count in segments_from_children:
-            if text in ("'s", "’s") and stitched_segments:
-                prev_text, prev_count = stitched_segments.pop()
-                stitched_segments.append((prev_text + text, prev_count))
-            else:
-                stitched_segments.append((text, count))
-        final_segments = []
-        buffer = []
-        for text, count in stitched_segments:
-            buffer.append((text, count))
-            current_word_count = sum(c for _, c in buffer)
-            if current_word_count >= self.min_segment_size:
-                merged_text = " ".join(t for t, _ in buffer)
-                total_count = sum(c for _, c in buffer)
-                final_segments.append((merged_text.strip(), total_count))
-                buffer = []
-        if buffer:
-            leftover_text = " ".join(t for t, _ in buffer)
-            leftover_count = sum(c for _, c in buffer)
-            if final_segments:
-                prev_text, prev_count = final_segments.pop()
-                final_segments.append((f"{prev_text} {leftover_text}".strip(), prev_count + leftover_count))
-            else:
-                final_segments.append((leftover_text.strip(), leftover_count))
-        return final_segments
+            child_node, current_idx = self._build_phrase_tree_with_indices(child, current_idx)
+            if child_node:
+                child_nodes.append(child_node)
 
-    def _refine_for_quotes(self, segments: List[str]) -> List[str]:
-        if not self._quote_chars: return segments
-        refined_segments = []
-        for segment in segments:
-            match = re.search(f"([{self._quote_chars}])", segment)
-            if match and match.start() > 0:
-                quote_char = match.group(1)
-                pre_quote, quote_part = segment.split(quote_char, 1)
-                pre_quote, quote_part = pre_quote.strip(), (quote_char + quote_part).strip()
-                if self._count_real_words(pre_quote) < self.min_refine_size and refined_segments:
-                    refined_segments[-1] = f"{refined_segments[-1]} {pre_quote}".strip()
-                    if quote_part: refined_segments.append(quote_part)
+        node = PhraseNode(tree.label, child_nodes)
+        node.start_idx = start_idx
+        node.end_idx = current_idx - 1
+        return node, current_idx
+
+    def _apply_vetoes(self, words: List[stanza.models.common.doc.Word], cut_markers: List[Cut]):
+        self._apply_short_quote_protection(words, cut_markers)
+        self.NO_CUT_AFTER_XPOS = {'IN', 'DT', 'MD', 'TO', 'WDT', 'WP', 'WP$', 'POS'}
+        for i in range(len(cut_markers)):
+            if cut_markers[i] == Cut.PRIORITY: continue
+
+            if words[i].xpos in self.NO_CUT_AFTER_XPOS: cut_markers[i] = Cut.VETO
+            if words[i+1].xpos in self.NO_CUT_BEFORE_XPOS: cut_markers[i] = Cut.VETO
+            # --- FIX 4: Add the missing rule for punctuation ---
+            if words[i+1].text in self.NO_CUT_BEFORE_PUNCT: cut_markers[i] = Cut.VETO
+            if (words[i].xpos in self.VERB_GROUP_XPOS and words[i+1].xpos in self.VERB_GROUP_XPOS):
+                cut_markers[i] = Cut.VETO
+            if words[i].text == '-' or (i + 1 < len(words) and words[i+1].text == '-'):
+                 cut_markers[i] = Cut.VETO
+            if words[i].text in self.CLOSING_PUNCT or words[i+1].text in self.OPENING_PUNCT:
+                cut_markers[i] = Cut.VETO
+    
+    def _apply_cuts_by_phrase(self, node: PhraseNode, words: List[stanza.models.common.doc.Word], cut_markers: List[Cut]):
+        if node.phrase_type in self.MAJOR_CUT_BEFORE_PHRASE:
+            # --- FIX 5: Use raw token count for PP checks, not 'real word' count ---
+            word_count = node.end_idx - node.start_idx + 1
+            if node.phrase_type == 'PP' and word_count <= 2: pass
+            else:
+                cut_idx = node.start_idx - 1
+                if 0 <= cut_idx < len(cut_markers) and cut_markers[cut_idx] not in [Cut.VETO, Cut.PRIORITY]:
+                    cut_markers[cut_idx] = Cut.MAJOR
+        
+        for child in node.children:
+            self._apply_cuts_by_phrase(child, words, cut_markers)
+
+    #
+    def _apply_final_merging(self, words: List[stanza.models.common.doc.Word], cut_markers: List[Cut]) -> List[str]:
+        if not words: return []
+
+        # 1. Initial aggressive segmentation based on all non-vetoed cuts.
+        segments = []
+        current_chunk_text = [words[0].text]
+        for i, cut in enumerate(cut_markers):
+            if cut != Cut.VETO:
+                segments.append(" ".join(current_chunk_text))
+                current_chunk_text = [words[i+1].text]
+            else:
+                current_chunk_text.append(words[i+1].text)
+        segments.append(" ".join(current_chunk_text))
+        
+        # 2. Create a parallel list of boundary strengths between segments.
+        boundaries = []
+        for cut in cut_markers:
+            if cut == Cut.VETO: continue # Vetoed boundaries don't exist in our segmented list
+            if cut == Cut.PRIORITY: boundaries.append(2)
+            elif cut == Cut.MAJOR: boundaries.append(1)
+            else: boundaries.append(0) # MINOR
+
+        # 3. Iteratively merge until all segments meet the minimum word count.
+        while True:
+            word_counts = [count_real_words(s) for s in segments]
+            
+            # Find the index of the first segment that's too small.
+            min_idx = -1
+            for i, count in enumerate(word_counts):
+                if count < self.min_segment_words:
+                    min_idx = i
+                    break
+            
+            # If no small segments are found, we're done.
+            if min_idx == -1:
+                break
+
+            # If only one segment remains and it's still too small, we must accept it.
+            if len(segments) == 1:
+                break
+
+            # Decide which neighbor to merge with based on boundary strength.
+            merge_backward = False
+            if min_idx == 0:
+                # First segment is too small, must merge forward.
+                merge_backward = False
+            elif min_idx == len(segments) - 1:
+                # Last segment is too small, must merge backward.
+                merge_backward = True
+            else:
+                # A segment in the middle is too small. Merge across the weaker boundary.
+                # boundary[min_idx - 1] is the boundary *before* the small segment.
+                # boundary[min_idx] is the boundary *after* the small segment.
+                if boundaries[min_idx - 1] <= boundaries[min_idx]:
+                    merge_backward = True
                 else:
-                    if pre_quote: refined_segments.append(pre_quote)
-                    if quote_part: refined_segments.append(quote_part)
-            else:
-                refined_segments.append(segment)
-        return refined_segments
+                    merge_backward = False
 
-    # --- DEFINITIVE ORCHESTRATION METHOD ---
+            # Rebuild the lists after merging to avoid index errors.
+            new_segments = []
+            new_boundaries = []
+            if merge_backward:
+                for i in range(len(segments)):
+                    if i == min_idx - 1:
+                        # Combine this segment with the next one.
+                        new_segments.append(f"{segments[i]} {segments[i+1]}")
+                    elif i == min_idx:
+                        # This segment was already merged, so skip it.
+                        continue
+                    else:
+                        new_segments.append(segments[i])
+                # Rebuild boundaries list. The boundary at min_idx - 1 was removed.
+                for i in range(len(boundaries)):
+                    if i != min_idx - 1:
+                        new_boundaries.append(boundaries[i])
+            else: # Merge forward
+                for i in range(len(segments)):
+                    if i == min_idx:
+                        # Combine this segment with the next one.
+                        new_segments.append(f"{segments[i]} {segments[i+1]}")
+                    elif i == min_idx + 1:
+                        # This segment was already merged, so skip it.
+                        continue
+                    else:
+                        new_segments.append(segments[i])
+                # Rebuild boundaries list. The boundary at min_idx was removed.
+                for i in range(len(boundaries)):
+                    if i != min_idx:
+                        new_boundaries.append(boundaries[i])
+            
+            segments = new_segments
+            boundaries = new_boundaries
+
+        # 4. Final cleanup of whitespace and punctuation.
+        final_list = []
+        for seg in segments:
+            clean_seg = re.sub(r'\s+', ' ', seg).strip()
+            clean_seg = re.sub(r'\s+([,.:;?!])', r'\1', clean_seg)
+            clean_seg = re.sub(r'([‘“])\s+', r'\1', clean_seg)
+            if clean_seg: final_list.append(clean_seg)
+
+        return final_list
+
+
     def segment_sentence(self, sentence_text: str) -> List[str]:
-        original_sentence = re.sub(r'\s+', ' ', sentence_text).strip()
-        if not original_sentence: return []
+        cleaned_sentence = re.sub(r'\s+', ' ', sentence_text).strip()
+        if not cleaned_sentence: return []
         
-        doc = self.nlp(original_sentence)
-        if not doc.sentences: return [original_sentence]
-        tree = doc.sentences[0].constituency
-        if not tree or not tree.children: return [original_sentence]
+        doc = self.nlp(cleaned_sentence)
+        if not doc.sentences: return [cleaned_sentence]
+        
+        sent = doc.sentences[0]
+        words = sent.words
+        num_cuts = len(words) - 1
+        if num_cuts < 0: return [cleaned_sentence]
 
-        # Step 1: Get the "Golden Token Stream" - our source of truth for characters.
-        golden_stream = helper.create_golden_token_stream(doc.sentences[0])
+        root_node, _ = self._build_phrase_tree_with_indices(sent.constituency, 0)
+        if not root_node: return [cleaned_sentence]
         
-        # Step 2: Get the hierarchical word groupings from Stanza.
-        initial_tuples = self._get_hierarchical_segments(tree.children[0])
-        hierarchical_strings = [text for text, _ in initial_tuples]
-        refined_hierarchical_strings = self._refine_for_quotes(hierarchical_strings)
-        
-        # Step 3: Map each WORD from the golden stream to a segment index.
-        word_tokens_in_stream = [tok for tok in golden_stream if tok['t'] == 'w']
-        word_to_seg_idx = {}
-        current_word_idx = 0
-        for seg_idx, seg_str in enumerate(refined_hierarchical_strings):
-            # This regex is robust for counting words, even with contractions
-            num_words_in_seg = len(re.findall(r'\b\w+\b', seg_str))
-            for i in range(num_words_in_seg):
-                if current_word_idx < len(word_tokens_in_stream):
-                    word_tokens_in_stream[current_word_idx]['seg_idx'] = seg_idx
-                    current_word_idx += 1
-        
-        # Step 4: Distribute ALL golden tokens into segment buckets.
-        num_segments = len(refined_hierarchical_strings)
-        segment_buckets: List[List[Dict]] = [[] for _ in range(num_segments)]
-        
-        current_seg_idx_for_b = 0
-        for token in golden_stream:
-            if token['t'] == 'w':
-                seg_idx = token.get('seg_idx', current_seg_idx_for_b)
-                if seg_idx < num_segments:
-                    segment_buckets[seg_idx].append(token)
-                    current_seg_idx_for_b = seg_idx
-            else: # It's a 'b' token
-                if current_seg_idx_for_b < num_segments:
-                    segment_buckets[current_seg_idx_for_b].append(token)
+        cut_markers: List[Cut] = [Cut.UNKNOWN] * num_cuts
 
-        # Step 5: Apply Smart Space Boundary rule on the TOKEN BUCKETS.
-        for i in range(num_segments - 1):
-            if not segment_buckets[i] or not segment_buckets[i+1]: continue
-            if segment_buckets[i][-1]['t'] == 'w': segment_buckets[i].append({'t':'b', 'v':''})
-            if segment_buckets[i+1][0]['t'] == 'w': segment_buckets[i+1].insert(0, {'t':'b', 'v':''})
-            b1 = segment_buckets[i][-1]
-            b2 = segment_buckets[i+1][0]
-            combined = b1['v'] + b2['v']
-            split_point = combined.find(' ')
-            if split_point != -1:
-                b1['v'] = combined[:split_point + 1]
-                b2['v'] = combined[split_point + 1:]
-            else:
-                b1['v'] = combined
-                b2['v'] = ""
+        for i, word in enumerate(words[:-1]):
+            if word.text in self.PRIORITY_PUNCTUATION:
+                cut_markers[i] = Cut.PRIORITY
 
-        # Step 6: Flatten the buckets into the final strings.
-        final_strings = ["".join(tok['v'] for tok in bucket) for bucket in segment_buckets]
-        
-        return [s for s in final_strings if s]
+        self._apply_sbar_cuts(root_node, words, cut_markers)
+        self._apply_vetoes(words, cut_markers)
+        self._apply_cuts_by_phrase(root_node, words, cut_markers)
+
+        for i in range(num_cuts):
+            if cut_markers[i] == Cut.UNKNOWN: cut_markers[i] = Cut.MINOR
+
+        return self._apply_final_merging(words, cut_markers)
+
 
 class EnglishStanzaProcessor(StanzaLanguageProcessor):
     def __init__(self):
         super().__init__('en')
-        self._quote_chars = "‘“"
-        self.min_segment_size = 4 # English-specific setting
-        self.min_refine_size = 3
+        self.min_segment_words = 5
 
 class SpanishStanzaProcessor(StanzaLanguageProcessor):
     def __init__(self):
         super().__init__('es')
-        self._quote_chars = "«" # Spanish-specific setting
-        # Spanish might benefit from a different segment size, we can tune this later
-        self.min_segment_size = 4 
-        self.min_refine_size = 3
+        self.min_segment_words = 5

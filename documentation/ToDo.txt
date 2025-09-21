@@ -99,3 +99,5 @@ Last Updated: (Date of this session)
         - [ ] Strip the `tokenized_text` key from each segment after lemmatization is complete, leaving only `seg_id`, `text`, and `lemmas`.
     - [ ] For the `simple_target` tier, which is used for diglotting, all existing keys (`tokenized_text`, etc.) should be preserved.
     - [ ] This ensures the final JSON is as lean as possible for the Rust engine.
+
+    Next Task: After this run, our next high-priority task must be to debug and fix the Stanza segmenter. We need to create a new, targeted regression test in llm2books/tests/test_segmentation.py using the sentence Con un movimiento de su mano despejó un espacio vacío al frente entre las cosas del desayuno, e se inclinó hacia adelante para mirar con más comodidad. and assert that it does NOT produce a single-word final segment. Then, we will fix the segmenter code to make that test pass.
