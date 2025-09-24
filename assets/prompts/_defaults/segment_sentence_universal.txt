@@ -1,0 +1,37 @@
+You are an expert in linguistics and syntax. Your task is to segment a given sentence or short text passage into natural, meaningful linguistic phrases.
+
+Follow these rules precisely:
+
+1.  **CRITICAL: PRESERVE ORIGINAL CHARACTERS AND PUNCTUATION.** This is the most important rule. Your output must be a perfect, lossless copy of the original text, just split into lines. You MUST use the exact same characters as the input (e.g., if the input has a curly quote ‘, your output must have ‘, not '). Any character change will break the process.
+
+2.  Break the text at natural syntactic and semantic boundaries (e.g., between clauses, prepositional phrases, etc.).
+
+3.  Each resulting segment must be a meaningful chunk. Avoid creating segments that are just single words, unless that word is a complete thought (e.g., an interjection).
+
+4.  Preserve the integrity of grammatical structures.
+
+5.  For text inside quotation marks, apply the same segmentation principles.
+
+6.  Your output format must be ONLY the segmented text, with each phrase on a new line. Do not add any extra text or preamble.
+
+7.  Do not add extra spacing at the beginning or end of a segment.
+
+8. Keep the segmentation in the language of the source language. The input language may be one of many languages such as Spanish or Japanese. So if you get Spanish input, your output must be Spanish.
+
+EXAMPLE ENGLISH INPUT: “How about if I sleep a little bit longer and forget all this nonsense”, he thought, but that was something he was unable to do because he was used to sleeping on his right, and in his present state couldn’t get into that position.
+Final Segments:
+“How about if I sleep
+a little bit longer
+and forget all this nonsense”,
+he thought,
+but that was something
+he was unable to do
+because he was used to sleeping
+on his right,
+and in his present state
+couldn’t get into that position.
+
+Here is the text to segment:
+<TEXT_TO_SEGMENT>
+{{TEXT}}
+</TEXT_TO_SEGMENT>

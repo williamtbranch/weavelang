@@ -2,6 +2,7 @@ import argparse
 import logging
 import sys
 import pprint
+from .llm_logger import LLMLogger
 from pathlib import Path
 import re
 from typing import Optional, Dict, Any
@@ -147,6 +148,7 @@ def main():
     except Exception as e:
         logger.critical(f"Failed to load configuration files: {e}"); sys.exit(1)
 
+    llm_logger = LLMLogger(content_project_root / "pipeline_runs" / f"{args.base_lang}-{args.target_lang}" / args.book_to_process / "llm_logs")
     logger.info("Initializing shared resources (this may take a moment)...")
     needed_langs = {args.base_lang, args.target_lang}
     spacy_models, stanza_processors = {}, {}
@@ -156,10 +158,11 @@ def main():
         try:
             spacy_model_name = lang_info.get("spacy_model")
             if spacy_model_name: spacy_models[lang_code] = spacy.load(spacy_model_name, disable=["ner"])
+            #
             if lang_code == 'en':
-                stanza_processors[lang_code] = EnglishStanzaProcessor()
+                stanza_processors[lang_code] = EnglishStanzaProcessor(config, llm_logger)
             elif lang_code == 'es':
-                stanza_processors[lang_code] = SpanishStanzaProcessor()
+                stanza_processors[lang_code] = SpanishStanzaProcessor(config, llm_logger)
         except Exception as e:
             logger.critical(f"Failed to load language processors for '{lang_code}': {e}"); sys.exit(1)
     

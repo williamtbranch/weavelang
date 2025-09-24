@@ -1,36 +1,26 @@
 %level 0 0 0 0
-test
-LesMis
+Metamorphosis
 %level 400 0 0 0
-test
-LesMis
+Metamorphosis
 %level exhausted 0 0 0
-test
-LesMis
+Metamorphosis
 %level exhausted 1000 0 0
-test
-LesMis
+Metamorphosis
 %level exhausted exhausted 0 0
-test
-LesMis
+Metamorphosis
 %level exhausted exhausted 1200 0
-test
-LesMis
+Metamorphosis
 %level exhausted exhausted exhausted 0 
-test
-LesMis
+Metamorphosis
 %level exhausted exhausted exhausted 2000 
-test
-LesMis
+Metamorphosis
 %level exhausted exhausted exhausted exhausted 
-test
-LesMis
+Metamorphosis
 %level 20 0 0 0
-test
-LesMis
+Metamorphosis
 %level 0 423 0 0
-LesMis
-%level 0 37 0 0
-LesMis
-%level 0 44 0 0
-LesMis
+Metamorphosis
+%level 10 0 0 0
+Metamorphosis
+%level 0 10 0 0
+Metamorphosis

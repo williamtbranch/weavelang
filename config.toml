@@ -53,7 +53,10 @@ retry_delay = 7
 # --- Per-Stage Configuration ---
 # This section remains the same.
 [stages]
-
+    [stages.Segmenter]
+    primary_model = "haiku" # Use the key from your [models] section
+    fallback_model = "sonnet"
+    
     [stages.PoolManager_Translation]
     primary_model = "sonnet"
     fallback_model = "sonnet"
@@ -61,37 +64,13 @@ retry_delay = 7
 
     [stages.PoolManager_Simplification]
     primary_model = "sonnet" # You could change this to "haiku" to experiment
-    fallback_model = "sonnet"
+    fallback_model = "opus"
     batch_size_in_items = 20 # Simplification is faster, can use a larger batch
-
-    [stages.InitializeBookTiers]
-    primary_model = "sonnet"
-    fallback_model = "sonnet"
-    batch_size_in_tokens = 2000
-
-    [stages.SimplifyAdvSpanish]
-    primary_model = "sonnet"
-    fallback_model = "sonnet"
-    batch_size_in_tokens = 1500
-
-    [stages.GenerateSimpleSpanish]
-    primary_model = "sonnet"
-    fallback_model = "sonnet"
-    batch_size_in_tokens = 1000
-    
-    [stages.GenerateSimpleTarget]
-    primary_model = "sonnet"
-    fallback_model = "sonnet"
-    batch_size_in_tokens = 1000
 
     [stages.GeneratePhraseMap]
     primary_model = "sonnet"
     fallback_model = "opus"
 
-    [stages.GenerateDiglotMap]
-    primary_model = "sonnet"
-    fallback_model = "sonnet"
-    batch_size_in_tokens = 1000
 
     [stages.GenerateInverseDiglotMap]
     primary_model = "sonnet"

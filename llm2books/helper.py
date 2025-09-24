@@ -27,63 +27,164 @@ def create_golden_token_stream(nlp_doc: Any) -> List[Dict[str, Any]]:
     if not source_text:
         return []
 
-    if isinstance(nlp_doc, SpacyDoc):
-        token_iterator, get_start_char, get_end_char, get_type = nlp_doc, lambda tok: tok.idx, lambda tok: tok.idx + len(tok.text), lambda tok: 'w' if not tok.is_punct and not tok.is_space else 'b'
-    elif isinstance(nlp_doc, stanza.models.common.doc.Sentence):
-        token_iterator, get_start_char, get_end_char, get_type = [word for token in nlp_doc.tokens for word in token.words], lambda word: word.start_char, lambda word: word.end_char, lambda word: 'w' if word.upos != 'PUNCT' else 'b'
-    else: raise TypeError(f"Unsupported NLP document type for golden stream: {type(nlp_doc)}")
-    
     raw_stream = []
-    last_idx = 0
-    for token in token_iterator:
-        start_char, end_char = get_start_char(token), get_end_char(token)
-        if start_char is None or end_char is None: continue
-        if start_char > last_idx:
-            raw_stream.append({'t': 'b', 'v': source_text[last_idx:start_char]})
-        raw_stream.append({'t': get_type(token), 'v': source_text[start_char:end_char]})
-        last_idx = end_char
-    if last_idx < len(source_text):
-        raw_stream.append({'t': 'b', 'v': source_text[last_idx:]})
+    source_pointer = 0
+
+    # Get the raw tokens/words from the NLP library
+    components = nlp_doc.words if isinstance(nlp_doc, stanza.models.common.doc.Sentence) else nlp_doc
+    
+    for component in components:
+        start_char = component.start_char if isinstance(nlp_doc, stanza.models.common.doc.Sentence) else component.idx
+        end_char = component.end_char if isinstance(nlp_doc, stanza.models.common.doc.Sentence) else component.idx + len(component.text)
+
+        # 1. Consume any background text between the last pointer and the start of this component.
+        if start_char > source_pointer:
+            raw_stream.append({'t': 'b', 'v': source_text[source_pointer:start_char]})
+        
+        component_text = source_text[start_char:end_char]
+        
+        # 2. Character-level state machine for the component's text itself.
+        # This correctly handles cases like "said,".
+        is_word_char = lambda char: char.isalnum() or char in "'-’"
+        
+        current_type = 'w' if component_text and is_word_char(component_text[0]) else 'b'
+        buffer = ""
+        for char in component_text:
+            char_is_word = is_word_char(char)
+            if (char_is_word and current_type == 'w') or (not char_is_word and current_type == 'b'):
+                buffer += char
+            else:
+                # Type changed, flush the buffer and start a new one.
+                raw_stream.append({'t': current_type, 'v': buffer})
+                buffer = char
+                current_type = 'w' if char_is_word else 'b'
+        
+        # Flush the final buffer for this component
+        if buffer:
+            raw_stream.append({'t': current_type, 'v': buffer})
+
+        source_pointer = end_char
+
+    # 3. Consume any final trailing text.
+    if source_pointer < len(source_text):
+        raw_stream.append({'t': 'b', 'v': source_text[source_pointer:]})
 
     if not raw_stream: return []
 
-    # First merge pass for consecutive types
-    merged_stream = [raw_stream[0]]
-    for token in raw_stream[1:]:
+    # 4. Post-processing: Fuse first, then merge.
+    fused_stream = fuse_tokens(raw_stream)
+
+    merged_stream = [fused_stream[0]] if fused_stream else []
+    for token in fused_stream[1:]:
         if token['t'] == merged_stream[-1]['t']:
             merged_stream[-1]['v'] += token['v']
         else:
             merged_stream.append(token)
-    
-    # --- THIS IS THE FINAL FIX ---
-    # Now, fuse the stream to handle contractions and hyphens correctly.
-    fused_stream = fuse_tokens(merged_stream)
-    
-    # Ensure the BWBWB invariant on the final, fused stream.
-    if not fused_stream: return [{'t': 'b', 'v': ''}]
-    if fused_stream[0].get('t') == 'w':
-        fused_stream.insert(0, {'t': 'b', 'v': ''})
-    if fused_stream[-1].get('t') == 'w':
-        fused_stream.append({'t': 'b', 'v': ''})
-        
-    return fused_stream
-    # --- END OF FINAL FIX ---
 
+    # 5. Finalize BWBWB structure.
+    final_stream = merged_stream
+    if not final_stream: return [{'t': 'b', 'v': ''}]
+    if final_stream[0].get('t') == 'w':
+        final_stream.insert(0, {'t': 'b', 'v': ''})
+    if final_stream[-1].get('t') == 'w':
+        final_stream.append({'t': 'b', 'v': ''})
+        
+    return final_stream
+# def create_golden_token_stream(nlp_doc: Any) -> List[Dict[str, Any]]:
+#     source_text = nlp_doc.text
+#     if not source_text:
+#         return []
+
+#     raw_stream = []
+#     last_idx = 0
+
+#     # Determine the iterator and properties based on the doc type
+#     if isinstance(nlp_doc, SpacyDoc):
+#         # For SpaCy, we iterate through each token directly.
+#         token_iterator = nlp_doc
+#         get_start_char = lambda tok: tok.idx
+#         get_end_char = lambda tok: tok.idx + len(tok.text)
+#         # Type is based on SpaCy's boolean flags.
+#         get_type = lambda tok: 'w' if not tok.is_punct and not tok.is_space else 'b'
+#     elif isinstance(nlp_doc, stanza.models.common.doc.Sentence):
+#         # For Stanza, we must iterate through the 'words' within each 'token'.
+#         # A 'token' can be a multi-word token (e.g., "del" -> "de", "el").
+#         token_iterator = nlp_doc.words 
+#         get_start_char = lambda word: word.start_char
+#         get_end_char = lambda word: word.end_char
+#         # Type is based on the Universal Part of Speech tag.
+#         get_type = lambda word: 'w' if word.upos != 'PUNCT' else 'b'
+#     else:
+#         raise TypeError(f"Unsupported NLP document type for golden stream: {type(nlp_doc)}")
+    
+#     # --- Universal stream building logic ---
+#     for token in token_iterator:
+#         start_char, end_char = get_start_char(token), get_end_char(token)
+#         if start_char is None or end_char is None: continue
+        
+#         # Capture any text between the last token and this one as background.
+#         if start_char > last_idx:
+#             raw_stream.append({'t': 'b', 'v': source_text[last_idx:start_char]})
+            
+#         # Add the current token with its determined type.
+#         raw_stream.append({'t': get_type(token), 'v': source_text[start_char:end_char]})
+#         last_idx = end_char
+
+#     # Capture any trailing text.
+#     if last_idx < len(source_text):
+#         raw_stream.append({'t': 'b', 'v': source_text[last_idx:]})
+
+#     if not raw_stream: return []
+
+#     # --- Post-processing: Merge, Fuse, and ensure BWBWB ---
+#     # This part of the logic is sound and remains the same.
+#     merged_stream = [raw_stream[0]]
+#     for token in raw_stream[1:]:
+#         if token['t'] == merged_stream[-1]['t']:
+#             merged_stream[-1]['v'] += token['v']
+#         else:
+#             merged_stream.append(token)
+    
+#     fused_stream = fuse_tokens(merged_stream)
+    
+#     if not fused_stream: return [{'t': 'b', 'v': ''}]
+#     if fused_stream[0].get('t') == 'w':
+#         fused_stream.insert(0, {'t': 'b', 'v': ''})
+#     if fused_stream[-1].get('t') == 'w':
+#         fused_stream.append({'t': 'b', 'v': ''})
+        
+#     return fused_stream
 
 def fuse_tokens(raw_tokens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Revised fuser to handle W-B-W patterns AND Stanza's W-W output for contractions.
+    """
     if not raw_tokens:
         return []
 
     tokens = list(raw_tokens)
     i = 0
     while i < len(tokens) - 1:
+        current = tokens[i]
+        next_tok = tokens[i+1]
+
+        # Case 1: SpaCy's don't -> don, n't (W-B-W with empty B)
         if i + 2 < len(tokens):
-            current, background, next_word = tokens[i], tokens[i+1], tokens[i+2]
+            background = tokens[i+1]
+            next_word = tokens[i+2]
             if (current.get("t") == "w" and background.get("t") == "b" and
                 next_word.get("t") == "w" and background.get("v") in ["", "-"]):
                 current["v"] += background["v"] + next_word["v"]
                 del tokens[i+2]; del tokens[i+1]
-                continue
+                continue # Re-evaluate the same index i with the newly fused token
+        
+        # Case 2: Stanza's It's -> It, 's (W-W)
+        if current.get("t") == "w" and next_tok.get("t") == "w" and \
+           next_tok.get("v", "").startswith("'") or next_tok.get("v", "").startswith("’"):
+           current["v"] += next_tok["v"]
+           del tokens[i+1]
+           continue
+
         i += 1
     return tokens
 

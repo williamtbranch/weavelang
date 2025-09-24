@@ -9,6 +9,23 @@ class LLMLogger:
         self.log_dir = log_dir
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self._system_prompts_logged = set()
+    
+    def log_validation_failure(self, job_name: str, original_text: str, corrupted_output: str, reason: str):
+        """Logs segmentation validation failures to a dedicated file."""
+        log_file = self.log_dir / f"{job_name}.validation_fails.log"
+        try:
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write("=" * 80 + "\n")
+                f.write(f"VALIDATION FAILED: {reason}\n")
+                f.write("-" * 80 + "\n")
+                f.write("Original Text:\n")
+                f.write(original_text + "\n")
+                f.write("-" * 80 + "\n")
+                f.write("Corrupted LLM Output:\n")
+                f.write(corrupted_output + "\n")
+                f.write("=" * 80 + "\n\n")
+        except IOError as e:
+            logger.warning(f"Could not write to validation log file {log_file.name}: {e}")
 
     def log_batch(self, job_name: str, batch_num: int, system_prompt: str, user_prompt: str, response: str):
         log_file = self.log_dir / f"{job_name}.log"
