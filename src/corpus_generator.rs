@@ -9,25 +9,37 @@ use crate::simulation::{
     numerical_types::{NumericalChapter, NumericalLearnerProfile, NumericalProcessedSentence, VLevelRecipe},
     preprocessor, text_generator,
 };
-use crate::{parsing::json_parser, types::json_types::JsonChapter, JsonContentBlock}; // Added JsonChapter
+use crate::{parsing::json_parser, types::json_types::JsonChapter, JsonContentBlock};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
-use std::path::{Path}; // Removed PathBuf as it's not needed directly here
+use std::path::{Path};
 
-// --- NEW PUBLIC STRUCT TO HOLD SIMULATION RESULTS ---
+// --- NEW ENUM FOR SEGMENT TYPES ---
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum SegmentType {
+    AdvancedSpanish,
+    ModerateSpanish,
+    BasicSpanish,
+    SimpleSpanish,
+    InverseDiglot,
+    EnglishDiglot,
+}
+
+// --- UPDATED STRUCT TO HOLD SIMULATION RESULTS ---
 #[derive(Debug, Clone, Default)]
 pub struct BookGenerationResult {
     pub all_output_lemma_instances: Vec<String>,
     pub total_target_words: usize,
     pub total_base_words: usize,
     pub level_stats: HashMap<OutputLevel, usize>,
+    // --- NEW FIELD FOR DETAILED STATS ---
     pub segment_stats: HashMap<SegmentType, usize>,
     pub final_text_parts: Vec<String>,
 }
 
-// --- NEW PUBLIC, REUSABLE SIMULATION FUNCTION ---
+// --- UPDATED SIMULATION FUNCTION ---
 pub fn generate_book_instance(
     numerical_chapter: &NumericalChapter,
     json_chapter: &JsonChapter,
@@ -41,10 +53,8 @@ pub fn generate_book_instance(
 ) -> Result<BookGenerationResult, Box<dyn Error>> {
     let mut result = BookGenerationResult::default();
     
-    // The profile is for L1 fallbacks in a real curriculum run.
     let mut profile = NumericalLearnerProfile::new();
     let ordered_lemmas = frequency_manager::get_ordered_lemmas();
-    // In a real run, the profile is based on the highest V-level.
     let max_v_level = *[sim_v, bas_v, mod_v, adv_v].iter().max().unwrap_or(&0);
     if max_v_level < u32::MAX {
         for lemma_str in ordered_lemmas.iter().take(max_v_level as usize) {
@@ -54,7 +64,6 @@ pub fn generate_book_instance(
         }
     }
 
-    // --- CONSTRUCT THE RECIPE HERE ---
     let v_levels = VLevelRecipe {
         sim: sim_v,
         bas: bas_v,
@@ -66,9 +75,9 @@ pub fn generate_book_instance(
         let mut n_sentence_clone = n_sentence.clone();
         let output = core_algo::determine_and_annotate_sentence_expression(
             &mut n_sentence_clone,
-            &profile, // The profile is passed for L1 logic
+            &profile,
             dictionary,
-            &v_levels, // The recipe is passed for L0 logic
+            &v_levels,
             inverse_diglot_threshold,
         );
         for &lemma_id in &output.lemma_ids {
@@ -95,6 +104,7 @@ pub fn generate_book_instance(
         result.final_text_parts.push(generated_text);
         *result.level_stats.entry(output.level).or_insert(0) += 1;
 
+        // --- THIS IS THE NEW LOGIC TO POPULATE SEGMENT STATS ---
         if let OutputLevel::AdvancedWeave = output.level {
             if let Some(choices) = &output.l0_segment_choices {
                 for choice in choices {
@@ -110,28 +120,22 @@ pub fn generate_book_instance(
                 }
             }
         } else {
-            *result.segment_stats.entry(SegmentType::EnglishDiglot).or_insert(0) += 1;
+            // L1 SimpleHybrid sentences are composed entirely of English Diglot segments.
+            let segment_count = n_sentence.base_tier_tokenized.len();
+            *result.segment_stats.entry(SegmentType::EnglishDiglot).or_insert(0) += segment_count;
         }
+        // --- END OF NEW LOGIC ---
     }
 
     Ok(result)
 }
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum SegmentType {
-    AdvancedSpanish,
-    ModerateSpanish,
-    BasicSpanish,
-    SimpleSpanish,
-    InverseDiglot,
-    EnglishDiglot,
-}
-
+// --- UPDATED LOGGING FUNCTION ---
 fn log_analysis_to_file(
     log_file_path: &Path,
     book_instance_unique_id: &str,
-    result: &BookGenerationResult, // <-- Simplified to take the result struct
+    result: &BookGenerationResult,
     avd_score: f64,
 ) -> Result<(), std::io::Error> {
     let mut file = OpenOptions::new()
@@ -163,7 +167,37 @@ fn log_analysis_to_file(
         writeln!(file, "    L0 Advanced Weave: {:>5} sentences ({:>6.2}%)", l0_count, (l0_count as f32 / total_sentences_float) * 100.0)?;
         writeln!(file, "    L1 Simple Hybrid:  {:>5} sentences ({:>6.2}%)", l1_count, (l1_count as f32 / total_sentences_float) * 100.0)?;
     }
-    // ... (rest of logging logic remains similar, but pulls from `result` struct)
+    
+    // --- THIS IS THE NEWLY RESTORED LOGGING SECTION ---
+    let total_segments = result.segment_stats.values().sum::<usize>();
+    if total_segments > 0 {
+        writeln!(file, "\n  Segment Type Distribution (Total: {} segments):", total_segments)?;
+        let total_segments_float = total_segments as f32;
+
+        // Use a fixed order for consistent logging
+        let ordered_segment_types = [
+            (SegmentType::AdvancedSpanish, "Adv. Target Segments"),
+            (SegmentType::ModerateSpanish, "Mod. Target Segments"),
+            (SegmentType::BasicSpanish, "Bas. Target Segments"),
+            (SegmentType::SimpleSpanish, "Sim. Target Segments"),
+            (SegmentType::InverseDiglot, "Inv. Diglot Segments"),
+            (SegmentType::EnglishDiglot, "Base Diglot Segments"),
+        ];
+
+        for (seg_type, label) in ordered_segment_types {
+            if let Some(count) = result.segment_stats.get(&seg_type) {
+                writeln!(
+                    file,
+                    "    {:<20} {:>5} segments ({:>6.2}%)",
+                    label,
+                    count,
+                    (*count as f32 / total_segments_float) * 100.0
+                )?;
+            }
+        }
+    }
+    // --- END OF NEW LOGGING SECTION ---
+    
     writeln!(file, "----------------------------------------------------------------------\n")?;
 
     Ok(())
@@ -185,7 +219,6 @@ fn parse_level_value(s: &str) -> u32 {
     }
 }
 
-// --- REFACTORED run_corpus_generation ---
 pub fn run_corpus_generation(
     project_config: &Config,
     tool_root_dir: &Path,
@@ -225,7 +258,6 @@ pub fn run_corpus_generation(
         let book_stem = line;
         println!("\n--- Processing Book: {} ---", book_stem);
 
-        // --- Data Loading (done once per book) ---
         let json_file_path = project_config.content_project_dir_path().join(input_json_dir).join(format!("{}.json", book_stem));
         let json_content = fs::read_to_string(&json_file_path)?;
         let json_chapter = json_parser::parse_chapter_from_json(&json_content)?;
@@ -233,14 +265,12 @@ pub fn run_corpus_generation(
         dictionary.populate_from_json_chapter(&json_chapter);
         let (numerical_chapter, _) = preprocessor::json_chapter_to_numerical(&json_chapter, &mut dictionary);
 
-        // --- Call the core simulation engine ---
         let result = generate_book_instance(
             &numerical_chapter, &json_chapter, &dictionary,
             state.sim_v, state.bas_v, state.mod_v, state.adv_v,
             inverse_diglot_threshold, debug_markers,
         )?;
 
-        // --- Handle Results (File I/O) ---
         let metrics = TextMetrics::new(&result.all_output_lemma_instances, result.total_base_words);
         let avd_score = metrics.calculate_avd_score();
 

@@ -436,16 +436,38 @@ class PoolManager:
                         buckets[seg_idx].append(token)
                         if token['t'] == 'w': b_idx = seg_idx
                 
+                if s_id == "S15": # Only print for our problem sentence
+                    print(f"\n--- DEBUG START for {s_id} in pool_manager.py ---")
+                    print("Tokens in buckets BEFORE boundary fix:")
+                    for i, bucket in enumerate(buckets):
+                        bucket_text = "".join(tok['v'] for tok in bucket)
+                        print(f"  Bucket {i+1}: '{bucket_text}'")
+                        if i < len(buckets) - 1 and buckets[i]:
+                            print(f"    -> Last token: {buckets[i][-1]}")
                 for i in range(num_segments - 1):
                     if buckets[i] and buckets[i+1]:
                         if buckets[i][-1]['t'] == 'w': buckets[i].append({'t':'b', 'v':''})
                         if buckets[i+1][0]['t'] == 'w': buckets[i+1].insert(0, {'t':'b', 'v':''})
                         b1, b2 = buckets[i][-1], buckets[i+1][0]
+                        if s_id == "S15":
+                            print(f"\n  Fixing boundary between Bucket {i+1} and {i+2}:")
+                            print(f"    b1 (from Bucket {i+1}): {b1}")
+                            print(f"    b2 (from Bucket {i+2}): {b2}")
                         combined = b1['v'] + b2['v']
                         split_idx = combined.find(' ')
                         if split_idx != -1: b1['v'], b2['v'] = combined[:split_idx + 1], combined[split_idx + 1:]
                         else: b1['v'], b2['v'] = combined, ""
+                        if s_id == "S15":
+                            print(f"    Combined: '{combined}' | Split Index: {split_idx}")
+                            print(f"    NEW b1: {b1}")
+                            print(f"    NEW b2: {b2}")
 
+                if s_id == "S15":
+                    print("\nTokens in buckets AFTER boundary fix:")
+                    for i, bucket in enumerate(buckets):
+                        bucket_text = "".join(tok['v'] for tok in bucket)
+                        print(f"  Bucket {i+1}: '{bucket_text}'")
+                    print(f"--- DEBUG END for {s_id} ---\n")
                 segments_data, all_lemmas, di_counter = [], set(), 0
                 for i, bucket in enumerate(buckets):
                     seg_text = "".join(tok['v'] for tok in bucket)

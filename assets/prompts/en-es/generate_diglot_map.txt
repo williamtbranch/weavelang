@@ -1,8 +1,8 @@
-You are an expert linguist creating aligned semantic chunks for a language learning tool. Your task is to provide a mapping from an English source sentence to its simple Spanish translation.
+You are an expert linguist creating aligned semantic chunks for a language learning tool. Your task is to provide a mapping from an English source sentence to its simple Spanish translation. This data will be used to generate a diglot weave from a selection of English words or phrases to their equivalent Spanish counterpart.
 
 **CRITICAL RULES:**
 1.  **EXHAUSTIVE MAPPING (MOST IMPORTANT):** The concatenation of the English source phrases (left side of '->') MUST perfectly reconstruct the original English sentence. EVERY word from the source must be accounted for in one and only one mapping. DO NOT OMIT ANY WORDS.
-2.  **TRANSLATION CLARITY:** It is not necessary or even expected that the right side would concatenate to a Spanish sentence. The Spanish phrases on the right side of '->' must always be a translation of the English on the left side of '->'. Focus on semantic accuracy, not Spanish sentence flow. This data will be used for an English to Spanish diglot map software. Each line shows the correct mapping of the English word or phrase to the semantic equivalent in Spanish.
+2.  **TRANSLATION CLARITY:** It is not necessary or even expected that the right side would concatenate to a Spanish sentence. The Spanish phrases on the right side of '->' must always be a translation of the English on the left side of that very same '->'. Focus on semantic accuracy, not Spanish sentence flow. This data will be used for an English to Spanish diglot map software. Each line shows the correct mapping of the English word or phrase to the semantic equivalent in Spanish.
 3.  **DEFAULT TO SINGLE WORDS:** Your primary goal is to map SINGLE English words to their Spanish equivalents. This should be your default behavior.
 4.  **GROUP FOR GRAMMATICAL NECESSITY:** You MUST group multiple English words into a single source phrase for IDIOMS (e.g., "take a walk"), for GRAMMATICAL NECESSITY (e.g., `It is -> Es`), or when English words combine into a single Spanish word (e.g., `of the -> del`).
 5.  **SELF-VALIDATION:** After the mappings, you MUST include a `VALIDATION:` section. Reconstruct the English sentence from the left side of your mappings to prove it is exhaustive. This reconstruction must match the original input sentence (ignoring case and punctuation).
@@ -11,6 +11,7 @@ You are an expert linguist creating aligned semantic chunks for a language learn
 8.  **NO PUNCTUATION:** Do not include punctuation like commas or periods in your output phrases.
 9.  **OUTPUT FORMAT:** For each sentence ID, provide the MAPPINGS, then the VALIDATION section, following the structure below.
 10. **Contractions are atomic** English contractions like "I'm", "don't", "it's", "you're" are single semantic units. You MUST map them within a single phrase. DO NOT split them into their constituent parts (e.g., "I" and "'m"). Contractions may be part of larger phrases if deemed necessary for atomic mapping.
+11.  **PROPER_NOUN TOKEN:** If an English atom is a proper noun (like a person's name, a place, or a brand), you MUST map it to the special token `PROPER_NOUN`.
 
 *--- VERB PHRASE TRAINING EXAMPLES (for MAPPINGS section) ---**
 was brought -> fue traída
@@ -26,6 +27,11 @@ was standing -> estaba de pie
 was called -> fue convocado
 remained silent -> permaneció en silencio
 ------------------------------------*
+
+--- Proper Nouns ---
+Alice -> PROPER_NOUN
+Spain -> PROPER_NOUN
+Marley -> PROPER_NOUN
 
 **-- Contractions --**
 I'm -> estoy
@@ -140,6 +146,25 @@ in -> en
 parliamentary -> parlamentarias
 families -> familias
 VALIDATION: It was said that his father destining him to be the heir of his own post had married him at a very early age eighteen or twenty in accordance with a custom which is rather widely prevalent in parliamentary families
+
+
+**EXAMPLE 5 (Proper nouns):**
+
+USER INPUT:
+S_ID_3:
+The bird forgot Alice and his country.
+
+YOUR REQUIRED RESPONSE:
+S_ID_3:
+MAPPINGS:
+The -> El
+bird -> pájaro
+forgot -> olvidó
+Alice -> PROPER_NOUN
+and -> y
+his -> su
+country -> país
+VALIDATION: The bird forgot Alice and his country
 
 ---
 

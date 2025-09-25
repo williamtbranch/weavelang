@@ -60,18 +60,23 @@ class FinalizeBook(Stage):
                 if "golden_token_stream" in block:
                     del block["golden_token_stream"]
                 
+                #
                 for tier in block.get("tiers", []):
+                    for seg in tier.get("segments", []):
+                        # 1. Universally rebuild the 'text' field from tokens.
+                        #    This synchronizes the data just before validation.
+                        if "tokenized_text" in seg:
+                            seg["text"] = "".join(t.get("v", "") for t in seg["tokenized_text"])
+
+                # This second loop now ONLY handles token stripping and key cleanup.
+                for tier in block.get("tiers", []):
+                    # 2. Conditionally strip tokens from the higher tiers.
                     if tier["tier_id"] in tiers_to_strip_tokenized_text:
                         for seg in tier.get("segments", []):
-                            # --- THIS IS THE FIX ---
-                            # 1. Explicitly build the 'text' field from the tokens.
-                            if "tokenized_text" in seg:
-                                seg["text"] = "".join(t.get("v", "") for t in seg["tokenized_text"])
-                            # 2. THEN delete the token list.
                             if "tokenized_text" in seg:
                                 del seg["tokenized_text"]
-                            # --- END OF FIX ---
                     
+                    # 3. Universally clean up temporary keys from tokens.
                     for seg in tier.get("segments", []):
                         if "tokenized_text" in seg: # Check again in case it wasn't stripped
                             for token in seg.get("tokenized_text", []):

@@ -18,10 +18,18 @@ RULES:
 11. **No Extra Text:** Do not include any other text or explanations.
 12. **Verb Conjugations:** The English translation MUST accurately reflect the tense, mood, and person of the Spanish verb.
 13. **Provide a Validation line** after each set of mappings with the Spanish words you just mapped in the order of your mapping that should contain the same words in the input sentence and in the same order as the input sentence.
+14. **PROPER_NOUN TOKEN:** If a Spanish atom is a proper noun (like a person's name, a place, or a brand), you MUST map it to the special token `PROPER_NOUN`.
 
 ---
 FOCUSED EXAMPLES:
 This section provides examples of specific patterns you must follow.
+
+
+--- Proper Nouns ---
+Alicia -> PROPER_NOUN
+España -> PROPER_NOUN
+Marley -> PROPER_NOUN
+Gregor -> PROPER_NOUN
 
 --- Reflexive Verbs and Attached Pronouns ---
 se enojó -> became angry
@@ -62,6 +70,7 @@ This section shows how to correctly group for natural English.
 --- EXAMPLE 1: `de manera muy sola` ---
 USER INPUT:
 S_ID_X: y vivía de manera muy sola
+
 BAD MAPPING (Too literal):
 y -> and
 vivía -> he lived
@@ -69,6 +78,7 @@ de -> of
 manera -> manner
 muy -> very
 sola -> alone
+
 GOOD MAPPING (Natural and grouped):
 y -> and
 vivía -> he lived
@@ -77,12 +87,14 @@ de manera muy sola -> very solitarily
 --- EXAMPLE 2: The "Personal A" with an Adverb ---
 USER INPUT:
 S_ID_Y: Ella quería mucho a esta persona
+
 BAD MAPPING (Causes errors by leaving 'a' stranded):
 Ella -> She
 quería mucho -> loved dearly
 a -> 
 esta -> this
 persona -> person
+
 GOOD MAPPING (Correctly absorbs the 'a' with the verb phrase):
 Ella -> She
 quería mucho a -> loved dearly
@@ -92,6 +104,7 @@ persona -> person
 --- EXAMPLE 3: Using NO_SUB as an escape valve ---
 USER INPUT:
 S_ID_Z: El hombre vio a la mujer
+
 ACCEPTABLE MAPPING (Grouping is preferred, but this is valid):
 El -> The
 hombre -> man
@@ -99,6 +112,7 @@ vio -> saw
 a -> NO_SUB
 la -> the
 mujer -> woman
+
 GOOD MAPPING (The best approach is to group):
 El -> The
 hombre -> man
@@ -113,7 +127,7 @@ I will provide an input like this under the "USER INPUT:" section.
 
 USER INPUT:
 S_ID_1:
-Entonces el segundo hijo recibió la orden de vigilar.
+Entonces el segundo hijo Pedro recibió la orden de vigilar.
 
 YOUR REQUIRED RESPONSE:
 S_ID_1:
@@ -122,6 +136,7 @@ Entonces -> Then
 el -> the
 segundo -> second
 hijo -> son
+Pedro -> PROPER_NOUN
 recibió la orden -> was told
 de vigilar -> to keep watch
 VALIDATION: Entonces el segundo hijo recibió la orden de vigilar

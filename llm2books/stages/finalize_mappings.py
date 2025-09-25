@@ -39,7 +39,11 @@ class FinalizeMappings(SpaCyStage):
                     new_entries = []
                     for entry in entries:
                         base_di, _, target_phrase, is_viable = entry
-                        
+                        #    
+                        is_proper_noun = False
+                        if target_phrase.upper() == "PROPER_NOUN":
+                            is_proper_noun = True
+                            is_viable = False # Ensure it's never considered for substitutionu
                         lemmas_list = []
                         if is_viable and target_phrase:
                             doc = spacy_target(target_phrase)
@@ -54,7 +58,7 @@ class FinalizeMappings(SpaCyStage):
                         if base_token:
                             eng_word_count = len(base_token.get("v", "").split())
                         
-                        new_entries.append([base_di, lemmas_list, target_phrase, is_viable, eng_word_count])
+                        new_entries.append([base_di, lemmas_list, target_phrase, is_viable, eng_word_count, is_proper_noun])
                     
                     diglot_map[seg_id] = new_entries
 

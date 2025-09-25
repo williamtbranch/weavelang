@@ -214,13 +214,19 @@ pub fn determine_and_annotate_sentence_expression(
             let is_metadata_token = entry.exact_spa_form_original == "PROPER_NOUN"
                 || entry.exact_spa_form_original == "NO_SUB";
             
-            // L1 now correctly checks against the real-world learner profile
-            if !is_metadata_token && entry.viable && profile.are_lemmas_active(&entry.spa_lemma_ids) {
+            // --- THIS IS THE NEW LOGIC ---
+            // The L1 fallback will render the Spanish form ("Alicia") ONLY IF:
+            // 1. It's not a metadata token (like NO_SUB).
+            // 2. The entry is marked as viable.
+            // 3. The learner knows the required lemmas for the Spanish word.
+            // 4. AND the original base word was NOT a proper noun.
+            if !is_metadata_token && entry.viable && profile.are_lemmas_active(&entry.spa_lemma_ids) && !entry.is_base_token_pn {
                 final_parts.push(entry.exact_spa_form_original.clone());
                 l1_collected_lemma_ids.extend(&entry.spa_lemma_ids);
                 spanish_words += entry.exact_spa_form_original.split_whitespace().count();
                 substituted = true;
             }
+            // --- END OF NEW LOGIC ---
         }
 
         if !substituted {
@@ -228,7 +234,6 @@ pub fn determine_and_annotate_sentence_expression(
             english_words += token.value.split_whitespace().count();
         }
     }
-
     ChosenLevelOutput {
         level: OutputLevel::SimpleHybrid,
         lemma_ids: l1_collected_lemma_ids,

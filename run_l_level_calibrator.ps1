@@ -44,18 +44,19 @@ Write-Host "---"
 
 
 # --- Step 3: Define paths and arguments for the L-Level Calibrator ---
+$BookStem = "Metamorphosis"
 
 $ExecutablePath = ".\target\release\weavelang_rust_gui.exe"
 $ContentProjectPath = "E:/Bill/Documents/development/audiolingual"
 
 # The book we are calibrating. This file MUST exist.
-$BookJsonFile = "$ContentProjectPath/library/LesMis.json"
+$BookJsonFile = "$ContentProjectPath/library/$($BookStem).json"
 
 # The INPUT for this run is the output from Stage A.
 #$LLevelDataFile = "$ContentProjectPath/generated_profiles/LesMis_l_level_data.json"
 
 # The FINAL output file containing the U-Level map.
-$FinalULevelMapFile = "$ContentProjectPath/generated_profiles/LesMis_u_level_map.json"
+$FinalULevelMapFile = "$ContentProjectPath/generated_profiles/$($BookStem)_u_level_map.json"
 
 # The temporary output file for our L-Level tables.
 $TempOutputFile = "$ContentProjectPath/generated_profiles/LesMis_l_level_data.json"

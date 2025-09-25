@@ -1,26 +1,12 @@
-%level 0 0 0 0
-Metamorphosis
-%level 400 0 0 0
-Metamorphosis
-%level exhausted 0 0 0
-Metamorphosis
-%level exhausted 1000 0 0
-Metamorphosis
-%level exhausted exhausted 0 0
-Metamorphosis
-%level exhausted exhausted 1200 0
-Metamorphosis
-%level exhausted exhausted exhausted 0 
-Metamorphosis
-%level exhausted exhausted exhausted 2000 
-Metamorphosis
-%level exhausted exhausted exhausted exhausted 
-Metamorphosis
-%level 20 0 0 0
-Metamorphosis
-%level 0 423 0 0
-Metamorphosis
 %level 10 0 0 0
-Metamorphosis
-%level 0 10 0 0
-Metamorphosis
+test
+%level 50 0 0 0
+test
+%level 100 0 0 0
+test
+%level 500 0 0 0
+test
+%level 1000 0 0 0
+test
+%level 2000 0 0 0
+test

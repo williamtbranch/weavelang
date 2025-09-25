@@ -145,7 +145,7 @@ pub fn json_sentence_to_numerical(
                 s_segment_id_str: seg_id.clone(),
                 entries: entries
                     .iter()
-                    .map(|(base_di, lemmas, form, viable, eng_wc)| {
+                    .map(|(base_di, lemmas, form, viable, eng_wc, is_pn)| {
                         let base_word = base_tier.segments.iter().flat_map(|s| &s.tokenized_text)
                             .find(|t| t.diglot_index == Some(*base_di)).map_or("", |t| &t.value);
                         NumericalDiglotEntry {
@@ -155,6 +155,7 @@ pub fn json_sentence_to_numerical(
                             exact_spa_form_original: form.clone(),
                             viable: *viable,
                             eng_word_count: *eng_wc,
+                            is_base_token_pn: *is_pn, // Store the new flag
                         }
                     })
                     .collect(),

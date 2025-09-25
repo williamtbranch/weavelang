@@ -12,7 +12,8 @@ class ApplyPhraseMappings(SpaCyStage):
     - Uses a unified parser to create "semantic atoms" from noisy LLM data.
     - Sanitizes the atoms against segment and punctuation boundaries.
     - Rebuilds the `base` tier by fusing tokens into "virtual tokens".
-    - Creates the final, correctly structured `simple_target_to_base_diglot` map.
+    - Creates the final `simple_target_to_base_diglot` map.
+    - NEW: Creates an internal `_di_fusion_map` for Stage 6 to use.
     """
     def __init__(self, book_stem: str, cli_args: Any, common_resources: Dict[str, Any]):
         super().__init__(
@@ -47,19 +48,24 @@ class ApplyPhraseMappings(SpaCyStage):
                 
                 sanitized_atoms = sanitize_atoms(s_id, initial_atoms, base_tier)
 
-                new_base_tier, new_diglot_map = self._rebuild_base_tier_and_map(base_tier, sanitized_atoms)
+                # --- THIS FUNCTION NOW RETURNS THE FUSION MAP AS WELL ---
+                new_base_tier, new_diglot_map, di_fusion_map = self._rebuild_base_tier_and_map(base_tier, sanitized_atoms)
 
                 self._validate_reconstruction(s_id, base_tier, new_base_tier)
                 
-                # Replace the old tier with the new one IN-PLACE for validation
                 for i, tier in enumerate(block["tiers"]):
                     if tier["tier_id"] == "base":
                         block["tiers"][i] = new_base_tier
                         break
                 
-                block["mappings"]["simple_target_to_base_diglot"] = new_diglot_map
-                if "raw_phrase_map" in block["mappings"]:
-                    del block["mappings"]["raw_phrase_map"] 
+                mappings = block.setdefault("mappings", {})
+                mappings["simple_target_to_base_diglot"] = new_diglot_map
+                
+                # --- SAVE THE NEW MAP FOR STAGE 6 ---
+                mappings["_internal_di_fusion_map"] = di_fusion_map
+
+                if "raw_phrase_map" in mappings:
+                    del mappings["raw_phrase_map"] 
 
                 block.setdefault("processing_status", {})[self.stage_name] = "COMPLETED"
 
@@ -69,20 +75,17 @@ class ApplyPhraseMappings(SpaCyStage):
                 self._save_output_data(data, "PARTIAL_FAILED")
                 raise
         
-        # --- RE-ADD VALIDATION STEP ---
-        # Add the check here to fail fast, before saving the corrupted output.
         logger.info("      -> Running in-stage validation for exhaustive diglot mapping...")
         for block in data.get("content_blocks", []):
             if block.get("block_type") == "sentence":
-                # This validation is now active within Stage 4
                 validator.validate_exhaustive_diglot_mapping(block)
         logger.info("      -> In-stage validation passed.")
-        # --- END RE-ADD VALIDATION STEP ---
 
         return data
 
     def _rebuild_base_tier_and_map(self, original_base_tier, sanitized_atoms):
         new_diglot_map = {}
+        di_fusion_map = {} # The new map we are building
         new_base_tier = {
             "tier_id": "base",
             "full_text": original_base_tier['full_text'],
@@ -114,6 +117,7 @@ class ApplyPhraseMappings(SpaCyStage):
                     words_in_atom = len(atom.en_words)
                     words_consumed = 0
                     consumed_text = ""
+                    consumed_dis = [] # Track original DIs
                     temp_cursor = token_cursor
                     
                     while temp_cursor < len(original_tokens) and words_consumed < words_in_atom:
@@ -121,6 +125,7 @@ class ApplyPhraseMappings(SpaCyStage):
                         consumed_text += sub_token['v']
                         if sub_token['t'] == 'w':
                             words_consumed += 1
+                            consumed_dis.append(sub_token['di'])
                         temp_cursor += 1
                     
                     new_seg_tokens.append({'t': 'w', 'v': consumed_text, 'di': atom.di})
@@ -128,6 +133,12 @@ class ApplyPhraseMappings(SpaCyStage):
                     is_viable = atom.es_phrase.upper() != "NO_SUB"
                     map_entries_for_seg.append([atom.di, "TBD", atom.es_phrase, is_viable])
                     
+                    # --- POPULATE THE NEW MAP ---
+                    # Key: starting DI of the new virtual token
+                    # Value: list of original DIs it was made from
+                    if len(consumed_dis) > 1:
+                        di_fusion_map[str(atom.di)] = consumed_dis
+
                     token_cursor = temp_cursor
                 else:
                     new_seg_tokens.append(token)
@@ -145,9 +156,10 @@ class ApplyPhraseMappings(SpaCyStage):
             new_base_tier['segments'].append(new_seg)
             new_diglot_map[original_seg['seg_id']] = map_entries_for_seg
 
-        return new_base_tier, new_diglot_map
+        return new_base_tier, new_diglot_map, di_fusion_map
 
     def _validate_reconstruction(self, s_id: str, original_tier: Dict, new_tier: Dict):
+        # ... (this function is unchanged) ...
         logger.debug(f"S_ID {s_id}: Running reconstruction validation for base tier...")
         if original_tier['full_text'] != new_tier['full_text']:
             raise validator.ValidationError(f"S_ID {s_id}: Full text mismatch after base tier refactor.")

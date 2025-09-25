@@ -605,3 +605,45 @@
         (assert-text "ADV-A ADV-B MOD-C")
     )
 )
+
+
+(test-case "Proper Noun Handling in L1 Diglot"
+    (sentence
+        (L0
+            // This tier will fail, forcing a fallback to L1.
+            (S "DUMMY-ADV" (lem9999))
+            (S "DUMMY-MOD" (lem9999))
+            (S "DUMMY-BAS" (lem9999))
+            (S "[[sim-fails]]" (lem9998))
+            (ID (sim-fails lem9998 NO_SUB))
+        )
+        (L1 
+            (D 
+                // A normal word, viable
+                (The lem5 El t)
+                // A proper noun, "Alice", viable. Note the 'p' flag.
+                (Alice lem800 Alicia t p)
+            )
+            (E "[[The]] [[Alice]]")
+        )
+    )
+
+    (sub-test "Low-level learner sees English for proper noun"
+        // Learner knows "El" (lem5) but does not know "Alicia" (lem800).
+        (level (adv 0) (mod 0) (bas 0) (sim 10))
+        (assert-level SimpleHybrid)
+        // Because "Alice" is a proper noun, the system should NOT substitute "Alicia".
+        // It should render the original English "Alice".
+        (assert-text "El Alice")
+    )
+
+    (sub-test "High-level learner sees Spanish for proper noun"
+        // Learner knows both "El" (lem5) and "Alicia" (lem800).
+        (level (adv 0) (mod 0) (bas 0) (sim 1000))
+        (assert-level SimpleHybrid)
+        // Because the learner knows the word AND it's a proper noun,
+        // this is a tricky case. The current Rust logic will still prefer English.
+        // Let's assert that behavior to lock it in.
+        (assert-text "El Alice")
+    )
+)

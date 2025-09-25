@@ -74,7 +74,7 @@ impl GlobalLemmaDictionary {
                 }
                 for (_, entries) in &s_sentence.mappings.simple_target_to_base_diglot {
                     // The tuple now has 5 elements. We add `_eng_wc` to match the structure.
-                    for (_, lemmas, _, viable, _eng_wc) in entries {
+                    for (_, lemmas, _, viable, _eng_wc, _is_pn) in entries {
                         if *viable {
                             for lemma in lemmas {
                                 self.get_id_or_insert(lemma);

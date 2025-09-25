@@ -131,17 +131,32 @@ pub fn run_unified_calibration(
     println!("     Ladder has {} discrete V-level steps.", ladder.len());
 
     println!("  -> Pre-computing AVD scores for all tiers and ladder steps...");
+    //
     let mut avd_cache: HashMap<TierId, Vec<(u32, f64)>> = HashMap::new();
     let tiers_to_calibrate = [TierId::Simple, TierId::Basic, TierId::Moderate, TierId::Advanced];
+    let total_ladder_steps = ladder.len(); // Get total steps for percentage
 
     for tier_id in tiers_to_calibrate {
         let mut tier_results = Vec::new();
-        for &v_level in &ladder {
+        // --- NEW: Add a loop with progress reporting ---
+        for (i, &v_level) in ladder.iter().enumerate() {
             let avd = generate_and_measure(&numerical_chapter, &json_chapter, &dictionary, tier_id, v_level)?;
             tier_results.push((v_level, avd));
+
+            // Print progress every 50 steps
+            if (i + 1) % 50 == 0 || (i + 1) == total_ladder_steps {
+                print!(
+                    "\r     ...pre-computing for {:?} tier: Step {}/{} ({:.1}%)",
+                    tier_id,
+                    i + 1,
+                    total_ladder_steps,
+                    (i + 1) as f32 / total_ladder_steps as f32 * 100.0
+                );
+                std::io::stdout().flush()?;
+            }
         }
+        println!(); // Newline after each tier is complete
         avd_cache.insert(tier_id, tier_results);
-        println!("     ...completed pre-computation for {:?} tier.", tier_id);
     }
 
     // --- 3. Synthesize L-Level Tables from the cache ---
@@ -304,10 +319,20 @@ fn run_u_level_state_machine(
             recipe: last_good_v_recipe.clone(),
             l_level_recipe: last_good_l_recipe.clone(),
         });
+        println!(
+            "  -> Mapped U-Level {:.1}: Target AVD = {:.2}, Actual AVD = {:.2} (Recipe: sim={}, bas={}, mod={}, adv={})",
+            current_u_level, 
+            target_avd, 
+            last_good_avd,
+            last_good_v_recipe.sim,
+            last_good_v_recipe.bas,
+            last_good_v_recipe.mod_v,
+            last_good_v_recipe.adv
+        );
 
-        if i > 0 && i % 10 == 0 {
-             println!("  -> Mapped U-Level {}.0: Target AVD = {:.2}, Actual AVD = {:.2}", current_u_level, target_avd, last_good_avd);
-        }
+        // if i > 0 && i % 10 == 0 {
+        //      println!("  -> Mapped U-Level {}.0: Target AVD = {:.2}, Actual AVD = {:.2}", current_u_level, target_avd, last_good_avd);
+        // }
 
         if phase == CalibrationPhase::Complete {
              println!("  -> All tiers exhausted. Filling remaining U-Levels with final recipe.");

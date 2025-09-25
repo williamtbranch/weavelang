@@ -188,27 +188,40 @@ fn compile_dsl_sentence_to_numerical(
     }
     
     // --- L1 Processing (Unchanged) ---
-    let l1_eng_tokens: Vec<JsonTokenV2> = test_case.sentence_def.l1_def.segments.iter()
-        .filter_map(|s| if let DslSegmentSpecEnum::English { tokens } = &s.spec { Some(tokens.clone()) } else { None })
+    let l1_diglot_tuples: Vec<_> = test_case.sentence_def.l1_def.segments.iter()
+        .filter_map(|s| if let DslSegmentSpecEnum::Diglot { tuples } = &s.spec { Some(tuples.clone()) } else { None })
         .flatten().collect();
 
+    let propn_lookup: std::collections::HashSet<String> = l1_diglot_tuples.iter()
+        .filter(|tuple| tuple.is_proper_noun)
+        .map(|tuple| tuple.word_to_replace.clone())
+        .collect();
+
+    let l1_eng_tokens: Vec<JsonTokenV2> = test_case.sentence_def.l1_def.segments.iter()
+        .filter_map(|s| if let DslSegmentSpecEnum::English { tokens } = &s.spec { Some(tokens.clone()) } else { None })
+        .flatten()
+        .map(|mut token| {
+            if token.token_type == JsonTokenType::Word && propn_lookup.contains(&token.value) {
+                token.is_pn = Some(true);
+            }
+            token
+        })
+        .collect();
+
     base_tier.segments.push(JsonSegmentV2 {
-        seg_id: "S1".to_string(), // L1/base tier is still treated as a single segment
+        seg_id: "S1".to_string(),
         text: l1_eng_tokens.iter().map(|t| t.value.as_str()).collect(),
         tokenized_text: l1_eng_tokens,
         ..Default::default()
     });
 
-    let l1_diglot_tuples: Vec<_> = test_case.sentence_def.l1_def.segments.iter()
-        .filter_map(|s| if let DslSegmentSpecEnum::Diglot { tuples } = &s.spec { Some(tuples.clone()) } else { None })
-        .flatten().collect();
-
     json_sentence.mappings.simple_target_to_base_diglot.insert(
         "S1".to_string(),
         l1_diglot_tuples.iter().enumerate().map(|(i, t)| {
-            (i, t.replacement_lemmas.clone(), t.replacement_word.clone(), t.is_viable, t.word_to_replace.split_whitespace().count())
+            (i, t.replacement_lemmas.clone(), t.replacement_word.clone(), t.is_viable, t.word_to_replace.split_whitespace().count(), t.is_proper_noun)
         }).collect(),
     );
+
 
     // --- Inverse Diglot Processing (Refactored for Multi-Segment) ---
     let l0_inv_diglot_defs: Vec<_> = test_case.sentence_def.l0_def.segments.iter()

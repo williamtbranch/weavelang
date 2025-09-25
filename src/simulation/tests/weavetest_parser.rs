@@ -55,6 +55,7 @@ pub struct DslDiglotTuple {
     pub replacement_lemmas: Vec<String>,
     pub replacement_word: String,
     pub is_viable: bool,
+    pub is_proper_noun: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -72,7 +73,7 @@ pub enum DslAssertion {
 
 #[derive(pest_derive::Parser)]
 #[grammar = "simulation/tests/generation_tests.pest"]
-pub struct WeaveTestParser;
+pub struct WeaveTestParser; //parser
 
 pub fn parse_weavetest_file(file_content: &str) -> Result<Vec<DslTestCase>, pest::error::Error<Rule>> {
     let file_pair = WeaveTestParser::parse(Rule::test_suite, file_content)?.next().unwrap();
@@ -258,13 +259,23 @@ fn parse_diglot_tuple(pair: Pair<Rule>) -> DslDiglotTuple {
     let combined_lemmas_str = inner.next().unwrap().as_str();
     let replacement_lemmas = combined_lemmas_str.split("__").map(|s| s.to_string()).collect();
     let replacement_word = inner.next().unwrap().as_str().to_string().replace("__", " ");
-    let is_viable = inner.next().map_or(true, |p| p.as_str() == "t");
+    let mut is_viable = true;
+    let mut is_proper_noun = false;
+
+    for flag_pair in inner { // Loop through remaining optional pairs
+        match flag_pair.as_rule() {
+            Rule::viabilityFlag => is_viable = flag_pair.as_str() == "t",
+            Rule::properNounFlag => is_proper_noun = true,
+            _ => unreachable!(),
+        }
+    }
     
     DslDiglotTuple {
         word_to_replace,
         replacement_lemmas,
         replacement_word,
         is_viable,
+        is_proper_noun,
     }
 }
 

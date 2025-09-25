@@ -64,6 +64,7 @@ pub struct NumericalDiglotEntry {
     pub exact_spa_form_original: String,
     pub viable: bool,
     pub eng_word_count: usize,
+    pub is_base_token_pn: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

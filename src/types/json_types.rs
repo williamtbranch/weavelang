@@ -33,6 +33,8 @@ pub struct JsonTokenV2 {
     pub diglot_index: Option<usize>,
     #[serde(default, rename = "l")]
     pub lemmas: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_pn: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -121,7 +123,7 @@ pub struct JsonTierV2 {
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct JsonMappingsV2 {
     #[serde(default)]
-    pub simple_target_to_base_diglot: HashMap<String, Vec<(usize, Vec<String>, String, bool, usize)>>,
+    pub simple_target_to_base_diglot: HashMap<String, Vec<(usize, Vec<String>, String, bool, usize, bool)>>,
     // --- CORRECTED NAME ---
     // The key in the JSON is simple_target_to_base_inv_diglot
     #[serde(default, rename = "simple_target_to_base_inv_diglot")]
