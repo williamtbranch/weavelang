@@ -1,7 +1,7 @@
-// In src/types/json_types.rs
-
+//*** START FILE: src/types/json_types.rs ***//
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use crate::simulation::numerical_types::VLevelRecipe;
 
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct JsonChapterMarkerBlock {
@@ -109,6 +109,15 @@ pub struct JsonBookMetaV2 {
 pub struct JsonChapter {
     pub book_meta: JsonBookMetaV2,
     pub content_blocks: Vec<JsonContentBlock>,
+    #[serde(default)]
+    pub u_level_maps: HashMap<String, JsonCurriculumMap>,
+}
+
+// --- NEW STRUCT FOR SAFE INITIAL PARSING ---
+#[derive(Deserialize, Debug, Clone, Default)]
+pub struct JsonChapterForParsing {
+    pub book_meta: JsonBookMetaV2,
+    pub content_blocks: Vec<JsonContentBlock>,
 }
 
 #[derive(Deserialize, Debug, Clone, Default)]
@@ -124,8 +133,19 @@ pub struct JsonTierV2 {
 pub struct JsonMappingsV2 {
     #[serde(default)]
     pub simple_target_to_base_diglot: HashMap<String, Vec<(usize, Vec<String>, String, bool, usize, bool)>>,
-    // --- CORRECTED NAME ---
-    // The key in the JSON is simple_target_to_base_inv_diglot
     #[serde(default, rename = "simple_target_to_base_inv_diglot")]
     pub adv_target_to_base_inv_diglot: HashMap<String, Vec<(usize, Vec<String>, String, usize)>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct JsonCurriculumMapEntry {
+    pub level: f32,
+    pub start_sentence_idx: usize,
+    pub recipe: VLevelRecipe,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct JsonCurriculumMap {
+    pub end_level: f32,
+    pub map: Vec<JsonCurriculumMapEntry>,
 }

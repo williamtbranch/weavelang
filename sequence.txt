@@ -1,12 +1,4 @@
 %level 10 0 0 0
-test
-%level 50 0 0 0
-test
-%level 100 0 0 0
-test
-%level 500 0 0 0
-test
-%level 1000 0 0 0
-test
-%level 2000 0 0 0
-test
+Metamorphosis
+%u-level 10
+Metamorphosis

@@ -5,10 +5,8 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 logger = logging.getLogger("pipeline")
 
+# ... (Stage and SpaCyStage classes are unchanged) ...
 class Stage(ABC):
-    """
-    Abstract Base Class for a single stage in the WeaveLang processing pipeline.
-    """
     def __init__(
         self,
         book_stem: str,
@@ -77,8 +75,6 @@ class Stage(ABC):
             return None
 
     def _save_output_data(self, data: Dict[str, Any], status: str) -> bool:
-        # This function should only save the data, not modify the status field itself,
-        # as the status is now managed within the blocks.
         print(f"\n--- [DEBUG] Stage '{self.stage_name}' (Number {self.stage_number}) is SAVING to: {self.output_path}\n")
         try:
             with open(self.output_path, "w", encoding="utf-8") as f:
@@ -109,19 +105,26 @@ class SpaCyStage(Stage, ABC):
         logger.info(f"Executing SpaCy Stage {self.stage_number}: {self.stage_name} for '{self.book_stem}'")
         self.stage_output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Check for our own output file first for a quick skip
         if self.output_path.exists():
             try:
                 with open(self.output_path, 'r', encoding='utf-8') as f:
-                    # Quick check to see if the first block is already done for this stage
                     data = json.load(f)
-                    first_block = next((b for b in data.get("content_blocks", [])), None)
-                    if first_block and first_block.get("processing_status", {}).get(self.stage_name) == "COMPLETED":
-                        logger.info("      -> Stage is already marked as 'COMPLETED'. Skipping.")
+                    all_blocks_completed = True
+                    sentence_blocks_found = False
+                    for block in data.get("content_blocks", []):
+                        if block.get("block_type") == "sentence":
+                            sentence_blocks_found = True
+                            if block.get("processing_status", {}).get(self.stage_name) != "COMPLETED":
+                                all_blocks_completed = False
+                                break
+                    
+                    if sentence_blocks_found and all_blocks_completed:
+                        logger.info(f"      -> Stage is already marked as 'COMPLETED' for all blocks. Skipping.")
                         return True
             except (IOError, json.JSONDecodeError):
+                logger.warning(f"      -> Could not parse existing output file for resumability check. Re-running stage.")
                 pass
-
+        
         input_data = self._load_input_data()
         if input_data is None:
             return False
@@ -131,7 +134,7 @@ class SpaCyStage(Stage, ABC):
 
         try:
             output_data = self._process_data(input_data)
-            if output_data is None: # Explicit failure from process_data
+            if output_data is None:
                  return False
         except validator.ValidationError as e:
             logger.error(f"      -> CRITICAL: Data validation failed during stage {self.stage_name}.")
@@ -139,10 +142,10 @@ class SpaCyStage(Stage, ABC):
             return False
         except Exception as e:
             logger.error(f"      -> An unexpected error occurred during the _process_data step for stage {self.stage_name}: {e}")
-            logger.exception("Traceback:") # Added for more detail
+            logger.exception("Traceback:")
             return False
 
-        if self._save_output_data(output_data, "COMPLETED"): # Status is for file metadata, not block data
+        if self._save_output_data(output_data, "COMPLETED"):
             logger.info(f"      -> Successfully completed Stage {self.stage_number}.")
             return True
         else:
@@ -158,23 +161,20 @@ class LLMStage(Stage, ABC):
     def get_system_prompt(self) -> str: pass
 
     @abstractmethod
-    def prepare_llm_items(self, book_data: Dict) -> List[Dict]:
-        """Prepares the list of items to be sent to the LLM."""
-        pass
+    def prepare_llm_items(self, book_data: Dict) -> List[Dict]: pass
 
     @abstractmethod
-    def process_llm_results_for_block(self, block: Dict, llm_results: Dict[str, str]) -> Dict:
-        """Processes LLM results for a single content_block and returns the updated block."""
-        pass
+    def process_llm_results_for_block(self, block: Dict, llm_results: Dict[str, str]) -> Dict: pass
 
-    #
     def run(self) -> bool:
         from ..llm_logger import LLMLogger
         from .. import llm_utils
+        from .. import llm_overrides
 
         logger.info(f"Executing LLM Stage {self.stage_number}: {self.stage_name} for '{self.book_stem}'")
         self.stage_output_dir.mkdir(parents=True, exist_ok=True)
         self.llm_logger_dir.mkdir(parents=True, exist_ok=True)
+        llm_logger = LLMLogger(self.llm_logger_dir)
 
         input_data = self._load_input_data()
         if input_data is None: return False
@@ -186,60 +186,64 @@ class LLMStage(Stage, ABC):
                     input_data = json.load(f)
             except (IOError, json.JSONDecodeError):
                 logger.warning(f"      -> Could not parse existing output file. Re-running.")
+        
+        manual_overrides = llm_overrides.load_manual_overrides(self.stage_name, llm_logger)
+        if manual_overrides:
+            overrides_by_sid = {}
+            for item_id, response_text in manual_overrides.items():
+                s_id = item_id.split('_')[0]
+                overrides_by_sid.setdefault(s_id, {})[item_id] = response_text
+
+            for s_id, llm_results_for_sid in overrides_by_sid.items():
+                block_to_update = next((b for b in input_data['content_blocks'] if b.get('s_id') == s_id), None)
+                if block_to_update:
+                    updated_block = self.process_llm_results_for_block(block_to_update, llm_results_for_sid)
+                    for block_idx, block in enumerate(input_data['content_blocks']):
+                        if block.get('s_id') == s_id:
+                            input_data['content_blocks'][block_idx] = updated_block
+                            break
+            
+            if not self._save_output_data(input_data, "PARTIAL"):
+                logger.error("Failed to save progress after applying manual overrides. Halting.")
+                return False
+            logger.info(f"      -> Applied and saved {len(manual_overrides)} manual fix(es).")
 
         all_possible_items = self.prepare_llm_items(input_data)
-        completed_ids = {
-            item['id'] for item in all_possible_items 
-            if self._is_item_complete(input_data, item['id'])
-        }
         
-        items_for_this_run = [item for item in all_possible_items if item['id'] not in completed_ids]
+        items_for_this_run = [
+            item for item in all_possible_items 
+            if not self._is_item_complete(input_data, item['id'])
+        ]
 
         if not items_for_this_run:
-            logger.info("      -> All items for this stage are already complete.")
-            # Ensure the output file reflects this completion status
-            for block in input_data.get("content_blocks", []):
-                if block.get("block_type") == "sentence":
-                    if block.get("processing_status", {}).get(self.stage_name) != "COMPLETED":
-                        block.setdefault("processing_status", {})[self.stage_name] = "COMPLETED"
-            
-            return self._save_output_data(input_data, "COMPLETED")
+            logger.info("      -> All items for this stage are already complete or manually fixed.")
+            if not self._save_output_data(input_data, "COMPLETED"): return False
+            return True
 
         logger.info(f"      -> Processing {len(items_for_this_run)} new items for the LLM.")
         
-        # --- NEW: Group items by sentence ID first ---
         items_by_sid = {}
         for item in items_for_this_run:
             s_id = item['id'].split('_')[0]
             items_by_sid.setdefault(s_id, []).append(item)
 
-        # Get batch size from the stage's specific config, with a fallback.
         batch_size = self.stage_config.get("batch_size_in_items", 10)
         
-        # --- NEW: Create sentence-aware batches ---
         sentence_batches = []
         current_batch = []
-        # Sort by s_id to ensure deterministic processing order
         sorted_sids = sorted(items_by_sid.keys(), key=lambda x: int(x[1:]))
 
         for s_id in sorted_sids:
             items_for_sentence = items_by_sid[s_id]
-            # If adding the new sentence's items would exceed the batch size,
-            # finalize the current batch and start a new one.
             if current_batch and (len(current_batch) + len(items_for_sentence) > batch_size):
                 sentence_batches.append(current_batch)
                 current_batch = []
-            
             current_batch.extend(items_for_sentence)
-        
-        # Add the last remaining batch
         if current_batch:
             sentence_batches.append(current_batch)
 
-        llm_logger = LLMLogger(self.llm_logger_dir)
         system_prompt = self.get_system_prompt()
         
-        # Loop through the correctly formed sentence-aware batches
         total_batches = len(sentence_batches)
         for i, batch_items in enumerate(sentence_batches):
             logger.info(f"      -> Processing batch {i + 1}/{total_batches}...")
@@ -252,11 +256,11 @@ class LLMStage(Stage, ABC):
                 llm_logger=llm_logger,
                 parser_type=self.parser_type,
                 stage_config=self.stage_config,
-                models_config=self.models_config
+                models_config=self.models_config,
+                pipeline_config=self.pipeline_config # Pass the global config
             )
 
-            if llm_results_list is None:
-                return False
+            if llm_results_list is None: return False
 
             results_by_sid = {}
             for item in llm_results_list:
@@ -267,7 +271,6 @@ class LLMStage(Stage, ABC):
                 block_to_update = next((b for b in input_data['content_blocks'] if b.get('s_id') == s_id), None)
                 if block_to_update:
                     updated_block = self.process_llm_results_for_block(block_to_update, llm_results_for_sid)
-                    
                     for block_idx, block in enumerate(input_data['content_blocks']):
                         if block.get('s_id') == s_id:
                             input_data['content_blocks'][block_idx] = updated_block
@@ -282,7 +285,7 @@ class LLMStage(Stage, ABC):
 
     def _is_item_complete(self, book_data: Dict, item_id: str) -> bool:
         s_id = item_id.split('_')[0]
-        block = next((b for b in book_data.get("content_blocks", []) if b.get("s_id") == s_id), None)
-        if not block:
-            return False
-        return block.get("processing_status", {}).get(self.stage_name) == "COMPLETED"
+        block = next((b for b in book_data.get("content_blocks", []) if b.get('s_id') == s_id), None)
+        if not block: return False
+        status = block.get("processing_status", {}).get(self.stage_name)
+        return status in ["COMPLETED", "RETRY_SEMANTIC_FAIL"]

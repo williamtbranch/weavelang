@@ -1,4 +1,3 @@
-// In src/simulation/metrics.rs
 
 use crate::simulation::frequency_manager;
 use std::collections::HashMap;
@@ -14,16 +13,37 @@ pub struct TextMetrics {
 
 impl TextMetrics {
     /// Creates a new TextMetrics instance by processing the output of a generation run.
+    /// This now includes a normalization step to cap high-frequency outliers.
     pub fn new(lemma_instances: &[String], english_word_count: usize) -> Self {
         let mut lemma_tallies: HashMap<&String, u32> = HashMap::new();
         for lemma in lemma_instances {
             *lemma_tallies.entry(lemma).or_insert(0) += 1;
         }
 
-        let mut ranked_tallies: Vec<(u32, u32)> = lemma_tallies
+        // --- START OF "GREGOR EFFECT" FIX ---
+        let total_word_count_float = (lemma_instances.len() + english_word_count) as f64;
+        // Cap is 0.2% of the total word count.
+        let tally_cap = (total_word_count_float * 0.002).ceil().max(1.0) as u32;
+
+        let mut capped_tallies = HashMap::new();
+        for (lemma, tally) in lemma_tallies {
+            // Treat unranked words (like proper nouns) as having a very high rank.
+            let rank = frequency_manager::get_rank_for_lemma(lemma).unwrap_or(u32::MAX);
+
+            // Apply the cap if the word is rare (rank > 400) and appears too frequently.
+            if rank > 400 && tally > tally_cap {
+                capped_tallies.insert(lemma.clone(), tally_cap);
+            } else {
+                capped_tallies.insert(lemma.clone(), tally);
+            }
+        }
+        // --- END OF "GREGOR EFFECT" FIX ---
+
+        let mut ranked_tallies: Vec<(u32, u32)> = capped_tallies
             .into_iter()
             .filter_map(|(lemma, tally)| {
-                frequency_manager::get_rank_for_lemma(lemma).map(|rank| (rank, tally))
+                // Use the capped tally for the final structure.
+                frequency_manager::get_rank_for_lemma(&lemma).map(|rank| (rank, tally))
             })
             .collect();
 

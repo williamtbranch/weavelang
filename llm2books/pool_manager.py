@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
-from . import helper, llm_prompts, validator, llm_utils
+from . import helper, llm_prompts, validator, llm_utils, llm_overrides
 from .llm_logger import LLMLogger
 
 logger = logging.getLogger("pipeline")
@@ -191,6 +191,7 @@ class PoolManager:
 
         return override_map
 
+    #
     def _generate_derived_file(self, book_stem: str, lang_code: str, tier_suffix: str, prompt_name: str, job_name_suffix: str) -> Optional[Path]:
         derived_file_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.{tier_suffix}.json"
         std_target_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.std.json"
@@ -217,9 +218,6 @@ class PoolManager:
         config = {**self.pipeline_config, **stage_job_config}
         llm_logger = LLMLogger(self.pool_dir / "llm_logs" / book_stem)
         
-        # --- NEW: MANUAL OVERRIDE LOGIC ---
-        manual_overrides = self._load_manual_overrides(job_name)
-
         segment_batches = self._batch_segments_by_sentence(sentences, config)
         
         completed_results = {}
@@ -230,6 +228,10 @@ class PoolManager:
             except (IOError, json.JSONDecodeError):
                 completed_results = {}
 
+        # --- THIS IS THE FIX ---
+        # The PoolManager now uses the universal override system
+        manual_overrides = llm_overrides.load_manual_overrides(job_name, llm_logger)
+
         for i, batch in enumerate(segment_batches):
             batch_ids = {item['id'] for item in batch}
             if batch_ids.issubset(completed_results.keys()):
@@ -239,8 +241,6 @@ class PoolManager:
             items_to_run_in_llm = []
             for item in batch:
                 if item['id'] in manual_overrides:
-                    # Apply the manual override and treat it as a completed result
-                    logger.info(f"      -> Applying manual override for {item['id']} in batch {i+1}.")
                     completed_results[item['id']] = manual_overrides[item['id']]
                 elif item['id'] not in completed_results:
                     items_to_run_in_llm.append(item)
@@ -251,7 +251,7 @@ class PoolManager:
                 logger.info(f"      -> Processing batch {i+1}/{len(segment_batches)} for {tier_suffix} ({len(items_to_run_in_llm)} new segments)...")
                 batch_results_list = llm_utils.run_llm_batch_job(
                     self.llm_client, job_name, prompt, items_to_run_in_llm,
-                    llm_logger, "single_line", config, self.models_config
+                    llm_logger, "single_line", config, self.models_config, self.pipeline_config
                 )
                 if batch_results_list is None: return None
                 for item in batch_results_list:
@@ -271,10 +271,8 @@ class PoolManager:
                 original_seg_text = seg["text"]
                 lookup_key = f"{s_id}_{seg['seg_id']}"
                 
-                # --- THIS IS THE GRACEFUL FALLBACK ---
-                # Use the result if available, otherwise fall back to the original text.
                 simplified_text = results.get(lookup_key, original_seg_text).strip()
-                if not simplified_text: # If the result was an empty string, also fall back
+                if not simplified_text:
                     simplified_text = original_seg_text
 
                 if original_seg_text.endswith(' ') and not simplified_text.endswith(' '):

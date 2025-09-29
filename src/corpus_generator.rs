@@ -3,10 +3,10 @@
 use crate::config::Config;
 use crate::simulation::metrics::TextMetrics;
 use crate::simulation::{
-    core_algo::{self, ChosenLevelOutput, L0SegmentChoice, OutputLevel},
+    core_algo::{self, L0SegmentChoice, OutputLevel},
     dictionary::GlobalLemmaDictionary,
     frequency_manager,
-    numerical_types::{NumericalChapter, NumericalLearnerProfile, NumericalProcessedSentence, VLevelRecipe},
+    numerical_types::{NumericalChapter, NumericalLearnerProfile, VLevelRecipe},
     preprocessor, text_generator,
 };
 use crate::{parsing::json_parser, types::json_types::JsonChapter, JsonContentBlock};
@@ -203,12 +203,14 @@ fn log_analysis_to_file(
     Ok(())
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct ProcessingState {
     sim_v: u32,
     bas_v: u32,
     mod_v: u32,
     adv_v: u32,
+    user_level: Option<u32>,
+    current_book_json: Option<JsonChapter>,
 }
 
 fn parse_level_value(s: &str) -> u32 {
@@ -221,7 +223,7 @@ fn parse_level_value(s: &str) -> u32 {
 
 pub fn run_corpus_generation(
     project_config: &Config,
-    tool_root_dir: &Path,
+    _tool_root_dir: &Path,
     sequence_path: &Path,
     input_json_dir: &Path,
     tts_output_dir: &Path,
@@ -230,8 +232,7 @@ pub fn run_corpus_generation(
     inverse_diglot_threshold: f32,
 ) -> Result<(), Box<dyn Error>> {
     let analysis_log_path = profiles_dir.join("corpus_analysis_log.txt");
-
-    let mut state = ProcessingState { sim_v: 0, bas_v: 0, mod_v: 0, adv_v: 0 };
+    let mut state = ProcessingState::default();
 
     println!("[INFO] Starting batch generation job using V2 sequence format.");
     let sequence_file = File::open(&sequence_path)?;
@@ -243,12 +244,18 @@ pub fn run_corpus_generation(
         if line.starts_with('%') {
             let parts: Vec<&str> = line.split_whitespace().collect();
             let command = parts.get(0).cloned().unwrap_or("");
-            if (command == "%levels" || command == "%level") && parts.len() == 5 {
+            if command == "%u-level" && parts.len() == 2 {
+                state.user_level = Some(parts[1].parse()?);
+                // Invalidate the old recipe to ensure the new U-Level is used
+                state.sim_v = 0; state.bas_v = 0; state.mod_v = 0; state.adv_v = 0;
+                println!("[CMD] Set User Level to: {}", state.user_level.unwrap());
+            } else if (command == "%levels" || command == "%level") && parts.len() == 5 {
                 state.sim_v = parse_level_value(parts[1]);
                 state.bas_v = parse_level_value(parts[2]);
                 state.mod_v = parse_level_value(parts[3]);
                 state.adv_v = parse_level_value(parts[4]);
-                println!("[CMD] Set Levels to: sim={}, bas={}, mod={}, adv={}", state.sim_v, state.bas_v, state.mod_v, state.adv_v);
+                state.user_level = None; // Invalidate U-Level if a manual recipe is set
+                println!("[CMD] Set Manual Levels to: sim={}, bas={}, mod={}, adv={}", state.sim_v, state.bas_v, state.mod_v, state.adv_v);
             } else {
                 eprintln!("[WARN] Unknown or malformed command: {}", line);
             }
@@ -261,21 +268,42 @@ pub fn run_corpus_generation(
         let json_file_path = project_config.content_project_dir_path().join(input_json_dir).join(format!("{}.json", book_stem));
         let json_content = fs::read_to_string(&json_file_path)?;
         let json_chapter = json_parser::parse_chapter_from_json(&json_content)?;
+        state.current_book_json = Some(json_chapter.clone());
+
         let mut dictionary = GlobalLemmaDictionary::new();
         dictionary.populate_from_json_chapter(&json_chapter);
         let (numerical_chapter, _) = preprocessor::json_chapter_to_numerical(&json_chapter, &mut dictionary);
 
+        let recipe = if let Some(u_level) = state.user_level {
+            // This is where the magic happens. We look up the recipe from the book's JSON.
+            let book_json = state.current_book_json.as_ref().ok_or("Book JSON not loaded")?;
+            let u_level_map = book_json.u_level_maps.get(&u_level.to_string())
+                .ok_or(format!("U-Level '{}' not found in map for book '{}'", u_level, book_stem))?;
+            // For a single-file generation, we use the recipe from the *first* entry in the map.
+            // A more advanced curriculum generator would iterate through this map.
+            u_level_map.map.get(0).ok_or("Curriculum map is empty")?.recipe.clone()
+        } else {
+            // Fallback to the manually set recipe.
+            VLevelRecipe { sim: state.sim_v, bas: state.bas_v, mod_v: state.mod_v, adv: state.adv_v }
+        };
+
         let result = generate_book_instance(
             &numerical_chapter, &json_chapter, &dictionary,
-            state.sim_v, state.bas_v, state.mod_v, state.adv_v,
+            recipe.sim, recipe.bas, recipe.mod_v, recipe.adv,
             inverse_diglot_threshold, debug_markers,
         )?;
-
         let metrics = TextMetrics::new(&result.all_output_lemma_instances, result.total_base_words);
         let avd_score = metrics.calculate_avd_score();
 
-        let filename = format!("{}_S{}_B{}_M{}_A{}.txt", book_stem, state.sim_v, state.bas_v, state.mod_v, state.adv_v)
-            .replace(&u32::MAX.to_string(), "EX");
+
+        let filename = if let Some(u_level) = state.user_level {
+            format!("{}_UL{}.txt", book_stem, u_level)
+        } else {
+            format!("{}_S{}_B{}_M{}_A{}.txt", book_stem, state.sim_v, state.bas_v, state.mod_v, state.adv_v)
+                .replace(&u32::MAX.to_string(), "EX")
+        };
+
+
 
         let final_raw_text = result.final_text_parts.join("\n\n");
         let final_cleaned_text = text_generator::clean_text_for_tts(&final_raw_text);

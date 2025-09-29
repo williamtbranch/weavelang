@@ -4,19 +4,14 @@ import time
 from typing import Dict, List, Optional, Any
 
 from .llm_logger import LLMLogger
+from . import llm_overrides
 
 logger = logging.getLogger("pipeline")
 
-# --- NEW: Define the temperature steps for retries ---
-# Attempt 1 (index 0) = 0.1, Attempt 2 (index 1) = 0.4, etc.
-# The last value is used for any subsequent retries beyond the list length.
 TEMPERATURE_STEPS = [0.1, 0.4, 0.6]
 
 def validate_parsed_llm_response(parsed_data: Dict[str, str], parser_type: str):
-    """
-    Performs content-aware validation on the parsed LLM response.
-    Raises ValueError if invalid content is found.
-    """
+    # ... (this function is unchanged) ...
     if parser_type == 'multi_line':
         for s_id, content in parsed_data.items():
             bad_lines = []
@@ -43,12 +38,13 @@ def run_llm_batch_job(
     llm_logger: LLMLogger,
     parser_type: str,
     stage_config: Dict[str, Any],
-    models_config: Dict[str, Any]
+    models_config: Dict[str, Any],
+    pipeline_config: Dict[str, Any]
 ) -> Optional[List[Dict]]:
-    """
-    Handles an LLM job for a batch of items with robust parsing, validation, and retries.
-    This version uses a robust parser and fails fast if validation does not pass after all retries.
-    """
+    # ... (initial part of function is unchanged) ...
+    if not items_to_process:
+        return []
+
     max_retries = stage_config.get("max_api_retries", 3)
     retry_delay = stage_config.get("retry_delay", 7)
     
@@ -64,40 +60,68 @@ def run_llm_batch_job(
     user_prompt = "\n".join([f"{item['id']}: {item['text']}" for item in items_to_process])
     prompt_ids = [item['id'] for item in items_to_process]
     
+    # --- THIS IS THE NEW CONFIG KEY ---
+    thinking_on_first = pipeline_config.get("thinking_on_first_attempt", False)
+
     for attempt in range(max_retries):
         model_to_use = primary_model_name
-        
-        # --- THIS IS THE DYNAMIC TEMPERATURE LOGIC ---
-        # Get the temperature for the current attempt.
-        # If the attempt number is beyond our list, use the last defined temperature.
         temp_index = min(attempt, len(TEMPERATURE_STEPS) - 1)
         current_temperature = TEMPERATURE_STEPS[temp_index]
 
-        # Switch to fallback model on the final attempt, if configured.
         if attempt == max_retries - 1 and fallback_model_name:
             model_to_use = fallback_model_name
-            # Optionally, reset temperature for the more powerful model
             current_temperature = TEMPERATURE_STEPS[0]
             logger.info(f"    -> Final attempt. Switching to fallback model '{model_to_use}'.")
 
-        logger.info(f"    -> Running {job_name} LLM batch (Attempt {attempt + 1}/{max_retries}) using model '{model_to_use}' with temp={current_temperature}...")
+        logger_temp_str = f"{current_temperature}"
+
+        api_payload = {
+            "model": model_to_use,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_prompt}],
+            "max_tokens": 4096,
+        }
+
+        thinking_budget = pipeline_config.get("thinking_budget_tokens", 0)
+
+        # --- THIS LOGIC IS NOW UPDATED TO USE THE NEW CONFIG KEY ---
+        enable_thinking = (attempt > 0 or thinking_on_first) and thinking_budget > 0
+
+        if enable_thinking:
+            if attempt == 0:
+                logger.info(f"    -> Thinking on first attempt ENABLED. Budget: {thinking_budget} tokens.")
+            else:
+                logger.info(f"    -> Enabling extended thinking on retry. Budget: {thinking_budget} tokens.")
+            
+            api_payload["thinking"] = { "type": "enabled", "budget_tokens": thinking_budget }
+            current_temperature = 1.0
+            logger_temp_str = f"{current_temperature} (required for thinking)"
         
-        raw_response = ""
+        api_payload["temperature"] = current_temperature
+        
+        logger.info(f"    -> Running {job_name} LLM batch (Attempt {attempt + 1}/{max_retries}) for {len(items_to_process)} items, using model '{model_to_use}' with temp={logger_temp_str}...")
+        
+        # ... (rest of the function is unchanged) ...
+        raw_response_text = ""
         try:
-            message = llm_client.messages.create(
-                model=model_to_use, 
-                system=system_prompt, 
-                messages=[{"role": "user", "content": user_prompt}], 
-                max_tokens=4096, 
-                temperature=current_temperature # Use the dynamic temperature
-            )
-            raw_response = message.content[0].text if message.content else ""
-            llm_logger.log_batch(job_name, 0, system_prompt, user_prompt, raw_response)
+            message = llm_client.messages.create(**api_payload)
+            
+            full_raw_response_for_log = ""
+            if message.content:
+                for block in message.content:
+                    if block.type == 'thinking':
+                        full_raw_response_for_log += f"--- THINKING ---\n{block.thinking}\n--- END THINKING ---\n"
+                    elif block.type == 'text':
+                        full_raw_response_for_log += block.text
+                        if not raw_response_text:
+                            raw_response_text = block.text
+            
+            llm_logger.log_batch(job_name, 0, system_prompt, user_prompt, full_raw_response_for_log)
             
             if parser_type == 'multi_line':
-                parsed_response = _parse_structured_llm_response(raw_response, prompt_ids)
+                parsed_response = _parse_structured_llm_response(raw_response_text, prompt_ids)
             else:
-                parsed_response = _parse_singleline_llm_response(raw_response)
+                parsed_response = _parse_singleline_llm_response(raw_response_text)
             
             missing_ids = [pid for pid in prompt_ids if pid not in parsed_response or not parsed_response[pid].strip()]
             
@@ -106,12 +130,10 @@ def run_llm_batch_job(
             else:
                 try:
                     validate_parsed_llm_response(parsed_response, parser_type)
-                    
                     logger.info("      -> Batch successfully processed and validated.")
                     for item in items_to_process:
                         item['llm_response'] = parsed_response[item['id']]
                     return items_to_process
-
                 except ValueError as e:
                     logger.warning(f"      -> {job_name} batch content validation failed. Reason: {e}")
 
@@ -128,9 +150,7 @@ def run_llm_batch_job(
     logger.error(f"LLM batch failed for {job_name} after {max_retries} attempts. Halting pipeline.")
     return None
 
-
 def _parse_singleline_llm_response(raw_text: str) -> Dict[str, str]:
-    """Parses simple 'ID: response' formats."""
     parsed = {}
     line_regex = re.compile(r"^\s*([^:]+):\s*(.*)$")
     for line in raw_text.splitlines():
@@ -139,51 +159,31 @@ def _parse_singleline_llm_response(raw_text: str) -> Dict[str, str]:
             parsed[match.group(1).strip()] = match.group(2).strip()
     return parsed
 
-
 def _parse_structured_llm_response(raw_text: str, expected_ids: List[str]) -> Dict[str, str]:
-    """
-    Parses a response that contains blocks for multiple IDs, extracting only
-    the content within the MAPPINGS section for each ID.
-    """
     parsed = {}
-    
     id_pattern = "|".join(re.escape(id) for id in expected_ids)
     block_splitter = re.compile(rf"(?=^\s*(?:{id_pattern})\s*:)", re.MULTILINE)
-    
     blocks = [b for b in block_splitter.split(raw_text) if b.strip()]
-
     for block in blocks:
         lines = block.strip().splitlines()
-        if not lines:
-            continue
-        
+        if not lines: continue
         first_line_parts = lines[0].split(':', 1)
-        if len(first_line_parts) != 2:
-            continue
-        
+        if len(first_line_parts) != 2: continue
         current_id = first_line_parts[0].strip()
-        if current_id not in expected_ids:
-            continue
-            
-        collecting = False
-        buffer = []
+        if current_id not in expected_ids: continue
+        collecting, buffer = False, []
         for line in lines[1:]:
             line_upper_stripped = line.strip().upper()
-            
             if line_upper_stripped.startswith("MAPPINGS:"):
                 collecting = True
                 if len(line.strip()) > len("MAPPINGS:"):
                     buffer.append(line.split(":", 1)[1].strip())
                 continue
-            
             if line_upper_stripped.startswith("VALIDATION:"):
                 collecting = False
                 break 
-            
             if collecting:
                 buffer.append(line)
-        
         if buffer:
             parsed[current_id] = "\n".join(buffer).strip()
-
     return parsed

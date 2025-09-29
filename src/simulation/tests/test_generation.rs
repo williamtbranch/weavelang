@@ -5,7 +5,7 @@ use super::weavetest_parser::{
 };
 use crate::types::json_types::JsonTokenV2;
 use crate::simulation::core_algo::{
-    determine_and_annotate_sentence_expression, ChosenLevelOutput, OutputLevel, L0SegmentChoice
+    determine_and_annotate_sentence_expression, ChosenLevelOutput, OutputLevel,
 };
 use crate::simulation::dictionary::GlobalLemmaDictionary;
 use crate::simulation::frequency_manager;
@@ -18,7 +18,6 @@ use crate::types::json_types::{
     JsonBookMetaV2, JsonChapter, JsonContentBlock, JsonSegmentV2, JsonSentenceBlock, JsonTierV2,
     JsonTokenType,
 };
-use itertools::Itertools;
 use once_cell::sync::Lazy;
 use std::fs::{self, File};
 use std::io::Write;
@@ -258,10 +257,10 @@ fn compile_dsl_sentence_to_numerical(
     reconstruct_and_set_full_text(&mut sim_target_tier);
 
     json_sentence.tiers = vec![base_tier, adv_target_tier, mod_target_tier, bas_target_tier, sim_target_tier];
-
     let mock_chapter = JsonChapter {
         book_meta: JsonBookMetaV2 { book_name: test_case.name.clone(), ..Default::default() },
         content_blocks: vec![JsonContentBlock::Sentence(json_sentence.clone())],
+        ..Default::default()
     };
 
     let (numerical_chapter, _) = preprocessor::json_chapter_to_numerical(&mock_chapter, dictionary);

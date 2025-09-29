@@ -45,6 +45,7 @@ Write-Host "---"
 
 # --- Step 3: Define paths and arguments for the L-Level Calibrator ---
 $BookStem = "Metamorphosis"
+#$BookStem = "test"
 
 $ExecutablePath = ".\target\release\weavelang_rust_gui.exe"
 $ContentProjectPath = "E:/Bill/Documents/development/audiolingual"
@@ -52,8 +53,15 @@ $ContentProjectPath = "E:/Bill/Documents/development/audiolingual"
 # The book we are calibrating. This file MUST exist.
 $BookJsonFile = "$ContentProjectPath/library/$($BookStem).json"
 
-# The INPUT for this run is the output from Stage A.
-#$LLevelDataFile = "$ContentProjectPath/generated_profiles/LesMis_l_level_data.json"
+# --- START: MODIFIED SECTION ---
+# Change: Define the path to the master AVD scale file.
+$MasterAvdScaleFile = "$ContentProjectPath/generated_profiles/master_avd_scale.csv"
+# Change: The `output-path` is now the FINAL destination for the book file.
+# The original file will be read and then overwritten with the new data.
+$FinalOutputPath = "$ContentProjectPath/library/$($BookStem).json"
+
+# Change: Define a path for the NEW debug file which will contain the detailed analysis.
+$DebugAnalysisFile = "$ContentProjectPath/generated_profiles/$($BookStem)_calibration_data.json"
 
 # The FINAL output file containing the U-Level map.
 $FinalULevelMapFile = "$ContentProjectPath/generated_profiles/$($BookStem)_u_level_map.json"
@@ -73,20 +81,28 @@ if (-not (Test-Path $BookJsonFile)) {
     Read-Host -Prompt "Press Enter to exit"
     exit 1
 }
-
+# --- START: MODIFIED SECTION ---
+# Change: Add a sanity check for the new required file.
+if (-not (Test-Path $MasterAvdScaleFile)) {
+    Write-Error "Master AVD Scale file not found at '$MasterAvdScaleFile'."
+    Write-Error "Please run the AVD Hunter (`run_avd_hunter.ps1`) first to generate this file."
+    Read-Host -Prompt "Press Enter to exit"
+    exit 1
+}
+# --- END: MODIFIED SECTION ---
 $CommandArgs = @(
     "calibrate",
     "--book-json", $BookJsonFile,
     "--max-level", $MaxLevelToCalibrate,
-    "--output-path", $FinalULevelMapFile
+    "--output-path", $FinalOutputPath,
+    "--master-avd-scale", $MasterAvdScaleFile,
+    "--output-debug-path", $DebugAnalysisFile
 )
-# $CommandArgs = @(
-#      "calibrate",
-#     "--mode", "l-level", # This is the default, but good to be clear
-#     "--book-json", $BookJsonFile,
-#     "--max-level", $MaxLevelToCalibrate,
-#     "--output-path", $TempOutputFile
-# )
+
+# --- START: MODIFIED SECTION ---
+# Change: Add the new `--master-avd-scale` argument to the command.
+
+# --- END: MODIFIED SECTION ---
 
 # --- Step 4: Run the compiled executable ---
 Write-Host "Starting the L-Level Calibrator (Stage A)..."
@@ -103,8 +119,12 @@ Write-Host "Calibrator finished with exit code: $RustExitCode"
 if ($RustExitCode -ne 0) {
     Write-Error "The Calibrator process exited with an error. Please review the output above."
 } else {
-    Write-Host "L-Level calibration command finished successfully."
-    Write-Host "Check for the generated data at: $TempOutputFile"
+    Write-Host "Book calibration command finished successfully."
+    # --- START: MODIFIED SECTION ---
+    # Change: Update the success messages to point to the new files.
+    Write-Host "  -> The final curriculum map has been merged into: $FinalOutputPath"
+    Write-Host "  -> Detailed analysis data has been saved to: $DebugAnalysisFile"
+    # --- END: MODIFIED SECTION ---
 }
 
 Read-Host -Prompt "Press Enter to exit"

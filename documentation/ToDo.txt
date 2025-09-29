@@ -99,6 +99,16 @@ Last Updated: (Date of this session)
         - [ ] Strip the `tokenized_text` key from each segment after lemmatization is complete, leaving only `seg_id`, `text`, and `lemmas`.
     - [ ] For the `simple_target` tier, which is used for diglotting, all existing keys (`tokenized_text`, etc.) should be preserved.
     - [ ] This ensures the final JSON is as lean as possible for the Rust engine.
+    - [ ] **Task 2.6: Implement Manual Validation Override (Future Enhancement)**
+    - [ ] **Problem:** The semantic validator can have rare false-positives on short, idiomatic segments. We need a way to manually approve these without changing code.
+    - [ ] **Solution:** Enhance the `semantic_validator` module.
+    - [ ] It should scan the relevant LLM log file for special comments, e.g., `%%MANUAL_VALIDATION_PASSED: S127_S2%%`.
+    - [ ] If such a comment is found for a given sentence/segment ID, the validator should automatically return `True` for that ID and log that it used a manual override.
+    - [ ] This provides a robust mechanism for handling known-good edge cases in long pipeline runs without requiring code changes or relaxing the validation thresholds globally.
+    # --- NEW TASK (High Priority) ---
+- [ ] **Task 2.7: Fix Inverse Map Semantic Validation Logic**
+    - [ ] **Problem:** The semantic validator for the inverse map (`Stage 6`) is incorrectly extracting only the first word of multi-word Spanish phrases before sending them for comparison. This leads to a high rate of false-negative validation failures (e.g., comparing Spanish 'iban' to English 'they went through').
+    - [ ] **Solution:** Refactor the `align_and_parse_to_atoms` helper function and/or the data extraction logic in `apply_inverse_phrase_mappings.py`. The goal is to ensure that the validator receives the complete, multi-word Spanish phrase (e.g., "no se podían ver") to compare against the corresponding English substitute ("they couldn't see each other"). This requires a careful refactor to handle the parsing and alignment of the inverse map correctly without breaking the forward map's logic.
 
     Next Task: After this run, our next high-priority task must be to debug and fix the Stanza segmenter. We need to create a new, targeted regression test in llm2books/tests/test_segmentation.py using the sentence Con un movimiento de su mano despejó un espacio vacío al frente entre las cosas del desayuno, e se inclinó hacia adelante para mirar con más comodidad. and assert that it does NOT produce a single-word final segment. Then, we will fix the segmenter code to make that test pass.
 

@@ -41,53 +41,46 @@ def create_golden_token_stream(nlp_doc: Any) -> List[Dict[str, Any]]:
         start_char = component.start_char if isinstance(nlp_doc, stanza.models.common.doc.Sentence) else component.idx
         end_char = component.end_char if isinstance(nlp_doc, stanza.models.common.doc.Sentence) else component.idx + len(component.text)
 
-        # 1. Process gaps between components using the lossless pointer.
         if start_char > source_pointer:
             raw_stream.append({'t': 'b', 'v': source_text[source_pointer:start_char]})
         
         component_text = source_text[start_char:end_char]
         
-        # 2. Process the text *within* the component using a character-level state machine.
-        #    This correctly handles cases like "said,".
+        # --- THIS IS THE FIX ---
+        # The state machine must be stricter to prevent trailing whitespace
+        # from being included in a word token's value.
+        is_word_char = lambda char: char.isalnum()
         
-        # --- THIS IS THE FINAL, CORRECTED LOGIC ---
-        # A character is a word character if it's alphanumeric.
-        # An apostrophe or hyphen is ONLY a word character if it's NOT the first character.
-        def is_word_char(char: str, is_first: bool) -> bool:
-            if char.isalnum():
-                return True
-            if char in "'-’" and not is_first:
-                return True
-            return False
-        # --- END OF CORRECTED LOGIC ---
-        
-        current_type = 'w' if component_text and is_word_char(component_text[0], True) else 'b'
         buffer = ""
-        for i, char in enumerate(component_text):
-            is_first_char_in_component = (i == 0)
-            char_is_word = is_word_char(char, is_first_char_in_component)
-            
-            if (char_is_word and current_type == 'w') or (not char_is_word and current_type == 'b'):
+        is_in_word = False
+        for char in component_text:
+            if is_word_char(char):
+                if not is_in_word and buffer: # Transition from background to word
+                    raw_stream.append({'t': 'b', 'v': buffer})
+                    buffer = ""
+                is_in_word = True
                 buffer += char
-            else:
-                # Type changed, flush the buffer and start a new one.
-                raw_stream.append({'t': current_type, 'v': buffer})
-                buffer = char
-                current_type = 'w' if char_is_word else 'b'
+            else: # It's a background character
+                if is_in_word and buffer: # Transition from word to background
+                    raw_stream.append({'t': 'w', 'v': buffer})
+                    buffer = ""
+                is_in_word = False
+                buffer += char
         
         # Flush the final buffer for this component
         if buffer:
-            raw_stream.append({'t': current_type, 'v': buffer})
+            final_type = 'w' if is_in_word else 'b'
+            raw_stream.append({'t': final_type, 'v': buffer})
+        # --- END OF FIX ---
 
         source_pointer = end_char
 
-    # 3. Consume any final trailing text.
     if source_pointer < len(source_text):
         raw_stream.append({'t': 'b', 'v': source_text[source_pointer:]})
 
     if not raw_stream: return []
 
-    # 4. Post-processing: Fuse first, then merge.
+    # Post-processing: Fuse first, then merge.
     fused_stream = fuse_tokens(raw_stream)
 
     merged_stream = [fused_stream[0]] if fused_stream else []
@@ -97,7 +90,7 @@ def create_golden_token_stream(nlp_doc: Any) -> List[Dict[str, Any]]:
         else:
             merged_stream.append(token)
 
-    # 5. Finalize BWBWB structure.
+    # Finalize BWBWB structure.
     final_stream = merged_stream
     if not final_stream: return [{'t': 'b', 'v': ''}]
     if final_stream[0].get('t') == 'w':

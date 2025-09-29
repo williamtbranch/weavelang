@@ -1,4 +1,3 @@
-# llm2books/phrase_mapper_helpers.py
 import re
 from typing import List, Dict, Any
 
@@ -14,7 +13,6 @@ class SemanticAtom:
         return self.di == other.di and self.en_words == other.en_words and self.es_phrase == other.es_phrase
 
 def align_and_parse_to_atoms(raw_map_lines: List[str], raw_spacy_tokens: List[Dict]) -> List[SemanticAtom]:
-    # 1. PREPARATION
     fused_spacy_tokens = fuse_tokens(raw_spacy_tokens)
     spacy_word_tokens = [t for t in fused_spacy_tokens if t.get('t') == 'w']
     spacy_words = [t['v'] for t in spacy_word_tokens]
@@ -33,12 +31,10 @@ def align_and_parse_to_atoms(raw_map_lines: List[str], raw_spacy_tokens: List[Di
             llm_flat_words.append(word)
             llm_phrase_indices.append(i)
 
-    # 2. ALIGNMENT
     spacy_norm = [re.sub(r'[^\w]', '', w).lower() for w in spacy_words]
     llm_norm = [re.sub(r'[^\w]', '', w).lower() for w in llm_flat_words]
     alignment_opcodes = opcodes(spacy_norm, llm_norm)
 
-    # 3. RE-GROUPING
     final_atoms = []
     
     spacy_to_llm_phrase_map = {}
@@ -78,20 +74,27 @@ def align_and_parse_to_atoms(raw_map_lines: List[str], raw_spacy_tokens: List[Di
     
     return final_atoms
 
-def sanitize_atoms(s_id: str, atoms: List[SemanticAtom], original_base_tier: Dict[str, Any]) -> List[SemanticAtom]:
-    flat_original_tokens = [token for seg in original_base_tier.get("segments", []) for token in seg.get("tokenized_text", [])]
-    di_to_seg_id: Dict[int, str] = {}
+# --- THIS IS THE SIMPLIFIED FUNCTION ---
+def sanitize_atoms(s_id: str, atoms: List[SemanticAtom], original_tier: Dict[str, Any]) -> List[SemanticAtom]:
+    """
+    Simplified sanitizer for Architecture B ("Smart Frontend").
+    This version's only job is to invalidate atoms that contain internal punctuation.
+    The check for cross-segment phrases is no longer needed, as we now process per-segment.
+    """
+    flat_original_tokens = [token for seg in original_tier.get("segments", []) for token in seg.get("tokenized_text", [])]
     di_to_token: Dict[int, Dict] = {}
-    for seg in original_base_tier.get("segments", []):
+    for seg in original_tier.get("segments", []):
         for token in seg.get("tokenized_text", []):
             if token.get('t') == 'w':
-                di_to_seg_id[token['di']] = seg['seg_id']
                 di_to_token[token['di']] = token
+
     sanitized_atoms: List[SemanticAtom] = []
     for atom in atoms:
-        if len(atom.en_words) == 1 and not ' ' in atom.en_words[0]:
+        # Single-word atoms are always valid from a structural perspective.
+        if len(atom.en_words) == 1 and ' ' not in atom.en_words[0]:
             sanitized_atoms.append(atom)
             continue
+        
         is_valid = True
         atom_dis = []
         try:
@@ -108,11 +111,11 @@ def sanitize_atoms(s_id: str, atoms: List[SemanticAtom], original_base_tier: Dic
                     else:
                         is_valid = False; break
         except (StopIteration, IndexError): is_valid = False
-        if not is_valid: logger.warning(f"S_ID {s_id}: Could not find full token sequence for atom '{' '.join(atom.en_words)}'. Invalidating.")
-        if is_valid:
-            segment_ids_for_atom = {di_to_seg_id.get(di) for di in atom_dis}
-            if len(segment_ids_for_atom) > 1:
-                is_valid = False; logger.warning(f"S_ID {s_id}: Invalidating mapping '{' '.join(atom.en_words)}' because it spans segments: {segment_ids_for_atom}")
+
+        if not is_valid:
+            logger.warning(f"S_ID {s_id}: Could not find full token sequence for atom '{' '.join(atom.en_words)}'. Invalidating.")
+
+        # Rule: Check for internal punctuation
         if is_valid:
             start_token_idx = next((i for i, t in enumerate(flat_original_tokens) if t.get('di') == atom_dis[0]), -1)
             end_token_idx = next((i for i, t in enumerate(flat_original_tokens) if t.get('di') == atom_dis[-1]), -1)
@@ -120,12 +123,16 @@ def sanitize_atoms(s_id: str, atoms: List[SemanticAtom], original_base_tier: Dic
                 token_slice_with_b = flat_original_tokens[start_token_idx : end_token_idx + 1]
                 for token in token_slice_with_b:
                     if token.get('t') == 'b' and token.get('v', '').strip():
-                        is_valid = False; logger.warning(f"S_ID {s_id}: Invalidating mapping '{' '.join(atom.en_words)}' due to internal punctuation ('{token.get('v')}').")
+                        is_valid = False
+                        logger.warning(f"S_ID {s_id}: Invalidating mapping '{' '.join(atom.en_words)}' due to internal punctuation ('{token.get('v')}').")
                         break
+        
         if is_valid:
             sanitized_atoms.append(atom)
         else:
+            # If invalid, break the phrase down into single-word, non-viable atoms.
             for di in atom_dis:
                 original_word_token = di_to_token[di]
                 sanitized_atoms.append(SemanticAtom(di=di, en_words=[original_word_token['v']], es_phrase="NO_SUB"))
+    
     return sanitized_atoms

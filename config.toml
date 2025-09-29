@@ -38,16 +38,18 @@ custom_frequency_list_path = ""
 
     [models.opus]
     provider = "claude"
-    name = "claude-opus-4-20250514"
+    name = "claude-opus-4-1-20250805"
     max_input_tokens = 20000
 
 
 # --- Global Pipeline Execution Settings ---
 # This section remains the same.
 [pipeline]
-max_api_retries = 4
-max_validation_retries = 4
+max_api_retries = 3
+max_validation_retries = 3
 retry_delay = 7
+thinking_budget_tokens = 1024
+thinking_on_first_attempt = true
 
 
 # --- Per-Stage Configuration ---
@@ -65,15 +67,15 @@ retry_delay = 7
     [stages.PoolManager_Simplification]
     primary_model = "sonnet" # You could change this to "haiku" to experiment
     fallback_model = "opus"
-    batch_size_in_items = 20 # Simplification is faster, can use a larger batch
+    batch_size_in_items = 10 # Simplification is faster, can use a larger batch
 
     [stages.GeneratePhraseMap]
     primary_model = "sonnet"
     fallback_model = "opus"
-    batch_size_in_items = 4 # You can tune this
+    batch_size_in_items = 1 # You can tune this
 
 
     [stages.GenerateInverseDiglotMap]
     primary_model = "sonnet"
     fallback_model = "opus"
-    batch_size_in_tokens = 1000
+    batch_size_in_items = 3 # You can tune this

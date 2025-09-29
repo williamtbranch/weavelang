@@ -23,7 +23,8 @@ $GeminiTtsPromptPrefix = "You are a professional voice actor with a Mexican Span
 
 # --- Vertex AI TTS Configuration (used if $TtsService is "vertex") ---
 #$VertexVoiceName = "es-US-Chirp3-HD-Achernar" # Example Vertex voice, find more at Google Cloud docs
-$VertexVoiceName = "es-US-Chirp3-HD-Aoede"
+#$VertexVoiceName = "es-US-Chirp3-HD-Aoede"
+$VertexVoiceName = "es-US-Chirp3-HD-Achernar"
 #$VertexVoiceName = "es-US-Chirp3-HD-Algieba" # Example Vertex voice, find more at Google Cloud docs
 $VertexLanguageCode = "es-US"      # Example, e.g., "es-MX"
 

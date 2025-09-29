@@ -1,24 +1,24 @@
 ROLE:
-You are a linguistic expert specializing in creating granular, semantic learning materials for Spanish-to-English language acquisition. Your task is to map one or more Spanish sentences into its core "semantic atoms" and provide their most natural English equivalents.
+You are a linguistic expert specializing in creating granular, semantic learning materials for Spanish-to-English language acquisition. Your task is to map one or more Spanish **phrases or sentence fragments** into their core "semantic atoms" and provide their most natural English equivalents.
 
 TASK:
-Create a semantic atom mapping from Spanish to English. I will provide you with one or more Spanish sentences, each with a unique ID. You will break each sentence down into the smallest possible meaningful units (usually single words) and provide the corresponding English translation for each unit.
+Create a semantic atom mapping from Spanish to English. I will provide you with one or more Spanish **phrases or sentence fragments**, each with a unique ID (e.g., S1_S1, S1_S2). You will break each input down into the smallest possible meaningful units (usually single words) and provide the corresponding English translation for each unit.
 
 RULES:
 1.  **Natural English Equivalents (MOST IMPORTANT):** Your primary goal is to produce the most natural and idiomatic English equivalent for each Spanish atom.
 2.  **Default to Single Words, But Group for Naturalness:** Start by mapping single Spanish words. However, you MUST group multiple Spanish words together if it results in a more natural-sounding English phrase. Prefer a good multi-word group over several stilted single-word translations.
 3.  **Reflexive and Object Pronouns:** Pronouns like `se`, `me`, `te`, `le`, `lo` MUST be grouped with their verb. For example, `se durmió` is a single atom, not two. `dejarlo` is a single atom.
-4.  **The "Personal a":** The Spanish "personal a" must be grouped with the verb it modifies.
-5.  **Idiomatic Phrases:** Common phrases or idioms must be grouped and mapped to their natural English equivalent. For example, `por la mañana` should be a single atom.
-6.  **No Ambiguity:** Do not use parentheses or provide empty translations. Every Spanish atom must map to a concrete English atom.
-7.  **NO_SUB TOKEN:** Use the special token `NO_SUB` only when a Spanish word is a purely grammatical particle with no semantic equivalent in the English translation and cannot be logically grouped with another word.
-8.  **Exhaustive Mapping of WORDS:** The concatenation of only the **words** from your Spanish atoms MUST perfectly match the sequence of **words** in the original input sentence.
-9.  **STRIP ALL PUNCTUATION:** Your output on both sides of the `->` MUST NOT contain any punctuation (no commas, periods, quotes, etc.).
-10. **Output Format:** For each sentence ID, you will respond with a `MAPPINGS:` section containing the mappings, one per line, in the format: `Spanish Atom -> English Atom`.
-11. **No Extra Text:** Do not include any other text or explanations.
-12. **Verb Conjugations:** The English translation MUST accurately reflect the tense, mood, and person of the Spanish verb.
+4.  The "Personal a": The Spanish "personal a" must be grouped with the verb it modifies.
+5.  Idiomatic Phrases: Common phrases or idioms must be grouped and mapped to their natural English equivalent. For example, `por la mañana` should be a single atom.
+6.  No Ambiguity: Do not use parentheses or provide empty translations. Every Spanish atom must map to a concrete English atom.
+7.  NO_SUB TOKEN: Use the special token `NO_SUB` only when a Spanish word is a purely grammatical particle with no semantic equivalent in the English translation and cannot be logically grouped with another word.
+8.  **Exhaustive Mapping of WORDS:** The concatenation of only the **words** from your Spanish atoms MUST perfectly match the sequence of **words** in the original input phrase.
+9.  STRIP ALL PUNCTUATION: Your output on both sides of the `->` MUST NOT contain any punctuation (no commas, periods, quotes, etc.).
+10. **Output Format:** For each phrase ID, you will respond with a `MAPPINGS:` section containing the mappings, one per line, in the format: `Spanish Atom -> English Atom`.
+11. No Extra Text: Do not include any other text or explanations.
+12. Verb Conjugations: The English translation MUST accurately reflect the tense, mood, and person of the Spanish verb.
 13. **Provide a Validation line** after each set of mappings with the Spanish words you just mapped in the order of your mapping that should contain the same words in the input sentence and in the same order as the input sentence.
-14. **PROPER_NOUN TOKEN:** If a Spanish atom is a proper noun (like a person's name, a place, or a brand), you MUST map it to the special token `PROPER_NOUN`.
+14. PROPER_NOUN TOKEN: If a Spanish atom is a proper noun (like a person's name, a place, or a brand), you MUST map it to the special token `PROPER_NOUN`.
 
 ---
 FOCUSED EXAMPLES:
@@ -69,7 +69,7 @@ This section shows how to correctly group for natural English.
 
 --- EXAMPLE 1: `de manera muy sola` ---
 USER INPUT:
-S_ID_X: y vivía de manera muy sola
+S_ID_X_S1: y vivía de manera muy sola
 
 BAD MAPPING (Too literal):
 y -> and
@@ -86,7 +86,7 @@ de manera muy sola -> very solitarily
 
 --- EXAMPLE 2: The "Personal A" with an Adverb ---
 USER INPUT:
-S_ID_Y: Ella quería mucho a esta persona
+S_ID_Y_S1: Ella quería mucho a esta persona
 
 BAD MAPPING (Causes errors by leaving 'a' stranded):
 Ella -> She
@@ -103,7 +103,7 @@ persona -> person
 
 --- EXAMPLE 3: Using NO_SUB as an escape valve ---
 USER INPUT:
-S_ID_Z: El hombre vio a la mujer
+S_ID_Z_S1: El hombre vio a la mujer
 
 ACCEPTABLE MAPPING (Grouping is preferred, but this is valid):
 El -> The
@@ -122,15 +122,15 @@ mujer -> woman
 ---
 
 ---
-FULL SENTENCE EXAMPLE 1:
+FULL PHRASE EXAMPLE 1:
 I will provide an input like this under the "USER INPUT:" section.
 
 USER INPUT:
-S_ID_1:
-Entonces el segundo hijo Pedro recibió la orden de vigilar.
+S1_S1:
+Entonces el segundo hijo Pedro recibió la orden de vigilar
 
 YOUR REQUIRED RESPONSE:
-S_ID_1:
+S1_S1:
 MAPPINGS:
 Entonces -> Then
 el -> the
@@ -139,18 +139,18 @@ hijo -> son
 Pedro -> PROPER_NOUN
 recibió la orden -> was told
 de vigilar -> to keep watch
-VALIDATION: Entonces el segundo hijo recibió la orden de vigilar
+VALIDATION: Entonces el segundo hijo Pedro recibió la orden de vigilar
 
 ---
-FULL SENTENCE EXAMPLE 2:
-This example shows how to handle reflexive verbs and idiomatic phrases within a sentence.
+FULL PHRASE EXAMPLE 2:
+This example shows how to handle reflexive verbs and idiomatic phrases within a phrase.
 
 USER INPUT:
-S_ID_2:
-Y olvidó el pájaro y su país de la misma manera.
+S2_S1:
+Y olvidó el pájaro y su país de la misma manera
 
 YOUR REQUIRED RESPONSE:
-S_ID_2:
+S2_S1:
 MAPPINGS:
 Y -> and
 olvidó -> he forgot
@@ -160,7 +160,7 @@ y -> and
 su -> his
 país -> country
 de la misma manera -> in the same way
-VALIDATION: y olvidó el pájaro y su país de la misma manera
+VALIDATION: Y olvidó el pájaro y su país de la misma manera
 
 ---
 

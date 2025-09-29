@@ -1,4 +1,3 @@
-// In src/simulation/avd_hunter.rs
 
 use super::{
     core_algo,
@@ -26,10 +25,8 @@ fn generate_and_measure_at_locked_level(
 ) -> (Vec<String>, usize) {
     let mut all_output_lemma_instances: Vec<String> = Vec::new();
     let mut total_english_words = 0;
-    // For AVD hunting, the profile is empty, forcing all decisions to be based on V-levels.
     let empty_profile = NumericalLearnerProfile::new();
 
-    // --- CONSTRUCT THE RECIPE HERE ---
     let v_levels = VLevelRecipe {
         sim: locked_v_level,
         bas: locked_v_level,
@@ -43,8 +40,8 @@ fn generate_and_measure_at_locked_level(
             &mut n_sentence_clone,
             &empty_profile,
             dictionary,
-            &v_levels, // Pass the constructed recipe
-            0.4,       // inverse_diglot_threshold
+            &v_levels,
+            0.4,
         );
 
         total_english_words += output.english_word_count;
@@ -146,7 +143,6 @@ pub fn run_hunt(
             total_words
         );
 
-        // --- NEW: INSPECTION LOGGING ---
         let mut new_lemmas_found: HashSet<String> = HashSet::new();
         for lemma_str in &lemmas {
             if let Some(rank) = frequency_manager::get_rank_for_lemma(lemma_str) {
@@ -159,7 +155,7 @@ pub fn run_hunt(
         if !new_lemmas_found.is_empty() {
             println!("     New lemmas contributing to density:");
             let mut sorted_new_lemmas: Vec<String> = new_lemmas_found.into_iter().collect();
-            sorted_new_lemmas.sort(); // Sort alphabetically for consistent output
+            sorted_new_lemmas.sort();
             for (i, lemma_info) in sorted_new_lemmas.iter().enumerate() {
                 print!("       {}{}", lemma_info, if (i + 1) % 4 == 0 { "\n" } else { " | " });
             }
@@ -167,8 +163,7 @@ pub fn run_hunt(
         } else {
              println!("     No new lemmas found in this step.");
         }
-        // --- END OF INSPECTION LOGGING ---
-
+        
         master_scale.push((user_level, v_n_plus_1, avd_score));
         previous_v_level = v_n_plus_1;
 
@@ -177,6 +172,20 @@ pub fn run_hunt(
             break;
         }
     }
+
+    // --- START OF BACK-FILLING FIX ---
+    println!("\n[INFO] Post-processing: Back-filling early user levels...");
+    for (user_level, v_level, _) in master_scale.iter_mut() {
+        if *v_level < *user_level {
+            println!("  -> Adjusting UL {}: V-Level was {}, now set to {}.", *user_level, *v_level, *user_level);
+            *v_level = *user_level;
+        } else {
+            // Once the natural curve takes over, we can stop.
+            println!("  -> Natural V-Level ({}) has surpassed User Level ({}), stopping back-fill.", *v_level, *user_level);
+            break;
+        }
+    }
+    // --- END OF BACK-FILLING FIX ---
 
     println!("\n[INFO] AVD Hunt complete. Writing results to {}", output_csv_path.display());
     let mut writer = csv::Writer::from_path(output_csv_path)?;

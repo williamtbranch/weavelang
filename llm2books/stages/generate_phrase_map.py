@@ -93,11 +93,13 @@ class GeneratePhraseMap(LLMStage):
         for i in range(0, len(items_for_this_run), batch_size):
             batch_items = items_for_this_run[i:i + batch_size]
             
+            #
             llm_results_list = llm_utils.run_llm_batch_job(
                 llm_client=self.resources['llm_client'], job_name=self.stage_name,
                 system_prompt=system_prompt, items_to_process=batch_items,
                 llm_logger=llm_logger, parser_type=self.parser_type,
-                stage_config=self.stage_config, models_config=self.models_config
+                stage_config=self.stage_config, models_config=self.models_config,
+                pipeline_config=self.pipeline_config # Pass the global config
             )
 
             if llm_results_list is None: return False

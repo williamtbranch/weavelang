@@ -1,11 +1,9 @@
-// In src/main.rs
 
-use clap::{Parser}; // <-- Removed 'ValueEnum'
+use clap::{Parser};
 use std::path::PathBuf;
 use weavelang_rust_gui::{
     config, corpus_generator,
     simulation::{avd_hunter, calibrator},
-    // We no longer need to import CalibrationMode here
 };
 
 #[derive(Parser, Debug)]
@@ -25,15 +23,19 @@ enum Commands {
 // --- THIS IS THE UPDATED STRUCT ---
 #[derive(clap::Args, Debug, Clone)]
 struct CalibrateCliArgs {
-    // The --mode and --l-level-data-path arguments have been removed.
-    
     #[arg(long, value_name = "FILE", help = "Path to the book's JSON file to calibrate.")]
     book_json: PathBuf,
 
-    #[arg(long, value_name = "FILE", help = "Path for the final output file (e.g., BookName_u_level_map.json).")]
+    #[arg(long, value_name = "FILE", help = "Path for the final output file (e.g., BookName.json). This will be modified in-place.")]
     output_path: PathBuf,
+    
+    #[arg(long, value_name = "FILE", help = "Optional path for the detailed debug/analysis file (e.g., BookName_calibration_data.json).")]
+    output_debug_path: Option<PathBuf>,
 
-    #[arg(long, default_value_t = 40, help = "The maximum user/l-level to calibrate for.")]
+    #[arg(long, value_name = "FILE", help = "Path to the master_avd_scale.csv file.")]
+    master_avd_scale: PathBuf,
+
+    #[arg(long, default_value_t = 40, help = "The maximum user level to generate a curriculum map for.")]
     max_level: u32,
 }
 // --- END OF UPDATED STRUCT ---
@@ -117,14 +119,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Calibrate(args) => {
             // --- THIS IS THE UPDATED CALL ---
-             if let Err(e) = calibrator::run_unified_calibration(
+            if let Err(e) = calibrator::run_unified_calibration(
                 &args.book_json,
-                args.max_level,
                 &args.output_path,
+                args.output_debug_path.as_deref(),
+                &args.master_avd_scale,
+                args.max_level,
              ) {
                  eprintln!("[ERROR] Book calibration failed: {}", e);
                  std::process::exit(1);
              }
+            // --- END: MODIFIED SECTION
         }
     }
     Ok(())
