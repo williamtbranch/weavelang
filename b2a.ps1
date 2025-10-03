@@ -1,44 +1,73 @@
-# b2a.ps1 (Updated for Gemini 2.5 Pro Support)
+# b2a.ps1 (Updated to load Project ID from .env file)
+
+# --- START OF NEW HELPER FUNCTION ---
+# Helper function to parse a .env file and load variables into the environment.
+function Import-EnvFile {
+    param (
+        [string]$Path = ".env"
+    )
+    if (Test-Path $Path) {
+        Get-Content $Path | ForEach-Object {
+            $line = $_.Trim()
+            # Skip comments and empty lines
+            if ($line -and $line -notmatch "^\s*#") {
+                $parts = $line -split '=', 2
+                if ($parts.Length -eq 2) {
+                    $name = $parts[0].Trim()
+                    $value = $parts[1].Trim()
+                    # Remove optional quotes from the value
+                    if (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'"))) {
+                        $value = $value.Substring(1, $value.Length - 2)
+                    }
+                    # Set the variable in the current script's environment
+                    [System.Environment]::SetEnvironmentVariable($name, $value, "Process")
+                    #Write-Host "Loaded from .env: $name" # Uncomment for debugging
+                }
+            }
+        }
+    } else {
+        #Write-Warning ".env file not found at '$Path'" # Uncomment for debugging
+    }
+}
+# --- END OF NEW HELPER FUNCTION ---
+
 
 Write-Host "Starting Text-to-Speech conversion..."
+
+# --- Load Environment Variables ---
+# The function will load variables from .env into the current process.
+Import-EnvFile -Path (Join-Path $PSScriptRoot ".env")
+
 
 # --- Configuration ---
 $ToolRootPath = "E:/Bill/development/weavelang" # Your actual path
 $PythonScriptPath = "$ToolRootPath/book_to_audio.py"
-$InputFileName = "Ozma_of_Oz03_inst01.txt" # Your test file
+$InputFileName = "Metamorphosis_UL10.txt" # Your test file
 
 # --- TTS Service Selection ---
-$TtsService = "vertex" # "gemini" or "vertex". Select "gemini" to use the new 2.5 Pro voices.
-# $TtsService = "vertex" 
+$TtsService = "gemini" 
+[bool]$UseVertexAuthForGemini = $true 
 
-# --- Gemini TTS Configuration (used if $TtsService is "gemini") ---
-# New Gemini 2.5 Pro and Flash models are supported.
-$GeminiModelName = "models/gemini-2.5-pro-preview-tts"  # <<< CHANGED: New default Pro model
-# $GeminiModelName = "models/gemini-2.5-flash-preview-tts" # Alternative Flash model
-# $GeminiModelName = "models/gemini-1.5-flash-preview-tts" # Older model
-
-# The voice names (e.g., Schedar, Puck, Kore) are compatible with the new models.
-$GeminiVoiceName = "Schedar" # Default Gemini voice
+# --- Gemini TTS Configuration ---
+$GeminiModelName = "models/gemini-2.5-pro-preview-tts"
+$GeminiVoiceName = "Charon"
 $GeminiTtsPromptPrefix = "You are a professional voice actor with a Mexican Spanish accent."
 
-# --- Vertex AI TTS Configuration (used if $TtsService is "vertex") ---
-#$VertexVoiceName = "es-US-Chirp3-HD-Achernar" # Example Vertex voice, find more at Google Cloud docs
-#$VertexVoiceName = "es-US-Chirp3-HD-Aoede"
+# --- Vertex AI TTS Configuration ---
 $VertexVoiceName = "es-US-Chirp3-HD-Achernar"
-#$VertexVoiceName = "es-US-Chirp3-HD-Algieba" # Example Vertex voice, find more at Google Cloud docs
-$VertexLanguageCode = "es-US"      # Example, e.g., "es-MX"
+$VertexLanguageCode = "es-US"
 
 # --- Run Mode ---
-[bool]$RepairMode = $false # Set to $true to attempt a repair run
+[bool]$RepairMode = $false
 
 # --- Common Processing Parameters ---
-# In REPAIR mode, some of these might be overridden by metadata from the previous run.
 $OutputAudioFormat = "wav"
-$LogLevel = "INFO"       # DEBUG, INFO, WARNING, ERROR, CRITICAL
-$ConcurrentRequests = 1  # Start with 1, increase cautiously
-$ChunkMaxChars = 3000    
-$MaxApiRetries = 4 
-$RetryDelay = 15          # Base delay in seconds
+$LogLevel = "INFO"
+$ConcurrentRequests = 1
+$ChunkMaxChars = 3000
+$MaxApiRetries = 5
+$RetryDelay = 20
+$DelayBetweenChunks = 0 # Set back to 0 if your quota increase was approved
 
 # --- Construct Command Parameters ---
 $PythonParams = @(
@@ -50,25 +79,42 @@ $PythonParams = @(
     "--concurrent-requests", $ConcurrentRequests,
     "--chunk-max-chars", $ChunkMaxChars,
     "--max-api-retries", $MaxApiRetries,
-    "--retry-delay", $RetryDelay
+    "--retry-delay", $RetryDelay,
+    "--delay-between-chunks", $DelayBetweenChunks
 )
+
+# --- MODIFIED: Logic to use Project ID from .env file ---
+if ($UseVertexAuthForGemini -and $TtsService -eq "gemini") {
+    $PythonParams += "--use-vertex-auth-for-gemini"
+    
+    # Read the GCLOUD_PROJECT_ID from the environment (loaded from .env)
+    $GCloudProjectID = $env:GCLOUD_PROJECT_ID
+    
+    if (-not $GCloudProjectID) {
+        Write-Error "GCLOUD_PROJECT_ID not found. Please add it to your .env file."
+        exit 1
+    }
+    
+    $PythonParams += "--gcloud-project", $GCloudProjectID
+    Write-Host "--- AUTH MODE: Vertex AI (Production Quotas for Gemini) ---" -ForegroundColor Green
+    Write-Host "Using Google Cloud Project: $GCloudProjectID (from .env)"
+}
+# --- END OF MODIFICATION ---
+
 
 # Add service-specific parameters
 if ($TtsService -eq "gemini") {
     $PythonParams += "--model-name", $GeminiModelName
     $PythonParams += "--voice-name", $GeminiVoiceName
     $PythonParams += "--tts-prompt-prefix", $GeminiTtsPromptPrefix
-    # API Key for Gemini can be in .env or passed via --api-key if needed
-    # $PythonParams += "--api-key", "YOUR_GEMINI_API_KEY_IF_NOT_IN_ENV" 
     Write-Host "Using GEMINI TTS service."
-    Write-Host "Gemini Model (initial): $GeminiModelName"
-    Write-Host "Gemini Voice (initial): $GeminiVoiceName"
+    Write-Host "Gemini Model: $GeminiModelName"
+    Write-Host "Gemini Voice: $GeminiVoiceName"
 } elseif ($TtsService -eq "vertex") {
     $PythonParams += "--voice-name", $VertexVoiceName
     $PythonParams += "--language-code", $VertexLanguageCode
-    Write-Host "Using VERTEX AI TTS service. Ensure ADC is configured ('gcloud auth application-default login')."
-    Write-Host "Vertex Voice (initial): $VertexVoiceName"
-    Write-Host "Vertex Language Code: $VertexLanguageCode"
+    Write-Host "Using VERTEX AI TTS service (for older Chirp/WaveNet voices)."
+    Write-Host "Vertex Voice: $VertexVoiceName"
 }
 
 if ($RepairMode) {
@@ -82,17 +128,16 @@ if ($RepairMode) {
 Write-Host "Executing Python script: $PythonScriptPath"
 Write-Host "Input file: $InputFileName"
 Write-Host "Chunk Max Chars (initial): $ChunkMaxChars"
-# ... add other common params if desired ...
 
 # --- Run the Command ---
+Write-Host "---"
 Write-Host "Running: python $PythonScriptPath $($PythonParams -join ' ')"
 python $PythonScriptPath $PythonParams
 
 $ExitCode = $LASTEXITCODE
 if ($ExitCode -eq 0) {
-    Write-Host "Python script finished."
-    # Adjust path if your content_project_dir in config.toml is different
-    $BaseAudioDir = "E:/Bill/Documents/development/audiolingual/audio" # Example base from your .ps1
+    Write-Host "Python script finished successfully."
+    $BaseAudioDir = "E:/Bill/Documents/development/audiolingual/audio"
     $ExpectedOutputFile = "$BaseAudioDir/$($InputFileName -replace '\.txt$', ".$OutputAudioFormat")"
     Write-Host "Check for '$ExpectedOutputFile'"
 } else {

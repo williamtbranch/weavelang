@@ -220,7 +220,6 @@ fn parse_level_value(s: &str) -> u32 {
         s.parse().unwrap_or(0)
     }
 }
-
 pub fn run_corpus_generation(
     project_config: &Config,
     _tool_root_dir: &Path,
@@ -246,7 +245,6 @@ pub fn run_corpus_generation(
             let command = parts.get(0).cloned().unwrap_or("");
             if command == "%u-level" && parts.len() == 2 {
                 state.user_level = Some(parts[1].parse()?);
-                // Invalidate the old recipe to ensure the new U-Level is used
                 state.sim_v = 0; state.bas_v = 0; state.mod_v = 0; state.adv_v = 0;
                 println!("[CMD] Set User Level to: {}", state.user_level.unwrap());
             } else if (command == "%levels" || command == "%level") && parts.len() == 5 {
@@ -254,7 +252,7 @@ pub fn run_corpus_generation(
                 state.bas_v = parse_level_value(parts[2]);
                 state.mod_v = parse_level_value(parts[3]);
                 state.adv_v = parse_level_value(parts[4]);
-                state.user_level = None; // Invalidate U-Level if a manual recipe is set
+                state.user_level = None;
                 println!("[CMD] Set Manual Levels to: sim={}, bas={}, mod={}, adv={}", state.sim_v, state.bas_v, state.mod_v, state.adv_v);
             } else {
                 eprintln!("[WARN] Unknown or malformed command: {}", line);
@@ -273,19 +271,39 @@ pub fn run_corpus_generation(
         let mut dictionary = GlobalLemmaDictionary::new();
         dictionary.populate_from_json_chapter(&json_chapter);
         let (numerical_chapter, _) = preprocessor::json_chapter_to_numerical(&json_chapter, &mut dictionary);
-
-        let recipe = if let Some(u_level) = state.user_level {
-            // This is where the magic happens. We look up the recipe from the book's JSON.
+        
+        // --- START OF FILENAME AND RECIPE FIX ---
+        let (recipe, end_level_opt) = if let Some(u_level) = state.user_level {
             let book_json = state.current_book_json.as_ref().ok_or("Book JSON not loaded")?;
-            let u_level_map = book_json.u_level_maps.get(&u_level.to_string())
+            let u_level_map_for_start_level = book_json.u_level_maps.get(&u_level.to_string())
                 .ok_or(format!("U-Level '{}' not found in map for book '{}'", u_level, book_stem))?;
-            // For a single-file generation, we use the recipe from the *first* entry in the map.
-            // A more advanced curriculum generator would iterate through this map.
-            u_level_map.map.get(0).ok_or("Curriculum map is empty")?.recipe.clone()
+            
+            // For a single-file generation, we just need the recipe for the *starting* level.
+            let start_recipe = u_level_map_for_start_level.map.get(0)
+                .ok_or("Curriculum map is empty")?.recipe.clone();
+            
+            (start_recipe, Some(u_level_map_for_start_level.end_level))
         } else {
-            // Fallback to the manually set recipe.
-            VLevelRecipe { sim: state.sim_v, bas: state.bas_v, mod_v: state.mod_v, adv: state.adv_v }
+            (VLevelRecipe { sim: state.sim_v, bas: state.bas_v, mod_v: state.mod_v, adv: state.adv_v }, None)
         };
+
+        let filename = if let Some(u_level) = state.user_level {
+            if let Some(end_level) = end_level_opt {
+                // The book ends *before* the end_level, so the range is up to `end_level - 1`.
+                let end_level_for_range = (end_level - 1.0).floor() as u32;
+                if end_level_for_range > u_level {
+                    format!("{}_UL{}-{}.txt", book_stem, u_level, end_level_for_range)
+                } else {
+                    format!("{}_UL{}.txt", book_stem, u_level)
+                }
+            } else {
+                format!("{}_UL{}.txt", book_stem, u_level)
+            }
+        } else {
+            format!("{}_S{}_B{}_M{}_A{}.txt", book_stem, state.sim_v, state.bas_v, state.mod_v, state.adv_v)
+                .replace(&u32::MAX.to_string(), "EX")
+        };
+        // --- END OF FILENAME AND RECIPE FIX ---
 
         let result = generate_book_instance(
             &numerical_chapter, &json_chapter, &dictionary,
@@ -294,17 +312,7 @@ pub fn run_corpus_generation(
         )?;
         let metrics = TextMetrics::new(&result.all_output_lemma_instances, result.total_base_words);
         let avd_score = metrics.calculate_avd_score();
-
-
-        let filename = if let Some(u_level) = state.user_level {
-            format!("{}_UL{}.txt", book_stem, u_level)
-        } else {
-            format!("{}_S{}_B{}_M{}_A{}.txt", book_stem, state.sim_v, state.bas_v, state.mod_v, state.adv_v)
-                .replace(&u32::MAX.to_string(), "EX")
-        };
-
-
-
+        
         let final_raw_text = result.final_text_parts.join("\n\n");
         let final_cleaned_text = text_generator::clean_text_for_tts(&final_raw_text);
         fs::write(tts_output_dir.join(&filename), final_cleaned_text)?;

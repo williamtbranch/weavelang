@@ -188,7 +188,6 @@ fn synthesize_l_level_tables(
     }
     Ok(tables)
 }
-
 fn run_u_level_state_machine(
     max_level: u32,
     l_tables: &BookLLevelTables,
@@ -240,16 +239,32 @@ fn run_u_level_state_machine(
                 CalibrationPhase::Complete => break,
             }
 
-            let v_recipe = VLevelRecipe {
+            let mut v_recipe = VLevelRecipe {
                 sim: find_v_level_for_l_level(&l_tables.simple, l_recipe.sim),
                 bas: find_v_level_for_l_level(&l_tables.basic, l_recipe.bas),
                 mod_v: find_v_level_for_l_level(&l_tables.moderate, l_recipe.mod_v),
                 adv: find_v_level_for_l_level(&l_tables.advanced, l_recipe.adv),
             };
+            
+            // --- THIS IS THE BACKFILL FIX ---
+            // Ensure the simple vocabulary is at least as large as the integer part of the user level.
+            let u_level_floor = current_u_level.floor() as u32;
+            if v_recipe.sim < u_level_floor {
+                v_recipe.sim = u_level_floor;
+            }
+            // --- END OF FIX ---
+
             let actual_avd = get_avd_for_recipe(numerical_chapter, json_chapter, dictionary, v_recipe.clone(), &mut calculation_cache)?;
             if actual_avd > target_avd { break; } 
             else { last_good_v_recipe = v_recipe; last_good_l_recipe = l_recipe.clone(); last_good_avd = actual_avd; }
         }
+        
+        // Apply the backfill fix to the final chosen recipe for this level as well
+        let u_level_floor = current_u_level.floor() as u32;
+        if last_good_v_recipe.sim < u_level_floor {
+            last_good_v_recipe.sim = u_level_floor;
+        }
+
         u_level_analysis.u_level_map.push(ULevelAnalysisEntry { u_level: current_u_level, target_avd, actual_avd: last_good_avd, recipe: last_good_v_recipe.clone(), l_level_recipe: last_good_l_recipe.clone() });
         print!("\r     ...calibrating U-Level {:.1}", current_u_level); std::io::stdout().flush()?;
         if phase == CalibrationPhase::Complete {
