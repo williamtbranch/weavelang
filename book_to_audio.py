@@ -346,12 +346,12 @@ async def process_book_to_audio_async(
 
     # The "no cleanup" logic from last time remains.
     logging.info(f"Cleanup of temporary files has been disabled. Audio and text chunks are preserved in '{temp_chunk_dir}'.")
-
 async def main_async():
     # This top part with argparse is unchanged from the last version
     parser = argparse.ArgumentParser(description="Convert a book to audio using Google TTS services.")
     parser.add_argument("--use-vertex-auth-for-gemini", action="store_true", help="Use Vertex AI authentication for Gemini models (production quotas).")
-    parser.add_argument("--gcloud-project", help="Your Google Cloud Project ID, required when using --use-vertex-auth-for-gemini.")
+    # NOTE: The --gcloud-project flag is now optional, as the library can usually discover it automatically.
+    parser.add_argument("--gcloud-project", help="Your Google Cloud Project ID (optional, but recommended for clarity).")
     parser.add_argument("--delay-between-chunks", type=int, default=0, help="Seconds to wait after processing each chunk to avoid rate limits.")
     parser.add_argument("--input-filename", required=True)
     parser.add_argument("--tool-root-dir", type=Path, default=Path(__file__).resolve().parent)
@@ -384,19 +384,30 @@ async def main_async():
         if not google_genai:
             logging.critical("Gemini API library not installed. Please run `pip install google-generativeai`."); return
         
-        # --- THIS IS THE FINAL, CORRECTED LOGIC ---
         try:
             if args.use_vertex_auth_for_gemini:
-                if not args.gcloud_project:
-                    logging.critical("--gcloud-project is required when using --use-vertex-auth-for-gemini."); return
+                # --- THIS IS THE DEFINITIVE FIX ---
+                # We explicitly use the google.auth library to get Application Default Credentials.
+                # This is the canonical way to authenticate for production Google Cloud services.
+                if not google.auth:
+                    logging.critical("Google Auth library not found. Please run `pip install google-auth`."); return
                 
-                logging.info(f"Initializing Gemini via Vertex AI (ADC) for project '{args.gcloud_project}'...")
-                # This initializes the google-genai client using Application Default Credentials.
-                client = google_genai.Client.from_service_account_json(
-                    os.getenv("GOOGLE_APPLICATION_CREDENTIALS"), project=args.gcloud_project
-                ) if os.getenv("GOOGLE_APPLICATION_CREDENTIALS") else google_genai.Client(project=args.gcloud_project)
+                logging.info("Attempting to authenticate using Google Cloud Application Default Credentials (ADC)...")
+                credentials, discovered_project_id = google.auth.default()
+                
+                project_id_to_use = args.gcloud_project or discovered_project_id
+                if not project_id_to_use:
+                    logging.critical("Could not discover Google Cloud Project ID. Please provide it via --gcloud-project or set it in your environment."); return
+                
+                logging.info(f"Initializing Gemini client for Vertex AI project '{project_id_to_use}'...")
+                
+                # We initialize the client by passing the explicit credentials.
+                # This FORCES it to use the Vertex AI backend.
+                client = google_genai.Client(project=project_id_to_use, credentials=credentials)
 
                 logging.info("Gemini client configured for Vertex AI successfully.")
+                # --- END OF DEFINITIVE FIX ---
+
             else: # Original Gemini API (free tier) logic
                 api_key_to_use = args.api_key or os.getenv("GOOGLE_API_KEY")
                 if not api_key_to_use:
@@ -404,9 +415,8 @@ async def main_async():
                 client = google_genai.Client(api_key=api_key_to_use)
                 logging.info("Gemini API (free tier) client configured.")
         except Exception as e:
-            logging.critical(f"Failed to configure Gemini client. Error: {e}", exc_info=True)
+            logging.critical(f"Failed to configure Gemini client. Ensure you have run 'gcloud auth application-default login'. Error: {e}", exc_info=True)
             return
-        # --- END OF FINAL, CORRECTED LOGIC ---
 
     elif args.tts_service == "vertex":
         if not texttospeech: logging.critical("Google Cloud Text-to-Speech library not installed."); return

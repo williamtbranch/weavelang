@@ -188,6 +188,7 @@ fn synthesize_l_level_tables(
     }
     Ok(tables)
 }
+
 fn run_u_level_state_machine(
     max_level: u32,
     l_tables: &BookLLevelTables,
@@ -198,82 +199,97 @@ fn run_u_level_state_machine(
     let mut u_level_analysis = ULevelAnalysisData::default();
     let num_u_steps = max_level as usize * 10;
     let mut calculation_cache: HashMap<VLevelRecipe, f64> = HashMap::new();
-    let mut l_recipe = LLevelRecipe::default();
-    let mut phase = CalibrationPhase::SimBas;
-    let mut bas_mod_sequence = Vec::new();
-    let mut mod_adv_sequence = Vec::new();
-    let mut sequence_idx = 0;
-    let mut sim_turn = true;
-    let mut last_good_v_recipe = VLevelRecipe::default();
-    let mut last_good_l_recipe = LLevelRecipe::default();
-    let mut last_good_avd = 0.0;
     
+    // --- START OF REFACTORED LOGIC ---
+    let mut last_best_l_recipe = LLevelRecipe::default();
+    let mut last_best_v_recipe = VLevelRecipe::default();
+    let mut last_best_avd = 0.0;
+    
+    // This flag will be set to true once the book hits its maximum possible AVD.
+    let mut is_maxed_out = false;
+
     for i in 0..=num_u_steps {
         let current_u_level = i as f32 / 10.0;
         let target_avd = get_avd_from_user_level(current_u_level);
-        loop {
-            if phase == CalibrationPhase::SimBas && l_recipe.sim >= l_tables.simple.natural_exhaustion_level {
-                phase = CalibrationPhase::BasMod; sequence_idx = 0;
-                bas_mod_sequence = generate_catch_up_sequence(l_recipe.bas, l_tables.basic.natural_exhaustion_level, l_tables.moderate.natural_exhaustion_level);
-            }
-            if phase == CalibrationPhase::BasMod && l_recipe.bas >= l_tables.basic.natural_exhaustion_level {
-                phase = CalibrationPhase::ModAdv; sequence_idx = 0;
-                mod_adv_sequence = generate_catch_up_sequence(l_recipe.mod_v, l_tables.moderate.natural_exhaustion_level, l_tables.advanced.natural_exhaustion_level);
-            }
-            if phase == CalibrationPhase::ModAdv && l_recipe.mod_v >= l_tables.moderate.natural_exhaustion_level {
-                phase = CalibrationPhase::AdvOnly;
-            }
-            if phase == CalibrationPhase::AdvOnly && l_recipe.adv >= l_tables.advanced.natural_exhaustion_level {
-                phase = CalibrationPhase::Complete;
-            }
 
-            match phase {
-                CalibrationPhase::SimBas => {
-                    if sim_turn { l_recipe.sim = (l_recipe.sim * 10.0 + 1.0).round() / 10.0; } 
-                    else { l_recipe.bas = l_recipe.sim; }
-                    sim_turn = !sim_turn;
-                }
-                CalibrationPhase::BasMod => if let Some((bas, mod_v)) = bas_mod_sequence.get(sequence_idx) { l_recipe.bas = *bas; l_recipe.mod_v = *mod_v; sequence_idx += 1; } else { phase = CalibrationPhase::Complete; },
-                CalibrationPhase::ModAdv => if let Some((mod_v, adv)) = mod_adv_sequence.get(sequence_idx) { l_recipe.mod_v = *mod_v; l_recipe.adv = *adv; sequence_idx += 1; } else { phase = CalibrationPhase::Complete; },
-                CalibrationPhase::AdvOnly => { l_recipe.adv = (l_recipe.adv * 10.0 + 1.0).round() / 10.0; },
-                CalibrationPhase::Complete => break,
-            }
+        if is_maxed_out {
+            // If we've already hit the book's ceiling, don't re-calculate.
+            // Just fill in the remaining U-Levels with the best-ever result.
+            u_level_analysis.u_level_map.push(ULevelAnalysisEntry {
+                u_level: current_u_level,
+                target_avd,
+                actual_avd: last_best_avd,
+                recipe: last_best_v_recipe.clone(),
+                l_level_recipe: last_best_l_recipe.clone(),
+            });
+            continue;
+        }
 
-            let mut v_recipe = VLevelRecipe {
-                sim: find_v_level_for_l_level(&l_tables.simple, l_recipe.sim),
-                bas: find_v_level_for_l_level(&l_tables.basic, l_recipe.bas),
-                mod_v: find_v_level_for_l_level(&l_tables.moderate, l_recipe.mod_v),
-                adv: find_v_level_for_l_level(&l_tables.advanced, l_recipe.adv),
+        // Create a search space of candidate L-Level recipes to try for this U-Level.
+        // Start searching from the last known best recipe.
+        let mut candidate_l_recipes = Vec::new();
+        let mut current_l_recipe = last_best_l_recipe.clone();
+        
+        // Generate a reasonable number of forward-looking candidates.
+        for _ in 0..100 { // 100 steps should be more than enough to find the next threshold
+            // Advance the recipe using the phase-based logic
+            let (next_l_recipe, phase_complete) = advance_l_recipe(current_l_recipe, l_tables);
+            if phase_complete { break; }
+            candidate_l_recipes.push(next_l_recipe.clone());
+            current_l_recipe = next_l_recipe;
+        }
+
+        // Find the best candidate from the search space that doesn't overshoot the target AVD.
+        let mut found_improvement = false;
+        for candidate_l in candidate_l_recipes {
+            let mut candidate_v = VLevelRecipe {
+                sim: find_v_level_for_l_level(&l_tables.simple, candidate_l.sim),
+                bas: find_v_level_for_l_level(&l_tables.basic, candidate_l.bas),
+                mod_v: find_v_level_for_l_level(&l_tables.moderate, candidate_l.mod_v),
+                adv: find_v_level_for_l_level(&l_tables.advanced, candidate_l.adv),
             };
-            
-            // --- THIS IS THE BACKFILL FIX ---
-            // Ensure the simple vocabulary is at least as large as the integer part of the user level.
-            let u_level_floor = current_u_level.floor() as u32;
-            if v_recipe.sim < u_level_floor {
-                v_recipe.sim = u_level_floor;
-            }
-            // --- END OF FIX ---
 
-            let actual_avd = get_avd_for_recipe(numerical_chapter, json_chapter, dictionary, v_recipe.clone(), &mut calculation_cache)?;
-            if actual_avd > target_avd { break; } 
-            else { last_good_v_recipe = v_recipe; last_good_l_recipe = l_recipe.clone(); last_good_avd = actual_avd; }
+            // Apply the backfill logic to the candidate
+            let u_level_floor = current_u_level.floor() as u32;
+            if candidate_v.sim < u_level_floor {
+                candidate_v.sim = u_level_floor;
+            }
+
+            let candidate_avd = get_avd_for_recipe(numerical_chapter, json_chapter, dictionary, candidate_v.clone(), &mut calculation_cache)?;
+            
+            if candidate_avd <= target_avd {
+                // This is a better recipe that is still under the target. Update our best-known values.
+                last_best_l_recipe = candidate_l;
+                last_best_v_recipe = candidate_v;
+                last_best_avd = candidate_avd;
+                found_improvement = true;
+            } else {
+                // We've overshot the target, so we stop searching for this U-Level.
+                break;
+            }
         }
         
-        // Apply the backfill fix to the final chosen recipe for this level as well
-        let u_level_floor = current_u_level.floor() as u32;
-        if last_good_v_recipe.sim < u_level_floor {
-            last_good_v_recipe.sim = u_level_floor;
+        // Check if we failed to find any improvement. This means the book is maxed out.
+        if !found_improvement {
+            let (_, phase_complete) = advance_l_recipe(last_best_l_recipe.clone(), l_tables);
+            if phase_complete {
+                 println!("\n[INFO] Book has reached its natural maximum AVD of {:.2} at U-Level {:.1}. Filling remaining levels.", last_best_avd, current_u_level);
+                 is_maxed_out = true;
+            }
         }
 
-        u_level_analysis.u_level_map.push(ULevelAnalysisEntry { u_level: current_u_level, target_avd, actual_avd: last_good_avd, recipe: last_good_v_recipe.clone(), l_level_recipe: last_good_l_recipe.clone() });
-        print!("\r     ...calibrating U-Level {:.1}", current_u_level); std::io::stdout().flush()?;
-        if phase == CalibrationPhase::Complete {
-            for j in (i + 1)..=num_u_steps {
-                u_level_analysis.u_level_map.push(ULevelAnalysisEntry { u_level: j as f32 / 10.0, target_avd: get_avd_from_user_level(j as f32 / 10.0), actual_avd: last_good_avd, recipe: last_good_v_recipe.clone(), l_level_recipe: last_good_l_recipe.clone() });
-            }
-            break;
-        }
+        u_level_analysis.u_level_map.push(ULevelAnalysisEntry {
+            u_level: current_u_level,
+            target_avd,
+            actual_avd: last_best_avd,
+            recipe: last_best_v_recipe.clone(),
+            l_level_recipe: last_best_l_recipe.clone(),
+        });
+        
+        print!("\r     ...calibrating U-Level {:.1}", current_u_level);
+        std::io::stdout().flush()?;
     }
+    
     println!();
     Ok(u_level_analysis)
 }
@@ -381,4 +397,49 @@ fn generate_catch_up_sequence(s_start: f32, s_end: f32, f_end: f32) -> Vec<(f32,
         current_f = current_f.min(f_end);
         (current_s, current_f)
     }).collect()
+}
+
+fn advance_l_recipe(mut recipe: LLevelRecipe, l_tables: &BookLLevelTables) -> (LLevelRecipe, bool) {
+    let mut phase = if recipe.adv >= l_tables.advanced.natural_exhaustion_level {
+        CalibrationPhase::Complete
+    } else if recipe.mod_v >= l_tables.moderate.natural_exhaustion_level {
+        CalibrationPhase::AdvOnly
+    } else if recipe.bas >= l_tables.basic.natural_exhaustion_level {
+        CalibrationPhase::ModAdv
+    } else if recipe.sim >= l_tables.simple.natural_exhaustion_level {
+        CalibrationPhase::BasMod
+    } else {
+        CalibrationPhase::SimBas
+    };
+
+    match phase {
+        CalibrationPhase::SimBas => {
+            // In the first phase, we simply increment the Simple L-Level
+            recipe.sim = (recipe.sim * 10.0 + 1.0).round() / 10.0;
+            // The other tiers "chase" the simple tier.
+            recipe.bas = recipe.bas.max(recipe.sim);
+        }
+        CalibrationPhase::BasMod => {
+            recipe.bas = (recipe.bas * 10.0 + 1.0).round() / 10.0;
+            recipe.mod_v = recipe.mod_v.max(recipe.bas);
+        }
+        CalibrationPhase::ModAdv => {
+            recipe.mod_v = (recipe.mod_v * 10.0 + 1.0).round() / 10.0;
+            recipe.adv = recipe.adv.max(recipe.mod_v);
+        }
+        CalibrationPhase::AdvOnly => {
+            recipe.adv = (recipe.adv * 10.0 + 1.0).round() / 10.0;
+        }
+        CalibrationPhase::Complete => {
+            return (recipe, true); // Signal that we are done
+        }
+    }
+    
+    // Clamp values to their natural exhaustion levels
+    recipe.sim = recipe.sim.min(l_tables.simple.natural_exhaustion_level);
+    recipe.bas = recipe.bas.min(l_tables.basic.natural_exhaustion_level);
+    recipe.mod_v = recipe.mod_v.min(l_tables.moderate.natural_exhaustion_level);
+    recipe.adv = recipe.adv.min(l_tables.advanced.natural_exhaustion_level);
+
+    (recipe, false)
 }

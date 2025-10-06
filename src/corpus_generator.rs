@@ -220,6 +220,7 @@ fn parse_level_value(s: &str) -> u32 {
         s.parse().unwrap_or(0)
     }
 }
+
 pub fn run_corpus_generation(
     project_config: &Config,
     _tool_root_dir: &Path,
@@ -233,7 +234,7 @@ pub fn run_corpus_generation(
     let analysis_log_path = profiles_dir.join("corpus_analysis_log.txt");
     let mut state = ProcessingState::default();
 
-    println!("[INFO] Starting batch generation job using V2 sequence format.");
+    println!("[INFO] Starting batch generation job using progressive curriculum maps.");
     let sequence_file = File::open(&sequence_path)?;
 
     for line_result in BufReader::new(sequence_file).lines() {
@@ -241,6 +242,7 @@ pub fn run_corpus_generation(
         if line.is_empty() || line.starts_with('#') { continue; }
 
         if line.starts_with('%') {
+            // ... (this command parsing logic is unchanged)
             let parts: Vec<&str> = line.split_whitespace().collect();
             let command = parts.get(0).cloned().unwrap_or("");
             if command == "%u-level" && parts.len() == 2 {
@@ -248,10 +250,8 @@ pub fn run_corpus_generation(
                 state.sim_v = 0; state.bas_v = 0; state.mod_v = 0; state.adv_v = 0;
                 println!("[CMD] Set User Level to: {}", state.user_level.unwrap());
             } else if (command == "%levels" || command == "%level") && parts.len() == 5 {
-                state.sim_v = parse_level_value(parts[1]);
-                state.bas_v = parse_level_value(parts[2]);
-                state.mod_v = parse_level_value(parts[3]);
-                state.adv_v = parse_level_value(parts[4]);
+                state.sim_v = parse_level_value(parts[1]); state.bas_v = parse_level_value(parts[2]);
+                state.mod_v = parse_level_value(parts[3]); state.adv_v = parse_level_value(parts[4]);
                 state.user_level = None;
                 println!("[CMD] Set Manual Levels to: sim={}, bas={}, mod={}, adv={}", state.sim_v, state.bas_v, state.mod_v, state.adv_v);
             } else {
@@ -266,59 +266,93 @@ pub fn run_corpus_generation(
         let json_file_path = project_config.content_project_dir_path().join(input_json_dir).join(format!("{}.json", book_stem));
         let json_content = fs::read_to_string(&json_file_path)?;
         let json_chapter = json_parser::parse_chapter_from_json(&json_content)?;
-        state.current_book_json = Some(json_chapter.clone());
-
+        
         let mut dictionary = GlobalLemmaDictionary::new();
         dictionary.populate_from_json_chapter(&json_chapter);
         let (numerical_chapter, _) = preprocessor::json_chapter_to_numerical(&json_chapter, &mut dictionary);
         
-        // --- START OF FILENAME AND RECIPE FIX ---
-        let (recipe, end_level_opt) = if let Some(u_level) = state.user_level {
-            let book_json = state.current_book_json.as_ref().ok_or("Book JSON not loaded")?;
-            let u_level_map_for_start_level = book_json.u_level_maps.get(&u_level.to_string())
-                .ok_or(format!("U-Level '{}' not found in map for book '{}'", u_level, book_stem))?;
-            
-            // For a single-file generation, we just need the recipe for the *starting* level.
-            let start_recipe = u_level_map_for_start_level.map.get(0)
-                .ok_or("Curriculum map is empty")?.recipe.clone();
-            
-            (start_recipe, Some(u_level_map_for_start_level.end_level))
-        } else {
-            (VLevelRecipe { sim: state.sim_v, bas: state.bas_v, mod_v: state.mod_v, adv: state.adv_v }, None)
-        };
+        // --- START OF REFACTORED GENERATION LOGIC ---
+        
+        let mut full_book_result = BookGenerationResult::default();
+        let mut filename: String;
 
-        let filename = if let Some(u_level) = state.user_level {
-            if let Some(end_level) = end_level_opt {
-                // The book ends *before* the end_level, so the range is up to `end_level - 1`.
-                let end_level_for_range = (end_level - 1.0).floor() as u32;
-                if end_level_for_range > u_level {
-                    format!("{}_UL{}-{}.txt", book_stem, u_level, end_level_for_range)
-                } else {
-                    format!("{}_UL{}.txt", book_stem, u_level)
-                }
+        if let Some(u_level) = state.user_level {
+            let u_level_map = json_chapter.u_level_maps.get(&u_level.to_string())
+                .ok_or(format!("U-Level '{}' not found in map for book '{}'", u_level, book_stem))?;
+
+            // Generate the descriptive filename
+            let end_level_for_range = (u_level_map.end_level - 1.0).floor() as u32;
+            filename = if end_level_for_range > u_level {
+                format!("{}_UL{}-{}.txt", book_stem, u_level, end_level_for_range)
             } else {
                 format!("{}_UL{}.txt", book_stem, u_level)
+            };
+
+            // Loop through the map entries and process sentence slices
+            for (i, entry) in u_level_map.map.iter().enumerate() {
+                let start_idx = entry.start_sentence_idx;
+                let end_idx = if i + 1 < u_level_map.map.len() {
+                    u_level_map.map[i+1].start_sentence_idx
+                } else {
+                    numerical_chapter.sentences_numerical.len()
+                };
+
+                if start_idx >= end_idx { continue; }
+
+                // Create temporary chapter slices for processing
+                let mut numerical_slice = numerical_chapter.clone();
+                numerical_slice.sentences_numerical = numerical_chapter.sentences_numerical[start_idx..end_idx].to_vec();
+                
+                let mut json_slice = json_chapter.clone();
+                json_slice.content_blocks = json_chapter.content_blocks.iter().filter_map(|cb| match cb {
+                    JsonContentBlock::Sentence(s) => {
+                        if numerical_slice.sentences_numerical.iter().any(|ns| ns.sentence_id_str == s.s_id) {
+                            Some(JsonContentBlock::Sentence(s.clone()))
+                        } else { None }
+                    }
+                    _ => None // Ignore chapter markers for slicing
+                }).collect();
+                
+                let recipe = &entry.recipe;
+                
+                // Generate the audio for just this slice
+                let slice_result = generate_book_instance(
+                    &numerical_slice, &json_slice, &dictionary,
+                    recipe.sim, recipe.bas, recipe.mod_v, recipe.adv,
+                    inverse_diglot_threshold, debug_markers,
+                )?;
+
+                // Aggregate results from the slice into the main result
+                full_book_result.final_text_parts.extend(slice_result.final_text_parts);
+                full_book_result.all_output_lemma_instances.extend(slice_result.all_output_lemma_instances);
+                full_book_result.total_target_words += slice_result.total_target_words;
+                full_book_result.total_base_words += slice_result.total_base_words;
+                for (level, count) in slice_result.level_stats { *full_book_result.level_stats.entry(level).or_insert(0) += count; }
+                for (seg_type, count) in slice_result.segment_stats { *full_book_result.segment_stats.entry(seg_type).or_insert(0) += count; }
             }
         } else {
-            format!("{}_S{}_B{}_M{}_A{}.txt", book_stem, state.sim_v, state.bas_v, state.mod_v, state.adv_v)
-                .replace(&u32::MAX.to_string(), "EX")
-        };
-        // --- END OF FILENAME AND RECIPE FIX ---
+            // Manual level generation (this logic remains the same)
+            filename = format!("{}_S{}_B{}_M{}_A{}.txt", book_stem, state.sim_v, state.bas_v, state.mod_v, state.adv_v)
+                .replace(&u32::MAX.to_string(), "EX");
+            
+            full_book_result = generate_book_instance(
+                &numerical_chapter, &json_chapter, &dictionary,
+                state.sim_v, state.bas_v, state.mod_v, state.adv_v,
+                inverse_diglot_threshold, debug_markers,
+            )?;
+        }
+        
+        // --- END OF REFACTORED GENERATION LOGIC ---
 
-        let result = generate_book_instance(
-            &numerical_chapter, &json_chapter, &dictionary,
-            recipe.sim, recipe.bas, recipe.mod_v, recipe.adv,
-            inverse_diglot_threshold, debug_markers,
-        )?;
-        let metrics = TextMetrics::new(&result.all_output_lemma_instances, result.total_base_words);
+        let metrics = TextMetrics::new(&full_book_result.all_output_lemma_instances, full_book_result.total_base_words);
         let avd_score = metrics.calculate_avd_score();
         
-        let final_raw_text = result.final_text_parts.join("\n\n");
+        let final_raw_text = full_book_result.final_text_parts.join("\n\n");
         let final_cleaned_text = text_generator::clean_text_for_tts(&final_raw_text);
         fs::write(tts_output_dir.join(&filename), final_cleaned_text)?;
         println!("  -> Saved TTS file to: {}", filename);
         
-        log_analysis_to_file(&analysis_log_path, &filename, &result, avd_score)?;
+        log_analysis_to_file(&analysis_log_path, &filename, &full_book_result, avd_score)?;
     }
     
     println!("\n[INFO] Batch generation job finished.");
