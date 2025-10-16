@@ -4,15 +4,14 @@ from typing import Any, Dict, List
 
 from .base import LLMStage, logger
 from .. import llm_prompts, llm_utils
-# --- THIS IS THE KEY ---
-# We now import the parser/aligner into the generation stage itself.
-from ..phrase_mapper_helpers import align_and_parse_to_atoms
+from ..phrase_mapper_helpers import refactor_token_stream
+from ..validator import ValidationError
 
 class GeneratePhraseMap(LLMStage):
     """
-    Stage 3: Generates a phrase-based mapping and IMMEDIATELY validates it
-    against the source tokens before saving. This prevents pipeline pollution
-    from malformed LLM responses.
+    Stage 3: Generates a phrase-based mapping and IMMEDIATELY validates its
+    structural integrity against the source tokens before saving. This prevents
+    pipeline pollution from malformed LLM responses.
     """
     def __init__(self, book_stem: str, cli_args: Any, common_resources: Dict[str, Any]):
         super().__init__(
@@ -34,32 +33,30 @@ class GeneratePhraseMap(LLMStage):
                 base_tier = next((t for t in block["tiers"] if t["tier_id"] == "base"), None)
                 if not base_tier: continue
                 
-                # ============================ START: REPLACEMENT CODE ============================
-                # Clean the full_text to be a single, space-separated line
-                # to ensure consistent prompting.
                 prompt_text = " ".join(base_tier.get("full_text", "").strip().split())
-                # ============================= END: REPLACEMENT CODE =============================
-
-                word_tokens_for_validation = [
+                
+                # We need the original tokens for our validation dry run
+                original_tokens_for_validation = [
                     token for seg in base_tier.get("segments", [])
                     for token in seg.get("tokenized_text", [])
-                    if token.get("t") == "w"
                 ]
                 
-                if not word_tokens_for_validation or not prompt_text:
+                if not original_tokens_for_validation or not prompt_text:
                     continue
                 
                 items_to_process.append({
                     "id": block['s_id'],
                     "text": prompt_text,
-                    "source_tokens_for_validation": word_tokens_for_validation
+                    # Attach the tokens needed for validation to the item
+                    "original_tokens_for_validation": original_tokens_for_validation
                 })
         return items_to_process
 
     def run(self) -> bool:
         """
-        A new, self-validating run method. It calls the LLM and then
-        immediately runs the robust parser to validate the response.
+        A custom, self-validating run method. It calls the LLM and then
+        immediately runs the robust refactor function to validate the response
+        before saving any data.
         """
         from ..llm_logger import LLMLogger
         
@@ -78,8 +75,9 @@ class GeneratePhraseMap(LLMStage):
 
         all_items = self.prepare_llm_items(input_data)
         
-        completed_ids = { item['id'] for item in all_items if self._is_item_complete(input_data, item['id']) }
-        items_for_this_run = [item for item in all_items if item['id'] not in completed_ids]
+        items_for_this_run = [
+            item for item in all_items if not self._is_item_complete(input_data, item['id'])
+        ]
         
         if not items_for_this_run:
             logger.info("      -> All items for this stage are already complete.")
@@ -95,13 +93,16 @@ class GeneratePhraseMap(LLMStage):
             
             #
             llm_results_list = llm_utils.run_llm_batch_job(
-                llm_client=self.resources['llm_client'], job_name=self.stage_name,
-                system_prompt=system_prompt, items_to_process=batch_items,
-                llm_logger=llm_logger, parser_type=self.parser_type,
-                stage_config=self.stage_config, models_config=self.models_config,
-                pipeline_config=self.pipeline_config # Pass the global config
+                llm_clients=self.resources['llm_clients'], 
+                job_name=self.stage_name,
+                system_prompt=system_prompt, 
+                items_to_process=batch_items,
+                llm_logger=llm_logger, 
+                parser_type=self.parser_type,
+                stage_config=self.stage_config, 
+                models_config=self.models_config,
+                pipeline_config=self.pipeline_config
             )
-
             if llm_results_list is None: return False
             
             final_map = {item['id']: item['llm_response'] for item in llm_results_list}
@@ -110,18 +111,26 @@ class GeneratePhraseMap(LLMStage):
             for item in batch_items:
                 s_id = item['id']
                 raw_mapping_str = final_map.get(s_id, "")
-                raw_map_lines = raw_mapping_str.splitlines()
+                
+                # Parse the left side of the LLM map for the validation
+                llm_groups = []
+                for line in raw_mapping_str.splitlines():
+                    if '->' in line:
+                        parts = line.split('->', 1)
+                        if len(parts) == 2 and parts[0].strip():
+                            llm_groups.append(parts[0].strip())
                 
                 try:
-                    logger.debug(f"S_ID {s_id}: Running pre-save validation dry run...")
-                    # This is the validation "dry run". If it fails, it will raise a ValueError.
-                    align_and_parse_to_atoms(raw_map_lines, item['source_tokens_for_validation'])
-                    logger.debug(f"S_ID {s_id}: Validation PASSED.")
-                except ValueError as e:
-                    logger.error(f"CRITICAL VALIDATION FAILURE for S_ID {s_id} in Stage {self.stage_name}.")
-                    logger.error(f"LLM response is not alignable with source tokens. Reason: {e}")
-                    logger.error("The pipeline will now HALT to prevent saving corrupt data. Please check the LLM log for this stage to debug the prompt/response.")
-                    return False # Halt the entire pipeline
+                    logger.debug(f"S_ID {s_id}: Running pre-save structural validation...")
+                    # This is the validation "dry run". If it fails, it will raise ValidationError.
+                    refactor_token_stream(item['original_tokens_for_validation'], llm_groups)
+                    logger.debug(f"S_ID {s_id}: Structural validation PASSED.")
+                except ValidationError as e:
+                    # If validation fails, log it and, crucially, raise it again.
+                    # The run_llm_batch_job function is designed to catch this and initiate a retry.
+                    # We are essentially treating a structurally invalid response as a failed API call.
+                    logger.warning(f"      -> S_ID {s_id} failed structural validation from LLM. Reason: {e}")
+                    raise e # Re-raise to trigger retry logic in llm_utils
 
                 # If validation passes, we can safely update the block
                 block_to_update = next((b for b in input_data['content_blocks'] if b.get('s_id') == s_id), None)
@@ -135,13 +144,13 @@ class GeneratePhraseMap(LLMStage):
             logger.info(f"      -> Successfully validated and saved batch ending with {batch_items[-1]['id']}.")
         
         logger.info("      -> All items for this stage have been processed and validated.")
-        return True
+        return self._save_output_data(input_data, "COMPLETED")
 
     def process_llm_results_for_block(self, block: Dict, llm_results: Dict[str, str]) -> Dict:
         """This function now simply stores the validated raw LLM output."""
         s_id = block['s_id']
         if s_id in llm_results:
-            # We store the raw lines, confident they are valid.
+            # We store the raw lines, confident they are structurally valid.
             block.setdefault("mappings", {})["raw_phrase_map"] = llm_results[s_id].splitlines()
             block.setdefault("processing_status", {})[self.stage_name] = "COMPLETED"
         return block

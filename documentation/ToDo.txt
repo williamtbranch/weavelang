@@ -117,3 +117,23 @@ The new process will use the LLM's output to propose cut points.
 It will validate these cut points by comparing word counts and boundary-word lemmas against a ground-truth tokenization of the original source text.
 If validated, the final segments will be reconstructed by slicing the ground-truth tokens, ensuring 100% fidelity.
 This will make the system immune to minor grammatical/orthographic edits made by the LLM.
+
+- [ ] **Task 2.8: Unify Phrase Mapping with a Generic "Token Stream Refactor"**
+    - [ ] **Goal:** Create a single, robust helper function to handle the structural transformation of token streams for both the forward and inverse maps. This will fix the grouping bugs and implement the new proper noun system in a unified way.
+    
+    - [ ] **Sub-Task 1: TDD for the Generic Helper (`llm2books/tests/test_phrase_mapper_helpers.py`)**
+        - [ ] Create unit tests for a new, generic function named `refactor_token_stream(original_tokens, group_strings)`.
+        - [ ] Tests must validate its ability to correctly "stitch" original tokens into new, larger word tokens based on the `group_strings`.
+        - [ ] Tests must cover: a) happy path, b) preserving interstitial punctuation between groups, c) correctly incorporating punctuation *within* a group into the new word token's value, and d) all validation failure cases (word mismatch, incomplete consumption).
+
+    - [ ] **Sub-Task 2: Implement the Generic Helper (`llm2books/phrase_mapper_helpers.py`)**
+        - [ ] Implement `refactor_token_stream` to make all unit tests pass. This function's sole responsibility is structural validation and transformation.
+        - [ ] Implement the `{}` proper noun parsing helper function in the same file, with its own dedicated tests.
+
+    - [ ] **Sub-Task 3: Pipeline Integration & Deprecation**
+        - [ ] **Prompt Update:** Update `generate_diglot_map.txt` prompt to instruct the LLM on the `{}` syntax for proper nouns.
+        - [ ] **`ApplyPhraseMappings` (Stage 4 - Forward Map):** Refactor this stage. It will now call `refactor_token_stream` to get the new, fused `base` tier. It will then perform its stage-specific logic: parsing the right-hand side of the map (including `{}`), building the 6-tuple `simple_target_to_base_diglot` map, and collecting proper noun lemmas into the temporary `_internal_proper_noun_lemmas` list.
+        - [ ] **`ApplyInversePhraseMappings` (Stage 6 - Inverse Map):** Refactor this stage. It will be called *after* Stage 5 gets the raw LLM map. It will call `refactor_token_stream` to validate and create the new, fused `simple_target` tier. It will then perform its simple stage-specific logic of building the final 4-tuple `simple_target_to_base_inv_diglot` map.
+        - [ ] **`FinalizeBook` (Stage 9):** Implement the logic to read `_internal_proper_noun_lemmas` and perform the global lemma removal across all tiers and maps.
+        - [ ] **Deprecate Old Code:** Remove all old alignment/parsing logic. Remove the `PROPER_NOUN` string constant. Delete the `fix_possesives.py` script.
+        - [ ] **Update Rust Types:** Modify `src/types/json_types.rs` to change the 6th element of the `simple_target_to_base_diglot` tuple from `bool` to `Vec<String>`.

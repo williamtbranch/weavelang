@@ -145,9 +145,14 @@ pub fn json_sentence_to_numerical(
                 s_segment_id_str: seg_id.clone(),
                 entries: entries
                     .iter()
-                    .map(|(base_di, lemmas, form, viable, eng_wc, is_pn)| {
+
+                    .map(|(base_di, lemmas, form, viable, eng_wc, _proper_noun_lemmas)| {
                         let base_word = base_tier.segments.iter().flat_map(|s| &s.tokenized_text)
                             .find(|t| t.diglot_index == Some(*base_di)).map_or("", |t| &t.value);
+                        
+                        // We now determine the is_pn flag based on whether the new list is empty or not.
+                        let is_pn = !_proper_noun_lemmas.is_empty();
+
                         NumericalDiglotEntry {
                             base_word_di: *base_di,
                             eng_word_original: base_word.to_string(),
@@ -155,7 +160,7 @@ pub fn json_sentence_to_numerical(
                             exact_spa_form_original: form.clone(),
                             viable: *viable,
                             eng_word_count: *eng_wc,
-                            is_base_token_pn: *is_pn, // Store the new flag
+                            is_base_token_pn: is_pn, // Store the derived flag
                         }
                     })
                     .collect(),

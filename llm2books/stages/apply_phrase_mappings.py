@@ -1,21 +1,20 @@
 # In llm2books/stages/apply_phrase_mappings.py
 
 from typing import Any, Dict, List
-
+import re
 from .base import SpaCyStage, logger
-from ..phrase_mapper_helpers import align_and_parse_to_atoms, sanitize_atoms
+#from ..phrase_mapper_helpers import align_and_parse_to_atoms, sanitize_atoms
+from ..phrase_mapper_helpers import  refactor_token_stream, parse_proper_nouns
 from .. import validator
-# --- NEW, ISOLATED IMPORT ---
 from .. import semantic_validator
 
 class ApplyPhraseMappings(SpaCyStage):
     """
-    Stage 4: A robust refactorer using a DP alignment algorithm.
-    - Uses a unified parser to create "semantic atoms" from noisy LLM data.
-    - Sanitizes the atoms against segment and punctuation boundaries.
-    - Rebuilds the `base` tier by fusing tokens into "virtual tokens".
-    - Creates the final, correctly structured `simple_target_to_base_diglot` map.
-    - NEW: Performs semantic validation on the generated mappings.
+    Stage 4: Refactors the base tier and applies phrase mappings.
+    - Uses refactor_token_stream to validate LLM output and fuse the base tier tokens.
+    - Parses proper noun markup from the LLM's Spanish output.
+    - Creates the final, correctly structured simple_target_to_base_diglot map.
+    - Performs semantic validation on the generated mappings.
     """
     def __init__(self, book_stem: str, cli_args: Any, common_resources: Dict[str, Any]):
         super().__init__(
@@ -27,6 +26,8 @@ class ApplyPhraseMappings(SpaCyStage):
         )
 
     def _process_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        spacy_es = self.resources["spacy_models"][self.resources["language_config"]["target_code"]]
+
         for block in data.get("content_blocks", []):
             if block.get("block_type") != "sentence":
                 continue
@@ -43,143 +44,87 @@ class ApplyPhraseMappings(SpaCyStage):
                 logger.warning(f"S_ID {s_id}: Skipping ApplyPhraseMappings as no 'base' tier was found.")
                 continue
 
-            # The main processing logic for this stage is now wrapped in the outer try/except
-            original_word_tokens = [t for seg in base_tier["segments"] for t in seg["tokenized_text"] if t['t'] == 'w']
+            # --- START: NEW REFACTORED LOGIC ---
             
-            initial_atoms = align_and_parse_to_atoms(raw_map_lines, original_word_tokens)
-            
-            sanitized_atoms = sanitize_atoms(s_id, initial_atoms, base_tier)
+            # 1. Parse LLM output into left-side groups and a lookup map
+            llm_groups = []
+            llm_map_by_group = {}
+            for line in raw_map_lines:
+                if '->' in line:
+                    parts = line.split('->', 1)
+                    if len(parts) == 2 and parts[0].strip():
+                        group_str = parts[0].strip()
+                        llm_groups.append(group_str)
+                        llm_map_by_group[group_str] = parts[1].strip()
 
-            new_base_tier, new_diglot_map, di_fusion_map = self._rebuild_base_tier_and_map(base_tier, sanitized_atoms)
-
-            self._validate_reconstruction(s_id, base_tier, new_base_tier)
+            # 2. Refactor the base tier token stream using the generic helper
+            original_tokens = [t for seg in base_tier["segments"] for t in seg["tokenized_text"]]
+            new_base_tokens = refactor_token_stream(original_tokens, llm_groups)
             
+            # Rebuild the base tier with a single, fused segment
+            new_base_tier_full_text = "".join(t['v'] for t in new_base_tokens)
+            new_base_tier = {
+                "tier_id": "base",
+                "full_text": new_base_tier_full_text,
+                "segments": [{"seg_id": "S1", "text": new_base_tier_full_text, "tokenized_text": new_base_tokens}]
+            }
+
+            # 3. Build the new diglot map and collect proper nouns
+            new_diglot_map_entries = []
+            all_proper_noun_lemmas_for_sentence = set()
+
+            for token in new_base_tokens:
+                if token['t'] == 'w':
+                    # The token 'v' now represents the entire group string, e.g., "Gregor Samsa"
+                    group_str = token['v']
+                    llm_output_phrase = llm_map_by_group.get(group_str, "NO_SUB")
+
+                    clean_phrase, pn_lemmas = parse_proper_nouns(llm_output_phrase, spacy_es)
+                    all_proper_noun_lemmas_for_sentence.update(pn_lemmas)
+
+                    is_viable = clean_phrase.upper() != "NO_SUB"
+                    word_count = len(re.findall(r"[\w']+", token.get("v", "")))
+                    
+                    # The 6th element is now the list of identified proper noun lemmas
+                    new_diglot_map_entries.append([
+                        token["di"], "TBD", clean_phrase, is_viable, word_count, pn_lemmas
+                    ])
+
+            # 4. Update the block with the new data structures
             for i, tier in enumerate(block["tiers"]):
                 if tier["tier_id"] == "base":
                     block["tiers"][i] = new_base_tier
                     break
             
             mappings = block.setdefault("mappings", {})
-            mappings["simple_target_to_base_diglot"] = new_diglot_map
-            mappings["_internal_di_fusion_map"] = di_fusion_map
+            mappings["simple_target_to_base_diglot"] = {"S1": new_diglot_map_entries}
+            
+            # Store the collected proper noun lemmas for the final cleanup stage
+            if all_proper_noun_lemmas_for_sentence:
+                block["_internal_proper_noun_lemmas"] = sorted(list(all_proper_noun_lemmas_for_sentence))
 
             if "raw_phrase_map" in mappings:
                 del mappings["raw_phrase_map"] 
 
-        # --- THIS IS THE NEW VALIDATION GATE ---
+            # --- END: NEW REFACTORED LOGIC ---
+
+        # --- VALIDATION GATE (Unchanged but critical) ---
         logger.info("      -> Running in-stage structural and semantic validations...")
         any_semantic_failures = False
         for block in data.get("content_blocks", []):
             if block.get("block_type") == "sentence":
-                # 1. Run existing structural validation first
                 validator.validate_exhaustive_diglot_mapping(block)
                 
-                # --- START OF FIX ---
-                # 2. If structurally sound, run new semantic validation using the CORRECT function name
                 is_semantically_valid = semantic_validator.validate_forward_mappings(block)
-                # --- END OF FIX ---
                 
                 if is_semantically_valid:
-                    # Only mark as fully complete if both checks pass
                     block.setdefault("processing_status", {})[self.stage_name] = "COMPLETED"
                 else:
-                    # Mark for retry and flag that the pipeline should halt for this book
                     block.setdefault("processing_status", {})[self.stage_name] = "RETRY_SEMANTIC_FAIL"
                     any_semantic_failures = True
         
         if any_semantic_failures:
-            # This specific, catchable error signals the orchestrator that a retry is needed.
             raise validator.ValidationError("One or more sentences failed semantic validation.")
-        # --- END OF VALIDATION GATE ---
 
         logger.info("      -> All validations passed.")
         return data
-
-    def _rebuild_base_tier_and_map(self, original_base_tier, sanitized_atoms):
-        # ... (this function is unchanged from the last version I sent) ...
-        new_diglot_map = {}
-        di_fusion_map = {}
-        new_base_tier = {
-            "tier_id": "base",
-            "full_text": original_base_tier['full_text'],
-            "segments": []
-        }
-        
-        atom_map_by_di = {atom.di: atom for atom in sanitized_atoms}
-
-        for original_seg in original_base_tier['segments']:
-            new_seg_tokens = []
-            map_entries_for_seg = []
-            
-            original_tokens = original_seg['tokenized_text']
-            token_cursor = 0
-
-            while token_cursor < len(original_tokens):
-                token = original_tokens[token_cursor]
-                
-                if token['t'] == 'b':
-                    new_seg_tokens.append(token)
-                    token_cursor += 1
-                    continue
-                
-                current_di = token.get('di')
-                
-                if current_di is not None and current_di in atom_map_by_di:
-                    atom = atom_map_by_di[current_di]
-                    
-                    words_in_atom = len(atom.en_words)
-                    words_consumed = 0
-                    consumed_text = ""
-                    consumed_dis = []
-                    temp_cursor = token_cursor
-                    
-                    while temp_cursor < len(original_tokens) and words_consumed < words_in_atom:
-                        sub_token = original_tokens[temp_cursor]
-                        consumed_text += sub_token['v']
-                        if sub_token['t'] == 'w':
-                            words_consumed += 1
-                            consumed_dis.append(sub_token['di'])
-                        temp_cursor += 1
-                    
-                    new_seg_tokens.append({'t': 'w', 'v': consumed_text, 'di': atom.di})
-                    
-                    is_viable = atom.es_phrase.upper() != "NO_SUB"
-                    map_entries_for_seg.append([atom.di, "TBD", atom.es_phrase, is_viable])
-                    
-                    if len(consumed_dis) > 1:
-                        di_fusion_map[str(atom.di)] = consumed_dis
-
-                    token_cursor = temp_cursor
-                else:
-                    new_seg_tokens.append(token)
-                    if current_di is not None:
-                        map_entries_for_seg.append([current_di, "TBD", "NO_SUB", False])
-                    
-                    token_cursor += 1
-
-            reconstructed_text = "".join(t['v'] for t in new_seg_tokens)
-            new_seg = {
-                "seg_id": original_seg['seg_id'],
-                "tokenized_text": new_seg_tokens,
-                "text": reconstructed_text
-            }
-            new_base_tier['segments'].append(new_seg)
-            new_diglot_map[original_seg['seg_id']] = map_entries_for_seg
-
-        return new_base_tier, new_diglot_map, di_fusion_map
-
-    def _validate_reconstruction(self, s_id: str, original_tier: Dict, new_tier: Dict):
-        # ... (this function is unchanged) ...
-        logger.debug(f"S_ID {s_id}: Running reconstruction validation for base tier...")
-        if original_tier['full_text'] != new_tier['full_text']:
-            raise validator.ValidationError(f"S_ID {s_id}: Full text mismatch after base tier refactor.")
-        if len(original_tier['segments']) != len(new_tier['segments']):
-            raise validator.ValidationError(f"S_ID {s_id}: Segment count mismatch after base tier refactor.")
-        for i, original_seg in enumerate(original_tier['segments']):
-            new_seg = new_tier['segments'][i]
-            if original_seg['seg_id'] != new_seg['seg_id']:
-                raise validator.ValidationError(f"S_ID {s_id}: Segment ID mismatch at index {i}.")
-            reconstructed_token_text = "".join(token['v'] for token in new_seg['tokenized_text'])
-            if reconstructed_token_text != new_seg['text']:
-                raise validator.ValidationError(f"S_ID {s_id}, Seg {original_seg['seg_id']}: Internal inconsistency.")
-        logger.debug(f"S_ID {s_id}: Reconstruction validation passed.")

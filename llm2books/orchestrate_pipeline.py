@@ -38,7 +38,8 @@ except ImportError:
 from . import helper
 from .stages.base import Stage
 from .stanza_segmenter import EnglishStanzaProcessor
-from .pool_manager import PoolManager
+# --- FIX: The problematic import is removed from the top level ---
+# from .pool_manager import PoolManager 
 
 # The pipeline stages list is now updated with the new Stage 2
 PIPELINE_STAGES = [
@@ -110,6 +111,9 @@ def get_source_lang_from_file(file_path: Path) -> Optional[str]:
 
 # --- Main Orchestration Entry Point ---
 def main():
+    # --- The import is moved inside the main function ---
+    from .pool_manager import PoolManager
+
     logger = get_logger()
     
     parser = argparse.ArgumentParser(
@@ -143,13 +147,30 @@ def main():
         tool_root_dir = Path(__file__).resolve().parent.parent
         with open(tool_root_dir / "assets" / "languages.toml", "rb") as f: lang_manifest = tomllib.load(f)
         
-        # Build language config here to pass to PoolManager
         language_config = build_language_config(lang_manifest, args.base_lang, args.target_lang)
     except Exception as e:
         logger.critical(f"Failed to load configuration files: {e}"); sys.exit(1)
 
     llm_logger = LLMLogger(content_project_root / "pipeline_runs" / f"{args.base_lang}-{args.target_lang}" / args.book_to_process / "llm_logs")
+    
     logger.info("Initializing shared resources (this may take a moment)...")
+    
+    providers_in_use = set(model_info.get("provider") for model_info in config.get("models", {}).values())
+    
+    llm_clients = {}
+    for provider in providers_in_use:
+        if provider:
+            logger.info(f"  -> Initializing client for provider: '{provider}'")
+            client = helper.initialize_llm_client(provider)
+            if client is None:
+                logger.critical(f"Failed to initialize LLM client for provider '{provider}'. Halting.")
+                sys.exit(1)
+            llm_clients[provider] = client
+
+    if not llm_clients:
+        logger.critical("No LLM providers found or initialized. Halting.")
+        sys.exit(1)
+    
     needed_langs = {args.base_lang, args.target_lang}
     spacy_models, stanza_processors = {}, {}
     for lang_code in needed_langs:
@@ -158,27 +179,25 @@ def main():
         try:
             spacy_model_name = lang_info.get("spacy_model")
             if spacy_model_name: spacy_models[lang_code] = spacy.load(spacy_model_name, disable=["ner"])
-            #
-            if lang_code == 'en':
-                stanza_processors[lang_code] = EnglishStanzaProcessor(config, llm_logger)
-            elif lang_code == 'es':
-                stanza_processors[lang_code] = SpanishStanzaProcessor(config, llm_logger)
+            if lang_code == 'en': stanza_processors[lang_code] = EnglishStanzaProcessor(config, llm_logger)
+            elif lang_code == 'es': stanza_processors[lang_code] = SpanishStanzaProcessor(config, llm_logger)
         except Exception as e:
             logger.critical(f"Failed to load language processors for '{lang_code}': {e}"); sys.exit(1)
     
-    llm_client = helper.initialize_llm_client("claude")
-    if llm_client is None: sys.exit(1)
-
+    # --- THIS IS THE FIX ---
+    # We need to add 'content_project_dir' back into the shared resources dictionary.
     shared_resources = { 
-        'llm_client': llm_client,
+        'llm_clients': llm_clients,
         'spacy_models': spacy_models,
         'stanza_processors': stanza_processors,
         'models_config': config.get("models", {}),
         'pipeline_config': config.get("pipeline", {}),
         'stages_config': config.get("stages", {}),
         'language_config': language_config,
-        'content_project_dir': content_project_dir_str
+        'content_project_dir': content_project_dir_str # <-- THIS LINE WAS MISSING
     }
+    # --- END OF FIX ---
+
     pool_manager = PoolManager(content_project_root, shared_resources)
 
     # --- Main Processing Logic ---
@@ -205,7 +224,7 @@ def main():
             
             if args.stop_after_stage > 0 and stage_instance.stage_number == args.stop_after_stage:
                 logger.info(f"--- Pipeline stopped as requested after completing Stage {args.stop_after_stage}. ---")
-                overall_success = True # This was a successful, planned stop
+                overall_success = True 
                 break
         
         if overall_success:

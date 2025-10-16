@@ -1,659 +1,219 @@
-{
+    {
       "block_type": "sentence",
-      "s_id": "S29",
-      "processing_status": {
-        "FinalizeSimplerAdvTarget": "COMPLETED",
-        "GeneratePhraseMap": "COMPLETED",
-        "ApplyPhraseMappings": "COMPLETED",
-        "GenerateInverseDiglotMap": "COMPLETED",
-        "ApplyInversePhraseMappings": "COMPLETED",
-        "FinalizeMappings": "COMPLETED"
-      },
-      "tiers": [
-        {
-          "tier_id": "base",
-          "full_text": "He was already advanced in years, and lived in a very retired manner.",
-          "segments": [
-            {
-              "seg_id": "S1",
-              "tokenized_text": [
-                {
-                  "t": "b",
-                  "v": ""
-                },
-                {
-                  "t": "w",
-                  "v": "He",
-                  "di": 0
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "was",
-                  "di": 1
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "already",
-                  "di": 2
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "advanced",
-                  "di": 3
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "in",
-                  "di": 4
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "years",
-                  "di": 5
-                },
-                {
-                  "t": "b",
-                  "v": ", "
-                },
-                {
-                  "t": "b",
-                  "v": ""
-                },
-                {
-                  "t": "w",
-                  "v": "and",
-                  "di": 6
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "lived",
-                  "di": 7
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "in",
-                  "di": 8
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "a",
-                  "di": 9
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "very",
-                  "di": 10
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "retired",
-                  "di": 11
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "manner",
-                  "di": 12
-                },
-                {
-                  "t": "b",
-                  "v": "."
-                }
-              ],
-              "text": "He was already advanced in years, and lived in a very retired manner."
-            }
-          ]
-        },
-        {
-          "tier_id": "advanced_target",
-          "full_text": "Ya estaba avanzado en años, y vivía de manera muy retirada.",
-          "lemmas": [
-            "ano",
-            "avanzado",
-            "de",
-            "en",
-            "estar",
-            "manera",
-            "mucho",
-            "retirado",
-            "vivir",
-            "y",
-            "ya"
-          ],
-          "segments": [
-            {
-              "seg_id": "S1",
-              "text": "Ya estaba avanzado en años, ",
-              "tokenized_text": [
-                {
-                  "t": "b",
-                  "v": ""
-                },
-                {
-                  "t": "w",
-                  "v": "Ya",
-                  "di": 0,
-                  "l": [
-                    "ya"
-                  ]
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "estaba",
-                  "di": 1,
-                  "l": [
-                    "estar"
-                  ]
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "avanzado",
-                  "di": 2,
-                  "l": [
-                    "avanzado"
-                  ]
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "en",
-                  "di": 3,
-                  "l": [
-                    "en"
-                  ]
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "años",
-                  "di": 4,
-                  "l": [
-                    "ano"
-                  ]
-                },
-                {
-                  "t": "b",
-                  "v": ", "
-                }
-              ],
-              "lemmas": [
-                "ano",
-                "avanzado",
-                "en",
-                "estar",
-                "ya"
-              ]
-            },
-            {
-              "seg_id": "S2",
-              "text": "y vivía de manera muy retirada.",
-              "tokenized_text": [
-                {
-                  "t": "b",
-                  "v": ""
-                },
-                {
-                  "t": "w",
-                  "v": "y",
-                  "di": 5,
-                  "l": [
-                    "y"
-                  ]
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "vivía",
-                  "di": 6,
-                  "l": [
-                    "vivir"
-                  ]
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "de",
-                  "di": 7,
-                  "l": [
-                    "de"
-                  ]
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "manera",
-                  "di": 8,
-                  "l": [
-                    "manera"
-                  ]
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "muy",
-                  "di": 9,
-                  "l": [
-                    "mucho"
-                  ]
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "retirada",
-                  "di": 10,
-                  "l": [
-                    "retirado"
-                  ]
-                },
-                {
-                  "t": "b",
-                  "v": "."
-                }
-              ],
-              "lemmas": [
-                "de",
-                "manera",
-                "mucho",
-                "retirado",
-                "vivir",
-                "y"
-              ]
-            }
-          ]
-        },
-        {
-          "tier_id": "simpler_advanced_target",
-          "full_text": "Ya tenía muchos años, y vivía de manera muy sola.",
-          "lemmas": [
-            "ano",
-            "de",
-            "manera",
-            "mucho",
-            "solo",
-            "tener",
-            "vivir",
-            "y",
-            "ya"
-          ],
-          "segments": [
-            {
-              "seg_id": "S1",
-              "text": "Ya tenía muchos años, ",
-              "lemmas": [
-                "ano",
-                "mucho",
-                "tener",
-                "ya"
-              ],
-              "tokenized_text": [
-                {
-                  "t": "b",
-                  "v": ""
-                },
-                {
-                  "t": "w",
-                  "v": "Ya",
-                  "di": 0,
-                  "l": [
-                    "ya"
-                  ]
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "tenía",
-                  "di": 1,
-                  "l": [
-                    "tener"
-                  ]
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "muchos",
-                  "di": 2,
-                  "l": [
-                    "mucho"
-                  ]
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "años",
-                  "di": 3,
-                  "l": [
-                    "ano"
-                  ]
-                },
-                {
-                  "t": "b",
-                  "v": ", "
-                }
-              ]
-            },
-            {
-              "seg_id": "S2",
-              "text": "y vivía de manera muy sola.",
-              "lemmas": [
-                "de",
-                "manera",
-                "mucho",
-                "solo",
-                "vivir",
-                "y"
-              ],
-              "tokenized_text": [
-                {
-                  "t": "b",
-                  "v": ""
-                },
-                {
-                  "t": "w",
-                  "v": "y",
-                  "di": 4,
-                  "l": [
-                    "y"
-                  ]
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "vivía",
-                  "di": 5,
-                  "l": [
-                    "vivir"
-                  ]
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "de manera",
-                  "di": 6,
-                  "l": [
-                    "de",
-                    "manera"
-                  ]
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "muy",
-                  "di": 8,
-                  "l": [
-                    "mucho"
-                  ]
-                },
-                {
-                  "t": "b",
-                  "v": " "
-                },
-                {
-                  "t": "w",
-                  "v": "sola",
-                  "di": 9,
-                  "l": [
-                    "solo"
-                  ]
-                },
-                {
-                  "t": "b",
-                  "v": "."
-                }
-              ]
-            }
-          ]
-        }
-      ],
       "mappings": {
         "simple_target_to_base_diglot": {
           "S1": [
             [
               0,
               [
-                "el"
+                "gota"
               ],
-              "Él",
+              "Gotas",
               true,
-              1
+              1,
+              false
             ],
             [
               1,
-              [
-                "estar"
-              ],
-              "estaba",
-              true,
-              1
-            ],
-            [
-              2,
-              [
-                "ya"
-              ],
-              "ya",
-              true,
-              1
-            ],
-            [
-              3,
-              [
-                "avanzado"
-              ],
-              "avanzado",
-              true,
-              1
-            ],
-            [
-              4,
-              [
-                "en"
-              ],
-              "en",
-              true,
-              1
-            ],
-            [
-              5,
-              [
-                "ano"
-              ],
-              "años",
-              true,
-              1
-            ]
-          ],
-          "S2": [
-            [
-              6,
-              [
-                "y"
-              ],
-              "y",
-              true,
-              1
-            ],
-            [
-              7,
-              [
-                "vivir"
-              ],
-              "vivía",
-              true,
-              1
-            ],
-            [
-              8,
               [
                 "de"
               ],
               "de",
               true,
-              1
+              1,
+              false
+            ],
+            [
+              2,
+              [
+                "lluvia"
+              ],
+              "lluvia",
+              true,
+              1,
+              false
+            ],
+            [
+              3,
+              [
+                "el",
+                "poder",
+                "oir"
+              ],
+              "se podía oír",
+              true,
+              3,
+              false
+            ],
+            [
+              6,
+              [
+                "golpear"
+              ],
+              "golpeando",
+              true,
+              1,
+              false
+            ],
+            [
+              7,
+              [
+                "el"
+              ],
+              "el",
+              true,
+              1,
+              false
+            ],
+            [
+              8,
+              [
+                "cristal"
+              ],
+              "cristal",
+              true,
+              1,
+              false
             ],
             [
               9,
               [
-                "uno"
+                "el",
+                "cual"
               ],
-              "una",
+              "lo cual",
               true,
-              1
+              1,
+              false
             ],
             [
               10,
               [
-                "mucho"
+                "el",
+                "hacer",
+                "sentir"
               ],
-              "muy",
+              "lo hizo sentir",
               true,
-              1
+              3,
+              false
             ],
             [
-              11,
+              13,
               [
-                "retirado"
+                "bastante"
               ],
-              "retirada",
+              "bastante",
               true,
-              1
+              1,
+              false
             ],
             [
-              12,
+              14,
               [
-                "manera"
+                "triste"
               ],
-              "manera",
+              "triste",
               true,
-              1
+              1,
+              false
             ]
           ]
         },
-        "simpler_adv_target_to_base_inv_diglot": {
+        "simple_target_to_base_inv_diglot": {
           "S1": [
             [
               0,
               [
-                "ya"
+                "el"
               ],
-              "Already",
+              "The",
               1
             ],
             [
               1,
               [
-                "tener"
+                "persona"
               ],
-              "he had",
+              "people",
               1
             ],
             [
               2,
               [
-                "mucho"
+                "poder"
               ],
-              "many",
+              "could",
               1
             ],
             [
               3,
               [
-                "ano"
+                "escuchar"
               ],
-              "years",
+              "hear",
               1
             ]
           ],
           "S2": [
+            [
+              0,
+              [
+                "agua"
+              ],
+              "water",
+              1
+            ],
+            [
+              1,
+              [
+                "pequeno"
+              ],
+              "small",
+              1
+            ],
+            [
+              2,
+              [
+                "tocar"
+              ],
+              "touching",
+              1
+            ],
+            [
+              3,
+              [
+                "el"
+              ],
+              "the",
+              1
+            ],
+            [
+              4,
+              [
+                "cosa"
+              ],
+              "thing",
+              1
+            ],
+            [
+              5,
+              [
+                "para"
+              ],
+              "to see",
+              2
+            ],
+            [
+              6,
+              [
+                "ver"
+              ],
+              "NO_SUB",
+              1
+            ]
+          ],
+          "S3": [
             [
               0,
               [
@@ -665,37 +225,694 @@
             [
               1,
               [
-                "vivir"
+                "este"
               ],
-              "lived",
+              "this",
               1
             ],
             [
               2,
               [
-                "de",
-                "manera"
+                "hacer"
               ],
-              "in a manner",
+              "made",
               2
             ],
             [
               3,
               [
-                "mucho"
+                "que"
               ],
-              "very",
+              "NO_SUB",
               1
             ],
             [
               4,
               [
-                "solo"
+                "el"
               ],
-              "solitary",
+              "the",
+              1
+            ],
+            [
+              5,
+              [
+                "persona"
+              ],
+              "person",
+              1
+            ],
+            [
+              6,
+              [
+                "el"
+              ],
+              "feel",
+              2
+            ],
+            [
+              7,
+              [
+                "sentir"
+              ],
+              "NO_SUB",
+              1
+            ],
+            [
+              8,
+              [
+                "mucho"
+              ],
+              "very bad",
+              2
+            ],
+            [
+              9,
+              [
+                "mal"
+              ],
+              "NO_SUB",
               1
             ]
           ]
         }
-      }
+      },
+      "processing_status": {
+        "ApplyInversePhraseMappings": "COMPLETED",
+        "ApplyPhraseMappings": "COMPLETED",
+        "FinalizeMappings": "COMPLETED",
+        "GenerateInverseDiglotMap": "COMPLETED",
+        "GeneratePhraseMap": "COMPLETED",
+        "ProcessTargetTiers": "COMPLETED"
+      },
+      "s_id": "S15",
+      "tiers": [
+        {
+          "full_text": "Drops of rain could be heard hitting the pane, which made him feel quite sad.",
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "Drops of rain could be heard hitting the pane, which made him feel quite sad.",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "t": "w",
+                  "v": "Drops"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 1,
+                  "t": "w",
+                  "v": "of"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 2,
+                  "t": "w",
+                  "v": "rain"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 3,
+                  "t": "w",
+                  "v": "could be heard"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 6,
+                  "t": "w",
+                  "v": "hitting"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 7,
+                  "t": "w",
+                  "v": "the"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 8,
+                  "t": "w",
+                  "v": "pane"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 9,
+                  "t": "w",
+                  "v": "which"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 10,
+                  "t": "w",
+                  "v": "made him feel"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 13,
+                  "t": "w",
+                  "v": "quite"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 14,
+                  "t": "w",
+                  "v": "sad"
+                },
+                {
+                  "t": "b",
+                  "v": "."
+                }
+              ]
+            }
+          ],
+          "tier_id": "base"
+        },
+        {
+          "full_text": "Se podían oír gotas de lluvia golpeando el cristal, lo cual le causó bastante tristeza.",
+          "lemmas": [
+            "bastante",
+            "causar",
+            "cristal",
+            "cual",
+            "de",
+            "el",
+            "golpear",
+            "gota",
+            "lluvia",
+            "oir",
+            "poder",
+            "tristeza"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "el",
+                "oir",
+                "poder"
+              ],
+              "seg_id": "S1",
+              "text": "Se podían oír "
+            },
+            {
+              "lemmas": [
+                "cristal",
+                "de",
+                "el",
+                "golpear",
+                "gota",
+                "lluvia"
+              ],
+              "seg_id": "S2",
+              "text": "gotas de lluvia golpeando el cristal, "
+            },
+            {
+              "lemmas": [
+                "bastante",
+                "causar",
+                "cual",
+                "el",
+                "tristeza"
+              ],
+              "seg_id": "S3",
+              "text": "lo cual le causó bastante tristeza."
+            }
+          ],
+          "tier_id": "advanced_target"
+        },
+        {
+          "full_text": "Se podían oír gotas de lluvia tocando la ventana, lo cual le causó mucha tristeza.",
+          "lemmas": [
+            "causar",
+            "cual",
+            "de",
+            "el",
+            "gota",
+            "lluvia",
+            "mucho",
+            "oir",
+            "poder",
+            "tocar",
+            "tristeza",
+            "ventana"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "el",
+                "oir",
+                "poder"
+              ],
+              "seg_id": "S1",
+              "text": "Se podían oír "
+            },
+            {
+              "lemmas": [
+                "de",
+                "el",
+                "gota",
+                "lluvia",
+                "tocar",
+                "ventana"
+              ],
+              "seg_id": "S2",
+              "text": "gotas de lluvia tocando la ventana, "
+            },
+            {
+              "lemmas": [
+                "causar",
+                "cual",
+                "el",
+                "mucho",
+                "tristeza"
+              ],
+              "seg_id": "S3",
+              "text": "lo cual le causó mucha tristeza."
+            }
+          ],
+          "tier_id": "moderate_target"
+        },
+        {
+          "full_text": "Se podía escuchar agua de lluvia que tocaba la ventana, y esto hizo que él se sintiera muy triste.",
+          "lemmas": [
+            "agua",
+            "de",
+            "el",
+            "escuchar",
+            "este",
+            "hacer",
+            "lluvia",
+            "mucho",
+            "poder",
+            "que",
+            "sentir",
+            "tocar",
+            "triste",
+            "ventana",
+            "y"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "el",
+                "escuchar",
+                "poder"
+              ],
+              "seg_id": "S1",
+              "text": "Se podía escuchar "
+            },
+            {
+              "lemmas": [
+                "agua",
+                "de",
+                "el",
+                "lluvia",
+                "que",
+                "tocar",
+                "ventana"
+              ],
+              "seg_id": "S2",
+              "text": "agua de lluvia que tocaba la ventana, "
+            },
+            {
+              "lemmas": [
+                "el",
+                "este",
+                "hacer",
+                "mucho",
+                "que",
+                "sentir",
+                "triste",
+                "y"
+              ],
+              "seg_id": "S3",
+              "text": "y esto hizo que él se sintiera muy triste."
+            }
+          ],
+          "tier_id": "basic_target"
+        },
+        {
+          "full_text": "Las personas podían escuchar agua pequeña tocando la cosa para ver, y esto hizo que la persona se sintiera muy mal.",
+          "lemmas": [
+            "agua",
+            "cosa",
+            "el",
+            "escuchar",
+            "este",
+            "hacer",
+            "mal",
+            "mucho",
+            "para",
+            "pequeno",
+            "persona",
+            "poder",
+            "que",
+            "sentir",
+            "tocar",
+            "ver",
+            "y"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "el",
+                "escuchar",
+                "persona",
+                "poder"
+              ],
+              "seg_id": "S1",
+              "text": "Las personas podían escuchar ",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "el"
+                  ],
+                  "t": "w",
+                  "v": "Las"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 1,
+                  "l": [
+                    "persona"
+                  ],
+                  "t": "w",
+                  "v": "personas"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 2,
+                  "l": [
+                    "poder"
+                  ],
+                  "t": "w",
+                  "v": "podían"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 3,
+                  "l": [
+                    "escuchar"
+                  ],
+                  "t": "w",
+                  "v": "escuchar "
+                }
+              ]
+            },
+            {
+              "lemmas": [
+                "agua",
+                "cosa",
+                "el",
+                "para",
+                "pequeno",
+                "tocar",
+                "ver"
+              ],
+              "seg_id": "S2",
+              "text": "agua pequeña tocando la cosa para ver, ",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 4,
+                  "l": [
+                    "agua"
+                  ],
+                  "t": "w",
+                  "v": "agua"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 5,
+                  "l": [
+                    "pequeno"
+                  ],
+                  "t": "w",
+                  "v": "pequeña"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 6,
+                  "l": [
+                    "tocar"
+                  ],
+                  "t": "w",
+                  "v": "tocando"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 7,
+                  "l": [
+                    "el"
+                  ],
+                  "t": "w",
+                  "v": "la"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 8,
+                  "l": [
+                    "cosa"
+                  ],
+                  "t": "w",
+                  "v": "cosa"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 9,
+                  "l": [
+                    "para"
+                  ],
+                  "t": "w",
+                  "v": "para"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 10,
+                  "l": [
+                    "ver"
+                  ],
+                  "t": "w",
+                  "v": "ver, "
+                }
+              ]
+            },
+            {
+              "lemmas": [
+                "el",
+                "este",
+                "hacer",
+                "mal",
+                "mucho",
+                "persona",
+                "que",
+                "sentir",
+                "y"
+              ],
+              "seg_id": "S3",
+              "text": "y esto hizo que la persona se sintiera muy mal.",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 11,
+                  "l": [
+                    "y"
+                  ],
+                  "t": "w",
+                  "v": "y"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 12,
+                  "l": [
+                    "este"
+                  ],
+                  "t": "w",
+                  "v": "esto"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 13,
+                  "l": [
+                    "hacer"
+                  ],
+                  "t": "w",
+                  "v": "hizo"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 14,
+                  "l": [
+                    "que"
+                  ],
+                  "t": "w",
+                  "v": "que"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 15,
+                  "l": [
+                    "el"
+                  ],
+                  "t": "w",
+                  "v": "la"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 16,
+                  "l": [
+                    "persona"
+                  ],
+                  "t": "w",
+                  "v": "persona"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 17,
+                  "l": [
+                    "el"
+                  ],
+                  "t": "w",
+                  "v": "se"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 18,
+                  "l": [
+                    "sentir"
+                  ],
+                  "t": "w",
+                  "v": "sintiera"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 19,
+                  "l": [
+                    "mucho"
+                  ],
+                  "t": "w",
+                  "v": "muy"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 20,
+                  "l": [
+                    "mal"
+                  ],
+                  "t": "w",
+                  "v": "mal"
+                },
+                {
+                  "t": "b",
+                  "v": "."
+                }
+              ]
+            }
+          ],
+          "tier_id": "simple_target"
+        }
+      ]
     },

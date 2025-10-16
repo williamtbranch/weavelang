@@ -1,9 +1,129 @@
+# llm2books/phrase_mapper_helpers.py
 import re
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 from .stages.base import logger
-from .helper import fuse_tokens
+from .helper import fuse_tokens, normalize_spanish_lemma
+from .validator import ValidationError
 from rapidfuzz.distance.Levenshtein import opcodes
+
+# --- START: NEW FUNCTIONS TO FIX IMPORT ERROR ---
+def refactor_token_stream(original_tokens: List[Dict[str, Any]], group_strings: List[str]) -> List[Dict[str, Any]]:
+    """
+    Validates that the `group_strings` can be losslessly constructed from the
+    `original_tokens` and returns a new token stream with the groups fused into
+    single word tokens. Raises ValidationError on failure. This version is resilient
+    to quote normalization by the LLM.
+    """
+    # --- FIX 1: Add a normalization helper ---
+    def normalize_quotes(text: str) -> str:
+        """Replaces typographic quotes with straight quotes for comparison."""
+        return text.replace('’', "'").replace('‘', "'").replace('”', '"').replace('“', '"')
+
+    new_token_stream = []
+    token_cursor = 0
+    word_tokens_consumed = 0
+
+    original_word_tokens = [t for t in original_tokens if t.get('t') == 'w']
+
+    for group_str in group_strings:
+        # Normalize the LLM's group string for word splitting
+        group_words = re.findall(r"[\w'-]+", normalize_quotes(group_str))
+        if not group_words:
+            continue
+
+        first_word_of_group = group_words[0]
+        
+        start_cursor = -1
+        for i in range(token_cursor, len(original_tokens)):
+            token = original_tokens[i]
+            if token.get('t') == 'w':
+                # --- FIX 2: Use normalized comparison to find the starting word ---
+                if normalize_quotes(token.get('v', '')) == normalize_quotes(first_word_of_group):
+                    start_cursor = i
+                    break
+        
+        if start_cursor == -1:
+            raise ValidationError(f"Could not find start of group '{group_str}' in token stream.")
+
+        if start_cursor > token_cursor:
+            new_token_stream.extend(original_tokens[token_cursor:start_cursor])
+
+        temp_word_cursor = 0
+        end_cursor = start_cursor
+        temp_reconstructed_text = ""
+        consumed_tokens_for_group = []
+
+        for i in range(start_cursor, len(original_tokens)):
+            token = original_tokens[i]
+            consumed_tokens_for_group.append(token)
+            temp_reconstructed_text += token.get('v', '')
+            
+            if token.get('t') == 'w':
+                # --- FIX 3: Use normalized comparison for subsequent words in the group ---
+                if temp_word_cursor >= len(group_words) or normalize_quotes(token.get('v', '')) != normalize_quotes(group_words[temp_word_cursor]):
+                    raise ValidationError(f"Token mismatch while forming group '{group_str}'. Expected '{group_words[temp_word_cursor]}', got '{token.get('v')}'.")
+                temp_word_cursor += 1
+
+            # --- FIX 4: Use normalized comparison for the final check ---
+            if normalize_quotes(temp_reconstructed_text).endswith(normalize_quotes(group_str)):
+                end_cursor = i + 1
+                break
+        else:
+            raise ValidationError(f"Could not fully form group '{group_str}' from token stream.")
+
+        group_word_tokens = [t for t in consumed_tokens_for_group if t.get('t') == 'w']
+        word_tokens_consumed += len(group_word_tokens)
+
+        # --- FIX 5: Use the reconstructed text from ORIGINAL tokens to preserve punctuation ---
+        fused_token_value = "".join(t.get('v', '') for t in consumed_tokens_for_group)
+        fused_token = {
+            't': 'w',
+            'v': fused_token_value, # This contains the original 'Grimms’' or 'Grimms''
+            'di': group_word_tokens[0]['di'],
+            'l': sorted(list(set(lemma for t in group_word_tokens for lemma in t.get('l', []))))
+        }
+        new_token_stream.append(fused_token)
+        token_cursor = end_cursor
+
+    if token_cursor < len(original_tokens):
+        new_token_stream.extend(original_tokens[token_cursor:])
+
+    if word_tokens_consumed != len(original_word_tokens):
+        raise ValidationError(f"Incomplete consumption of tokens. Expected to consume {len(original_word_tokens)} words, but consumed {word_tokens_consumed}.")
+
+    # (Final B/W normalization logic is unchanged)
+    if not new_token_stream: return [{'t': 'b', 'v': ''}]
+    if new_token_stream[0]['t'] == 'w': new_token_stream.insert(0, {'t': 'b', 'v': ''})
+    if new_token_stream[-1]['t'] == 'w': new_token_stream.append({'t': 'b', 'v': ''})
+        
+    return new_token_stream
+
+def parse_proper_nouns(llm_output_phrase: str, spacy_model: Any) -> Tuple[str, List[str]]:
+    """
+    Parses a string like "the cat {Gregor Samsa}" into a clean phrase and a list
+    of normalized lemmas for the proper nouns.
+    """
+    proper_noun_lemmas = set()
+    
+    # Find all proper noun blocks, e.g., "{Gregor Samsa}"
+    pn_matches = re.findall(r'\{([^{}]+)\}', llm_output_phrase)
+    
+    for match in pn_matches:
+        doc = spacy_model(match)
+        for token in doc:
+            if not token.is_punct and not token.is_space:
+                # Assuming Spanish, but this should be generalized if needed
+                lemma = normalize_spanish_lemma(token.lemma_)
+                if lemma:
+                    proper_noun_lemmas.add(lemma)
+
+    # Remove the curly braces to get the clean phrase
+    clean_phrase = re.sub(r'\{|\}', '', llm_output_phrase).strip()
+    
+    return clean_phrase, sorted(list(proper_noun_lemmas))
+
+# --- END: NEW FUNCTIONS ---
 
 class SemanticAtom:
     def __init__(self, di: int, en_words: List[str], es_phrase: str): self.di, self.en_words, self.es_phrase = di, en_words, es_phrase
@@ -74,13 +194,7 @@ def align_and_parse_to_atoms(raw_map_lines: List[str], raw_spacy_tokens: List[Di
     
     return final_atoms
 
-# --- THIS IS THE SIMPLIFIED FUNCTION ---
 def sanitize_atoms(s_id: str, atoms: List[SemanticAtom], original_tier: Dict[str, Any]) -> List[SemanticAtom]:
-    """
-    Simplified sanitizer for Architecture B ("Smart Frontend").
-    This version's only job is to invalidate atoms that contain internal punctuation.
-    The check for cross-segment phrases is no longer needed, as we now process per-segment.
-    """
     flat_original_tokens = [token for seg in original_tier.get("segments", []) for token in seg.get("tokenized_text", [])]
     di_to_token: Dict[int, Dict] = {}
     for seg in original_tier.get("segments", []):
@@ -90,7 +204,6 @@ def sanitize_atoms(s_id: str, atoms: List[SemanticAtom], original_tier: Dict[str
 
     sanitized_atoms: List[SemanticAtom] = []
     for atom in atoms:
-        # Single-word atoms are always valid from a structural perspective.
         if len(atom.en_words) == 1 and ' ' not in atom.en_words[0]:
             sanitized_atoms.append(atom)
             continue
@@ -115,7 +228,6 @@ def sanitize_atoms(s_id: str, atoms: List[SemanticAtom], original_tier: Dict[str
         if not is_valid:
             logger.warning(f"S_ID {s_id}: Could not find full token sequence for atom '{' '.join(atom.en_words)}'. Invalidating.")
 
-        # Rule: Check for internal punctuation
         if is_valid:
             start_token_idx = next((i for i, t in enumerate(flat_original_tokens) if t.get('di') == atom_dis[0]), -1)
             end_token_idx = next((i for i, t in enumerate(flat_original_tokens) if t.get('di') == atom_dis[-1]), -1)
@@ -130,7 +242,6 @@ def sanitize_atoms(s_id: str, atoms: List[SemanticAtom], original_tier: Dict[str
         if is_valid:
             sanitized_atoms.append(atom)
         else:
-            # If invalid, break the phrase down into single-word, non-viable atoms.
             for di in atom_dis:
                 original_word_token = di_to_token[di]
                 sanitized_atoms.append(SemanticAtom(di=di, en_words=[original_word_token['v']], es_phrase="NO_SUB"))

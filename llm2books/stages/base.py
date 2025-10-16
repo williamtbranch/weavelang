@@ -248,8 +248,9 @@ class LLMStage(Stage, ABC):
         for i, batch_items in enumerate(sentence_batches):
             logger.info(f"      -> Processing batch {i + 1}/{total_batches}...")
 
+            #
             llm_results_list = llm_utils.run_llm_batch_job(
-                llm_client=self.resources['llm_client'],
+                llm_clients=self.resources['llm_clients'],
                 job_name=self.stage_name,
                 system_prompt=system_prompt,
                 items_to_process=batch_items,
@@ -257,7 +258,7 @@ class LLMStage(Stage, ABC):
                 parser_type=self.parser_type,
                 stage_config=self.stage_config,
                 models_config=self.models_config,
-                pipeline_config=self.pipeline_config # Pass the global config
+                pipeline_config=self.pipeline_config
             )
 
             if llm_results_list is None: return False

@@ -49,14 +49,13 @@ max_api_retries = 3
 max_validation_retries = 3
 retry_delay = 7
 thinking_budget_tokens = 1024
-thinking_on_first_attempt = true
 
 
 # --- Per-Stage Configuration ---
 # This section remains the same.
 [stages]
     [stages.Segmenter]
-    primary_model = "haiku" # Use the key from your [models] section
+    primary_model = "gemini-flash" # Use the key from your [models] section
     fallback_model = "sonnet"
     
     [stages.PoolManager_Translation]
@@ -70,12 +69,16 @@ thinking_on_first_attempt = true
     batch_size_in_items = 10 # Simplification is faster, can use a larger batch
 
     [stages.GeneratePhraseMap]
-    primary_model = "sonnet"
+    primary_model = "gemini-flash"
     fallback_model = "opus"
     batch_size_in_items = 1 # You can tune this
+    thinking_budget_tokens = 1024
+    thinking_on_first_attempt = true
 
 
     [stages.GenerateInverseDiglotMap]
-    primary_model = "sonnet"
+    primary_model = "gemini-flash"
     fallback_model = "opus"
     batch_size_in_items = 3 # You can tune this
+    thinking_budget_tokens = 1024
+    thinking_on_first_attempt = true

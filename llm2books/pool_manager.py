@@ -288,6 +288,7 @@ class PoolManager:
             
             for seg_data in new_segs:
                 seg_doc = spacy(seg_data["text"])
+                # --- CORRECTED TOKENIZATION CALL ---
                 tokens = helper.create_golden_token_stream(seg_doc)
                 seg_lemmas = {lemma_map.get(t['v']) for t in tokens if t['t'] == 'w' and lemma_map.get(t['v'])}
                 for t in tokens:
@@ -305,8 +306,6 @@ class PoolManager:
         if temp_path.exists(): temp_path.unlink()
         return derived_file_path
 
-    # --- The functions below this point are for the older `.std.json` generation logic ---
-    # They are not directly involved in the manual fix but are kept for completeness.
     def _get_or_create_std_json(self, required_lang: str) -> Optional[Path]:
         std_path = self.derived_texts_dir / f"{self.book_stem}.{required_lang}.std.json"
         if std_path.exists():
@@ -365,11 +364,11 @@ class PoolManager:
             source_language_name=lang_name_from, target_language_name=lang_name_to
         )
         config = {**self.pipeline_config, **stage_job_config}
-        
         translations = self._run_transactional_llm_job(
             f"Pool-Translation-{from_lang}-to-{to_lang}", prompt, items_to_translate, temp_path,
-            LLMLogger(self.pool_dir / "llm_logs" / book_stem), "single_line", config, self.models_config
+            LLMLogger(self.pool_dir / "llm_logs" / book_stem), "single_line", config, self.models_config, self.pipeline_config
         )
+
         if translations is None: return None
         
         if len(translations) != len(items_to_translate):
@@ -402,87 +401,85 @@ class PoolManager:
         spacy_model = self.resources['spacy_models'][lang_code]
         output_content = []
 
-        for item in source_items:
-            if item['type'] == 'chapter':
-                output_content.append({"block_type": "chapter", "text": item['text']})
-                continue
-            
-            if item['type'] == 'sentence':
-                s_id, original_text = item['s_id'], item['text']
-                if not original_text.strip(): continue
-                full_text = helper.preprocess_for_spacy(original_text)
-                spacy_doc = spacy_model(full_text)
-                segments_text = stanza_processor.segment_sentence(full_text)
-                golden_stream = helper.create_golden_token_stream(spacy_doc)
-                
-                word_tokens = [tok for tok in golden_stream if tok['t'] == 'w']
-                current_word_idx = 0
-                for seg_idx, seg_str in enumerate(segments_text):
-                    num_words = len(re.findall(r'\w+', seg_str))
-                    for _ in range(num_words):
-                        if current_word_idx < len(word_tokens): word_tokens[current_word_idx]['seg_idx'] = seg_idx
-                        current_word_idx += 1
-                
-                num_segments = len(segments_text)
-                if num_segments == 0: continue
-                
-                buckets: List[List[Dict]] = [[] for _ in range(num_segments)]
-                b_idx = 0
-                for token in golden_stream:
-                    seg_idx = token.get('seg_idx', b_idx)
-                    if seg_idx < num_segments:
-                        buckets[seg_idx].append(token)
-                        if token['t'] == 'w': b_idx = seg_idx
-                
-                if s_id == "S15": # Only print for our problem sentence
-                    print(f"\n--- DEBUG START for {s_id} in pool_manager.py ---")
-                    print("Tokens in buckets BEFORE boundary fix:")
-                    for i, bucket in enumerate(buckets):
-                        bucket_text = "".join(tok['v'] for tok in bucket)
-                        print(f"  Bucket {i+1}: '{bucket_text}'")
-                        if i < len(buckets) - 1 and buckets[i]:
-                            print(f"    -> Last token: {buckets[i][-1]}")
-                for i in range(num_segments - 1):
-                    if buckets[i] and buckets[i+1]:
-                        if buckets[i][-1]['t'] == 'w': buckets[i].append({'t':'b', 'v':''})
-                        if buckets[i+1][0]['t'] == 'w': buckets[i+1].insert(0, {'t':'b', 'v':''})
-                        b1, b2 = buckets[i][-1], buckets[i+1][0]
-                        if s_id == "S15":
-                            print(f"\n  Fixing boundary between Bucket {i+1} and {i+2}:")
-                            print(f"    b1 (from Bucket {i+1}): {b1}")
-                            print(f"    b2 (from Bucket {i+2}): {b2}")
-                        combined = b1['v'] + b2['v']
-                        split_idx = combined.find(' ')
-                        if split_idx != -1: b1['v'], b2['v'] = combined[:split_idx + 1], combined[split_idx + 1:]
-                        else: b1['v'], b2['v'] = combined, ""
-                        if s_id == "S15":
-                            print(f"    Combined: '{combined}' | Split Index: {split_idx}")
-                            print(f"    NEW b1: {b1}")
-                            print(f"    NEW b2: {b2}")
-
-                if s_id == "S15":
-                    print("\nTokens in buckets AFTER boundary fix:")
-                    for i, bucket in enumerate(buckets):
-                        bucket_text = "".join(tok['v'] for tok in bucket)
-                        print(f"  Bucket {i+1}: '{bucket_text}'")
-                    print(f"--- DEBUG END for {s_id} ---\n")
-                segments_data, all_lemmas, di_counter = [], set(), 0
-                for i, bucket in enumerate(buckets):
-                    seg_text = "".join(tok['v'] for tok in bucket)
-                    seg_doc = spacy_model(seg_text)
-                    seg_lemmas = set()
-                    for token in bucket:
-                        if token.get('t') == 'w':
-                            token['di'] = di_counter; di_counter += 1
-                            for st in seg_doc:
-                                if st.text == token['v'] and st.idx == seg_text.find(token['v']):
-                                    lemma = helper.normalize_spanish_lemma(st.lemma_) if lang_code == 'es' else st.lemma_.lower().strip()
-                                    if lemma: token['l'] = [lemma]; all_lemmas.add(lemma); seg_lemmas.add(lemma)
-                                    break
-                    segments_data.append({ "seg_id": f"S{i+1}", "text": seg_text, "tokenized_text": bucket, "lemmas": sorted(list(seg_lemmas))})
-                
-                output_content.append({ "block_type": "sentence", "s_id": s_id, "full_text": full_text, "lemmas": sorted(list(all_lemmas)), "segments": segments_data })
+        pool_llm_logger = LLMLogger(self.pool_dir / "llm_logs" / book_stem)
+        original_logger = stanza_processor.llm_logger
+        stanza_processor.llm_logger = pool_llm_logger
         
+        try:
+            for item in source_items:
+                if item['type'] == 'chapter':
+                    output_content.append({"block_type": "chapter", "text": item['text']})
+                    continue
+                
+                if item['type'] == 'sentence':
+                    s_id, original_text = item['s_id'], item['text']
+                    if not original_text.strip(): continue
+                    full_text = helper.preprocess_for_spacy(original_text)
+                    spacy_doc = spacy_model(full_text)
+                    
+                    is_base_lang = (lang_code == self.resources['language_config']['base_code'])
+                    
+                    if is_base_lang:
+                        logger.debug(f"S_ID {s_id}: Skipping LLM segmentation for base language '{lang_code}'.")
+                        segments_text = [full_text]
+                    else:
+                        logger.debug(f"S_ID {s_id}: Running LLM segmentation for target language '{lang_code}'.")
+                        segments_text = stanza_processor.segment_sentence(full_text, s_id)
+
+                    # --- START: CORRECTED TOKENIZATION WORKFLOW ---
+                    # The call to create_golden_token_stream now implicitly handles the smart fusing.
+                    golden_stream = helper.create_golden_token_stream(spacy_doc)
+                    # --- END: CORRECTED TOKENIZATION WORKFLOW ---
+                    
+                    word_tokens = [tok for tok in golden_stream if tok['t'] == 'w']
+                    current_word_idx = 0
+                    for seg_idx, seg_str in enumerate(segments_text):
+                        num_words = len(re.findall(r'\w+', seg_str))
+                        for _ in range(num_words):
+                            if current_word_idx < len(word_tokens): word_tokens[current_word_idx]['seg_idx'] = seg_idx
+                            current_word_idx += 1
+                    
+                    num_segments = len(segments_text)
+                    if num_segments == 0: continue
+                    
+                    buckets: List[List[Dict]] = [[] for _ in range(num_segments)]
+                    b_idx = 0
+                    for token in golden_stream:
+                        seg_idx = token.get('seg_idx', b_idx)
+                        if seg_idx < num_segments:
+                            buckets[seg_idx].append(token)
+                            if token['t'] == 'w': b_idx = seg_idx
+                    
+                    for i in range(num_segments - 1):
+                        if buckets[i] and buckets[i+1]:
+                            if buckets[i][-1]['t'] == 'w': buckets[i].append({'t':'b', 'v':''})
+                            if buckets[i+1][0]['t'] == 'w': buckets[i+1].insert(0, {'t':'b', 'v':''})
+                            b1, b2 = buckets[i][-1], buckets[i+1][0]
+                            combined = b1['v'] + b2['v']
+                            split_idx = combined.find(' ')
+                            if split_idx != -1: b1['v'], b2['v'] = combined[:split_idx + 1], combined[split_idx + 1:]
+                            else: b1['v'], b2['v'] = combined, ""
+                    
+                    segments_data, all_lemmas, di_counter = [], set(), 0
+                    for i, bucket in enumerate(buckets):
+                        seg_text = "".join(tok['v'] for tok in bucket)
+                        seg_doc = spacy_model(seg_text)
+                        seg_lemmas = set()
+                        for token in bucket:
+                            if token.get('t') == 'w':
+                                token['di'] = di_counter; di_counter += 1
+                                for st in seg_doc:
+                                    if st.text == token['v'] and st.idx == seg_text.find(token['v']):
+                                        lemma = helper.normalize_spanish_lemma(st.lemma_) if lang_code == 'es' else st.lemma_.lower().strip()
+                                        if lemma: token['l'] = [lemma]; all_lemmas.add(lemma); seg_lemmas.add(lemma)
+                                        break
+                        segments_data.append({ "seg_id": f"S{i+1}", "text": seg_text, "tokenized_text": bucket, "lemmas": sorted(list(seg_lemmas))})
+                    
+                    output_content.append({ "block_type": "sentence", "s_id": s_id, "full_text": full_text, "lemmas": sorted(list(all_lemmas)), "segments": segments_data })
+        
+        finally:
+            stanza_processor.llm_logger = original_logger
+
         output_sentence_count = sum(1 for block in output_content if block.get('block_type') == 'sentence')
         if source_sentence_count != output_sentence_count:
             logger.error(f"Integrity Check FAILED for '{std_file_path.name}': Source had {source_sentence_count} sentences, but output has {output_sentence_count}. Halting.")
@@ -496,7 +493,8 @@ class PoolManager:
         except IOError as e:
             logger.error(f"Failed to write .std.json file: {e}"); return None
 
-    def _run_transactional_llm_job(self, job_name, system_prompt, all_items, temp_progress_path, llm_logger, parser_type, stage_config, models_config):
+    #
+    def _run_transactional_llm_job(self, job_name, system_prompt, all_items, temp_progress_path, llm_logger, parser_type, stage_config, models_config, pipeline_config):
         completed = {}
         if temp_progress_path.exists():
             with open(temp_progress_path, 'r', encoding='utf-8') as f: completed = json.load(f)
@@ -507,7 +505,7 @@ class PoolManager:
         batch_size = stage_config.get("batch_size_in_items", 10)
         for i in range(0, len(items_to_run), batch_size):
             batch = items_to_run[i:i+batch_size]
-            results = llm_utils.run_llm_batch_job(self.llm_client, job_name, system_prompt, batch, llm_logger, parser_type, stage_config, models_config)
+            results = llm_utils.run_llm_batch_job(self.llm_client, job_name, system_prompt, batch, llm_logger, parser_type, stage_config, models_config, pipeline_config)
             if not results: return None
             for item in results: completed[item['id']] = item['llm_response']
             with open(temp_progress_path, 'w', encoding='utf-8') as f: json.dump(completed, f, indent=2)

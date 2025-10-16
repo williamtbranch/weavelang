@@ -35,9 +35,10 @@ class LLMSegmenter:
         self.MERGE_FORWARD_PUNCT = {'.', '!', '?', ':', ';'}
         self.OPENING_PUNCT = {'“', '"', '‘', '(', '[', '{', '¡', '¿'}
 
-    def _get_initial_segments_from_llm(self, sentence_text: str) -> List[str]:
+    def _get_initial_segments_from_llm(self, sentence_text: str, s_id: str) -> List[str]:
         """Phase 1: Get initial boundaries from the LLM."""
         system_prompt = self.system_prompt_template.replace("{{TEXT}}", sentence_text)
+        
         try:
             message = self.llm_client.messages.create(
                 model=self.model_name,
@@ -47,47 +48,87 @@ class LLMSegmenter:
                 temperature=0.0,
             )
             raw_response = message.content[0].text if message.content else ""
-            llm_segments = [seg.strip() for seg in raw_response.splitlines() if seg.strip()]
-
-            # Basic validation: check if word content matches
-            original_words = "".join(re.findall(r'[a-zA-Z]+', sentence_text.lower()))
-            llm_words = "".join(re.findall(r'[a-zA-Z]+', " ".join(llm_segments).lower()))
-
-            if original_words != llm_words:
-                print(f"WARNING: LLM changed content for '{sentence_text}'. Falling back to single segment.")
-                self.llm_logger.log_validation_failure("LLMSegmenter", sentence_text, raw_response, "Word content mismatch")
-                return [sentence_text]
-            
-            # Use the LLM boundaries to perfectly slice the original text
-            final_segments = []
-            text_to_slice = sentence_text
-            for i, segment_chunk in enumerate(llm_segments):
-                if i < len(llm_segments) - 1:
-                    chunk_word_count = len(re.findall(r'\S+', segment_chunk))
-                    
-                    slice_end_point = 0
-                    words_scanned = 0
-                    # Scan through original text to find the slice point
-                    for match in re.finditer(r'\S+', text_to_slice):
-                        words_scanned += 1
-                        if words_scanned >= chunk_word_count:
-                            slice_end_point = match.end()
-                            break
-                    
-                    # Capture all trailing whitespace
-                    while slice_end_point < len(text_to_slice) and text_to_slice[slice_end_point].isspace():
-                        slice_end_point += 1
-
-                    final_segments.append(text_to_slice[:slice_end_point])
-                    text_to_slice = text_to_slice[slice_end_point:]
-                else:
-                    final_segments.append(text_to_slice)
-            
-            return final_segments
-
         except Exception as e:
-            print(f"ERROR: LLM Segmenter API call failed for '{sentence_text}'. Error: {e}. Falling back.")
-            return [sentence_text]
+            raise IOError(f"LLM API call failed during segmentation for S_ID {s_id}: {e}")
+
+        if self.llm_logger:
+            user_prompt_for_log = f"S_ID: {s_id}\n\nPlease segment the text."
+            self.llm_logger.log_batch(
+                job_name="LLMSegmenter", batch_num=0,
+                system_prompt=system_prompt, 
+                user_prompt=user_prompt_for_log,
+                response=raw_response
+            )
+        
+        llm_segments = [seg.strip() for seg in raw_response.splitlines() if seg.strip()]
+
+        original_words_norm = "".join(re.findall(r'[a-zA-Z0-9]+', sentence_text.lower()))
+        llm_words_norm = "".join(re.findall(r'[a-zA-Z0-9]+', "".join(llm_segments).lower()))
+
+        if original_words_norm != llm_words_norm:
+            if self.llm_logger:
+                self.llm_logger.log_validation_failure("LLMSegmenter", sentence_text, raw_response, "Word content mismatch")
+            error_message = (
+                f"LLM content mismatch during segmentation for S_ID {s_id}. The LLM modified the word content, which is not allowed.\n"
+                f"Original: '{sentence_text}'\nLLM Output Raw:\n{raw_response}"
+            )
+            raise ValueError(error_message)
+        
+        final_segments = []
+        current_search_offset = 0
+        
+        for i, segment_chunk in enumerate(llm_segments):
+            if not segment_chunk.strip(): continue
+
+            if i == len(llm_segments) - 1:
+                remaining_text = sentence_text[current_search_offset:]
+                if remaining_text:
+                    final_segments.append(remaining_text)
+                break
+
+            chunk_words = re.findall(r'[\w\']+', segment_chunk)
+            if not chunk_words: continue
+
+            anchor_word = chunk_words[-1]
+            
+            # --- START OF "Normalize-Find-Slice" FIX ---
+            def normalize_quotes(text: str) -> str:
+                return text.replace('’', "'").replace('‘', "'")
+
+            normalized_anchor = normalize_quotes(anchor_word)
+            search_text_slice = sentence_text[current_search_offset:]
+            normalized_search_slice = normalize_quotes(search_text_slice)
+            
+            possible_matches = list(re.finditer(re.escape(normalized_anchor), normalized_search_slice))
+            # --- END OF "Normalize-Find-Slice" FIX ---
+
+            if not possible_matches:
+                if self.llm_logger:
+                    self.llm_logger.log_validation_failure("LLMSegmenter", sentence_text, "\n".join(llm_segments), f"Anchor word '{anchor_word}' not found.")
+                error_message = (
+                    f"Segmenter Integrity Check FAILED for S_ID {s_id}: Could not find anchor word '{anchor_word}' "
+                    f"from LLM-generated chunk '{segment_chunk}' within the original sentence. "
+                    f"Original Sentence: '{sentence_text}'"
+                )
+                raise ValueError(error_message)
+            
+            match = possible_matches[0]
+            
+            slice_end_point_relative = match.end()
+            slice_end_point_absolute = current_search_offset + slice_end_point_relative
+
+            while slice_end_point_absolute < len(sentence_text) and not sentence_text[slice_end_point_absolute].isalnum():
+                if sentence_text[slice_end_point_absolute] in self.OPENING_PUNCT:
+                    break
+                slice_end_point_absolute += 1
+
+            while slice_end_point_absolute < len(sentence_text) and sentence_text[slice_end_point_absolute].isspace():
+                slice_end_point_absolute += 1
+
+            final_segments.append(sentence_text[current_search_offset:slice_end_point_absolute])
+            current_search_offset = slice_end_point_absolute
+
+        return final_segments
 
     def _merge_short_segments(self, segments: List[str]) -> List[str]:
         """Phase 2: Apply deterministic, rule-based merging."""
@@ -138,11 +179,11 @@ class LLMSegmenter:
         
         return [s for s in segments if s.strip()]
 
-    def segment_sentence(self, sentence_text: str) -> List[str]:
+    def segment_sentence(self, sentence_text: str, s_id: str) -> List[str]:
         if not sentence_text or not sentence_text.strip():
             return []
         
-        initial_segments = self._get_initial_segments_from_llm(sentence_text)
+        initial_segments = self._get_initial_segments_from_llm(sentence_text, s_id)
         
         if len(initial_segments) <= 1:
             return initial_segments

@@ -11,7 +11,7 @@ You are an expert linguist creating aligned semantic chunks for a language learn
 8.  **NO PUNCTUATION:** Do not include punctuation like commas or periods in your output phrases.
 9.  **OUTPUT FORMAT:** For each sentence ID, provide the MAPPINGS, then the VALIDATION section, following the structure below.
 10. **Contractions are atomic** English contractions like "I'm", "don't", "it's", "you're" are single semantic units. You MUST map them within a single phrase. DO NOT split them into their constituent parts (e.g., "I" and "'m"). Contractions may be part of larger phrases if deemed necessary for atomic mapping.
-11.  **PROPER_NOUN TOKEN:** If an English atom is a proper noun (like a person's name, a place, or a brand), you MUST map it to the special token `PROPER_NOUN`.
+11. **PROPER NOUNS:** If the translation is a proper noun (like a name or a place), you MUST enclose the {target_language_name} word in curly braces. Example: `Holmes -> {{Holmes}}`. For multi-word proper nouns, you can either group them like `Baker Street -> {{Baker Street}}` or individually like `Mr. Smith -> {{Sr.}} {{Smith}}`.
 
 *--- VERB PHRASE TRAINING EXAMPLES (for MAPPINGS section) ---**
 was brought -> fue traída
@@ -29,9 +29,9 @@ remained silent -> permaneció en silencio
 ------------------------------------*
 
 --- Proper Nouns ---
-Alice -> PROPER_NOUN
-Spain -> PROPER_NOUN
-Marley -> PROPER_NOUN
+Alice's -> de {{Alicia}}
+Spain -> {{"España}}
+Marley -> {{Marley}}
 
 **-- Contractions --**
 I'm -> estoy
@@ -39,6 +39,7 @@ don't -> no
 it's -> es
 he's -> es
 you're -> eres
+He'd fall -> Él caería
 -------------------*
 
 **--- BAD vs. GOOD MAPPING EXAMPLES ---**
@@ -70,7 +71,7 @@ director -> director
 
 **EXAMPLE 1:**
 USER INPUT:
-S1: A certain king had a beautiful garden
+S1: A certain king had a beautiful garden.
 YOUR OUTPUT:
 S1:
 MAPPINGS:
@@ -85,7 +86,7 @@ VALIDATION: A certain king had a beautiful garden
 
 **EXAMPLE 2:**
 USER INPUT:
-S2: He had to take a walk
+S2: He had to take a walk.
 YOUR OUTPUT:
 S2:
 MAPPINGS:
@@ -96,7 +97,7 @@ VALIDATION: He had to take a walk
 
 **EXAMPLE 3:**
 USER INPUT:
-S3: Why did you run so fast
+S3: Why did you run so fast?
 YOUR OUTPUT:
 S3:
 MAPPINGS:
@@ -110,15 +111,19 @@ VALIDATION: Why did you run so fast
 
 **EXAMPLE 4 (Complex Sentence):**
 USER INPUT:
-S17: It was said that his father, destining him to be the heir of his own post, had married him at a very early age, eighteen or twenty, in accordance with a custom which is rather widely prevalent in parliamentary families.
-YOUR OUTPUT:
+S17: It was said that his father, destining Edmond Dantès to be the heir of his own post, had married him at a very early age, eighteen or twenty, in accordance with a custom which is rather widely prevalent in parliamentary families.
+
+YOUR REQUIRED RESPONSE (Notice per the rules, we include no punctuation from the input sentence.):
 S17:
 MAPPINGS:
 It was said -> Se decía
 that -> que
 his -> su
 father -> padre
-destining him to be -> destinándolo a ser
+destining -> destinando
+Edmond -> {{Edmond}}
+Dantès -> {{Dantès}}
+to be -> a ser
 the -> el
 heir -> heredero
 of -> de
@@ -145,14 +150,15 @@ prevalent -> prevalente
 in -> en
 parliamentary -> parlamentarias
 families -> familias
-VALIDATION: It was said that his father destining him to be the heir of his own post had married him at a very early age eighteen or twenty in accordance with a custom which is rather widely prevalent in parliamentary families
+VALIDATION: It was said that his father destining Edmond Dantès to be the heir of his own post had married him at a very early age eighteen or twenty in accordance with a custom which is rather widely prevalent in parliamentary families
+
 
 
 **EXAMPLE 5 (Proper nouns):**
 
 USER INPUT:
 S_ID_3:
-The bird forgot Alice and his country.
+The bird forgot Alice's name and his country.
 
 YOUR REQUIRED RESPONSE:
 S_ID_3:
@@ -160,11 +166,12 @@ MAPPINGS:
 The -> El
 bird -> pájaro
 forgot -> olvidó
-Alice -> PROPER_NOUN
+Alice's -> de {{Alicia}}
+name -> nombre
 and -> y
 his -> su
 country -> país
-VALIDATION: The bird forgot Alice and his country
+VALIDATION: The bird forgot Alice's name and his country
 
 ---
 

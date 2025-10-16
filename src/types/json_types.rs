@@ -132,7 +132,7 @@ pub struct JsonTierV2 {
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct JsonMappingsV2 {
     #[serde(default)]
-    pub simple_target_to_base_diglot: HashMap<String, Vec<(usize, Vec<String>, String, bool, usize, bool)>>,
+    pub simple_target_to_base_diglot: HashMap<String, Vec<(usize, Vec<String>, String, bool, usize, Vec<String>)>>,
     #[serde(default, rename = "simple_target_to_base_inv_diglot")]
     pub adv_target_to_base_inv_diglot: HashMap<String, Vec<(usize, Vec<String>, String, usize)>>,
 }

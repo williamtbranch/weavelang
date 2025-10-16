@@ -1,3 +1,4 @@
+#helper.py
 import re
 import unicodedata
 import argparse
@@ -8,8 +9,13 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 from dotenv import load_dotenv
-from spacy.tokens import Doc as SpacyDoc, Span
+from spacy.tokens import Doc as SpacyDoc, Span, Token as SpacyToken
 import stanza
+
+try:
+    import google.generativeai as genai
+except ImportError:
+    genai = None
 
 logger = logging.getLogger("pipeline")
 
@@ -22,76 +28,169 @@ def preprocess_for_spacy(text: str) -> str:
     text = re.sub(r'([—()])(\w)', r'\1 \2', text)
     return text
 
-def create_golden_token_stream(nlp_doc: Any) -> List[Dict[str, Any]]:
+# --- THIS FUNCTION IS NOW RESTORED ---
+def fuse_tokens(raw_tokens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not raw_tokens:
+        return []
+
+    tokens = list(raw_tokens)
+    i = 0
+    while i < len(tokens) - 1: # Iterate to the second to last element
+        current = tokens[i]
+        next_token = tokens[i+1]
+
+        # Simplified rule: if a word is followed by a non-space background, fuse it.
+        if (current.get("t") == "w" and
+            next_token.get("t") == "b" and
+            " " not in next_token.get("v", "") and
+            i + 2 < len(tokens) and tokens[i+2].get("t") == "w"):
+            
+            current["v"] += next_token["v"] + tokens[i+2]["v"]
+            
+            # Combine lemmas if they exist
+            if "l" in tokens[i+2]:
+                current.setdefault("l", []).extend(tokens[i+2]["l"])
+
+            del tokens[i+2]
+            del tokens[i+1]
+            
+            continue # Re-evaluate from the current index `i`
+        
+        i += 1
+    return tokens
+
+def fuse_nlp_components(raw_components: List[Any]) -> List[List[Any]]:
     """
-    Creates a canonical BWBWB token stream using a hybrid approach.
-    1. Trusts the NLP library's high-level component boundaries.
-    2. Uses a robust, character-level state machine to process the text *within* each component.
+    Fuses NLP components (tokens) based on whitespace and linguistic roles,
+    correctly distinguishing word-level vs. sentence-level punctuation.
     """
-    source_text = nlp_doc.text
+    if not raw_components:
+        return []
+
+    fused_components = []
+    current_group = []
+    
+    for i, token in enumerate(raw_components):
+        if not current_group:
+            current_group.append(token)
+            continue
+        
+        prev_token = current_group[-1]
+
+        # Rule 1: Always split if there is a space after the previous token.
+        if ' ' in getattr(prev_token, 'whitespace_', ''):
+            fused_components.append(current_group)
+            current_group = [token]
+            continue
+
+        # Rule 2: If no space, check the linguistic role of the CURRENT token.
+        token_text = getattr(token, 'text', '')
+        is_apostrophe = token_text in ("'", "’")
+
+        # --- NEW LOGIC START ---
+        # Heuristic: An apostrophe is likely a closing quote if it's the last token
+        # or if the next token is punctuation and there's no space between them.
+        is_closing_quote = False
+        if is_apostrophe:
+            is_followed_by_punct = False
+            if (i + 1) < len(raw_components):
+                next_token = raw_components[i+1]
+                # Check if next token is punctuation and follows immediately
+                if getattr(next_token, 'is_punct', False) and not getattr(token, 'whitespace_', ''):
+                    is_followed_by_punct = True
+            
+            is_last_token = (i + 1) == len(raw_components)
+
+            if is_last_token or is_followed_by_punct:
+                is_closing_quote = True
+        # --- NEW LOGIC END ---
+
+        is_possessive_particle = getattr(token, 'pos_', '') == 'PART'
+        is_hyphen = getattr(token, 'tag_', '') == 'HYPH'
+        is_common_contraction = token_text.lower() in ("'s", "n't", "'re", "'ve", "'d", "'ll")
+        
+        is_contraction_or_possessive = (
+            # Fuse on an apostrophe ONLY if it's NOT a closing quote.
+            (is_apostrophe and not is_closing_quote) or 
+            is_common_contraction or
+            is_possessive_particle
+        )
+        
+        is_internal_apostrophe = (
+            is_apostrophe and
+            len(getattr(prev_token, 'text', '')) == 1 and
+            not getattr(prev_token, 'is_punct', True)
+        )
+
+        if is_hyphen or is_contraction_or_possessive or is_internal_apostrophe:
+            current_group.append(token)
+        else:
+            fused_components.append(current_group)
+            current_group = [token]
+
+    if current_group:
+        fused_components.append(current_group)
+        
+    return fused_components
+
+def create_golden_token_stream(nlp_doc_or_span: Any) -> List[Dict[str, Any]]:
+    """
+    Creates a golden B/W token stream from a SpaCy Doc or Span.
+    This is the final, robust, SpaCy-only implementation.
+    """
+    if not isinstance(nlp_doc_or_span, (SpacyDoc, Span)):
+        # This path is now only for legacy tests that may use Stanza.
+        if hasattr(nlp_doc_or_span, 'words'):
+             raw_components = nlp_doc_or_span.words
+        else:
+            raise TypeError(f"This function now only accepts SpaCy Doc/Span objects, not {type(nlp_doc_or_span)}")
+    else:
+        raw_components = list(nlp_doc_or_span)
+
+    fused_components = fuse_nlp_components(raw_components)
+    source_text = nlp_doc_or_span.text
     if not source_text:
         return []
 
     raw_stream = []
     source_pointer = 0
-
-    components = nlp_doc.words if isinstance(nlp_doc, stanza.models.common.doc.Sentence) else nlp_doc
     
-    for component in components:
-        start_char = component.start_char if isinstance(nlp_doc, stanza.models.common.doc.Sentence) else component.idx
-        end_char = component.end_char if isinstance(nlp_doc, stanza.models.common.doc.Sentence) else component.idx + len(component.text)
-
+    for component_group in fused_components:
+        if not component_group:
+            continue
+            
+        first_token = component_group[0]
+        last_token = component_group[-1]
+        
+        start_char = getattr(first_token, 'idx', getattr(first_token, 'start_char', 0))
+        end_char = getattr(last_token, 'end_char', getattr(last_token, 'idx', 0) + len(getattr(last_token, 'text', '')))
+        
         if start_char > source_pointer:
             raw_stream.append({'t': 'b', 'v': source_text[source_pointer:start_char]})
-        
-        component_text = source_text[start_char:end_char]
-        
-        # --- THIS IS THE FIX ---
-        # The state machine must be stricter to prevent trailing whitespace
-        # from being included in a word token's value.
-        is_word_char = lambda char: char.isalnum()
-        
-        buffer = ""
-        is_in_word = False
-        for char in component_text:
-            if is_word_char(char):
-                if not is_in_word and buffer: # Transition from background to word
-                    raw_stream.append({'t': 'b', 'v': buffer})
-                    buffer = ""
-                is_in_word = True
-                buffer += char
-            else: # It's a background character
-                if is_in_word and buffer: # Transition from word to background
-                    raw_stream.append({'t': 'w', 'v': buffer})
-                    buffer = ""
-                is_in_word = False
-                buffer += char
-        
-        # Flush the final buffer for this component
-        if buffer:
-            final_type = 'w' if is_in_word else 'b'
-            raw_stream.append({'t': final_type, 'v': buffer})
-        # --- END OF FIX ---
 
+        component_group_text = source_text[start_char:end_char]
+        
+        is_word = any(not t.is_punct for t in component_group)
+        
+        if is_word:
+            raw_stream.append({'t': 'w', 'v': component_group_text})
+        else:
+            raw_stream.append({'t': 'b', 'v': component_group_text})
+            
         source_pointer = end_char
 
     if source_pointer < len(source_text):
         raw_stream.append({'t': 'b', 'v': source_text[source_pointer:]})
-
-    if not raw_stream: return []
-
-    # Post-processing: Fuse first, then merge.
-    fused_stream = fuse_tokens(raw_stream)
-
-    merged_stream = [fused_stream[0]] if fused_stream else []
-    for token in fused_stream[1:]:
-        if token['t'] == merged_stream[-1]['t']:
+        
+    merged_stream = []
+    for token in raw_stream:
+        if token['t'] == 'b' and merged_stream and merged_stream[-1]['t'] == 'b':
             merged_stream[-1]['v'] += token['v']
         else:
             merged_stream.append(token)
-
-    # Finalize BWBWB structure.
+            
     final_stream = merged_stream
+
     if not final_stream: return [{'t': 'b', 'v': ''}]
     if final_stream[0].get('t') == 'w':
         final_stream.insert(0, {'t': 'b', 'v': ''})
@@ -99,39 +198,6 @@ def create_golden_token_stream(nlp_doc: Any) -> List[Dict[str, Any]]:
         final_stream.append({'t': 'b', 'v': ''})
         
     return final_stream
-
-def fuse_tokens(raw_tokens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Revised fuser to handle W-B-W patterns from SpaCy AND Stanza's W-W output for contractions.
-    """
-    if not raw_tokens:
-        return []
-
-    tokens = list(raw_tokens)
-    i = 0
-    while i < len(tokens) - 1:
-        current = tokens[i]
-        next_tok = tokens[i+1]
-
-        # Case 1: SpaCy's don't -> don, n't (W-B-W with empty B)
-        if i + 2 < len(tokens):
-            background = tokens[i+1]
-            next_word = tokens[i+2]
-            if (current.get("t") == "w" and background.get("t") == "b" and
-                next_word.get("t") == "w" and background.get("v") in ["", "-"]):
-                current["v"] += background["v"] + next_word["v"]
-                del tokens[i+2]; del tokens[i+1]
-                continue # Re-evaluate the same index i with the newly fused token
-        
-        # Case 2: Stanza's It's -> It, 's (W-W)
-        if current.get("t") == "w" and next_tok.get("t") == "w" and \
-           next_tok.get("v", "").startswith("'") or next_tok.get("v", "").startswith("’"):
-           current["v"] += next_tok["v"]
-           del tokens[i+1]
-           continue
-
-        i += 1
-    return tokens
 
 def get_iso_timestamp() -> str: return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 def initialize_llm_client(provider: str) -> any:
@@ -142,32 +208,26 @@ def initialize_llm_client(provider: str) -> any:
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key: logger.critical("ANTHROPIC_API_KEY not found."); return None
         return Anthropic(api_key=api_key)
+    
+    elif provider == "gemini":
+        if not genai:
+            logger.critical("Google GenAI SDK not found. Please run `pip install google-generativeai`."); return None
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            logger.critical("GOOGLE_API_KEY not found in .env file."); return None
+        genai.configure(api_key=api_key)
+        # We just return the configured module itself for Gemini
+        return genai
+
     logger.critical(f"LLM provider '{provider}' is not supported."); return None
 
 def normalize_spanish_lemma(lemma_str: str) -> str:
-    """
-    Applies a series of cleaning and normalization steps to a raw Spanish lemma string,
-    handling all standard accented vowels, the ñ, and the ü with diaeresis.
-    """
     s = lemma_str.lower().strip().split(' ')[0]
-    
-    s = (s.replace('á', 'a')
-          .replace('é', 'e')
-          .replace('í', 'i')
-          .replace('ó', 'o')
-          .replace('ú', 'u')
-          .replace('ñ', 'n')
-          .replace('ü', 'u'))
-
+    s = (s.replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u').replace('ñ', 'n').replace('ü', 'u'))
     s = re.sub(r'^[^\w]+|[^\w]+$', '', s)
-    if not s: 
-        return ""
-        
+    if not s: return ""
     s = unicodedata.normalize('NFC', s)
-    
-    if re.search(r'[^a-z-]', s): 
-        return ""
-        
+    if re.search(r'[^a-z-]', s): return ""
     return s
 
 def create_v2_token_list(span: Span) -> List[Dict[str, Any]]:
