@@ -22,13 +22,13 @@ class ApplyInversePhraseMappings(SpaCyStage):
             stage_number=6,
             stage_name="ApplyInversePhraseMappings"
         )
-
     def _process_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         for block in data.get("content_blocks", []):
             if block.get("block_type") != "sentence":
                 continue
 
             s_id = block['s_id']
+            # We wrap the main logic in a try/except to catch unexpected errors and provide context.
             try:
                 mappings = block.get("mappings", {})
                 raw_map_data = mappings.get("raw_simple_to_base_inv_diglot_map", {})
@@ -45,11 +45,10 @@ class ApplyInversePhraseMappings(SpaCyStage):
                     original_tokens = seg.get("tokenized_text", [])
                     raw_map_lines = raw_map_data.get(seg_id, [])
                     
-                    if not original_tokens or not raw_map_lines:
+                    if not original_tokens:
                         new_inv_diglot_map[seg_id] = []
                         continue
 
-                    # 1. Parse LLM output for this segment
                     llm_groups = []
                     llm_map_by_group = {}
                     for line in raw_map_lines:
@@ -60,11 +59,10 @@ class ApplyInversePhraseMappings(SpaCyStage):
                                 llm_groups.append(group_str)
                                 llm_map_by_group[group_str] = parts[1].strip()
                     
-                    # 2. Refactor token stream (this also validates the LLM's left-side groupings)
+                    # Since Stage 5 already validated, we can trust the data.
                     new_tokens_for_seg = refactor_token_stream(original_tokens, llm_groups)
                     seg["tokenized_text"] = new_tokens_for_seg
 
-                    # 3. Build the new inverse diglot map for this segment
                     map_entries_for_seg = []
                     word_token_idx = 0
                     for token in new_tokens_for_seg:
@@ -72,35 +70,30 @@ class ApplyInversePhraseMappings(SpaCyStage):
                             group_str = token['v']
                             eng_substitute = llm_map_by_group.get(group_str, "NO_SUB")
                             eng_word_count = len(re.findall(r"[\w']+", eng_substitute))
-                            
-                            # The map format is [v_token_idx, lemmas (TBD), eng_sub, eng_word_count]
                             map_entries_for_seg.append([word_token_idx, "TBD", eng_substitute, eng_word_count])
                             word_token_idx += 1
                     
                     new_inv_diglot_map[seg_id] = map_entries_for_seg
                 
-                # Reconstruct full_text for the tier after all its segments have been refactored
                 simple_target_tier["full_text"] = "".join(
                     "".join(t['v'] for t in seg["tokenized_text"]) for seg in simple_target_tier["segments"]
                 )
 
-                # Store the newly created map
                 block["mappings"]["simple_target_to_base_inv_diglot"] = new_inv_diglot_map
                 
-                # Temporarily attach for validation
                 is_semantically_valid = semantic_validator.validate_inverse_mappings(block)
                 if not is_semantically_valid:
                     raise validator.ValidationError(f"S_ID {s_id} failed INVERSE semantic validation.")
                 
-                # If validation passes, mark as complete and clean up
                 block.setdefault("processing_status", {})[self.stage_name] = "COMPLETED"
                 if "raw_simple_to_base_inv_diglot_map" in mappings: 
                     del mappings["raw_simple_to_base_inv_diglot_map"]
 
-            except (validator.ValidationError, KeyError, IndexError) as e:
+            except (validator.ValidationError, KeyError, IndexError, Exception) as e:
+                # This now catches any unexpected error and provides the crucial S_ID context.
                 logger.error(f"Halting due to data integrity/validation error in {self.stage_name} for S_ID {s_id}: {e}")
-                block.setdefault("processing_status", {})[self.stage_name] = f"RETRY_FAIL: {e}"
+                block.setdefault("processing_status", {})[self.stage_name] = f"FATAL_ERROR: {e}"
                 self._save_output_data(data, "PARTIAL_FAILED")
-                raise
+                raise # Re-raise to halt the pipeline
 
         return data

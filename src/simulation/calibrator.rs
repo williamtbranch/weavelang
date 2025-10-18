@@ -8,7 +8,6 @@ use super::{
 };
 use crate::{
     corpus_generator,
-    parsing::json_parser,
     types::json_types::{JsonChapterForParsing, JsonCurriculumMap, JsonCurriculumMapEntry, TierId},
     JsonChapter, JsonContentBlock,
 };
@@ -386,21 +385,21 @@ fn get_avd_for_recipe(nc: &NumericalChapter, jc: &JsonChapter, dict: &GlobalLemm
     c.insert(r, avd); Ok(avd)
 }
 
-fn generate_catch_up_sequence(s_start: f32, s_end: f32, f_end: f32) -> Vec<(f32, f32)> {
-    let s_steps = ((s_end - s_start) * 10.0).round() as u32;
-    let f_steps = (f_end * 10.0).round() as u32;
-    if s_steps == 0 || f_steps == 0 { return vec![(s_end, f_end)]; }
-    let rate = f_steps as f32 / s_steps as f32;
-    (0..=s_steps).map(|i| {
-        let current_s = s_start + (i as f32 / 10.0);
-        let mut current_f = (i as f32 * rate).round() / 10.0;
-        current_f = current_f.min(f_end);
-        (current_s, current_f)
-    }).collect()
-}
+// fn generate_catch_up_sequence(s_start: f32, s_end: f32, f_end: f32) -> Vec<(f32, f32)> {
+//     let s_steps = ((s_end - s_start) * 10.0).round() as u32;
+//     let f_steps = (f_end * 10.0).round() as u32;
+//     if s_steps == 0 || f_steps == 0 { return vec![(s_end, f_end)]; }
+//     let rate = f_steps as f32 / s_steps as f32;
+//     (0..=s_steps).map(|i| {
+//         let current_s = s_start + (i as f32 / 10.0);
+//         let mut current_f = (i as f32 * rate).round() / 10.0;
+//         current_f = current_f.min(f_end);
+//         (current_s, current_f)
+//     }).collect()
+// }
 
 fn advance_l_recipe(mut recipe: LLevelRecipe, l_tables: &BookLLevelTables) -> (LLevelRecipe, bool) {
-    let mut phase = if recipe.adv >= l_tables.advanced.natural_exhaustion_level {
+    let phase = if recipe.adv >= l_tables.advanced.natural_exhaustion_level {
         CalibrationPhase::Complete
     } else if recipe.mod_v >= l_tables.moderate.natural_exhaustion_level {
         CalibrationPhase::AdvOnly

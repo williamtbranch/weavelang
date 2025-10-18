@@ -26,6 +26,25 @@ class GeneratePhraseMap(LLMStage):
     def get_system_prompt(self) -> str:
         return llm_prompts.get_system_prompt("generate_diglot_map", self.resources["language_config"])
 
+    def _validate_llm_groups(self, parsed_response: Dict[str, str], batch_items: List[Dict]):
+        """Callback to perform structural validation inside the retry loop."""
+        for item in batch_items:
+            s_id = item['id']
+            raw_mapping_str = parsed_response.get(s_id, "")
+            
+            llm_groups = []
+            for line in raw_mapping_str.splitlines():
+                if '->' in line:
+                    parts = line.split('->', 1)
+                    if len(parts) == 2 and parts[0].strip():
+                        llm_groups.append(parts[0].strip())
+            
+            logger.debug(f"S_ID {s_id}: Running pre-save structural validation...")
+            # This call will raise ValidationError on failure, which will be
+            # caught by the `run_llm_batch_job`'s main try/except block.
+            refactor_token_stream(item['original_tokens_for_validation'], llm_groups)
+            logger.debug(f"S_ID {s_id}: Structural validation PASSED.")
+
     def prepare_llm_items(self, book_data: Dict) -> List[Dict]:
         items_to_process = []
         for block in book_data.get("content_blocks", []):
@@ -52,11 +71,12 @@ class GeneratePhraseMap(LLMStage):
                 })
         return items_to_process
 
+    #
     def run(self) -> bool:
         """
-        A custom, self-validating run method. It calls the LLM and then
-        immediately runs the robust refactor function to validate the response
-        before saving any data.
+        A custom, self-validating run method. It calls the LLM and passes a
+        callback to run the robust refactor function for validation inside
+        the retry loop.
         """
         from ..llm_logger import LLMLogger
         
@@ -91,7 +111,7 @@ class GeneratePhraseMap(LLMStage):
         for i in range(0, len(items_for_this_run), batch_size):
             batch_items = items_for_this_run[i:i + batch_size]
             
-            #
+            # --- MODIFIED: Pass the new validator method as a callback ---
             llm_results_list = llm_utils.run_llm_batch_job(
                 llm_clients=self.resources['llm_clients'], 
                 job_name=self.stage_name,
@@ -101,42 +121,22 @@ class GeneratePhraseMap(LLMStage):
                 parser_type=self.parser_type,
                 stage_config=self.stage_config, 
                 models_config=self.models_config,
-                pipeline_config=self.pipeline_config
+                pipeline_config=self.pipeline_config,
+                post_process_validator=self._validate_llm_groups # <-- Pass the callback
             )
-            if llm_results_list is None: return False
             
+            if llm_results_list is None: 
+                return False # This now means all retries have failed
+
             final_map = {item['id']: item['llm_response'] for item in llm_results_list}
 
-            # --- VALIDATION AT THE SOURCE HAPPENS HERE ---
+            # At this point, the results are GUARANTEED to be structurally valid.
             for item in batch_items:
                 s_id = item['id']
                 raw_mapping_str = final_map.get(s_id, "")
-                
-                # Parse the left side of the LLM map for the validation
-                llm_groups = []
-                for line in raw_mapping_str.splitlines():
-                    if '->' in line:
-                        parts = line.split('->', 1)
-                        if len(parts) == 2 and parts[0].strip():
-                            llm_groups.append(parts[0].strip())
-                
-                try:
-                    logger.debug(f"S_ID {s_id}: Running pre-save structural validation...")
-                    # This is the validation "dry run". If it fails, it will raise ValidationError.
-                    refactor_token_stream(item['original_tokens_for_validation'], llm_groups)
-                    logger.debug(f"S_ID {s_id}: Structural validation PASSED.")
-                except ValidationError as e:
-                    # If validation fails, log it and, crucially, raise it again.
-                    # The run_llm_batch_job function is designed to catch this and initiate a retry.
-                    # We are essentially treating a structurally invalid response as a failed API call.
-                    logger.warning(f"      -> S_ID {s_id} failed structural validation from LLM. Reason: {e}")
-                    raise e # Re-raise to trigger retry logic in llm_utils
-
-                # If validation passes, we can safely update the block
                 block_to_update = next((b for b in input_data['content_blocks'] if b.get('s_id') == s_id), None)
                 if block_to_update:
                     self.process_llm_results_for_block(block_to_update, {s_id: raw_mapping_str})
-            # --- END OF VALIDATION BLOCK ---
 
             if not self._save_output_data(input_data, "PARTIAL"):
                 logger.error("CRITICAL: Failed to save progress. Halting.")

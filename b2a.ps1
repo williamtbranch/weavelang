@@ -42,7 +42,7 @@ Import-EnvFile -Path (Join-Path $PSScriptRoot ".env")
 # --- Configuration ---
 $ToolRootPath = "E:/Bill/development/weavelang" # Your actual path
 $PythonScriptPath = "$ToolRootPath/book_to_audio.py"
-$InputFileName = "Metamorphosis_UL14.txt" # Your test file
+$InputFileName = "Metamorphosis_UL16.txt" # Your test file
 
 # --- TTS Service Selection ---
 $TtsService = "gemini" 

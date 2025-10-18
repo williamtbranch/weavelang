@@ -38,3 +38,55 @@ def test_refactor_handles_hyphenated_words_correctly():
     word_tokens = [t for t in new_stream if t['t'] == 'w']
     assert len(word_tokens) == 3
     assert word_tokens[1]['v'] == 'armour-like'
+
+def test_refactor_handles_group_with_internal_punctuation():
+    """
+    A regression test for the S19 'Ay, Dios' bug.
+    
+    This tests the critical scenario where the LLM provides a punctuation-free
+    group (e.g., "Ay Dios") that corresponds to a sequence of tokens in the
+    original stream containing punctuation (e.g., 'Ay', ', ', 'Dios').
+    
+    The validator must correctly match based on word content while preserving
+    the interstitial punctuation in the final fused token.
+    """
+    # ARRANGE
+    # A token stream representing: "Ay, Dios! He thought."
+    original_tokens = [
+        {'t': 'b', 'v': ''},
+        {'t': 'w', 'v': 'Ay', 'di': 0, 'l': ['ay']},
+        {'t': 'b', 'v': ', '},
+        {'t': 'w', 'v': 'Dios', 'di': 1, 'l': ['dios']},
+        {'t': 'b', 'v': '! '},
+        {'t': 'w', 'v': 'He', 'di': 2, 'l': ['he']},
+        {'t': 'b', 'v': ' '},
+        {'t': 'w', 'v': 'thought', 'di': 3, 'l': ['think']},
+        {'t': 'b', 'v': '.'}
+    ]
+
+    # The LLM correctly omits punctuation from its mapping groups.
+    group_strings = ["Ay Dios", "He", "thought"]
+
+    # ACT
+    # This should succeed with the new word-based validation logic.
+    try:
+        new_stream = refactor_token_stream(original_tokens, group_strings)
+    except ValidationError as e:
+        pytest.fail(f"Validation failed on a group with internal punctuation: {e}")
+
+    # ASSERT
+    word_tokens = [t for t in new_stream if t['t'] == 'w']
+    
+    # 1. Assert the structure is correct (3 groups -> 3 word tokens)
+    assert len(word_tokens) == 3, "The stream should have been fused into 3 word tokens."
+
+    # 2. Assert that the fused token's value PRESERVED the internal punctuation.
+    assert word_tokens[0]['v'] == 'Ay, Dios', "The fused token must contain the original interstitial punctuation."
+    
+    # 3. Assert that the other tokens are correct.
+    assert word_tokens[1]['v'] == 'He'
+    assert word_tokens[2]['v'] == 'thought'
+    
+    # 4. Assert that the final stream can losslessly reconstruct the ORIGINAL text.
+    reconstructed_text = "".join(t['v'] for t in new_stream)
+    assert reconstructed_text == "Ay, Dios! He thought."

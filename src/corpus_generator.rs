@@ -210,7 +210,6 @@ struct ProcessingState {
     mod_v: u32,
     adv_v: u32,
     user_level: Option<u32>,
-    current_book_json: Option<JsonChapter>,
 }
 
 fn parse_level_value(s: &str) -> u32 {
@@ -274,7 +273,7 @@ pub fn run_corpus_generation(
         // --- START OF REFACTORED GENERATION LOGIC ---
         
         let mut full_book_result = BookGenerationResult::default();
-        let mut filename: String;
+        let filename: String;
 
         if let Some(u_level) = state.user_level {
             let u_level_map = json_chapter.u_level_maps.get(&u_level.to_string())

@@ -33,7 +33,7 @@ def validate_parsed_llm_response(parsed_data: Dict[str, str], parser_type: str):
 
 
 def run_llm_batch_job(
-    llm_clients: Dict[str, any], # <-- MODIFIED: Accepts the dictionary of clients
+    llm_clients: Dict[str, any],
     job_name: str,
     system_prompt: str,
     items_to_process: List[Dict],
@@ -42,6 +42,7 @@ def run_llm_batch_job(
     stage_config: Dict[str, Any],
     models_config: Dict[str, Any],
     pipeline_config: Dict[str, Any],
+    # --- NEW: Add the optional validator callback ---
     post_process_validator: Optional[Callable[[Dict[str, str], List[Dict]], None]] = None
 ) -> Optional[List[Dict]]:
     
@@ -54,8 +55,6 @@ def run_llm_batch_job(
     primary_model_key = stage_config.get("primary_model")
     fallback_model_key = stage_config.get("fallback_model")
     
-    # --- START: NEW MULTI-PROVIDER LOGIC ---
-    # Look up the full info for each model from the config
     primary_model_info = models_config.get(primary_model_key, {})
     fallback_model_info = models_config.get(fallback_model_key, {}) if fallback_model_key else {}
     
@@ -68,7 +67,6 @@ def run_llm_batch_job(
     if not primary_model_name or not primary_provider:
         logger.error(f"Model config error for stage '{job_name}': Could not find name or provider for key '{primary_model_key}'")
         return None
-    # --- END: NEW MULTI-PROVIDER LOGIC ---
 
     user_prompt = "\n".join([f"{item['id']}: {item['text']}" for item in items_to_process])
     prompt_ids = [item['id'] for item in items_to_process]
@@ -90,99 +88,65 @@ def run_llm_batch_job(
             current_temperature = TEMPERATURE_STEPS[0]
             logger.info(f"    -> Final attempt. Switching to fallback model '{model_to_use}' ({provider_to_use}).")
         
-        # Select the correct client for this attempt
         llm_client = llm_clients.get(provider_to_use)
         if not llm_client:
             logger.error(f"No initialized client found for provider '{provider_to_use}'. Halting.")
             return None
 
         logger_temp_str = f"{current_temperature}"
-
         logger.info(f"    -> Running {job_name} LLM batch (Attempt {attempt + 1}/{max_retries}) for {len(items_to_process)} items, using model '{model_to_use}' ({provider_to_use}) with temp={logger_temp_str}...")
         
         raw_response_text = ""
         full_raw_response_for_log = ""
 
         try:
-            # --- START: PROVIDER-AWARE API CALL BLOCK ---
             if provider_to_use == 'claude':
-                api_payload = {
-                    "model": model_to_use,
-                    "system": system_prompt,
-                    "messages": [{"role": "user", "content": user_prompt}],
-                    "max_tokens": 4096,
-                    "temperature": current_temperature,
-                }
-                
-                # Claude-specific "thinking" logic
+                api_payload = { "model": model_to_use, "system": system_prompt, "messages": [{"role": "user", "content": user_prompt}], "max_tokens": 4096, "temperature": current_temperature }
                 thinking_budget = pipeline_config.get("thinking_budget_tokens", 0)
-                enable_thinking = (attempt > 0 or thinking_on_first) and thinking_budget > 0
-                if enable_thinking:
-                    api_payload["thinking"] = { "type": "enabled", "budget_tokens": thinking_budget }
-                    api_payload["temperature"] = 1.0 # Temperature must be > 0 for thinking
-                    logger.info(f"    -> Enabling extended thinking on retry. Budget: {thinking_budget} tokens. Temp set to 1.0.")
-
+                if (attempt > 0 or thinking_on_first) and thinking_budget > 0:
+                    api_payload["thinking"], api_payload["temperature"] = { "type": "enabled", "budget_tokens": thinking_budget }, 1.0
                 message = llm_client.messages.create(**api_payload)
-                
-                # Process Claude's block-based response for logging
                 if message.content:
                     for block in message.content:
-                        if block.type == 'thinking':
-                            full_raw_response_for_log += f"--- THINKING ---\n{block.thinking}\n--- END THINKING ---\n"
+                        if block.type == 'thinking': full_raw_response_for_log += f"--- THINKING ---\n{block.thinking}\n--- END THINKING ---\n"
                         elif block.type == 'text':
                             full_raw_response_for_log += block.text
-                            if not raw_response_text: # Capture the first text block as the main response
-                                raw_response_text = block.text
-
+                            if not raw_response_text: raw_response_text = block.text
             elif provider_to_use == 'gemini':
-                # Gemini has a simpler API structure for this use case
                 model = llm_client.GenerativeModel(model_to_use)
-                response = model.generate_content(
-                    [system_prompt, user_prompt],
-                    generation_config={"temperature": current_temperature}
-                )
-                raw_response_text = response.text
-                full_raw_response_for_log = raw_response_text
-
-            else:
+                response = model.generate_content([system_prompt, user_prompt], generation_config={"temperature": current_temperature})
+                raw_response_text = response.text; full_raw_response_for_log = raw_response_text
+            else: 
                 raise ValueError(f"Unsupported provider '{provider_to_use}' in llm_utils.")
-            # --- END: PROVIDER-AWARE API CALL BLOCK ---
-
+            
             llm_logger.log_batch(job_name, 0, system_prompt, user_prompt, full_raw_response_for_log)
             
-            # --- This section is now common to both providers ---
-            if parser_type == 'multi_line':
-                parsed_response = _parse_structured_llm_response(raw_response_text, prompt_ids)
-            else:
-                parsed_response = _parse_singleline_llm_response(raw_response_text)
+            if parser_type == 'multi_line': parsed_response = _parse_structured_llm_response(raw_response_text, prompt_ids)
+            else: parsed_response = _parse_singleline_llm_response(raw_response_text)
             
             missing_ids = [pid for pid in prompt_ids if pid not in parsed_response or not parsed_response[pid].strip()]
+            if missing_ids: 
+                raise ValueError(f"Missing or empty responses for IDs: {missing_ids}")
             
-            if missing_ids:
-                logger.warning(f"      -> {job_name} batch validation failed. Missing or empty responses for IDs: {missing_ids}.")
-            else:
-                try:
-                    validate_parsed_llm_response(parsed_response, parser_type)
-                    logger.info("      -> Batch successfully processed and validated.")
-                    for item in items_to_process:
-                        item['llm_response'] = parsed_response[item['id']]
-                    return items_to_process
-                except ValueError as e:
-                    logger.warning(f"      -> {job_name} batch content validation failed. Reason: {e}")
-
-            if attempt < max_retries - 1:
-                logger.warning("         Retrying entire batch...")
-                time.sleep(retry_delay)
+            validate_parsed_llm_response(parsed_response, parser_type)
+            
+            # --- MODIFIED: Execute the heavy validator inside the loop ---
+            if post_process_validator:
+                post_process_validator(parsed_response, items_to_process)
+            
+            logger.info("      -> Batch successfully processed and validated.")
+            for item in items_to_process: item['llm_response'] = parsed_response[item['id']]
+            return items_to_process
 
         except Exception as e:
-            logger.error(f"      -> API Error during {job_name} batch with model '{model_to_use}': {e}", exc_info=False)
+            # --- This block now correctly catches both API and Validation errors ---
+            logger.warning(f"      -> {job_name} batch failed on attempt {attempt + 1}. Reason: {e}")
             if attempt < max_retries - 1:
-                logger.warning("         Retrying entire batch due to API error...")
+                logger.warning("         Retrying entire batch...")
                 time.sleep(retry_delay)
     
     logger.error(f"LLM batch failed for {job_name} after {max_retries} attempts. Halting pipeline.")
     return None
-
 
 def _parse_singleline_llm_response(raw_text: str) -> Dict[str, str]:
     parsed = {}

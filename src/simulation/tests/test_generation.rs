@@ -217,10 +217,28 @@ fn compile_dsl_sentence_to_numerical(
     json_sentence.mappings.simple_target_to_base_diglot.insert(
         "S1".to_string(),
         l1_diglot_tuples.iter().enumerate().map(|(i, t)| {
-            (i, t.replacement_lemmas.clone(), t.replacement_word.clone(), t.is_viable, t.word_to_replace.split_whitespace().count(), t.is_proper_noun)
+            // --- START OF FIX ---
+            // The 6th element must now be a Vec<String>, not a bool.
+            // We create an empty vec if it's not a proper noun.
+            let proper_noun_lemmas = if t.is_proper_noun {
+                // If it's a proper noun, use its own lemmas.
+                t.replacement_lemmas.clone()
+            } else {
+                // Otherwise, it's an empty list.
+                Vec::new()
+            };
+
+            (
+                i, 
+                t.replacement_lemmas.clone(), 
+                t.replacement_word.clone(), 
+                t.is_viable, 
+                t.word_to_replace.split_whitespace().count(),
+                proper_noun_lemmas // <-- Pass the new Vec<String>
+            )
+            // --- END OF FIX ---
         }).collect(),
     );
-
 
     // --- Inverse Diglot Processing (Refactored for Multi-Segment) ---
     let l0_inv_diglot_defs: Vec<_> = test_case.sentence_def.l0_def.segments.iter()

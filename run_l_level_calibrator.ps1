@@ -64,10 +64,10 @@ $FinalOutputPath = "$ContentProjectPath/library/$($BookStem).json"
 $DebugAnalysisFile = "$ContentProjectPath/generated_profiles/$($BookStem)_calibration_data.json"
 
 # The FINAL output file containing the U-Level map.
-$FinalULevelMapFile = "$ContentProjectPath/generated_profiles/$($BookStem)_u_level_map.json"
+# $FinalULevelMapFile = "$ContentProjectPath/generated_profiles/$($BookStem)_u_level_map.json"
 
-# The temporary output file for our L-Level tables.
-$TempOutputFile = "$ContentProjectPath/generated_profiles/LesMis_l_level_data.json"
+# # The temporary output file for our L-Level tables.
+# $TempOutputFile = "$ContentProjectPath/generated_profiles/LesMis_l_level_data.json"
 
 # The maximum User/L-Level to calibrate up to.
 # Start with a small number (e.g., 5-10) for a quick test run.
