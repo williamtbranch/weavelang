@@ -1,139 +1,83 @@
 ================================================================================
-Project Plan: WeaveLang V10 - The Three-Tier Simplification Architecture
+Project Plan: WeaveLang V11 - Human-in-the-Loop Architecture
 Last Updated: (Date of this session)
 ================================================================================
 
 ### Primary Objectives & Guiding Principles
 
-- **Goal:** Implement a smoother, more pedagogically sound learning gradient by refactoring the pipeline and engine to support a three-tier simplification model (Simple, Basic, Moderate).
-- **Architecture:** The Python pipeline will produce these three distinct tiers of simplified text. The Rust engine will intelligently weave them together, prioritizing more natural prose as the learner's vocabulary grows.
-- **Golden Rule:** The "jarring" stylistic gap must be eliminated. The learner's journey should be a gradual ascent from functional, deconstructed language to fluent, natural prose, before reaching the final, literary text.
+- **Goal:** To dramatically increase the quality and stylistic consistency of the L1 learning tiers by integrating a mandatory human review and editing process into the pipeline.
+- **Architecture:** The Python pipeline will be refactored into a state machine with explicit "pause" points. It will generate human-readable files with a commented-out "approval marker." The pipeline will only proceed once the user has edited the file and uncommented the marker.
+- **Golden Rule:** The human-edited "golden pair" of `basic_english` and `basic_spanish` will be the sole source of truth for all L1 content, ensuring maximum quality and consistency.
 
 ---
 ### Master Checklist
 ---
 
-#### Phase 1: Foundational Tooling & Prompt Engineering (Complete)
+#### Phase 1: Stateful Orchestrator and New Pipeline Stages (Python)
 
-[x] 1.1: Implement a robust, quantitative prompt rating system (`rate_prompts.py`).
-[x] 1.2: Fix critical bugs in text normalization and data parsing.
-[x] 1.3: Engineer and validate a "Simple" (NSM-Lite) prompt (`test04`) that successfully minimizes vocabulary complexity.
-[x] 1.4: Engineer and validate a "Moderate" (Natural) prompt (`test01`) that balances simplicity and fluency.
-[x] 1.5: Engineer and validate a "Basic" (Intermediate) prompt (`test07`) that successfully bridges the stylistic gap between Simple and Moderate.
+- [ ] **Task 1.1: Refactor the Main Orchestrator (`orchestrate_pipeline.py`)**
+    - [ ] **Implement State Machine Logic:** The orchestrator must check for files in a dedicated `human_review` directory and parse their first line to determine the pipeline's state.
+    - [ ] **State 1 (Start):** No `*.basic_en.txt` exists -> Run `GenerateBasicEnglish`.
+    - [ ] **State 2 (Awaiting English Review):** `*.basic_en.txt` exists, but `%%HUMAN_REVIEW_APPROVED%%` is commented out or missing -> Halt with instructions.
+    - [ ] **State 3 (Awaiting Mapping Review):** `*.basic_en.txt` is approved, but `*.dig.txt` or `*.invdig.txt` are not approved -> Run translation and mapping stages.
+    - [ ] **State 4 (Awaiting Finalization):** All review files are approved -> Run the final consumption and finalization stages.
 
-#### Phase 2: Python Pipeline Refactor (Current Phase)
+- [ ] **Task 1.2: Create New Stage - `GenerateBasicEnglish` (Stage 2)**
+    - [ ] This stage takes the original `base` tier as input.
+    - [ ] It uses a new `simplify_to_basic_english.txt` prompt to generate simplified English.
+    - [ ] **Output:** It will create a single text file (e.g., `Metamorphosis.basic_en.txt`) in the `human_review` directory.
+    - [ ] **Crucially, the first line of this file MUST be `# %%HUMAN_REVIEW_APPROVED%%`.**
 
-- [ ] **Task 2.1: Refactor the PoolManager for Multi-Tier Generation**
-    - [ ] Modify `pool_manager.py` to generate three separate derived text assets for the target language. The `_get_or_create_sim_json` method will be the template.
-    - [ ] Create `_get_or_create_mod_json` which will use the `simplify_segments_moderate.txt` prompt.
-    - [ ] Create `_get_or_create_bas_json` which will use the `simplify_segments_basic.txt` prompt.
-    - [ ] The existing `_get_or_create_sim_json` will be updated to use the `simplify_segments_simple.txt` prompt.
+- [ ] **Task 1.3: Create New Stage - `TranslateBasicSpanish` (Stage 3)**
+    - [ ] On resume, this stage's input logic must first validate that `Metamorphosis.basic_en.txt` exists and its approval marker is uncommented.
+    - [ ] It will then read this human-approved file as its source of truth, translate it to create the `basic_spanish` tier, and populate the main JSON object.
 
-- [ ] **Task 2.2: Update Stage 1 (AssembleTiers) to Handle New Tiers**
-    - [ ] Modify `assemble_tiers.py` to load the new `.mod.json` and `.bas.json` files from the common pool.
-    - [ ] The stage will now assemble a JSON structure containing five tiers: `base`, `advanced_target`, `moderate_target`, `basic_target`, and `simple_target`.
+- [ ] **Task 1.4: Refactor Mapping Stages to Generate Review Files**
+    - [ ] Modify `GeneratePhraseMap` (now Stage 4) to generate `book.dig.txt`. The first line must be `# %%HUMAN_REVIEW_APPROVED%%`.
+    - [ ] Modify `GenerateInverseDiglotMap` (now Stage 5) to generate `book.invdig.txt`. The first line must be `# %%HUMAN_REVIEW_APPROVED%%`.
+    - [ ] Both stages must still run their internal validation logic *before* writing the review files to ensure the template you edit is valid.
 
-- [ ] **Task 2.3: Refactor the Final Stage (FinalizeBook) for Lean Output**
-    - [ ] Modify `finalize_book.py` to perform selective cleanup.
-    - [ ] For the `advanced_target`, `moderate_target`, and `basic_target` tiers:
-        - [ ] Strip the `tokenized_text` key from each segment after lemmatization is complete, leaving only `seg_id`, `text`, and `lemmas`.
-    - [ ] For the `simple_target` tier, which is used for diglotting, all existing keys (`tokenized_text`, etc.) should be preserved.
-    - [ ] This ensures the final JSON is as lean as possible for the Rust engine.
+#### Phase 2: Validation and Override Consumption (Python)
+
+- [ ] **Task 2.1: Implement Pre-Consumption Validator for Approved Files**
+    - [ ] Create a dedicated validation step at the start of the final pipeline phase.
+    - [ ] This step will read `*.dig.txt` and `*.invdig.txt` only after confirming their approval markers are uncommented.
+    - [ ] It will perform a full structural validation on the *entire file content* (e.g., by running `refactor_token_stream` on every sentence's mappings).
+    - [ ] If any error is found, the pipeline must HALT with clear, actionable error messages.
+
+- [ ] **Task 2.2: Refactor `Apply...Mappings` Stages to Consume Approved Files**
+    - [ ] Modify `ApplyPhraseMappings` (now Stage 6) to read the validated and approved `book.dig.txt` file as the *sole source of truth* for building the final JSON mapping structures.
+    - [ ] Modify `ApplyInversePhraseMappings` (now Stage 7) to do the same with the `book.invdig.txt` file.
 
 #### Phase 3: Rust Engine Refactor
 
-- [ ] **Task 3.1: Update JSON Parsing and Numerical Types**
-    - [ ] In `json_types.rs`, add `moderate_target` and `basic_target` to the data structures.
-    - [ ] In `numerical_types.rs`, update the `NumericalAdvSegmentBundle` struct to hold the text and lemma IDs for the `Moderate` and `Basic` tiers.
-    - [ ] Update `preprocessor.rs` to correctly map the new JSON tiers to the updated numerical structs.
+- [ ] **Task 3.1: Update JSON Parsing and Numerical Types (`json_types.rs`, `preprocessor.rs`)**
+    - [ ] Remove the `simple_target` tier from the structs.
+    - [ ] Add the new `basic_english` tier.
+    - [ ] The L0 `NumericalAdvSegmentBundle` will now only contain `adv` and `mod` tiers.
+    - [ ] The `NumericalProcessedSentence` struct must be updated to reference the `basic_english` and `basic_target` tiers for L1 fallback logic.
 
-- [ ] **Task 3.2: Implement the New L0 Weaving Logic**
-    - [ ] In `core_algo.rs`, modify the `try_build_advanced_weave` function.
-    - [ ] Implement the new four-step fallback logic for each segment:
-        1. Attempt to use `Advanced` text.
-        2. If fails, attempt to use `Moderate` text.
-        3. If fails, attempt to use `Basic` text.
-        4. If fails, attempt to use `Simple` text.
-        5. If all fail, fall back to the Inverse Diglot mechanism using the `Simple` text as the base.
+- [ ] **Task 3.2: Implement the New L0/L1 Weaving Logic (`core_algo.rs`)**
+    - [ ] Modify `try_build_advanced_weave`. The fallback cascade is now only: `Advanced -> Moderate`. If both fail, the L0 weave fails.
+    - [ ] Modify `determine_and_annotate_sentence_expression`. If `try_build_advanced_weave` returns `None`, implement the new L1 logic:
+        1. Check if the learner's profile knows >= 50% of the lemmas in the `basic_target` sentence.
+        2. If yes, construct the output from the full `basic_target` text.
+        3. If no, construct the output using the `basic_base` (i.e., `basic_english`) text and its corresponding diglot map.
 
-- [ ] **Task 3.3: Update the WeaveLang Test Suite**
-    - [ ] Modify the `generation_tests.pest` grammar to support defining `Basic` and `Moderate` segments within the DSL.
-    - [ ] Update `weavetest_parser.rs` to parse this new structure.
-    - [ ] Create new test cases in `generation_tests.weavetest` that specifically assert the correct fallback behavior of the new four-tier weave. For example, create a test where a learner knows the "Basic" words but not the "Moderate" words, and assert that the "Basic" text is chosen.
+- [ ] **Task 3.3: Update the WeaveLang Test Suite (`.weavetest`)**
+    - [ ] Modify the `.pest` grammar to remove the `Simple` and `Basic` tiers from the L0 definition. The L1 definition will now be based on the new `Basic` pair.
+    - [ ] Create new test cases that specifically assert the correct fallback behavior: a test for `Mod -> L1` failure, a test for the L1 50% check *passing*, and a test for the 50% check *failing*.
 
-#### Phase 4: Final Validation and Future Work
+#### Phase 4: Finalization and Cleanup
 
-- [ ] **Task 4.1: Perform a Full Corpus Run:** Execute a full run of the new Python pipeline and Rust engine on a book like `LesMis`.
-- [ ] **Task 4.2: Analyze the New Output:**
-    - [ ] Qualitatively review the generated TTS text at various levels to confirm the "jarring" effect is gone.
-    - [ ] Analyze the new `corpus_analysis_log.txt` to see the distribution between the four segment types (`Adv`, `Mod`, `Bas`, `Sim`).
-- [ ] **Task 4.3: Plan the Per-Tier Vocabulary Sweep:** The current plan focuses on getting the data structure and weaving logic in place. The next major architectural step will be to implement the per-tier vocabulary exhaustion model we discussed. This will be WeaveLang V11.
+- [ ] **Task 4.1: Update `FinalizeBook` Stage (Stage 9)**
+    - [ ] The logic for stripping `tokenized_text` is still valid, but the list of tiers to strip is now just `advanced_target` and `moderate_target`. `basic_target` and `basic_english` must be preserved.
+    - [ ] Update the final schema version number.
 
-#### Phase 2: Python Pipeline Refactor (Current Phase)
+- [ ] **Task 4.2: Update Project Documentation**
+    - [ ] Update all relevant documentation to reflect the new two-tier L0 weave, the human-in-the-loop "approval marker" process, and the new 50% check in the L1 fallback logic.
 
-- [ ] **Task 2.1: Refactor the PoolManager for Multi-Tier Generation**
-    - [ ] Modify `pool_manager.py` to generate three separate derived text assets for the target language. The `_get_or_create_sim_json` method will be the template.
-    - [ ] Create `_get_or_create_mod_json` which will use the `simplify_segments_moderate.txt` prompt.
-    - [ ] Create `_get_or_create_bas_json` which will use the `simplify_segments_basic.txt` prompt.
-    - [ ] The existing `_get_or_create_sim_json` will be updated to use the `simplify_segments_simple.txt` prompt.
-
-- [ ] **Task 2.2: Update Stage 1 (AssembleTiers) to Handle New Tiers**
-    - [ ] Modify `assemble_tiers.py` to load the new `.mod.json` and `.bas.json` files from the common pool.
-    - [ ] The stage will now assemble a JSON structure containing five tiers: `base`, `advanced_target`, `moderate_target`, `basic_target`, and `simple_target`.
-
-- [ ] **Task 2.3: Fix the "Empty Mapping" Bug in the Phrase Mapper**
-    - [ ] **Problem:** The current phrase mapper (`apply_phrase_mappings.py`) can generate invalid diglot map entries for phrases it fails to align, such as `[ 14, [], "", true, 3 ]`. This causes words to disappear from the final L1 text.
-    - [ ] **Solution:** Modify the logic in `phrase_mapper_helpers.py`. When a multi-word "semantic atom" is invalidated (e.g., for crossing a segment boundary or containing punctuation), it must be correctly broken down into its constituent single-word tokens, and each token must be given a `NO_SUB`, non-viable mapping.
-
-- [ ] **Task 2.4: Implement a New Semantic Validation Stage (Stage 4.5)**
-    - [ ] **Problem:** LLMs can produce intermittently "shifted" or nonsensical phrase maps that are syntactically valid but semantically wrong. For example, in `LesMis` sentence `S18`, the LLM incorrectly mapped English `talk` to Spanish `creó`. Our current DP aligner is too robust and "self-heals" this, hiding the underlying data corruption.
-    - [ ] **Solution:** Create a new pipeline stage, `ValidatePhraseMappings`, that runs after `ApplyPhraseMappings`.
-    - [ ] This stage will use a free, local sentence-transformer model (e.g., `paraphrase-multilingual-MiniLM-L12-v2`) to perform cross-lingual semantic validation.
-    - [ ] For each English phrase and its mapped Spanish phrase, it will calculate the cosine similarity of their vector embeddings.
-    - [ ] **Validation Rule:** If a sentence contains a significant number of mappings with a similarity score below a defined threshold (e.g., < 0.3), the entire sentence will be flagged with a status like `RETRY_SEMANTIC_FAIL`.
-    - [ ] The main pipeline orchestrator will be updated to handle this `RETRY` status, forcing the LLM to re-generate the failed sentence on the next run. This creates a self-correcting loop that guarantees the semantic integrity of our phrase maps.
-
-- [ ] **Task 2.5: Refactor the Final Stage (FinalizeBook) for Lean Output**
-    - [ ] Modify `finalize_book.py` to perform selective cleanup.
-    - [ ] For the `advanced_target`, `moderate_target`, and `basic_target` tiers:
-        - [ ] Strip the `tokenized_text` key from each segment after lemmatization is complete, leaving only `seg_id`, `text`, and `lemmas`.
-    - [ ] For the `simple_target` tier, which is used for diglotting, all existing keys (`tokenized_text`, etc.) should be preserved.
-    - [ ] This ensures the final JSON is as lean as possible for the Rust engine.
-    - [ ] **Task 2.6: Implement Manual Validation Override (Future Enhancement)**
-    - [ ] **Problem:** The semantic validator can have rare false-positives on short, idiomatic segments. We need a way to manually approve these without changing code.
-    - [ ] **Solution:** Enhance the `semantic_validator` module.
-    - [ ] It should scan the relevant LLM log file for special comments, e.g., `%%MANUAL_VALIDATION_PASSED: S127_S2%%`.
-    - [ ] If such a comment is found for a given sentence/segment ID, the validator should automatically return `True` for that ID and log that it used a manual override.
-    - [ ] This provides a robust mechanism for handling known-good edge cases in long pipeline runs without requiring code changes or relaxing the validation thresholds globally.
-    # --- NEW TASK (High Priority) ---
-- [ ] **Task 2.7: Fix Inverse Map Semantic Validation Logic**
-    - [ ] **Problem:** The semantic validator for the inverse map (`Stage 6`) is incorrectly extracting only the first word of multi-word Spanish phrases before sending them for comparison. This leads to a high rate of false-negative validation failures (e.g., comparing Spanish 'iban' to English 'they went through').
-    - [ ] **Solution:** Refactor the `align_and_parse_to_atoms` helper function and/or the data extraction logic in `apply_inverse_phrase_mappings.py`. The goal is to ensure that the validator receives the complete, multi-word Spanish phrase (e.g., "no se podían ver") to compare against the corresponding English substitute ("they couldn't see each other"). This requires a careful refactor to handle the parsing and alignment of the inverse map correctly without breaking the forward map's logic.
-
-    Next Task: After this run, our next high-priority task must be to debug and fix the Stanza segmenter. We need to create a new, targeted regression test in llm2books/tests/test_segmentation.py using the sentence Con un movimiento de su mano despejó un espacio vacío al frente entre las cosas del desayuno, e se inclinó hacia adelante para mirar con más comodidad. and assert that it does NOT produce a single-word final segment. Then, we will fix the segmenter code to make that test pass.
-
-    TODO: Refactor the LLMSegmenter to perform "Boundary Validation" instead of "Text Validation".
-The new process will use the LLM's output to propose cut points.
-It will validate these cut points by comparing word counts and boundary-word lemmas against a ground-truth tokenization of the original source text.
-If validated, the final segments will be reconstructed by slicing the ground-truth tokens, ensuring 100% fidelity.
-This will make the system immune to minor grammatical/orthographic edits made by the LLM.
-
-- [ ] **Task 2.8: Unify Phrase Mapping with a Generic "Token Stream Refactor"**
-    - [ ] **Goal:** Create a single, robust helper function to handle the structural transformation of token streams for both the forward and inverse maps. This will fix the grouping bugs and implement the new proper noun system in a unified way.
-    
-    - [ ] **Sub-Task 1: TDD for the Generic Helper (`llm2books/tests/test_phrase_mapper_helpers.py`)**
-        - [ ] Create unit tests for a new, generic function named `refactor_token_stream(original_tokens, group_strings)`.
-        - [ ] Tests must validate its ability to correctly "stitch" original tokens into new, larger word tokens based on the `group_strings`.
-        - [ ] Tests must cover: a) happy path, b) preserving interstitial punctuation between groups, c) correctly incorporating punctuation *within* a group into the new word token's value, and d) all validation failure cases (word mismatch, incomplete consumption).
-
-    - [ ] **Sub-Task 2: Implement the Generic Helper (`llm2books/phrase_mapper_helpers.py`)**
-        - [ ] Implement `refactor_token_stream` to make all unit tests pass. This function's sole responsibility is structural validation and transformation.
-        - [ ] Implement the `{}` proper noun parsing helper function in the same file, with its own dedicated tests.
-
-    - [ ] **Sub-Task 3: Pipeline Integration & Deprecation**
-        - [ ] **Prompt Update:** Update `generate_diglot_map.txt` prompt to instruct the LLM on the `{}` syntax for proper nouns.
-        - [ ] **`ApplyPhraseMappings` (Stage 4 - Forward Map):** Refactor this stage. It will now call `refactor_token_stream` to get the new, fused `base` tier. It will then perform its stage-specific logic: parsing the right-hand side of the map (including `{}`), building the 6-tuple `simple_target_to_base_diglot` map, and collecting proper noun lemmas into the temporary `_internal_proper_noun_lemmas` list.
-        - [ ] **`ApplyInversePhraseMappings` (Stage 6 - Inverse Map):** Refactor this stage. It will be called *after* Stage 5 gets the raw LLM map. It will call `refactor_token_stream` to validate and create the new, fused `simple_target` tier. It will then perform its simple stage-specific logic of building the final 4-tuple `simple_target_to_base_inv_diglot` map.
-        - [ ] **`FinalizeBook` (Stage 9):** Implement the logic to read `_internal_proper_noun_lemmas` and perform the global lemma removal across all tiers and maps.
-        - [ ] **Deprecate Old Code:** Remove all old alignment/parsing logic. Remove the `PROPER_NOUN` string constant. Delete the `fix_possesives.py` script.
-        - [ ] **Update Rust Types:** Modify `src/types/json_types.rs` to change the 6th element of the `simple_target_to_base_diglot` tuple from `bool` to `Vec<String>`.
+- [ ] **Task 5.1 (V12 Optimization): Implement LLM Caching**
+    - [ ] Refactor `llm_utils.py` to support prompt caching for both Anthropic and Gemini providers.
+    - [ ] Update `LLMStage` to manage the lifecycle of a cached system prompt for the duration of its run.
+    - [ ] Measure cost savings on a full book run.

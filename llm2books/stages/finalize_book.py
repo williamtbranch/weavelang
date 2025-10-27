@@ -16,7 +16,6 @@ class FinalizeBook(Stage):
         )
         self.library_dir = self.content_project_root / "library"
         self.final_output_path = self.library_dir / f"{self.book_stem}.json"
-
     def run(self) -> bool:
         logger.info(f"Executing Stage {self.stage_number}: {self.stage_name} for '{self.book_stem}'")
         self.library_dir.mkdir(parents=True, exist_ok=True)
@@ -30,23 +29,33 @@ class FinalizeBook(Stage):
             return False
 
         logger.info("      -> Cleaning up intermediate data for final output...")
+        
+        # --- START OF NEW CLEANUP LOGIC ---
+        
+        # Define which tiers are "atomic" for the Rust engine and don't need token data.
         tiers_to_strip_tokenized_text = [
             "advanced_target",
             "moderate_target",
-            "basic_target",
         ]
-        target_language_tiers = tiers_to_strip_tokenized_text + ["simple_target"]
+        
+        # Define all target language tiers for proper noun lemma cleanup.
+        target_language_tiers = tiers_to_strip_tokenized_text + ["basic_target"]
 
         for block in book_data.get("content_blocks", []):
             if block.get("block_type") == "sentence":
                 
-                # --- START: NEW PROPER NOUN CLEANUP LOGIC ---
-                proper_noun_lemmas_to_remove = set(block.get("_internal_proper_noun_lemmas", []))
+                # 1. Remove the original literary 'base' tier completely.
+                block["tiers"] = [t for t in block["tiers"] if t["tier_id"] != "base"]
                 
+                # 2. Remove the temporary processing_status object.
+                if "processing_status" in block:
+                    del block["processing_status"]
+
+                # 3. Clean up proper noun lemmas from all target tiers and maps.
+                proper_noun_lemmas_to_remove = set(block.get("_internal_proper_noun_lemmas", []))
                 if proper_noun_lemmas_to_remove:
                     logger.debug(f"S_ID {block['s_id']}: Removing proper noun lemmas: {proper_noun_lemmas_to_remove}")
                     
-                    # 1. Clean from all target language tiers
                     for tier_id in target_language_tiers:
                         tier = next((t for t in block["tiers"] if t["tier_id"] == tier_id), None)
                         if not tier: continue
@@ -58,45 +67,40 @@ class FinalizeBook(Stage):
                                 if "l" in token:
                                     token["l"] = [l for l in token.get("l", []) if l not in proper_noun_lemmas_to_remove]
 
-                    # 2. Clean from forward diglot map
-                    diglot_map = block.get("mappings", {}).get("simple_target_to_base_diglot", {})
-                    for seg_id, entries in diglot_map.items():
-                        for entry in entries:
-                            entry[1] = [l for l in entry[1] if l not in proper_noun_lemmas_to_remove]
-                    
-                    # 3. Clean from inverse diglot map
-                    inv_diglot_map = block.get("mappings", {}).get("simple_target_to_base_inv_diglot", {})
-                    for seg_id, entries in inv_diglot_map.items():
-                        for entry in entries:
-                            entry[1] = [l for l in entry[1] if l not in proper_noun_lemmas_to_remove]
+                    # Clean from forward and inverse maps
+                    for map_key in ["basic_spanish_to_basic_english_diglot", "basic_target_to_basic_base_inv_diglot"]:
+                        map_obj = block.get("mappings", {}).get(map_key, {})
+                        for seg_id, entries in map_obj.items():
+                            for entry in entries:
+                                entry[1] = [l for l in entry[1] if l not in proper_noun_lemmas_to_remove]
                 
-                # 4. Delete the temporary key
                 if "_internal_proper_noun_lemmas" in block:
                     del block["_internal_proper_noun_lemmas"]
-                # --- END: NEW PROPER NOUN CLEANUP LOGIC ---
-
-                # Strip temporary/unneeded keys and data for final output
+                
+                # 4. Strip tokenized_text from higher-level tiers that don't need it.
                 for tier in block.get("tiers", []):
-                    # Reconstruct text fields from tokens one last time to ensure sync
+                    # One last sync to ensure 'text' fields are correct before stripping
                     for seg in tier.get("segments", []):
                         if "tokenized_text" in seg:
                             seg["text"] = "".join(t.get("v", "") for t in seg["tokenized_text"])
-                    
                     tier["full_text"] = "".join(seg.get("text", "") for seg in tier.get("segments", []))
 
-                    # Conditionally strip tokenized_text from higher tiers
+                    # Now strip the unnecessary data
                     if tier["tier_id"] in tiers_to_strip_tokenized_text:
                         for seg in tier.get("segments", []):
                             if "tokenized_text" in seg:
                                 del seg["tokenized_text"]
+        
+        # --- END OF NEW CLEANUP LOGIC ---
 
-        # Final schema version bump
-        book_data.get("book_meta", {})["schema_version"] = "3.1"
+        # Final schema version bump to reflect this leaner structure
+        book_data.get("book_meta", {})["schema_version"] = "3.2"
         
         logger.info("      -> Running final data integrity validations...")
         try:
             for block in book_data.get("content_blocks", []):
                 if block.get("block_type") == "sentence":
+                    # Re-run key validations on the final, cleaned data
                     validator.validate_exhaustive_diglot_mapping(block)
                     validator.validate_exhaustive_inverse_diglot_mapping(block)
                     for tier in block.get("tiers", []):

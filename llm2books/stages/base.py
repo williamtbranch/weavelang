@@ -3,6 +3,7 @@ import json
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, Any, List, Optional
+import time
 logger = logging.getLogger("pipeline")
 
 # ... (Stage and SpaCyStage classes are unchanged) ...
@@ -154,6 +155,18 @@ class SpaCyStage(Stage, ABC):
 class LLMStage(Stage, ABC):
     def __init__(self, book_stem: str, cli_args: Any, common_resources: Dict[str, Any], stage_number: int, stage_name: str):
         super().__init__(book_stem, cli_args, common_resources, stage_number, stage_name)
+        # --- START DEBUGGING ---
+        print(f"\n--- [DEBUG] Initializing LLMStage: {stage_name} ---")
+        print(f"--- [DEBUG] self.stage_name = '{self.stage_name}'")
+        print(f"--- [DEBUG] Available keys in self.stages_config: {list(self.stages_config.keys())}")
+        # --- END DEBUGGING ---
+
+        self.stage_config = self.stages_config.get(self.stage_name, {})
+        
+        # --- MORE DEBUGGING ---
+        print(f"--- [DEBUG] Looked up config for '{self.stage_name}'. Found: {self.stage_config}\n")
+        # --- END DEBUGGING ---
+
         self.llm_logger_dir = self.pipeline_run_dir / "llm_logs"
         self.parser_type = "single_line"
     
@@ -170,11 +183,47 @@ class LLMStage(Stage, ABC):
         from ..llm_logger import LLMLogger
         from .. import llm_utils
         from .. import llm_overrides
+        import json # Add this import here for the resume logic
 
         logger.info(f"Executing LLM Stage {self.stage_number}: {self.stage_name} for '{self.book_stem}'")
         self.stage_output_dir.mkdir(parents=True, exist_ok=True)
         self.llm_logger_dir.mkdir(parents=True, exist_ok=True)
         llm_logger = LLMLogger(self.llm_logger_dir)
+
+        # --- START: ROBUST CACHING LOGIC ---
+        system_prompt = self.get_system_prompt()
+        cached_prompt = None
+        cache_creation_time = 0
+        CACHE_TTL_SECONDS = 55 * 60  # 55 minutes
+
+        primary_model_key = self.stage_config.get("primary_model")
+        primary_model_info = self.models_config.get(primary_model_key, {})
+        primary_provider = primary_model_info.get("provider")
+
+        def refresh_gemini_cache():
+            nonlocal cached_prompt, cache_creation_time
+            if primary_provider == "gemini":
+                try:
+                    model_name_for_cache = primary_model_info.get("name", "").split('/')[-1]
+                    if model_name_for_cache:
+                        logger.info(f"      -> Caching/Refreshing system prompt for Gemini model '{model_name_for_cache}'...")
+                        cached_prompt = llm_utils.create_gemini_cache(
+                            model_name=model_name_for_cache,
+                            system_prompt=system_prompt
+                        )
+                        if cached_prompt:
+                            cache_creation_time = time.time()
+                            logger.info("      -> System prompt cached successfully.")
+                        else:
+                            cache_creation_time = 0 # Reset on failure
+                except Exception as e:
+                    logger.warning(f"      -> Could not create Gemini cache, proceeding without it. Error: {e}")
+                    cached_prompt = None
+                    cache_creation_time = 0
+        
+        # Initial cache creation
+        refresh_gemini_cache()
+        # --- END: ROBUST CACHING LOGIC ---
 
         input_data = self._load_input_data()
         if input_data is None: return False
@@ -242,13 +291,15 @@ class LLMStage(Stage, ABC):
         if current_batch:
             sentence_batches.append(current_batch)
 
-        system_prompt = self.get_system_prompt()
-        
         total_batches = len(sentence_batches)
         for i, batch_items in enumerate(sentence_batches):
             logger.info(f"      -> Processing batch {i + 1}/{total_batches}...")
 
-            #
+            # Check and refresh cache before each batch
+            if cached_prompt and (time.time() - cache_creation_time > CACHE_TTL_SECONDS):
+                logger.info("      -> Gemini cache has expired. Refreshing...")
+                refresh_gemini_cache()
+            
             llm_results_list = llm_utils.run_llm_batch_job(
                 llm_clients=self.resources['llm_clients'],
                 job_name=self.stage_name,
@@ -258,7 +309,9 @@ class LLMStage(Stage, ABC):
                 parser_type=self.parser_type,
                 stage_config=self.stage_config,
                 models_config=self.models_config,
-                pipeline_config=self.pipeline_config
+                pipeline_config=self.pipeline_config,
+                post_process_validator=self._validate_llm_groups if hasattr(self, '_validate_llm_groups') else None,
+                cached_prompt=cached_prompt
             )
 
             if llm_results_list is None: return False

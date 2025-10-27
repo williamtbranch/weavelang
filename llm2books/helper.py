@@ -58,7 +58,6 @@ def fuse_tokens(raw_tokens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         
         i += 1
     return tokens
-
 def fuse_nlp_components(raw_components: List[Any]) -> List[List[Any]]:
     """
     Fuses NLP components (tokens) based on whitespace and linguistic roles,
@@ -86,16 +85,12 @@ def fuse_nlp_components(raw_components: List[Any]) -> List[List[Any]]:
         # Rule 2: If no space, check the linguistic role of the CURRENT token.
         token_text = getattr(token, 'text', '')
         is_apostrophe = token_text in ("'", "’")
-
-        # --- NEW LOGIC START ---
-        # Heuristic: An apostrophe is likely a closing quote if it's the last token
-        # or if the next token is punctuation and there's no space between them.
+        
         is_closing_quote = False
         if is_apostrophe:
             is_followed_by_punct = False
             if (i + 1) < len(raw_components):
                 next_token = raw_components[i+1]
-                # Check if next token is punctuation and follows immediately
                 if getattr(next_token, 'is_punct', False) and not getattr(token, 'whitespace_', ''):
                     is_followed_by_punct = True
             
@@ -103,14 +98,18 @@ def fuse_nlp_components(raw_components: List[Any]) -> List[List[Any]]:
 
             if is_last_token or is_followed_by_punct:
                 is_closing_quote = True
-        # --- NEW LOGIC END ---
-
+        
         is_possessive_particle = getattr(token, 'pos_', '') == 'PART'
+        
+        # --- START OF DEFINITIVE FIX ---
         is_hyphen = getattr(token, 'tag_', '') == 'HYPH'
+        # This is the new condition: check if the PREVIOUS token was a hyphen.
+        prev_token_is_hyphen = getattr(prev_token, 'tag_', '') == 'HYPH'
+        # --- END OF DEFINITIVE FIX ---
+        
         is_common_contraction = token_text.lower() in ("'s", "n't", "'re", "'ve", "'d", "'ll")
         
         is_contraction_or_possessive = (
-            # Fuse on an apostrophe ONLY if it's NOT a closing quote.
             (is_apostrophe and not is_closing_quote) or 
             is_common_contraction or
             is_possessive_particle
@@ -122,11 +121,14 @@ def fuse_nlp_components(raw_components: List[Any]) -> List[List[Any]]:
             not getattr(prev_token, 'is_punct', True)
         )
 
-        if is_hyphen or is_contraction_or_possessive or is_internal_apostrophe:
+        # --- START OF DEFINITIVE FIX ---
+        # Add `prev_token_is_hyphen` to the condition for fusing.
+        if is_hyphen or prev_token_is_hyphen or is_contraction_or_possessive or is_internal_apostrophe:
             current_group.append(token)
         else:
             fused_components.append(current_group)
             current_group = [token]
+        # --- END OF DEFINITIVE FIX ---
 
     if current_group:
         fused_components.append(current_group)

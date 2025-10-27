@@ -1,4 +1,4 @@
-//*** START FILE: src/types/json_types.rs ***//
+// src/types/json_types.rs
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use crate::simulation::numerical_types::VLevelRecipe;
@@ -37,15 +37,6 @@ pub struct JsonTokenV2 {
     pub is_pn: Option<bool>,
 }
 
-#[derive(Deserialize)]
-struct SegmentOnDisk {
-    seg_id: String,
-    #[serde(default)]
-    tokenized_text: Vec<JsonTokenV2>,
-    #[serde(default)]
-    lemmas: Vec<String>,
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct JsonSegmentV2 {
     pub seg_id: String,
@@ -58,27 +49,10 @@ pub struct JsonSegmentV2 {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TierId {
-    Simple,
+    Simple, // Note: This is now unused but kept for historical/parsing safety if needed
     Basic,
     Moderate,
     Advanced,
-}
-
-impl From<SegmentOnDisk> for JsonSegmentV2 {
-    fn from(temp: SegmentOnDisk) -> Self {
-        let reconstructed_text = temp
-            .tokenized_text
-            .iter()
-            .map(|token| token.value.as_str())
-            .collect::<String>();
-
-        JsonSegmentV2 {
-            seg_id: temp.seg_id,
-            text: reconstructed_text,
-            tokenized_text: temp.tokenized_text,
-            lemmas: temp.lemmas,
-        }
-    }
 }
 
 #[derive(Deserialize, Debug, Clone, Default)]
@@ -113,7 +87,6 @@ pub struct JsonChapter {
     pub u_level_maps: HashMap<String, JsonCurriculumMap>,
 }
 
-// --- NEW STRUCT FOR SAFE INITIAL PARSING ---
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct JsonChapterForParsing {
     pub book_meta: JsonBookMetaV2,
@@ -129,13 +102,18 @@ pub struct JsonTierV2 {
     pub segments: Vec<JsonSegmentV2>,
 }
 
+// --- THIS STRUCT IS THE PRIMARY CHANGE IN THIS FILE ---
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct JsonMappingsV2 {
-    #[serde(default)]
-    pub simple_target_to_base_diglot: HashMap<String, Vec<(usize, Vec<String>, String, bool, usize, Vec<String>)>>,
-    #[serde(default, rename = "simple_target_to_base_inv_diglot")]
-    pub adv_target_to_base_inv_diglot: HashMap<String, Vec<(usize, Vec<String>, String, usize)>>,
+    // Renamed to reflect that this maps between the 'basic' base and target tiers
+    #[serde(default, rename = "basic_spanish_to_basic_english_diglot")]
+    pub basic_diglot: HashMap<String, Vec<(usize, Vec<String>, String, bool, usize, Vec<String>)>>,
+
+    // Renamed for clarity and to reflect its source/target
+    #[serde(default, rename = "basic_target_to_basic_base_inv_diglot")]
+    pub basic_inverse_diglot: HashMap<String, Vec<(usize, Vec<String>, String, usize, usize)>>,
 }
+// --- END OF PRIMARY CHANGE ---
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct JsonCurriculumMapEntry {

@@ -56,3 +56,43 @@ def test_tokenizer_does_not_fuse_trailing_closing_quote(spacy_en_model):
     # The quote and semicolon should be in the background tokens
     background_text = "".join(t['v'] for t in golden_stream if t['t'] == 'b')
     assert "’;" in background_text
+
+def test_tokenizer_handles_hyphenated_word_correctly(spacy_en_model):
+    """
+    A regression test for the 'bad-looking' bug.
+    Asserts that a hyphenated compound adjective is treated as a single word token.
+    """
+    # ARRANGE
+    text = "a bad-looking house"
+    doc = spacy_en_model(text)
+
+    # ACT
+    golden_stream = create_golden_token_stream(doc)
+    
+    # Extract just the word values for easy comparison
+    word_tokens = [t['v'] for t in golden_stream if t['t'] == 'w']
+
+    # ASSERT
+    # The tokenizer must produce 'bad-looking' as one token, not two.
+    expected_words = ["a", "bad-looking", "house"]
+    
+    assert word_tokens == expected_words, \
+        f"Tokenizer failed to fuse hyphenated word. Expected {expected_words}, but got {word_tokens}"
+    
+    # Also, let's assert the structure of the full stream to be thorough.
+    # It should be a clean BWBWB... pattern.
+    expected_stream = [
+        {'t': 'b', 'v': ''},
+        {'t': 'w', 'v': 'a'},
+        {'t': 'b', 'v': ' '},
+        {'t': 'w', 'v': 'bad-looking'},
+        {'t': 'b', 'v': ' '},
+        {'t': 'w', 'v': 'house'},
+        {'t': 'b', 'v': ''},
+    ]
+    
+    # Note: SpaCy might add a trailing space to the doc, so we compare the core structure.
+    # A simple way is to check the word tokens and types.
+    actual_types = [t['t'] for t in golden_stream]
+    expected_types = [t['t'] for t in expected_stream]
+    assert actual_types == expected_types, "The BWBWB token stream pattern is incorrect."

@@ -1,6 +1,6 @@
 // =======================================
 // WeaveLang Generation Test Suite Grammar
-// v10.1 - "exhausted" keyword
+// v11.1 - L1 contains BS, ID, BE, D
 // =======================================
 
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
@@ -16,37 +16,39 @@ sub_test_body  = { learner_level ~ (assertion)+ }
 
 learner_level = { "(" ~ "level" ~ level_def+ ~ ")" }
 level_def     = { sim_level | bas_level | mod_level | adv_level }
-// --- MODIFIED RULES: Add 'exhausted' as an option ---
 level_value   = { number | "exhausted" }
 sim_level     = { "(" ~ "sim" ~ level_value ~ ")" }
 bas_level     = { "(" ~ "bas" ~ level_value ~ ")" }
 mod_level     = { "(" ~ "mod" ~ level_value ~ ")" }
 adv_level     = { "(" ~ "adv" ~ level_value ~ ")" }
-// --- END MODIFIED RULES ---
 
 assertion     = { (assert_level | assert_text) }
-assert_level  = { "(" ~ "assert-level" ~ output_level_value ~ ")" } // Renamed for clarity
+assert_level  = { "(" ~ "assert-level" ~ output_level_value ~ ")" }
 assert_text   = { "(" ~ "assert-text" ~ stringLiteral ~ ")" }
-output_level_value   = @{ "AdvancedWeave" | "SimpleHybrid" }
+output_level_value   = @{ "AdvancedWeave" | "BasicTarget" | "BasicBaseDiglot" | "InverseDiglot" } // Added InverseDiglot
 
 sentence_def = { "(" ~ "sentence" ~ l0_column_body ~ l1_column_body ~ ")" }
-l0_column_body = { "(" ~ "L0" ~ segment_spec* ~ ")" }
-l1_column_body = { "(" ~ "L1" ~ segment_spec* ~ ")" }
 
-segment_spec = { spanishSegment | diglotSegment | englishSegment | invDiglotSegment }
+// L0 now only contains Spanish segments (for Adv and Mod)
+l0_column_body = { "(" ~ "L0" ~ spanishSegment* ~ ")" } 
+
+// L1 now contains Basic Spanish, Inverse Diglot, Basic English, and Diglot definitions
+l1_column_body = { "(" ~ "L1" ~ basicSpanishSegment ~ invDiglotSegment ~ basicEnglishSegment ~ diglotSegment ~ ")" }
 
 phrase = { tokenizedPhrase | stringLiteral }
 
-spanishSegment = { "(" ~ "S" ~ phrase? ~ lemmaList? ~ ")" }
-englishSegment = { "(" ~ "E" ~ phrase? ~ ")" }
+// A rule for the basic tiers, which are single, unsegmented phrases
+basicSpanishSegment = { "(" ~ "BS" ~ phrase ~ lemmaList? ~ ")" }
+basicEnglishSegment = { "(" ~ "BE" ~ phrase ~ ")" }
 
+spanishSegment = { "(" ~ "S" ~ phrase? ~ lemmaList? ~ ")" }
 diglotSegment  = { "(" ~ "D" ~ (diglotTuple)* ~ ")" }
 invDiglotSegment = { "(" ~ "ID" ~ (invDiglotTuple)* ~ ")" }
 
 // --- PRIMITIVES ---
 tokenizedPhrase = { "\"" ~ inner_string ~ "\"" } 
 stringLiteral   = { "\"" ~ inner_string ~ "\"" }
-inner_string    = @{ ( "\\\\" | "\\\"" | !"\"" ~ ANY )* }
+inner_string    = @{ ( "\\\"" | !"\"" ~ ANY )* }
 lemmaList     = { "(" ~ (identifier)* ~ ")" }
 properNounFlag = { "p" }
 viabilityFlag = { "t" | "f" }

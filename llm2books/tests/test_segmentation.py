@@ -22,7 +22,10 @@ def test_llm_segmentation_logic_happy_path():
     An integration test for the LLM segmentation pipeline happy path.
     """
     # ARRANGE
-    mock_config = {"stages": {"Segmenter": {"primary_model": "haiku"}}, "models": {"haiku": {"name": "claude-3-haiku-20240307"}}}
+    mock_config = {
+            "stages": {"Segmenter": {"primary_model": "haiku"}}, 
+            "models": {"haiku": {"name": "claude-3-haiku-20240307", "provider": "claude"}}
+        }
     mock_logger = LLMLogger(Path("test_temp_logs"))
     
     processor = EnglishStanzaProcessor(mock_config, mock_logger)
@@ -58,7 +61,10 @@ def test_llm_segmentation_handles_possessives_at_boundary(monkeypatch):
     words like "Frank's" across segment boundaries. It uses a mocked LLM response.
     """
     # ARRANGE
-    mock_config = {"stages": {"Segmenter": {"primary_model": "haiku"}}, "models": {"haiku": {"name": "claude-3-haiku-20240307"}}}
+    mock_config = {
+            "stages": {"Segmenter": {"primary_model": "haiku"}}, 
+            "models": {"haiku": {"name": "claude-3-haiku-20240307", "provider": "claude"}}
+        }
     mock_logger = LLMLogger(Path("test_temp_logs"))
     processor = EnglishStanzaProcessor(mock_config, mock_logger)
 
@@ -89,7 +95,10 @@ def test_slicer_achieves_lossless_reconstruction(monkeypatch):
     were dropped or duplicated during the slicing process.
     """
     # ARRANGE
-    mock_config = {"stages": {"Segmenter": {"primary_model": "haiku"}}, "models": {"haiku": {"name": "claude-3-haiku-20240307"}}}
+    mock_config = {
+            "stages": {"Segmenter": {"primary_model": "haiku"}}, 
+            "models": {"haiku": {"name": "claude-3-haiku-20240307", "provider": "claude"}}
+        }
     mock_logger = LLMLogger(Path("test_temp_logs"))
     processor = EnglishStanzaProcessor(mock_config, mock_logger)
 

@@ -257,3 +257,31 @@ def validate_segment_reconstruction(tier: Dict[str, Any]):
             f"  Got:      '{reconstructed_text}'\n"
             f"--- Diff ---\n{diff_str}"
         )
+def validate_precomputed_word_counts(sentence_block: Dict[str, Any]):
+    """
+    Validates that mapping tuples in the final JSON contain the pre-computed word counts.
+    - Forward map should be a 6-tuple.
+    - Inverse map should be a 5-tuple.
+    """
+    s_id = sentence_block.get("s_id", "Unknown")
+    mappings = sentence_block.get("mappings", {})
+
+    # Validate forward map
+    forward_map = mappings.get("basic_spanish_to_basic_english_diglot", {})
+    for seg_id, entries in forward_map.items():
+        for i, entry in enumerate(entries):
+            if len(entry) != 6:
+                raise ValidationError(
+                    f"Validation failed for {s_id}.{seg_id} in 'basic_spanish_to_basic_english_diglot'. "
+                    f"Entry {i} has {len(entry)} elements, but expected 6 (di, lemmas, form, viable, eng_wc, pn_lemmas)."
+                )
+
+    # Validate inverse map
+    inverse_map = mappings.get("basic_target_to_basic_base_inv_diglot", {})
+    for seg_id, entries in inverse_map.items():
+        for i, entry in enumerate(entries):
+            if len(entry) != 5:
+                raise ValidationError(
+                    f"Validation failed for {s_id}.{seg_id} in 'basic_target_to_basic_base_inv_diglot'. "
+                    f"Entry {i} has {len(entry)} elements, but expected 5 (v_idx, lemmas, sub, eng_wc, spa_wc)."
+                )

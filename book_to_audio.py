@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------
 # book_to_audio.py
-# Script Version: 1.4.0 (Support for Gemini TTS via Vertex AI)
+# Script Version: 1.5.0 (Multi-voice, Robust Merging, Quota Handling)
 # -----------------------------------------------------------------------------
 
 import asyncio
@@ -13,42 +13,38 @@ import time
 import importlib.metadata
 import json
 from typing import Any
+import sys # <-- NEW: For sys.exit()
 
-SCRIPT_VERSION = "1.4.0" # <<< CHANGED
+SCRIPT_VERSION = "1.5.0"
 
-# --- Logging Setup ---
+# --- NEW: Custom exception for handling daily quota limits ---
+class QuotaExhaustedError(Exception):
+    """Custom exception for when the daily API quota is hit."""
+    pass
+# --- END NEW ---
+
+# --- Logging Setup (unchanged) ---
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 
 def set_library_log_levels(script_log_level_str: str):
     level = logging.DEBUG if script_log_level_str.upper() == "DEBUG" else logging.WARNING
-    
-    libraries_to_set = [
-        "httpx",
-        "google.genai._base_client",
-        "google.api_core.retry",
-        "google.auth.transport.requests",
-        "google.cloud.texttospeech",
-        "vertexai"  # <<< ADDED for the Vertex AI SDK
-    ]
+    libraries_to_set = ["httpx", "google.genai._base_client", "google.api_core.retry", "google.auth.transport.requests", "google.cloud.texttospeech", "vertexai"]
     for lib_name in libraries_to_set:
         logging.getLogger(lib_name).setLevel(level)
 
-# --- Library Imports (Updated) ---
+# --- Library Imports (unchanged) ---
 try:
     from google import genai as google_genai
     from google.genai import types as genai_types
 except ImportError:
     logging.warning("Google GenAI (Gemini) library not found. Gemini API auth will not be available.")
     google_genai = None; genai_types = None
-
 try:
     from google.cloud import texttospeech_v1 as texttospeech
     import google.auth
 except ImportError:
     logging.warning("Google Cloud Text-to-Speech library not found. Old Vertex AI TTS will not be available.")
     texttospeech = None; google = None
-
-# --- NEW: Vertex AI SDK for Generative Models ---
 try:
     import vertexai
     from vertexai.generative_models import GenerativeModel
@@ -56,7 +52,6 @@ except ImportError:
     logging.warning("Vertex AI SDK (`google-cloud-aiplatform`) not found. Gemini via Vertex AI auth will not be available.")
     vertexai = None
     GenerativeModel = None
-
 from google.api_core import exceptions as api_core_exceptions
 from dotenv import load_dotenv
 from pydub import AudioSegment
@@ -80,68 +75,54 @@ REQUEST_TIMEOUT_SECONDS = 500
 PCM_CHANNELS = 1
 PCM_FRAME_RATE = 24000
 PCM_SAMPLE_WIDTH = 2
-# --- Helper Functions ---
+
+# --- Helper Functions (unchanged) ---
 def load_project_config(tool_root_dir: Path) -> dict:
     config_file_path = tool_root_dir / "config.toml"
-    if not config_file_path.exists():
-        logging.error(f"Tool config.toml not found at {config_file_path}")
-        return {}
+    if not config_file_path.exists(): logging.error(f"Tool config.toml not found at {config_file_path}"); return {}
     try:
-        with open(config_file_path, "rb") as f:
-            data = tomllib.load(f)
+        with open(config_file_path, "rb") as f: data = tomllib.load(f)
         return data
     except Exception as e:
-        logging.error(f"Error loading tool config.toml: {e}")
-        return {}
+        logging.error(f"Error loading tool config.toml: {e}"); return {}
 
 def save_raw_pcm_to_wav(filename: Path, pcm_data: bytes, channels: int, rate: int, sample_width: int):
     with wave.open(str(filename), "wb") as wf:
-        wf.setnchannels(channels)
-        wf.setsampwidth(sample_width)
-        wf.setframerate(rate)
-        wf.writeframes(pcm_data)
+        wf.setnchannels(channels); wf.setsampwidth(sample_width); wf.setframerate(rate); wf.writeframes(pcm_data)
     logging.debug(f"Raw PCM data saved to WAV: {filename}")
 
 def chunk_text(full_text: str, max_chars: int) -> list[str]:
-    chunks = []
-    current_pos = 0
-    text_len = len(full_text)
+    chunks = []; current_pos = 0; text_len = len(full_text)
     while current_pos < text_len:
-        end_pos = min(current_pos + max_chars, text_len)
-        chunk = full_text[current_pos:end_pos]
-        if end_pos < text_len: # Try to break at paragraph or sentence if not the last chunk
+        end_pos = min(current_pos + max_chars, text_len); chunk = full_text[current_pos:end_pos]
+        if end_pos < text_len:
             para_break = chunk.rfind('\n\n')
-            if para_break != -1 and para_break > max_chars // 3 :
-                chunk = chunk[:para_break + 2]
-                end_pos = current_pos + len(chunk)
+            if para_break != -1 and para_break > max_chars // 3 : chunk = chunk[:para_break + 2]; end_pos = current_pos + len(chunk)
             else:
                 sentence_break = -1
                 for sb_marker in ['. ', '! ', '? ', '." ', '!" ', '?" ','.\n', '!\n', '?\n']:
                     s_idx = chunk.rfind(sb_marker)
-                    if s_idx != -1:
-                        potential_break = s_idx + len(sb_marker)
-                        if potential_break > sentence_break: sentence_break = potential_break
-                if sentence_break != -1 and sentence_break > max_chars // 3:
-                    chunk = chunk[:sentence_break]
-                    end_pos = current_pos + len(chunk)
+                    if s_idx != -1: potential_break = s_idx + len(sb_marker);
+                    if potential_break > sentence_break: sentence_break = potential_break
+                if sentence_break != -1 and sentence_break > max_chars // 3: chunk = chunk[:sentence_break]; end_pos = current_pos + len(chunk)
         final_chunk = chunk.strip()
         if final_chunk: chunks.append(final_chunk)
         current_pos = end_pos
     return chunks
 
-#
+# --- START: MODIFIED FUNCTION (Smart Quota Handling & Multiple Voices) ---
 async def generate_audio_chunk_async(
     client: Any, 
     text_chunk: str,
     chunk_index: int,
     effective_args: argparse.Namespace,
     semaphore: asyncio.Semaphore,
-    temp_chunk_dir: Path
+    temp_chunk_dir: Path,
+    voice_for_this_chunk: str # <-- NEW: Pass the specific voice for this chunk
 ) -> Path | None:
     try:
         async with semaphore:
-            logging.info(f"[{effective_args.tts_service.upper()}] Requesting TTS for chunk {chunk_index + 1}...")
-            # ... (the rest of the function down to the try...except block is unchanged)
+            logging.info(f"[{effective_args.tts_service.upper()}] Requesting TTS for chunk {chunk_index + 1} with voice '{voice_for_this_chunk}'...")
             last_exception = None; audio_data_bytes = None
             if not text_chunk.strip():
                 silence = AudioSegment.silent(duration=100, frame_rate=PCM_FRAME_RATE)
@@ -154,51 +135,39 @@ async def generate_audio_chunk_async(
                     api_call_description = f"Chunk {chunk_index + 1} (Attempt {attempt + 1}/{effective_args.max_api_retries})"
                     if effective_args.tts_service == "gemini":
                         if not google_genai or not genai_types: raise RuntimeError("Gemini API library not available.")
-                        
                         full_prompt = f"{effective_args.tts_prompt_prefix}\n\n{text_chunk}"
-                        
                         api_config = genai_types.GenerateContentConfig(
                             response_modalities=["audio"],
                             speech_config=genai_types.SpeechConfig(
                                 voice_config=genai_types.VoiceConfig(
                                     prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(
-                                        voice_name=effective_args.voice_name
+                                        voice_name=voice_for_this_chunk # <-- USE THE SPECIFIC VOICE
                                     )
                                 )
                             ),
                         )
+                        api_response = await asyncio.wait_for(client.aio.models.generate_content(
+                                model=effective_args.model_name, contents=[full_prompt], config=api_config
+                            ), timeout=REQUEST_TIMEOUT_SECONDS)
 
-                        api_response = await asyncio.wait_for(
-                            client.aio.models.generate_content(
-                                model=effective_args.model_name,
-                                contents=[full_prompt],
-                                config=api_config
-                            ), timeout=REQUEST_TIMEOUT_SECONDS
-                        )
-
-                        # --- THIS IS THE FIX ---
-                        # Add a robust check to ensure content is not None before accessing its parts.
-                        if (api_response.candidates and 
-                            api_response.candidates[0].content and 
+                        if (api_response.candidates and api_response.candidates[0].content and 
                             api_response.candidates[0].content.parts and 
                             api_response.candidates[0].content.parts[0].inline_data.data):
                             audio_data_bytes = api_response.candidates[0].content.parts[0].inline_data.data
                         else:
-                            # If content is None, it's likely a safety block. Log the real reason.
-                            finish_reason = "N/A"
-                            if api_response.candidates:
-                                finish_reason = str(api_response.candidates[0].finish_reason)
-                            
+                            finish_reason = "N/A";
+                            if api_response.candidates: finish_reason = str(api_response.candidates[0].finish_reason)
                             error_message = f"No audio data in Gemini response (FinishReason: {finish_reason}). This is often due to safety filters."
                             logging.error(f"{api_call_description} [GEMINI] - {error_message}")
                             logging.error(f"{api_call_description} [GEMINI] - Failing text (text_chunk):\n-------\n{text_chunk}\n-------")
                             last_exception = RuntimeError(error_message)
-                        # --- END OF FIX ---
                     
-                    # ... (the rest of the try...except and retry logic is unchanged)
                     elif effective_args.tts_service == "vertex":
+                        # This section is unchanged but now uses `voice_for_this_chunk` for consistency
                         if not texttospeech: raise RuntimeError("Vertex AI Text-to-Speech library not available.")
-                        synthesis_input = texttospeech.SynthesisInput(text=text_chunk); voice_params = texttospeech.VoiceSelectionParams(language_code=effective_args.language_code, name=effective_args.voice_name); audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.LINEAR16, sample_rate_hertz=PCM_FRAME_RATE)
+                        synthesis_input = texttospeech.SynthesisInput(text=text_chunk)
+                        voice_params = texttospeech.VoiceSelectionParams(language_code=effective_args.language_code, name=voice_for_this_chunk)
+                        audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.LINEAR16, sample_rate_hertz=PCM_FRAME_RATE)
                         response = await client.synthesize_speech(request={"input": synthesis_input, "voice": voice_params, "audio_config": audio_config}, timeout=REQUEST_TIMEOUT_SECONDS)
                         if response.audio_content: audio_data_bytes = response.audio_content
                         else: last_exception = RuntimeError("No audio data in Vertex AI API response.")
@@ -210,10 +179,17 @@ async def generate_audio_chunk_async(
                         logging.info(f"[{effective_args.tts_service.upper()}] Chunk {chunk_index + 1} successfully converted and saved.")
                         return temp_file_path
                 except Exception as e:
+                    # --- NEW: Smart Quota Handling ---
+                    error_str = str(e).lower()
+                    if "resource_exhausted" in error_str and "quota" in error_str:
+                        logging.warning("Daily API quota has been reached. Halting all further API calls.")
+                        raise QuotaExhaustedError(str(e)) # Propagate special error
+                    # --- END NEW ---
                     logging.error(f"{api_call_description} [{effective_args.tts_service.upper()}] - Error: {e}", exc_info=False); last_exception = e
+                
                 if attempt + 1 < effective_args.max_api_retries:
                     delay = effective_args.retry_delay; error_str = str(last_exception).lower() if last_exception else ""
-                    if any(sub in error_str for sub in ["429", "resource_exhausted", "rate limit", "unavailable", "s503"]): delay = effective_args.retry_delay * (2 ** attempt)
+                    if any(sub in error_str for sub in ["429", "rate limit", "unavailable", "s503"]): delay = effective_args.retry_delay * (2 ** attempt)
                     logging.info(f"Retrying chunk {chunk_index + 1} after error. Waiting {delay} seconds...")
                     await asyncio.sleep(delay)
             
@@ -221,9 +197,10 @@ async def generate_audio_chunk_async(
             return None
     finally:
         delay = effective_args.delay_between_chunks
-        if delay > 0:
-            logging.debug(f"Waiting for {delay} seconds before next chunk...")
-            await asyncio.sleep(delay)
+        if delay > 0: logging.debug(f"Waiting for {delay} seconds before next chunk..."); await asyncio.sleep(delay)
+# --- END MODIFIED FUNCTION ---
+
+# --- START: MODIFIED FUNCTION (Voice Rotation & Robust Merging) ---
 async def process_book_to_audio_async(
     text_chunks_from_file: list[str],
     client: Any,
@@ -231,7 +208,6 @@ async def process_book_to_audio_async(
     args: argparse.Namespace,
     effective_args: argparse.Namespace
 ):
-    # This top section is mostly the same, but with the new text-saving logic added.
     semaphore = asyncio.Semaphore(effective_args.concurrent_requests)
     temp_chunk_dir = output_file_path.parent / TEMP_DIR_NAME / output_file_path.stem
     temp_chunk_dir.mkdir(parents=True, exist_ok=True)
@@ -240,43 +216,36 @@ async def process_book_to_audio_async(
     logging.info(f"Temporary audio and text chunks are stored in: {temp_chunk_dir}")
     total_expected_chunks_count = len(text_chunks_from_file)
     
-    # --- NEW: Save source text for each chunk ---
     logging.info("Saving source text for each chunk to the temporary directory...")
     for i, text_content in enumerate(text_chunks_from_file):
-        # Create a filename that mirrors the audio chunk, but with a .txt extension
         text_file_path = temp_chunk_dir / f"temp_chunk_{i:04d}.txt"
         try:
-            with open(text_file_path, 'w', encoding='utf-8') as f:
-                f.write(text_content)
+            with open(text_file_path, 'w', encoding='utf-8') as f: f.write(text_content)
         except IOError as e:
             logging.warning(f"Could not write source text file for chunk {i+1}: {e}")
     logging.info("All source text files saved.")
-    # --- END OF NEW LOGIC ---
+
+    # --- NEW: Voice Rotation Logic ---
+    voices = list(effective_args.voice_name) # Ensure it's a mutable list
+    if total_expected_chunks_count % 2 == 0 and len(voices) > 1:
+        logging.info(f"Even chunk count ({total_expected_chunks_count}). Rotating voice list for variety.")
+        voices = voices[-1:] + voices[:-1] # Moves the last voice to the front
+        logging.info(f"New voice order: {', '.join(voices)}")
+    # --- END NEW ---
 
     tasks_to_generate = []
-    
-    # The rest of the function (repair mode, generation, concatenation) is unchanged from our last version.
     if args.repair_mode:
         logging.info("--- REPAIR MODE ENABLED ---")
         for i, text_content in enumerate(text_chunks_from_file):
             if not text_content.strip(): continue
-            expected_audio_file = temp_chunk_dir / f"temp_chunk_{i:04d}.wav"
-            expected_silence_file = temp_chunk_dir / f"temp_chunk_{i:04d}_silence.wav"
+            expected_audio_file = temp_chunk_dir / f"temp_chunk_{i:04d}.wav"; expected_silence_file = temp_chunk_dir / f"temp_chunk_{i:04d}_silence.wav"
             is_valid_existing = False
             if expected_audio_file.exists() and expected_audio_file.stat().st_size > 44:
-                try: 
-                    AudioSegment.from_file(expected_audio_file)
-                    is_valid_existing = True
-                    logging.info(f"Repair mode: Chunk {i+1} (audio) found valid.")
-                except Exception:
-                    logging.warning(f"Repair mode: Chunk {i+1} ({expected_audio_file.name}) exists but is corrupt. Will regenerate.")
+                try: AudioSegment.from_file(expected_audio_file); is_valid_existing = True; logging.info(f"Repair mode: Chunk {i+1} (audio) found valid.")
+                except Exception: logging.warning(f"Repair mode: Chunk {i+1} ({expected_audio_file.name}) exists but is corrupt. Will regenerate.")
             if not is_valid_existing and expected_silence_file.exists() and expected_silence_file.stat().st_size > 44:
-                try:
-                    AudioSegment.from_file(expected_silence_file)
-                    is_valid_existing = True
-                    logging.info(f"Repair mode: Chunk {i+1} (silence) found valid.")
-                except Exception:
-                    logging.warning(f"Repair mode: Chunk {i+1} ({expected_silence_file.name}) exists but is corrupt. Will regenerate.")
+                try: AudioSegment.from_file(expected_silence_file); is_valid_existing = True; logging.info(f"Repair mode: Chunk {i+1} (silence) found valid.")
+                except Exception: logging.warning(f"Repair mode: Chunk {i+1} ({expected_silence_file.name}) exists but is corrupt. Will regenerate.")
             if not is_valid_existing:
                 logging.info(f"Repair mode: Chunk {i+1} needs generation.")
                 tasks_to_generate.append((i, text_content))
@@ -291,44 +260,62 @@ async def process_book_to_audio_async(
 
     if tasks_to_generate:
         logging.info(f"Preparing {len(tasks_to_generate)} chunks for API calls.")
-        generation_tasks_for_asyncio = [
-            generate_audio_chunk_async(client, text_content, original_idx, effective_args, semaphore, temp_chunk_dir)
-            for original_idx, text_content in tasks_to_generate
-        ]
+        generation_tasks_for_asyncio = []
+        for original_idx, text_content in tasks_to_generate:
+            # --- NEW: Assign voice for this chunk ---
+            voice_for_this_chunk = voices[original_idx % len(voices)]
+            # --- END NEW ---
+            generation_tasks_for_asyncio.append(
+                generate_audio_chunk_async(client, text_content, original_idx, effective_args, semaphore, temp_chunk_dir, voice_for_this_chunk)
+            )
+        
         if generation_tasks_for_asyncio:
-            await asyncio.gather(*generation_tasks_for_asyncio, return_exceptions=True)
+            results = await asyncio.gather(*generation_tasks_for_asyncio, return_exceptions=True)
+            # --- NEW: Check for quota error after batch completes ---
+            for res in results:
+                if isinstance(res, QuotaExhaustedError):
+                    raise res # Propagate the error up to main_async
+            # --- END NEW ---
     else:
         logging.info("No chunks required TTS generation in this run.")
 
-    # Concatenation Stage (unchanged)
+    # --- NEW: Robust Merging Pre-Check ---
+    logging.info("Verifying all audio chunks are present before concatenation...")
     all_final_chunk_paths = []
+    missing_chunks = []
     for i in range(total_expected_chunks_count):
         is_original_chunk_empty = not text_chunks_from_file[i].strip()
         expected_audio_file = temp_chunk_dir / f"temp_chunk_{i:04d}.wav"
         expected_silence_file = temp_chunk_dir / f"temp_chunk_{i:04d}_silence.wav"
         chosen_file_for_concat = None
+
         if is_original_chunk_empty:
             if expected_silence_file.exists() and expected_silence_file.stat().st_size > 44:
                 chosen_file_for_concat = expected_silence_file
         else:
             if expected_audio_file.exists() and expected_audio_file.stat().st_size > 44:
-                try:
-                    AudioSegment.from_file(expected_audio_file)
-                    chosen_file_for_concat = expected_audio_file
-                except Exception as e:
-                    logging.warning(f"Excluding corrupt audio file for chunk {i+1}: {e}")
+                try: AudioSegment.from_file(expected_audio_file); chosen_file_for_concat = expected_audio_file
+                except Exception as e: logging.warning(f"Excluding corrupt audio file for chunk {i+1}: {e}")
+        
         if chosen_file_for_concat:
             all_final_chunk_paths.append(chosen_file_for_concat)
         elif not is_original_chunk_empty:
-            logging.error(f"Audio for content chunk {i+1} is missing or corrupt.")
+            missing_chunks.append(i + 1)
+    
+    if missing_chunks:
+        logging.error(f"Cannot create final audio file. The following {len(missing_chunks)} audio chunk(s) are missing or corrupt:")
+        missing_str = ", ".join(map(str, missing_chunks))
+        logging.error(f"  -> Missing Chunks: {missing_str}")
+        logging.error("Please re-run the script in --repair-mode to generate the missing files.")
+        return # Exit the function, skipping concatenation
+    # --- END NEW ---
 
     if not all_final_chunk_paths:
         logging.error("No valid audio chunk files found for concatenation. Final audio not created.")
         return
 
-    # Sorting and combining logic (unchanged)
     def get_chunk_index_from_path(p: Path) -> int:
-        try: return int(p.stem.split('_')[-1].replace("_silence", ""))
+        try: return int(p.stem.split('_')[-1].replace("_silence", ""));
         except: return -1
     sorted_chunk_paths = sorted(all_final_chunk_paths, key=get_chunk_index_from_path)
     logging.info(f"Concatenating {len(sorted_chunk_paths)} valid audio chunks...")
@@ -344,13 +331,13 @@ async def process_book_to_audio_async(
     except Exception as e:
         logging.error(f"Error exporting final audio: {e}")
 
-    # The "no cleanup" logic from last time remains.
     logging.info(f"Cleanup of temporary files has been disabled. Audio and text chunks are preserved in '{temp_chunk_dir}'.")
+# --- END MODIFIED FUNCTION ---
+
+# --- START: MODIFIED FUNCTION (argparse & Quota Handling) ---
 async def main_async():
-    # This top part with argparse is unchanged from the last version
     parser = argparse.ArgumentParser(description="Convert a book to audio using Google TTS services.")
     parser.add_argument("--use-vertex-auth-for-gemini", action="store_true", help="Use Vertex AI authentication for Gemini models (production quotas).")
-    # NOTE: The --gcloud-project flag is now optional, as the library can usually discover it automatically.
     parser.add_argument("--gcloud-project", help="Your Google Cloud Project ID (optional, but recommended for clarity).")
     parser.add_argument("--delay-between-chunks", type=int, default=0, help="Seconds to wait after processing each chunk to avoid rate limits.")
     parser.add_argument("--input-filename", required=True)
@@ -360,7 +347,9 @@ async def main_async():
     parser.add_argument("--model-name", default=DEFAULT_GEMINI_MODEL_NAME)
     parser.add_argument("--tts-prompt-prefix", default=DEFAULT_GEMINI_TTS_PROMPT_PREFIX)
     parser.add_argument("--language-code", default=DEFAULT_VERTEX_LANGUAGE_CODE)
-    parser.add_argument("--voice-name", help=f"Voice name for the selected service.")
+    # --- NEW: Accept multiple voice names ---
+    parser.add_argument("--voice-name", nargs='+', help=f"One or more voice names for the selected service. If multiple, voices will be cycled.")
+    # --- END NEW ---
     parser.add_argument("--chunk-max-chars", type=int, default=DEFAULT_CHUNK_MAX_CHARS)
     parser.add_argument("--concurrent-requests", type=int, default=DEFAULT_CONCURRENT_REQUESTS)
     parser.add_argument("--max-api-retries", type=int, default=DEFAULT_API_RETRIES)
@@ -371,59 +360,39 @@ async def main_async():
     args = parser.parse_args()
 
     if args.voice_name is None:
-        if args.tts_service == "gemini": args.voice_name = DEFAULT_GEMINI_VOICE_NAME
-        elif args.tts_service == "vertex": args.voice_name = DEFAULT_VERTEX_VOICE_NAME
+        if args.tts_service == "gemini": args.voice_name = [DEFAULT_GEMINI_VOICE_NAME]
+        elif args.tts_service == "vertex": args.voice_name = [DEFAULT_VERTEX_VOICE_NAME]
     
-    logging.getLogger().setLevel(args.log_level.upper())
-    set_library_log_levels(args.log_level)
+    logging.getLogger().setLevel(args.log_level.upper()); set_library_log_levels(args.log_level)
     logging.info(f"Book to Audio Script Version: {SCRIPT_VERSION}")
     load_dotenv(dotenv_path=args.tool_root_dir / ".env")
     
     client = None
     if args.tts_service == "gemini":
-        if not google_genai:
-            logging.critical("Gemini API library not installed. Please run `pip install google-generativeai`."); return
-        
+        if not google_genai: logging.critical("Gemini API library not installed."); return
         try:
             if args.use_vertex_auth_for_gemini:
-                # --- THIS IS THE DEFINITIVE FIX ---
-                # We explicitly use the google.auth library to get Application Default Credentials.
-                # This is the canonical way to authenticate for production Google Cloud services.
-                if not google.auth:
-                    logging.critical("Google Auth library not found. Please run `pip install google-auth`."); return
-                
+                if not google.auth: logging.critical("Google Auth library not found."); return
                 logging.info("Attempting to authenticate using Google Cloud Application Default Credentials (ADC)...")
                 credentials, discovered_project_id = google.auth.default()
-                
                 project_id_to_use = args.gcloud_project or discovered_project_id
-                if not project_id_to_use:
-                    logging.critical("Could not discover Google Cloud Project ID. Please provide it via --gcloud-project or set it in your environment."); return
-                
+                if not project_id_to_use: logging.critical("Could not discover Google Cloud Project ID."); return
                 logging.info(f"Initializing Gemini client for Vertex AI project '{project_id_to_use}'...")
-                
-                # We initialize the client by passing the explicit credentials.
-                # This FORCES it to use the Vertex AI backend.
                 client = google_genai.Client(project=project_id_to_use, credentials=credentials)
-
                 logging.info("Gemini client configured for Vertex AI successfully.")
-                # --- END OF DEFINITIVE FIX ---
-
-            else: # Original Gemini API (free tier) logic
+            else:
                 api_key_to_use = args.api_key or os.getenv("GOOGLE_API_KEY")
-                if not api_key_to_use:
-                    logging.critical("Gemini API Key not found (provide via --api-key or GOOGLE_API_KEY)."); return
+                if not api_key_to_use: logging.critical("Gemini API Key not found."); return
                 client = google_genai.Client(api_key=api_key_to_use)
                 logging.info("Gemini API (free tier) client configured.")
         except Exception as e:
-            logging.critical(f"Failed to configure Gemini client. Ensure you have run 'gcloud auth application-default login'. Error: {e}", exc_info=True)
-            return
+            logging.critical(f"Failed to configure Gemini client. Error: {e}", exc_info=True); return
 
     elif args.tts_service == "vertex":
         if not texttospeech: logging.critical("Google Cloud Text-to-Speech library not installed."); return
         try: client = texttospeech.TextToSpeechAsyncClient()
         except Exception as e: logging.critical(f"Failed to configure Vertex AI client: {e}"); return
     
-    # ... (The rest of the function is unchanged) ...
     tool_config = load_project_config(args.tool_root_dir)
     content_project_dir_str = tool_config.get("content_project_dir"); content_project_dir = Path(content_project_dir_str).resolve()
     input_text_file = content_project_dir / "generated_tts_input" / args.input_filename
@@ -432,7 +401,17 @@ async def main_async():
     effective_args = argparse.Namespace(**vars(args))
     text_chunks = chunk_text(full_text, effective_args.chunk_max_chars)
     start_time = time.time()
-    await process_book_to_audio_async(text_chunks, client, output_audio_file_path, args, effective_args)
+    
+    # --- NEW: Graceful exit for quota errors ---
+    try:
+        await process_book_to_audio_async(text_chunks, client, output_audio_file_path, args, effective_args)
+    except QuotaExhaustedError:
+        logging.info("Process stopped gracefully due to API quota exhaustion. You can resume tomorrow by re-running in --repair-mode.")
+        sys.exit(0) # Exit with success code, as this is an expected stop condition.
+    # --- END NEW ---
+    
     logging.info(f"Total processing time: {time.time() - start_time:.2f} seconds.")
+# --- END MODIFIED FUNCTION ---
+
 if __name__ == "__main__":
     asyncio.run(main_async())

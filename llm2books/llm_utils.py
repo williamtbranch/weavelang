@@ -9,6 +9,39 @@ logger = logging.getLogger("pipeline")
 
 TEMPERATURE_STEPS = [0.1, 0.4, 0.6]
 
+#
+def create_gemini_cache(model_name: str, system_prompt: str) -> Optional[Any]:
+    """
+    Creates a cached content object for a Gemini model.
+    Returns the cache object on success, None on failure.
+    """
+    # This dynamic import is safer in case the library isn't installed
+    try:
+        from google.generativeai.client import get_default_generative_client
+    except ImportError:
+        logger.error("      -> Cannot create Gemini cache: 'google.generativeai' library not found.")
+        return None
+    
+    try:
+        # We need the underlying client to access the caching methods
+        client = get_default_generative_client()
+        if not client:
+            logger.warning("      -> Could not get default Gemini client for caching.")
+            return None
+        
+        # The API expects the model name with a "models/" prefix
+        full_model_name = f"models/{model_name}"
+        
+        # Create the cache
+        cache = client.create_cached_content(
+            model=full_model_name,
+            contents=[system_prompt]
+        )
+        return cache
+    except Exception as e:
+        logger.warning(f"      -> Gemini cache creation failed: {e}")
+        return None
+
 def validate_parsed_llm_response(parsed_data: Dict[str, str], parser_type: str):
     """
     Validates that a parsed LLM response doesn't contain obvious errors,
@@ -32,6 +65,7 @@ def validate_parsed_llm_response(parsed_data: Dict[str, str], parser_type: str):
                 raise ValueError(error_message)
 
 
+#
 def run_llm_batch_job(
     llm_clients: Dict[str, any],
     job_name: str,
@@ -42,8 +76,8 @@ def run_llm_batch_job(
     stage_config: Dict[str, Any],
     models_config: Dict[str, Any],
     pipeline_config: Dict[str, Any],
-    # --- NEW: Add the optional validator callback ---
-    post_process_validator: Optional[Callable[[Dict[str, str], List[Dict]], None]] = None
+    post_process_validator: Optional[Callable[[Dict[str, str], List[Dict]], None]] = None,
+    cached_prompt: Optional[Any] = None
 ) -> Optional[List[Dict]]:
     
     if not items_to_process:
@@ -112,9 +146,17 @@ def run_llm_batch_job(
                         elif block.type == 'text':
                             full_raw_response_for_log += block.text
                             if not raw_response_text: raw_response_text = block.text
+            
             elif provider_to_use == 'gemini':
-                model = llm_client.GenerativeModel(model_to_use)
-                response = model.generate_content([system_prompt, user_prompt], generation_config={"temperature": current_temperature})
+                model = llm_client.GenerativeModel.from_cached_content(
+                    cached_content=cached_prompt
+                ) if cached_prompt else llm_client.GenerativeModel(model_to_use)
+                
+                # If we are using a cache, the system prompt is already part of the model object.
+                # If not, we pass it as part of the content list.
+                content_to_send = [user_prompt] if cached_prompt else [system_prompt, user_prompt]
+                
+                response = model.generate_content(content_to_send, generation_config={"temperature": current_temperature})
                 raw_response_text = response.text; full_raw_response_for_log = raw_response_text
             else: 
                 raise ValueError(f"Unsupported provider '{provider_to_use}' in llm_utils.")
@@ -130,7 +172,6 @@ def run_llm_batch_job(
             
             validate_parsed_llm_response(parsed_response, parser_type)
             
-            # --- MODIFIED: Execute the heavy validator inside the loop ---
             if post_process_validator:
                 post_process_validator(parsed_response, items_to_process)
             
@@ -139,7 +180,6 @@ def run_llm_batch_job(
             return items_to_process
 
         except Exception as e:
-            # --- This block now correctly catches both API and Validation errors ---
             logger.warning(f"      -> {job_name} batch failed on attempt {attempt + 1}. Reason: {e}")
             if attempt < max_retries - 1:
                 logger.warning("         Retrying entire batch...")

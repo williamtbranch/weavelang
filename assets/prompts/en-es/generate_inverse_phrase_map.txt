@@ -18,18 +18,11 @@ RULES:
 11. No Extra Text: Do not include any other text or explanations.
 12. Verb Conjugations: The English translation MUST accurately reflect the tense, mood, and person of the Spanish verb.
 13. **Provide a Validation line** after each set of mappings with the Spanish words you just mapped in the order of your mapping that should contain the same words in the input sentence and in the same order as the input sentence.
-14. PROPER_NOUN TOKEN: If a Spanish atom is a proper noun (like a person's name, a place, or a brand), you MUST map it to the special token `PROPER_NOUN`.
 
 ---
 FOCUSED EXAMPLES:
 This section provides examples of specific patterns you must follow.
 
-
---- Proper Nouns ---
-Alicia -> PROPER_NOUN
-España -> PROPER_NOUN
-Marley -> PROPER_NOUN
-Gregor -> PROPER_NOUN
 
 --- Reflexive Verbs and Attached Pronouns ---
 se enojó -> became angry
@@ -136,7 +129,7 @@ Entonces -> Then
 el -> the
 segundo -> second
 hijo -> son
-Pedro -> PROPER_NOUN
+Pedro -> Pedro
 recibió la orden -> was told
 de vigilar -> to keep watch
 VALIDATION: Entonces el segundo hijo Pedro recibió la orden de vigilar

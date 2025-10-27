@@ -1,4 +1,4 @@
-// In src/simulation/text_generator.rs
+// src/simulation/text_generator.rs
 
 use super::core_algo::{L0SegmentChoice, OutputLevel};
 use crate::simulation::core_algo::ChosenLevelOutput;
@@ -14,10 +14,9 @@ pub fn clean_text_for_tts(text: &str) -> String {
 }
 
 pub fn generate_raw_text_from_levels(
-    // The block_string_sentences parameter is no longer needed but kept for signature stability for now.
     _block_string_sentences: &[&JsonSentenceBlock],
     chosen_level_outputs: &[ChosenLevelOutput],
-    _add_debug_markers: bool, // Debug markers for L1 are no longer applicable
+    _add_debug_markers: bool,
 ) -> Result<String, String> {
     if chosen_level_outputs.len() != 1 {
         return Err("Expected exactly one output per call.".to_string());
@@ -26,26 +25,26 @@ pub fn generate_raw_text_from_levels(
 
     let assembled_sentence_text = match chosen_output.level {
         OutputLevel::AdvancedWeave => {
-            // This logic for L0 remains unchanged.
             chosen_output.l0_segment_choices.as_ref().map_or_else(
                 || "".to_string(),
                 |choices| {
                     choices
                         .iter()
                         .map(|choice| match choice {
+                            // --- THIS IS THE FIX ---
+                            // Only Adv and Mod choices exist now
                             L0SegmentChoice::Adv(t)
-                            | L0SegmentChoice::Mod(t)
-                            | L0SegmentChoice::Bas(t)
-                            | L0SegmentChoice::Sim(t)
-                            | L0SegmentChoice::InverseDiglot(t) => t.clone(),
+                            | L0SegmentChoice::Mod(t) => t.clone(),
                         })
                         .collect::<String>()
                 },
             )
         }
-        OutputLevel::SimpleHybrid => {
-            // This is the simplified logic for L1.
-            // We just get the final, pre-assembled string.
+        // --- THIS IS THE FIX ---
+        // All other levels now just use the pre-assembled l1_final_text
+        OutputLevel::BasicTarget |
+        OutputLevel::InverseDiglot |
+        OutputLevel::BasicBaseDiglot => {
             chosen_output
                 .l1_final_text
                 .as_ref()
