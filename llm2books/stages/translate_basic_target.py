@@ -95,6 +95,8 @@ class TranslateBasicTarget(LLMStage):
         all_lemmas = set()
         di_counter = 0
         
+        # --- START OF ROBUST FIX ---
+        # Create an iterator for just the word tokens from the SpaCy doc
         spacy_word_tokens = iter([t for t in doc if not t.is_punct and not t.is_space])
 
         for token in tokens:
@@ -114,6 +116,7 @@ class TranslateBasicTarget(LLMStage):
                     if lemma:
                         token['l'] = [lemma]
                         all_lemmas.add(lemma)
+        # --- END OF ROBUST FIX ---
 
         tier["segments"].append({
             "seg_id": "S1", "text": full_text,

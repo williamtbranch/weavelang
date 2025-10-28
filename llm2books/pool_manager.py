@@ -7,6 +7,7 @@ from typing import Dict, Any, List, Optional
 
 from . import helper, llm_prompts, llm_utils
 from .llm_logger import LLMLogger
+from . import standardize
 
 logger = logging.getLogger("pipeline")
 
@@ -30,28 +31,131 @@ class PoolManager:
 
     def get_book_resources(self, book_stem: str, base_lang: str, target_lang: str) -> Optional[Dict[str, Path]]:
         """
-        V11: The PoolManager is now only responsible for ensuring the foundational
-        .std.json files exist for both the base and target languages.
+        V11.1 Update: Now also generates the .mod.json simplification asset.
         """
-        logger.info(f"--- PoolManager (V11): Gathering foundational resources for '{book_stem}' ---")
+        logger.info(f"--- PoolManager (V11.1): Gathering foundational resources for '{book_stem}' ---")
         self.book_stem = book_stem
         
         try:
-            # Get or create the base language .std.json (e.g., from the source .txt)
+            # --- START OF MODIFIED LOGIC ---
             base_std_path = self._get_or_create_std_json(base_lang)
             if not base_std_path: return None
 
-            # Get or create the target language .std.json (by translating the base .std.json)
             target_std_path = self._get_or_create_std_json(target_lang)
             if not target_std_path: return None
+
+            # NEW: Get or create the moderate simplification of the target language.
+            target_mod_path = self._get_or_create_simplified_json(target_lang, "moderate", "simplify_segments_moderate")
+            if not target_mod_path: return None
             
             logger.info("--- PoolManager: Foundational resources are available. ---")
             return {
                 "base_std": base_std_path,
                 "target_std": target_std_path,
+                "target_mod": target_mod_path, # Add the new path to the return dict
             }
+            # --- END OF MODIFIED LOGIC ---
         except FileNotFoundError as e:
             logger.error(f"Halting due to critical error in PoolManager: {e}")
+            return None
+
+    # --- ADD THIS NEW METHOD TO THE PoolManager CLASS ---
+    def _get_or_create_simplified_json(self, lang: str, tier_suffix: str, prompt_name: str) -> Optional[Path]:
+        simplified_path = self.derived_texts_dir / f"{self.book_stem}.{lang}.{tier_suffix}.json"
+        if simplified_path.exists():
+            logger.info(f"  -> Found existing simplified asset: '{simplified_path.name}'")
+            return simplified_path
+
+        logger.info(f"  -> Simplified asset '{simplified_path.name}' not found. Generating...")
+        
+        source_std_path = self.derived_texts_dir / f"{self.book_stem}.{lang}.std.json"
+        if not source_std_path.exists():
+            logger.error(f"Cannot generate simplification: source '{source_std_path.name}' not found.")
+            return None
+
+        try:
+            with open(source_std_path, 'r', encoding='utf-8') as f:
+                source_data = json.load(f)
+        except (IOError, json.JSONDecodeError) as e:
+            logger.error(f"Could not read source .std.json for simplification: {e}")
+            return None
+
+        items_to_simplify = []
+        for block in source_data.get("content", []):
+            if block.get("block_type") == "sentence":
+                for seg in block.get("segments", []):
+                    items_to_simplify.append({ "id": f"{block['s_id']}_{seg['seg_id']}", "text": seg['text'] })
+        
+        temp_lang_config = self.resources["language_config"]
+        stage_job_config = self.stages_config.get("PoolManager_Simplification", {})
+        temp_path = self.derived_texts_dir / f"{self.book_stem}.{lang}.{tier_suffix}.temp.json"
+        prompt = llm_prompts.get_system_prompt(prompt_name, temp_lang_config)
+
+        simplified_segments = self._run_transactional_llm_job(
+            f"Pool-Simplification-{lang}-{tier_suffix}", prompt, items_to_simplify, temp_path,
+            LLMLogger(self.pool_dir / "llm_logs" / self.book_stem), "single_line", 
+            stage_job_config, self.models_config, self.pipeline_config
+        )
+
+        #
+        if simplified_segments is None:
+            logger.error("LLM simplification job failed to return results.")
+            return None
+
+        output_content = []
+        spacy_model = self.resources['spacy_models'][lang]
+        for block in source_data.get("content", []):
+            if block.get("block_type") == "chapter":
+                output_content.append(block)
+                continue
+            
+            if block.get("block_type") == "sentence":
+                source_segments = block.get("segments", [])
+                
+                # Add the lookup_id that our new function expects
+                for seg in source_segments:
+                    seg['lookup_id'] = f"{block['s_id']}_{seg['seg_id']}"
+
+                # --- START OF SIMPLIFIED LOGIC ---
+                new_segments_data, reconstructed_full_text = standardize.reconstruct_and_separate_segments(
+                    source_segments, simplified_segments
+                )
+                
+                # Now, lemmatize the newly created segments
+                all_lemmas = set()
+                for seg_data in new_segments_data:
+                    # Lemmatize the clean version of the text (without trailing space)
+                    seg_doc = spacy_model(seg_data['text'].strip())
+                    seg_lemmas = set(
+                        norm_lemma for token in seg_doc if not token.is_punct and not token.is_space
+                        if (norm_lemma := helper.normalize_spanish_lemma(token.lemma_))
+                    )
+                    all_lemmas.update(seg_lemmas)
+                    seg_data['lemmas'] = sorted(list(seg_lemmas))
+                    seg_data.pop('lookup_id', None) # Clean up the temporary key
+                # --- END OF SIMPLIFIED LOGIC ---
+                
+                output_content.append({
+                    "block_type": "sentence",
+                    "s_id": block['s_id'],
+                    "full_text": reconstructed_full_text,
+                    "lemmas": sorted(list(all_lemmas)),
+                    "segments": new_segments_data
+                })
+
+        final_data = {
+            "meta": {"book_name": self.book_stem, "language": lang, "tier_type": tier_suffix, "schema_version": "pool-v1.0"},
+            "content": output_content
+        }
+        
+        try:
+            with open(simplified_path, "w", encoding="utf-8") as f:
+                json.dump(final_data, f, indent=2, ensure_ascii=False)
+            if temp_path.exists(): temp_path.unlink()
+            logger.info(f"  -> Successfully saved simplified asset: '{simplified_path.name}'.")
+            return simplified_path
+        except IOError as e:
+            logger.error(f"Failed to write simplified .json file: {e}")
             return None
 
     def _get_or_create_std_json(self, required_lang: str) -> Optional[Path]:

@@ -16,3 +16,15 @@ test
 test
 %levels 3200 3200 3200 3200  
 test
+%levels 7000 7000 7000 7000  
+test
+%levels 14000 14000 14000 14000  
+test
+%levels exhausted 0 0 0  
+test
+%levels 0 exhausted 0 0  
+test
+%levels 0 0 exhausted 0
+test
+%levels 0 0 0 exhausted
+test

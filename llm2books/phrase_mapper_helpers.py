@@ -6,6 +6,7 @@ from .stages.base import logger
 from .helper import fuse_tokens, normalize_spanish_lemma
 from .validator import ValidationError
 from rapidfuzz.distance.Levenshtein import opcodes
+from .standardize import smart_match_and_edit
 
 # --- START: NEW FUNCTIONS TO FIX IMPORT ERROR ---
 def parse_proper_nouns(llm_output_phrase: str, spacy_model: Any) -> Tuple[str, List[str]]:
@@ -31,100 +32,124 @@ def parse_proper_nouns(llm_output_phrase: str, spacy_model: Any) -> Tuple[str, L
     clean_phrase = re.sub(r'\{|\}', '', llm_output_phrase).strip()
     
     return clean_phrase, sorted(list(proper_noun_lemmas))
-
 def refactor_token_stream(original_tokens: List[Dict[str, Any]], group_strings: List[str]) -> List[Dict[str, Any]]:
     """
-    Validates that the WORD content of `group_strings` can be losslessly 
-    constructed from the `original_tokens` and returns a new token stream with
-    the groups fused, preserving all interstitial punctuation.
+    Performs a two-pass process to align a token stream with LLM-defined word groups.
+
+    Pass 1 (Normalization): Uses smart_match_and_edit to correct token boundaries
+    for every single word provided by the LLM.
+
+    Pass 2 (Grouping): Fuses the now-normalized tokens into multi-word groups.
     """
-    def clean_for_comparison(s: str) -> str:
-        """Normalizes quotes and strips common trailing punctuation for matching purposes."""
-        return s.replace('’', "'").replace('‘', "'").replace('”', '"').replace('“', '"').rstrip('.,;:?!')
+    
+    # --- PASS 1: TOKEN NORMALIZATION ---
+    normalized_stream = list(original_tokens)
+    
+    # Create a flat list of every single word from the LLM's groups
+    llm_ungrouped_words = [word for group in group_strings for word in group.split()]
+    
+    word_token_indices = [i for i, t in enumerate(normalized_stream) if t.get('t') == 'w']
+    
+    if len(llm_ungrouped_words) != len(word_token_indices):
+        raise ValidationError(
+            f"Word count mismatch between LLM groups ({len(llm_ungrouped_words)} words) "
+            f"and original tokens ({len(word_token_indices)} words)."
+        )
 
-    new_token_stream = []
-    token_cursor = 0
-    word_tokens_consumed = 0
-    original_word_tokens = [t for t in original_tokens if t.get('t') == 'w']
-
-    for group_str in group_strings:
-        cleaned_group_for_words = clean_for_comparison(group_str)
-        group_words = re.findall(r"[\w'-]+", cleaned_group_for_words)
+    for i, llm_word in enumerate(llm_ungrouped_words):
+        token_idx_to_check = word_token_indices[i]
         
-        if not group_words:
+        # Check if a correction is even needed
+        if normalized_stream[token_idx_to_check].get('v') == llm_word:
             continue
 
-        first_word_of_group = group_words[0]
+        # If not a perfect match, try to fix it with the smart matcher
+        adjusted_stream = smart_match_and_edit(normalized_stream, token_idx_to_check, llm_word)
         
+        if adjusted_stream is None:
+            # If the smart matcher fails, it's an unrecoverable error.
+            raise ValidationError(
+                f"Smart match failed. Could not form word '{llm_word}' at or around "
+                f"token index {token_idx_to_check} ('{normalized_stream[token_idx_to_check].get('v')}')."
+            )
+        
+        # Success! Update the stream for the next iteration.
+        normalized_stream = adjusted_stream
+        # We also need to update the indices of subsequent word tokens if the stream length changed
+        word_token_indices = [j for j, t in enumerate(normalized_stream) if t.get('t') == 'w']
+
+    # --- PASS 2: GROUP FUSION ---
+    final_stream = []
+    token_cursor = 0
+    
+    original_word_tokens_normalized = [t for t in normalized_stream if t.get('t') == 'w']
+    word_tokens_consumed = 0
+
+    for group_str in group_strings:
+        group_words = group_str.split()
+        if not group_words:
+            continue
+            
+        num_words_in_group = len(group_words)
+        
+        # Find the start of the token sequence for this group in the normalized stream
         start_cursor = -1
-        for i in range(token_cursor, len(original_tokens)):
-            token = original_tokens[i]
-            if token.get('t') == 'w':
-                if clean_for_comparison(token.get('v', '')) == first_word_of_group:
-                    start_cursor = i
-                    break
+        for i in range(token_cursor, len(normalized_stream)):
+            if normalized_stream[i].get('t') == 'w':
+                start_cursor = i
+                break
         
         if start_cursor == -1:
-            raise ValidationError(f"Could not find start of group '{group_str}' in token stream.")
+            raise ValidationError(f"Logic error: Ran out of tokens while looking for group '{group_str}'.")
 
-        if start_cursor > token_cursor:
-            new_token_stream.extend(original_tokens[token_cursor:start_cursor])
-
-        # --- START: NEW WORD-BASED VALIDATION LOGIC ---
-        
+        # Find the end of the sequence by consuming the correct number of word tokens
         consumed_tokens_for_group = []
-        consumed_word_values = []
+        words_found = 0
         end_cursor = start_cursor
-
-        for i in range(start_cursor, len(original_tokens)):
-            token = original_tokens[i]
+        for i in range(start_cursor, len(normalized_stream)):
+            token = normalized_stream[i]
             consumed_tokens_for_group.append(token)
-            
             if token.get('t') == 'w':
-                cleaned_value = clean_for_comparison(token.get('v', ''))
-                consumed_word_values.append(cleaned_value)
-
-            # Check if the list of consumed words matches the target group words
-            if consumed_word_values == group_words:
+                words_found += 1
+            
+            if words_found == num_words_in_group:
                 end_cursor = i + 1
                 break
         else:
-            # If the loop finishes without a match, validation fails.
-            raise ValidationError(f"Could not fully form group '{group_str}' from token stream. Word mismatch detected.")
+            raise ValidationError(f"Could not form group '{group_str}': not enough word tokens remaining in stream.")
 
-        # --- END: NEW WORD-BASED VALIDATION LOGIC ---
+        # Add any interstitial background tokens before our group
+        if start_cursor > token_cursor:
+            final_stream.extend(normalized_stream[token_cursor:start_cursor])
 
+        # Create the new fused token
         group_word_tokens = [t for t in consumed_tokens_for_group if t.get('t') == 'w']
-        if not group_word_tokens:
-            raise ValidationError(
-                f"Invalid group '{group_str}': A mapping group must contain at least one word, "
-                "but this group was formed exclusively from background/punctuation tokens."
-            )
-        
         word_tokens_consumed += len(group_word_tokens)
 
         fused_token_value = "".join(t.get('v', '') for t in consumed_tokens_for_group)
+        
         fused_token = {
             't': 'w',
             'v': fused_token_value,
             'di': group_word_tokens[0]['di'],
             'l': sorted(list(set(lemma for t in group_word_tokens for lemma in t.get('l', []))))
         }
-        new_token_stream.append(fused_token)
+        final_stream.append(fused_token)
         token_cursor = end_cursor
 
-    if token_cursor < len(original_tokens):
-        new_token_stream.extend(original_tokens[token_cursor:])
+    # Add any remaining background tokens at the end of the stream
+    if token_cursor < len(normalized_stream):
+        final_stream.extend(normalized_stream[token_cursor:])
 
-    if word_tokens_consumed != len(original_word_tokens):
-        raise ValidationError(f"Incomplete consumption of tokens. Expected to consume {len(original_word_tokens)} words, but consumed {word_tokens_consumed}.")
+    # Final validation and cleanup
+    if word_tokens_consumed != len(original_word_tokens_normalized):
+        raise ValidationError(f"Incomplete consumption of tokens. Expected to consume {len(original_word_tokens_normalized)} words, but consumed {word_tokens_consumed}.")
 
-    if not new_token_stream: return [{'t': 'b', 'v': ''}]
-    if new_token_stream[0]['t'] == 'w': new_token_stream.insert(0, {'t': 'b', 'v': ''})
-    if new_token_stream[-1]['t'] == 'w': new_token_stream.append({'t': 'b', 'v': ''})
+    if not final_stream: return [{'t': 'b', 'v': ''}]
+    if final_stream[0]['t'] == 'w': final_stream.insert(0, {'t': 'b', 'v': ''})
+    if final_stream[-1]['t'] == 'w': final_stream.append({'t': 'b', 'v': ''})
         
-    return new_token_stream
-# --- END: NEW FUNCTIONS ---
+    return final_stream
 
 class SemanticAtom:
     def __init__(self, di: int, en_words: List[str], es_phrase: str): self.di, self.en_words, self.es_phrase = di, en_words, es_phrase

@@ -185,7 +185,7 @@ fn run_dsl_generation_test_suite() {
 
             let v_levels = VLevelRecipe {
                 sim: 0,
-                bas: 0,
+                bas: levels.bas, // <-- FIX
                 mod_v: levels.mod_level,
                 adv: levels.adv,
             };
