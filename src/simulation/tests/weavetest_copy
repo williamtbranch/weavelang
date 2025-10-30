@@ -46,34 +46,6 @@
     )
 )
 
-(test-case "Bug Replication - Diglot with Punctuation and Proper Noun"
-    (sentence
-        (L0 (S "adv-fails" (lem999))
-          (S "[[adv-mod-fails]] [[adv-mod-failes2]]" (lem998))
-          (ID
-            (adv-mod-fails lem997 dummy)
-            (adv-mod-failes2 lem998 dummy2)
-          )
-        )
-        (L1
-            (D // Diglot Map
-              (Who lem10 Quién t)
-              (are lem12 eres t)
-              (you lem13 tú t)
-              (said lem4 dijo t)       // 'said' is lem4
-              (the lem5 el t)         // 'the' is lem5
-              (Caterpillar lem6 Caterpillar f)
-            )
-            (E "“[[Who]] [[are]] [[you]]?” [[said]] [[the]] [[Caterpillar]].")
-        )
-    )
-
-    (sub-test "Low level learner should get a diglot with correct substitution"
-      (level 5) // Learner knows lem1-5, so they know "said" and "the"
-      (assert-level SimpleHybrid) 
-      (assert-text "“Who are you?” dijo el Caterpillar.")
-    )
-)
 
 (test-case "Phrase Diglot with Multiple Lemmas"
     (sentence

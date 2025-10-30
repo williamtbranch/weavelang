@@ -97,11 +97,11 @@ class PoolManager:
             stage_job_config, self.models_config, self.pipeline_config
         )
 
-        #
         if simplified_segments is None:
             logger.error("LLM simplification job failed to return results.")
             return None
 
+        #
         output_content = []
         spacy_model = self.resources['spacy_models'][lang]
         for block in source_data.get("content", []):
@@ -110,38 +110,52 @@ class PoolManager:
                 continue
             
             if block.get("block_type") == "sentence":
-                source_segments = block.get("segments", [])
-                
-                # Add the lookup_id that our new function expects
-                for seg in source_segments:
-                    seg['lookup_id'] = f"{block['s_id']}_{seg['seg_id']}"
+                new_segments_data = []
+                full_text_parts = []
+                all_lemmas_for_sentence = set() # Renamed for clarity
 
-                # --- START OF SIMPLIFIED LOGIC ---
-                new_segments_data, reconstructed_full_text = standardize.reconstruct_and_separate_segments(
-                    source_segments, simplified_segments
-                )
-                
-                # Now, lemmatize the newly created segments
-                all_lemmas = set()
-                for seg_data in new_segments_data:
-                    # Lemmatize the clean version of the text (without trailing space)
-                    seg_doc = spacy_model(seg_data['text'].strip())
-                    seg_lemmas = set(
+                source_segments = block.get("segments", [])
+                num_segments = len(source_segments)
+
+                # --- START: "PARANOID MODE" REWRITE ---
+                for i, original_seg in enumerate(source_segments):
+                    lookup_id = f"{block['s_id']}_{original_seg['seg_id']}"
+                    
+                    # Get the clean simplified text, defaulting to original if missing
+                    clean_simplified_text = simplified_segments.get(lookup_id, original_seg['text']).strip()
+                    
+                    # Determine the final text for this segment, adding a separator if needed
+                    final_segment_text = clean_simplified_text
+                    if i < num_segments - 1:
+                        final_segment_text += " "
+                    
+                    full_text_parts.append(final_segment_text)
+
+                    # Lemmatize the clean text to get the CORRECT lemmas for THIS segment
+                    seg_doc = spacy_model(clean_simplified_text)
+                    current_seg_lemmas = set(
                         norm_lemma for token in seg_doc if not token.is_punct and not token.is_space
                         if (norm_lemma := helper.normalize_spanish_lemma(token.lemma_))
                     )
-                    all_lemmas.update(seg_lemmas)
-                    seg_data['lemmas'] = sorted(list(seg_lemmas))
-                    seg_data.pop('lookup_id', None) # Clean up the temporary key
-                # --- END OF SIMPLIFIED LOGIC ---
+                    
+                    all_lemmas_for_sentence.update(current_seg_lemmas)
+                    
+                    # Build the new segment dictionary from scratch, ensuring no old data leaks.
+                    new_segments_data.append({
+                        "seg_id": original_seg['seg_id'],
+                        "text": final_segment_text,
+                        "lemmas": sorted(list(current_seg_lemmas)),
+                        # Do NOT copy any other fields from original_seg
+                    })
                 
                 output_content.append({
                     "block_type": "sentence",
                     "s_id": block['s_id'],
-                    "full_text": reconstructed_full_text,
-                    "lemmas": sorted(list(all_lemmas)),
+                    "full_text": "".join(full_text_parts).rstrip(),
+                    "lemmas": sorted(list(all_lemmas_for_sentence)), # Use the newly aggregated lemmas
                     "segments": new_segments_data
                 })
+                # --- END: "PARANOID MODE" REWRITE ---
 
         final_data = {
             "meta": {"book_name": self.book_stem, "language": lang, "tier_type": tier_suffix, "schema_version": "pool-v1.0"},
@@ -156,7 +170,7 @@ class PoolManager:
             return simplified_path
         except IOError as e:
             logger.error(f"Failed to write simplified .json file: {e}")
-            return None
+            return False
 
     def _get_or_create_std_json(self, required_lang: str) -> Optional[Path]:
         std_path = self.derived_texts_dir / f"{self.book_stem}.{required_lang}.std.json"

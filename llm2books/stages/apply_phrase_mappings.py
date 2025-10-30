@@ -138,6 +138,7 @@ class ApplyPhraseMappings(Stage):
             logger.error("         Please correct the error in the file and re-run the pipeline.")
             return False
 
+    #
     def _process_data(self, data: Dict[str, Any], approved_map: Dict[str, List[str]]) -> Dict[str, Any]:
         """
         The main processing logic that applies the validated mappings.
@@ -165,62 +166,52 @@ class ApplyPhraseMappings(Stage):
                         llm_groups.append(group_str)
                         llm_map_by_group[group_str] = parts[1].strip()
 
-            # Refactor the base tier token stream using the generic helper
+            # Pass 1: Fuse tokens based on LLM groups
             original_tokens = [t for seg in base_tier["segments"] for t in seg["tokenized_text"]]
-            
-            # This call now serves as the final, critical validation of the user's edits
-            #
             new_base_tokens = refactor_token_stream(original_tokens, llm_groups)
             
-            # --- START: CRITICAL FIX FOR DI SEQUENTIALITY ---
-            old_di_to_new_di = {}
+            # Pass 2: Re-index 'di' values to ensure they are sequential after fusion
             new_di_counter = 0
             for token in new_base_tokens:
                 if token['t'] == 'w':
-                    original_di = token['di'] # This is the first di of the fused group
-                    old_di_to_new_di[original_di] = new_di_counter
-                    token['di'] = new_di_counter # Re-assign the di to be sequential
+                    token['di'] = new_di_counter
                     new_di_counter += 1
-            # --- END: CRITICAL FIX ---
-
-            # Rebuild the base tier with a single, fused segment
+            
+            # Rebuild the base tier with a single, fused segment and corrected tokens
             new_base_tier_full_text = "".join(t['v'] for t in new_base_tokens)
             new_base_tier = {
                 "tier_id": "basic_base", "full_text": new_base_tier_full_text,
                 "segments": [{"seg_id": "S1", "text": new_base_tier_full_text, "tokenized_text": new_base_tokens}]
             }
 
-            # Build the new diglot map and collect proper nouns
+            # --- START: NEW, SIMPLIFIED MAP BUILDING LOGIC ---
             new_diglot_map_entries = []
             all_proper_noun_lemmas = set()
 
-            # Note: We now iterate through the original (pre-fusion) word tokens to build the map,
-            # ensuring every original word has a corresponding map entry.
-            original_word_tokens = [t for t in original_tokens if t['t'] == 'w']
-            
-            # This logic implicitly handles finding the correct group for each original token.
-            current_new_token_idx = 0
-            for original_token in original_word_tokens:
-                if current_new_token_idx < len(new_base_tokens):
-                    # Find which fused token this original token belongs to
-                    fused_token_for_word = next((t for t in new_base_tokens if t.get('t') == 'w' and t.get('di') == old_di_to_new_di.get(original_token['di'])), None)
+            # Iterate through the final, FUSED word tokens to build the map
+            for token in new_base_tokens:
+                if token['t'] == 'w':
+                    # The value of the token IS the fused English word group
+                    group_str = token['v']
                     
-                    if fused_token_for_word:
-                        group_str = fused_token_for_word['v']
-                        llm_output_phrase = llm_map_by_group.get(group_str, "NO_SUB")
-                        clean_phrase, pn_lemmas = parse_proper_nouns(llm_output_phrase, self.spacy_target)
-                        all_proper_noun_lemmas.update(pn_lemmas)
-                        is_viable = clean_phrase.upper() != "NO_SUB"
-                        word_count = len(re.findall(r"[\w']+", original_token.get("v", "")))
-                        
-                        # Use the NEW, sequential di for the map
-                        new_di = old_di_to_new_di[original_token['di']]
+                    # Look up the corresponding Spanish phrase from the map we parsed earlier
+                    llm_output_phrase = llm_map_by_group.get(group_str, "NO_SUB")
 
-                        # Ensure we only add one entry per new_di
-                        if not any(entry[0] == new_di for entry in new_diglot_map_entries):
-                             new_diglot_map_entries.append([
-                                new_di, "TBD", clean_phrase, is_viable, word_count, pn_lemmas
-                            ])
+                    # Parse out any proper nouns from the Spanish side
+                    clean_phrase, pn_lemmas = parse_proper_nouns(llm_output_phrase, self.spacy_target)
+                    all_proper_noun_lemmas.update(pn_lemmas)
+
+                    is_viable = clean_phrase.upper() != "NO_SUB"
+                    
+                    # Calculate the word count on the FUSED English group string
+                    word_count = len(re.findall(r"[\w']+", group_str))
+                    
+                    # Append the final, correct map entry
+                    new_diglot_map_entries.append([
+                        token["di"], "TBD", clean_phrase, is_viable, word_count, pn_lemmas
+                    ])
+            # --- END: NEW, SIMPLIFIED MAP BUILDING LOGIC ---
+
             # Update the block with the new data structures
             for i, tier in enumerate(block["tiers"]):
                 if tier["tier_id"] == "basic_base":
@@ -233,7 +224,6 @@ class ApplyPhraseMappings(Stage):
             if all_proper_noun_lemmas:
                 block["_internal_proper_noun_lemmas"] = sorted(list(all_proper_noun_lemmas))
 
-            # Delete the temporary raw map from the previous stage
             if "raw_phrase_map" in mappings:
                 del mappings["raw_phrase_map"] 
 

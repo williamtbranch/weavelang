@@ -69,7 +69,7 @@ thinking_budget_tokens = 1024
     batch_size_in_items = 10
 
     [stages.TranslateBasicTarget]   # <-- NEW SECTION
-    primary_model = "gemini-pro"
+    primary_model = "gemini-flash"
     fallback_model = "sonnet"
     batch_size_in_items = 20
     

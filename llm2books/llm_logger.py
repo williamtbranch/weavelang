@@ -1,6 +1,7 @@
 # llm2books/llm_logger.py
 import logging
 from pathlib import Path
+from typing import Optional, Dict
 
 logger = logging.getLogger("pipeline")
 
@@ -26,8 +27,7 @@ class LLMLogger:
                 f.write("=" * 80 + "\n\n")
         except IOError as e:
             logger.warning(f"Could not write to validation log file {log_file.name}: {e}")
-
-    def log_batch(self, job_name: str, batch_num: int, system_prompt: str, user_prompt: str, response: str):
+    def log_batch(self, job_name: str, batch_num: int, system_prompt: str, user_prompt: str, response: str, usage_stats: Optional[Dict] = None):
         log_file = self.log_dir / f"{job_name}.log"
         job_and_batch = f"{job_name} - Batch #{batch_num}"
         
@@ -46,6 +46,22 @@ class LLMLogger:
                 f.write("-" * 80 + "\n")
                 f.write(user_prompt + "\n\n")
                 
+                # --- START: NEW USAGE STATS LOGGING ---
+                if usage_stats:
+                    f.write("-" * 80 + "\n")
+                    f.write(f"USAGE STATS for: {job_and_batch}\n")
+                    f.write("-" * 80 + "\n")
+                    
+                    cache_status = usage_stats.get('cache_status', 'Unknown')
+                    f.write(f"Cache Status: {cache_status}\n")
+                    
+                    input_tokens = usage_stats.get('input_tokens', 'N/A')
+                    f.write(f"Input Tokens: {input_tokens}\n")
+                    
+                    output_tokens = usage_stats.get('output_tokens', 'N/A')
+                    f.write(f"Output Tokens (incl. thinking): {output_tokens}\n\n")
+                # --- END: NEW USAGE STATS LOGGING ---
+
                 f.write("-" * 80 + "\n")
                 f.write(f"LLM RESPONSE for: {job_and_batch}\n")
                 f.write("-" * 80 + "\n")

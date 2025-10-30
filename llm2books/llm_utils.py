@@ -132,6 +132,7 @@ def run_llm_batch_job(
         
         raw_response_text = ""
         full_raw_response_for_log = ""
+        usage_stats = {} # Initialize usage stats dictionary
 
         try:
             if provider_to_use == 'claude':
@@ -139,7 +140,15 @@ def run_llm_batch_job(
                 thinking_budget = pipeline_config.get("thinking_budget_tokens", 0)
                 if (attempt > 0 or thinking_on_first) and thinking_budget > 0:
                     api_payload["thinking"], api_payload["temperature"] = { "type": "enabled", "budget_tokens": thinking_budget }, 1.0
+                
                 message = llm_client.messages.create(**api_payload)
+                
+                # Extract Claude usage data
+                if message.usage:
+                    usage_stats['input_tokens'] = message.usage.input_tokens
+                    usage_stats['output_tokens'] = message.usage.output_tokens
+                usage_stats['cache_status'] = "Automatic (handled by client)"
+                
                 if message.content:
                     for block in message.content:
                         if block.type == 'thinking': full_raw_response_for_log += f"--- THINKING ---\n{block.thinking}\n--- END THINKING ---\n"
@@ -152,16 +161,21 @@ def run_llm_batch_job(
                     cached_content=cached_prompt
                 ) if cached_prompt else llm_client.GenerativeModel(model_to_use)
                 
-                # If we are using a cache, the system prompt is already part of the model object.
-                # If not, we pass it as part of the content list.
                 content_to_send = [user_prompt] if cached_prompt else [system_prompt, user_prompt]
                 
                 response = model.generate_content(content_to_send, generation_config={"temperature": current_temperature})
+                
+                # Extract Gemini usage data
+                if hasattr(response, 'usage_metadata'):
+                    usage_stats['input_tokens'] = response.usage_metadata.prompt_token_count
+                    usage_stats['output_tokens'] = response.usage_metadata.candidates_token_count
+                usage_stats['cache_status'] = "Used" if cached_prompt else "Not Used"
+
                 raw_response_text = response.text; full_raw_response_for_log = raw_response_text
             else: 
                 raise ValueError(f"Unsupported provider '{provider_to_use}' in llm_utils.")
             
-            llm_logger.log_batch(job_name, 0, system_prompt, user_prompt, full_raw_response_for_log)
+            llm_logger.log_batch(job_name, 0, system_prompt, user_prompt, full_raw_response_for_log, usage_stats=usage_stats)
             
             if parser_type == 'multi_line': parsed_response = _parse_structured_llm_response(raw_response_text, prompt_ids)
             else: parsed_response = _parse_singleline_llm_response(raw_response_text)
