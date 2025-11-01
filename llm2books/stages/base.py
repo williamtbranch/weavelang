@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 import time
+import hashlib # <-- Import hashlib for generating cache names
+
 logger = logging.getLogger("pipeline")
 
 # ... (Stage and SpaCyStage classes are unchanged) ...
@@ -183,47 +185,49 @@ class LLMStage(Stage, ABC):
         from ..llm_logger import LLMLogger
         from .. import llm_utils
         from .. import llm_overrides
-        import json # Add this import here for the resume logic
+        import json
 
         logger.info(f"Executing LLM Stage {self.stage_number}: {self.stage_name} for '{self.book_stem}'")
         self.stage_output_dir.mkdir(parents=True, exist_ok=True)
         self.llm_logger_dir.mkdir(parents=True, exist_ok=True)
         llm_logger = LLMLogger(self.llm_logger_dir)
 
-        # --- START: ROBUST CACHING LOGIC ---
         system_prompt = self.get_system_prompt()
         cached_prompt = None
-        cache_creation_time = 0
-        CACHE_TTL_SECONDS = 55 * 60  # 55 minutes
-
+        # ... (caching logic is unchanged) ...
         primary_model_key = self.stage_config.get("primary_model")
         primary_model_info = self.models_config.get(primary_model_key, {})
         primary_provider = primary_model_info.get("provider")
-
-        def refresh_gemini_cache():
-            nonlocal cached_prompt, cache_creation_time
-            if primary_provider == "gemini":
-                try:
-                    model_name_for_cache = primary_model_info.get("name", "").split('/')[-1]
-                    if model_name_for_cache:
-                        logger.info(f"      -> Caching/Refreshing system prompt for Gemini model '{model_name_for_cache}'...")
-                        cached_prompt = llm_utils.create_gemini_cache(
-                            model_name=model_name_for_cache,
-                            system_prompt=system_prompt
-                        )
-                        if cached_prompt:
-                            cache_creation_time = time.time()
-                            logger.info("      -> System prompt cached successfully.")
-                        else:
-                            cache_creation_time = 0 # Reset on failure
-                except Exception as e:
-                    logger.warning(f"      -> Could not create Gemini cache, proceeding without it. Error: {e}")
-                    cached_prompt = None
-                    cache_creation_time = 0
-        
-        # Initial cache creation
-        refresh_gemini_cache()
-        # --- END: ROBUST CACHING LOGIC ---
+        if primary_provider == "gemini":
+            prompt_hash = hashlib.sha256(system_prompt.encode()).hexdigest()[:16]
+            cache_display_name = f"weavelang_{self.stage_name}_{prompt_hash}"
+            try:
+                genai = self.resources['llm_clients'].get('gemini')
+                if genai:
+                    logger.info(f"      -> Searching for existing Gemini cache: '{cache_display_name}'...")
+                    found_cache = False
+                    for cache in genai.caching.CachedContent.list():
+                        if cache.display_name == cache_display_name:
+                            cached_prompt = cache
+                            logger.info("      -> Found and reusing existing cache.")
+                            found_cache = True
+                            break
+                    if not found_cache:
+                        logger.info("      -> No existing cache found. Creating a new one...")
+                        model_name = primary_model_info.get("name")
+                        if model_name:
+                            cached_prompt = genai.caching.CachedContent.create(
+                                model=model_name,
+                                system_instruction=system_prompt,
+                                display_name=cache_display_name,
+                                ttl=3500 
+                            )
+                            if cached_prompt: logger.info("      -> New cache created successfully.")
+                            else: logger.warning("      -> Cache creation returned None, proceeding without cache.")
+                        else: logger.warning("      -> Cannot create cache: model name not found in config.")
+            except Exception as e:
+                logger.warning(f"      -> An error occurred during Gemini cache find/create, proceeding without it: {e}")
+                cached_prompt = None
 
         input_data = self._load_input_data()
         if input_data is None: return False
@@ -236,13 +240,13 @@ class LLMStage(Stage, ABC):
             except (IOError, json.JSONDecodeError):
                 logger.warning(f"      -> Could not parse existing output file. Re-running.")
         
+        # ... (manual overrides logic is unchanged) ...
         manual_overrides = llm_overrides.load_manual_overrides(self.stage_name, llm_logger)
         if manual_overrides:
             overrides_by_sid = {}
             for item_id, response_text in manual_overrides.items():
                 s_id = item_id.split('_')[0]
                 overrides_by_sid.setdefault(s_id, {})[item_id] = response_text
-
             for s_id, llm_results_for_sid in overrides_by_sid.items():
                 block_to_update = next((b for b in input_data['content_blocks'] if b.get('s_id') == s_id), None)
                 if block_to_update:
@@ -251,7 +255,6 @@ class LLMStage(Stage, ABC):
                         if block.get('s_id') == s_id:
                             input_data['content_blocks'][block_idx] = updated_block
                             break
-            
             if not self._save_output_data(input_data, "PARTIAL"):
                 logger.error("Failed to save progress after applying manual overrides. Halting.")
                 return False
@@ -264,13 +267,22 @@ class LLMStage(Stage, ABC):
             if not self._is_item_complete(input_data, item['id'])
         ]
 
+        # --- START: NEW, MORE INFORMATIVE LOGGING ---
+        total_items = len(all_possible_items)
+        completed_items = total_items - len(items_for_this_run)
+        
+        logger.info(f"      -> Found {total_items} total items for this stage.")
+        if completed_items > 0:
+            logger.info(f"      -> {completed_items} items are already complete.")
+
         if not items_for_this_run:
             logger.info("      -> All items for this stage are already complete or manually fixed.")
             if not self._save_output_data(input_data, "COMPLETED"): return False
             return True
 
-        logger.info(f"      -> Processing {len(items_for_this_run)} new items for the LLM.")
-        
+        logger.info(f"      -> Preparing to process {len(items_for_this_run)} new items...")
+        # --- END: NEW, MORE INFORMATIVE LOGGING ---
+
         items_by_sid = {}
         for item in items_for_this_run:
             s_id = item['id'].split('_')[0]
@@ -293,12 +305,11 @@ class LLMStage(Stage, ABC):
 
         total_batches = len(sentence_batches)
         for i, batch_items in enumerate(sentence_batches):
-            logger.info(f"      -> Processing batch {i + 1}/{total_batches}...")
-
-            # Check and refresh cache before each batch
-            if cached_prompt and (time.time() - cache_creation_time > CACHE_TTL_SECONDS):
-                logger.info("      -> Gemini cache has expired. Refreshing...")
-                refresh_gemini_cache()
+            # --- START: NEW PER-BATCH LOGGING ---
+            first_id = batch_items[0]['id']
+            last_id = batch_items[-1]['id']
+            logger.info(f"      -> Processing batch {i + 1}/{total_batches} ({len(batch_items)} items from {first_id} to {last_id})...")
+            # --- END: NEW PER-BATCH LOGGING ---
             
             llm_results_list = llm_utils.run_llm_batch_job(
                 llm_clients=self.resources['llm_clients'],

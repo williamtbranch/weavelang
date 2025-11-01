@@ -14,8 +14,12 @@ import stanza
 
 try:
     import google.generativeai as genai
+    import vertexai
+    from vertexai.generative_models import GenerativeModel
 except ImportError:
     genai = None
+    vertexai = None
+    GenerativeModel = None
 
 logger = logging.getLogger("pipeline")
 
@@ -28,7 +32,66 @@ def preprocess_for_spacy(text: str) -> str:
     text = re.sub(r'([—()])(\w)', r'\1 \2', text)
     return text
 
-# --- THIS FUNCTION IS NOW RESTORED ---
+#
+def pre_fuse_word_tokens(token_stream: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    A dedicated pre-pass to fix structural token errors, specifically consecutive 'w' tokens
+    that violate the BWBWB invariant. This is crucial for handling contractions and
+    possessives that the initial tokenizer may have split incorrectly.
+    """
+    if not token_stream:
+        return []
+
+    new_tokens = []
+    i = 0
+    while i < len(token_stream):
+        current_token = token_stream[i]
+
+        # Pattern 1: Direct W-W violation (e.g., [{'t':'w'}, {'t':'w'}])
+        if (i + 1 < len(token_stream) and
+                current_token.get("t") == "w" and
+                token_stream[i+1].get("t") == "w"):
+            
+            next_token = token_stream[i+1]
+            fused_token = {
+                "t": "w",
+                "v": current_token.get("v", "") + next_token.get("v", ""),
+                "l": sorted(list(set(current_token.get("l", []) + next_token.get("l", []))))
+            }
+            if "di" in current_token:
+                fused_token["di"] = current_token["di"]
+            
+            new_tokens.append(fused_token)
+            i += 2
+            continue
+
+        # Pattern 2: W-emptyB-W violation (e.g., [{'t':'w'}, {'t':'b', 'v':''}, {'t':'w'}])
+        # --- THIS IS THE CORRECTED, UNAMBIGUOUS CONDITION ---
+        if (i + 2 < len(token_stream) and
+                current_token.get("t") == "w" and
+                token_stream[i+1].get("t") == "b" and
+                token_stream[i+1].get("v", "") == "" and # MUST be exactly an empty string
+                token_stream[i+2].get("t") == "w"):
+
+            b_token = token_stream[i+1]
+            next_w_token = token_stream[i+2]
+            fused_token = {
+                "t": "w",
+                "v": current_token.get("v", "") + b_token.get("v", "") + next_w_token.get("v", ""),
+                "l": sorted(list(set(current_token.get("l", []) + next_w_token.get("l", []))))
+            }
+            if "di" in current_token:
+                fused_token["di"] = current_token["di"]
+
+            new_tokens.append(fused_token)
+            i += 3
+            continue
+
+        new_tokens.append(current_token)
+        i += 1
+            
+    return new_tokens
+
 def fuse_tokens(raw_tokens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     if not raw_tokens:
         return []
@@ -58,10 +121,13 @@ def fuse_tokens(raw_tokens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         
         i += 1
     return tokens
+
+#
 def fuse_nlp_components(raw_components: List[Any]) -> List[List[Any]]:
     """
     Fuses NLP components (tokens) based on whitespace and linguistic roles,
     correctly distinguishing word-level vs. sentence-level punctuation.
+    This version is hardened to correctly differentiate hyphens from em dashes.
     """
     if not raw_components:
         return []
@@ -76,14 +142,17 @@ def fuse_nlp_components(raw_components: List[Any]) -> List[List[Any]]:
         
         prev_token = current_group[-1]
 
-        # Rule 1: Always split if there is a space after the previous token.
         if ' ' in getattr(prev_token, 'whitespace_', ''):
             fused_components.append(current_group)
             current_group = [token]
             continue
 
-        # Rule 2: If no space, check the linguistic role of the CURRENT token.
         token_text = getattr(token, 'text', '')
+        #
+        if token_text == '—' or getattr(prev_token, 'text', '') == '—':
+            fused_components.append(current_group)
+            current_group = [token]
+            continue
         is_apostrophe = token_text in ("'", "’")
         
         is_closing_quote = False
@@ -93,42 +162,36 @@ def fuse_nlp_components(raw_components: List[Any]) -> List[List[Any]]:
                 next_token = raw_components[i+1]
                 if getattr(next_token, 'is_punct', False) and not getattr(token, 'whitespace_', ''):
                     is_followed_by_punct = True
-            
             is_last_token = (i + 1) == len(raw_components)
-
             if is_last_token or is_followed_by_punct:
                 is_closing_quote = True
         
         is_possessive_particle = getattr(token, 'pos_', '') == 'PART'
         
-        # --- START OF DEFINITIVE FIX ---
-        is_hyphen = getattr(token, 'tag_', '') == 'HYPH'
-        # This is the new condition: check if the PREVIOUS token was a hyphen.
-        prev_token_is_hyphen = getattr(prev_token, 'tag_', '') == 'HYPH'
-        # --- END OF DEFINITIVE FIX ---
+        # --- START OF THE DEFINITIVE FIX ---
+        # We now check that the token's TEXT is a hyphen, not just its tag.
+        # This prevents em dashes from being treated as hyphens.
+        is_hyphen = getattr(token, 'tag_', '') == 'HYPH' and token_text == '-'
+        prev_token_is_hyphen = getattr(prev_token, 'tag_', '') == 'HYPH' and getattr(prev_token, 'text', '') == '-'
+        # --- END OF THE DEFINITIVE FIX ---
         
         is_common_contraction = token_text.lower() in ("'s", "n't", "'re", "'ve", "'d", "'ll")
-        
         is_contraction_or_possessive = (
             (is_apostrophe and not is_closing_quote) or 
             is_common_contraction or
             is_possessive_particle
         )
-        
         is_internal_apostrophe = (
             is_apostrophe and
             len(getattr(prev_token, 'text', '')) == 1 and
             not getattr(prev_token, 'is_punct', True)
         )
 
-        # --- START OF DEFINITIVE FIX ---
-        # Add `prev_token_is_hyphen` to the condition for fusing.
         if is_hyphen or prev_token_is_hyphen or is_contraction_or_possessive or is_internal_apostrophe:
             current_group.append(token)
         else:
             fused_components.append(current_group)
             current_group = [token]
-        # --- END OF DEFINITIVE FIX ---
 
     if current_group:
         fused_components.append(current_group)
@@ -212,14 +275,36 @@ def initialize_llm_client(provider: str) -> any:
         return Anthropic(api_key=api_key)
     
     elif provider == "gemini":
-        if not genai:
-            logger.critical("Google GenAI SDK not found. Please run `pip install google-generativeai`."); return None
+        # --- MODIFIED GEMINI INIT ---
+        # Prioritize Google AI Studio (API Key) for simpler caching support
         api_key = os.getenv("GOOGLE_API_KEY")
-        if not api_key:
-            logger.critical("GOOGLE_API_KEY not found in .env file."); return None
-        genai.configure(api_key=api_key)
-        # We just return the configured module itself for Gemini
-        return genai
+        if api_key:
+            try:
+                import google.generativeai as genai
+                genai.configure(api_key=api_key)
+                logger.info("      -> Initialized Gemini via Google AI Studio (API Key).")
+                return genai # Return the configured module
+            except ImportError:
+                logger.error("Google GenAI SDK not found. Run `pip install google-generativeai`.")
+            except Exception as e:
+                logger.critical(f"Failed to initialize Gemini with API Key: {e}")
+
+        # Fallback to Vertex AI if no API key is found or fails
+        project_id = os.getenv("GCLOUD_PROJECT_ID")
+        if project_id:
+            try:
+                import vertexai
+                from vertexai.generative_models import GenerativeModel
+                logger.info(f"      -> Initializing Gemini via Vertex AI for project '{project_id}'...")
+                vertexai.init(project=project_id)
+                return GenerativeModel # Return the class
+            except ImportError:
+                 logger.error("Vertex AI SDK not found. Run `pip install google-cloud-aiplatform`.")
+            except Exception as e:
+                 logger.critical(f"Failed to initialize Vertex AI: {e}")
+
+        logger.critical("Could not initialize Gemini. Missing GOOGLE_API_KEY or GCLOUD_PROJECT_ID in .env file.")
+        return None
 
     logger.critical(f"LLM provider '{provider}' is not supported."); return None
 

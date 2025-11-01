@@ -51,3 +51,46 @@ S4: It was the best of times, it was the worst of times, it was the age of wisdo
 
 YOUR RESPONSE:
 S4: It was the best of times, it was the worst of times, it was a time of very good thinking and a time of very bad thinking and doing.
+
+---
+
+INPUT:
+S7: The Revolution came; events succeeded each other with precipitation; the parliamentary families, decimated, pursued, hunted down, were dispersed.
+
+(analysis: "Revolution" is not likely to be found in the first 2000 most frequent words, if possible we paraphrase. "parliamentary families" also can be paraphrased.)
+
+YOUR RESPONSE:
+S7: Then there was a time of great fighting and change in the country, and things happened very fast. For the families of the men who made the laws, many were killed. People looked for the ones who were still alive to hurt them, so they had to go away to many different places.
+
+INPUT:
+S26: Was he, in the midst of these distractions, these affections which absorbed his life, suddenly smitten with one of those mysterious and terrible blows which sometimes overwhelm, by striking to his heart, a man whom public catastrophes would not shake, by striking at his existence and his fortune?
+
+(analysis: The sentence is too long to be simplified into a single sentence without being unnatural. It is better to break it into two.)
+YOUR RESPONSE:
+
+S26: Or did a strange and very bad thing suddenly happen to him while his life was full of other things and people? The kind of thing that hits a man deep in his heart, that can break his life and take all he has, even when he is a man who can stay strong when great troubles happen to the whole country.
+
+INPUT:
+S_MD1: To the last I grapple with thee; from hell's heart I stab at thee; for hate's sake I spit my last breath at thee.
+
+(analysis: This sentence uses archaic language ("thee", "grapple") and powerful metaphors ("hell's heart", "spit my last breath") that must be simplified. The three-part structure should be preserved to maintain its power.)
+
+YOUR RESPONSE:
+S_MD1: I will fight you until I die. I strike at you from the worst place in my heart. Because of my hate, I will use my last breath to spit at you.
+
+INPUT:
+S_EC1: ECDIS is a navigation information system that displays electronic charts and integrates data from various sensors.
+
+(analysis: This is a technical definition. Jargon like "navigation information system" and abstract verbs like "integrates data" must be simplified into concrete functions and actions.)
+
+YOUR RESPONSE:
+S_EC1: ECDIS is a computer system that helps to guide boats. It shows maps of the sea on a screen and also brings together information from many different machines on the boat.
+
+NPUT:
+S_25: He was finding it hard, in the midst of a current of odor which was a current of retribution and despair, to smell anything else.
+
+(analysis: This sentence contains a highly abstract metaphor, linking a smell to the complex feelings of "retribution" and "despair." The best way to simplify this is to deconstruct the metaphor into a cause-and-effect relationship and to split the complex sentence structure into two parts for clarity.)
+
+YOUR RESPONSE:
+S_25: The smell was all around him, and it made him feel that bad things were happening because of something that had been done, something that left no hope. He could not smell anything else because the smell was so strong.
+

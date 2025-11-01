@@ -75,7 +75,7 @@ class LLMSegmenter:
         if self.llm_logger:
             user_prompt_for_log = f"S_ID: {s_id}\n\nPlease segment the text."
             self.llm_logger.log_batch(
-                job_name="LLMSegmenter", batch_num=0,
+                job_name="LLMSegmenter",
                 system_prompt=system_prompt, 
                 user_prompt=user_prompt_for_log,
                 response=raw_response

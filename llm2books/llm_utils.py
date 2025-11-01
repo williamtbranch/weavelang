@@ -1,3 +1,4 @@
+# llm2books/llm_utils.py
 import logging
 import re
 import time
@@ -9,36 +10,35 @@ logger = logging.getLogger("pipeline")
 
 TEMPERATURE_STEPS = [0.1, 0.4, 0.6]
 
-#
-def create_gemini_cache(model_name: str, system_prompt: str) -> Optional[Any]:
+# --- UPDATED CACHE FUNCTION ---
+def create_gemini_cache(model_name: str, system_prompt: str, llm_client: Any = None) -> Optional[Any]:
     """
     Creates a cached content object for a Gemini model.
-    Returns the cache object on success, None on failure.
     """
-    # This dynamic import is safer in case the library isn't installed
     try:
-        from google.generativeai.client import get_default_generative_client
-    except ImportError:
-        logger.error("      -> Cannot create Gemini cache: 'google.generativeai' library not found.")
-        return None
-    
-    try:
-        # We need the underlying client to access the caching methods
-        client = get_default_generative_client()
-        if not client:
-            logger.warning("      -> Could not get default Gemini client for caching.")
-            return None
+        # Use the passed client if it's the genai module, or fallback to import
+        genai = llm_client
+        if not genai:
+            logger.warning("      -> create_gemini_cache called without llm_client, attempting fallback import.")
+            import google.generativeai as genai
+
+        # The caching API often requires the 'models/' prefix.
+        if not model_name.startswith("models/"):
+            full_model_name = f"models/{model_name}"
+        else:
+            full_model_name = model_name
         
-        # The API expects the model name with a "models/" prefix
-        full_model_name = f"models/{model_name}"
-        
-        # Create the cache
-        cache = client.create_cached_content(
+        # Ensure the TTL is under the typical 1-hour token expiry.
+        cache = genai.caching.CachedContent.create(
             model=full_model_name,
-            contents=[system_prompt]
+            system_instruction=system_prompt,
+            ttl_seconds=55*60 
         )
         return cache
     except Exception as e:
+        # Catch specific argument error for clarity in logs
+        if "unexpected keyword argument 'llm_client'" in str(e):
+             logger.error(f"      -> Mismatch in create_gemini_cache call. Error: {e}")
         logger.warning(f"      -> Gemini cache creation failed: {e}")
         return None
 
@@ -76,7 +76,7 @@ def run_llm_batch_job(
     stage_config: Dict[str, Any],
     models_config: Dict[str, Any],
     pipeline_config: Dict[str, Any],
-    post_process_validator: Optional[Callable[[Dict[str, str], List[Dict]], None]] = None,
+    post_process_validator: Optional[Callable[[Dict[str, str], List[Dict]], None]] = None, # <-- NEW ARGUMENT
     cached_prompt: Optional[Any] = None
 ) -> Optional[List[Dict]]:
     
@@ -132,10 +132,13 @@ def run_llm_batch_job(
         
         raw_response_text = ""
         full_raw_response_for_log = ""
-        usage_stats = {} # Initialize usage stats dictionary
+        usage_stats = {}
 
         try:
+            log_system_prompt = system_prompt
+
             if provider_to_use == 'claude':
+                # ... (Claude logic is unchanged) ...
                 api_payload = { "model": model_to_use, "system": system_prompt, "messages": [{"role": "user", "content": user_prompt}], "max_tokens": 4096, "temperature": current_temperature }
                 thinking_budget = pipeline_config.get("thinking_budget_tokens", 0)
                 if (attempt > 0 or thinking_on_first) and thinking_budget > 0:
@@ -143,7 +146,6 @@ def run_llm_batch_job(
                 
                 message = llm_client.messages.create(**api_payload)
                 
-                # Extract Claude usage data
                 if message.usage:
                     usage_stats['input_tokens'] = message.usage.input_tokens
                     usage_stats['output_tokens'] = message.usage.output_tokens
@@ -155,17 +157,29 @@ def run_llm_batch_job(
                         elif block.type == 'text':
                             full_raw_response_for_log += block.text
                             if not raw_response_text: raw_response_text = block.text
-            
+
             elif provider_to_use == 'gemini':
-                model = llm_client.GenerativeModel.from_cached_content(
-                    cached_content=cached_prompt
-                ) if cached_prompt else llm_client.GenerativeModel(model_to_use)
+                # ... (Gemini logic is unchanged) ...
+                genai = llm_client
+                if cached_prompt:
+                    model = genai.GenerativeModel.from_cached_content(cached_prompt)
+                    content_to_send = [user_prompt]
+                else:
+                    model = genai.GenerativeModel(model_name=model_to_use, system_instruction=system_prompt)
+                    content_to_send = [user_prompt]
+
+                response = model.generate_content(
+                    content_to_send, 
+                    generation_config={"temperature": current_temperature}
+                )
                 
-                content_to_send = [user_prompt] if cached_prompt else [system_prompt, user_prompt]
-                
-                response = model.generate_content(content_to_send, generation_config={"temperature": current_temperature})
-                
-                # Extract Gemini usage data
+                # --- START: NEW SAFETY CHECK ---
+                # This handles the "finish_reason: 8" error gracefully.
+                if not response.parts:
+                    finish_reason = response.candidates[0].finish_reason if response.candidates else "UNKNOWN"
+                    raise ValueError(f"Response was empty. Finish Reason: {finish_reason}")
+                # --- END: NEW SAFETY CHECK ---
+
                 if hasattr(response, 'usage_metadata'):
                     usage_stats['input_tokens'] = response.usage_metadata.prompt_token_count
                     usage_stats['output_tokens'] = response.usage_metadata.candidates_token_count
@@ -175,7 +189,7 @@ def run_llm_batch_job(
             else: 
                 raise ValueError(f"Unsupported provider '{provider_to_use}' in llm_utils.")
             
-            llm_logger.log_batch(job_name, 0, system_prompt, user_prompt, full_raw_response_for_log, usage_stats=usage_stats)
+            llm_logger.log_batch(job_name, log_system_prompt, user_prompt, full_raw_response_for_log, usage_stats=usage_stats)
             
             if parser_type == 'multi_line': parsed_response = _parse_structured_llm_response(raw_response_text, prompt_ids)
             else: parsed_response = _parse_singleline_llm_response(raw_response_text)
@@ -186,8 +200,12 @@ def run_llm_batch_job(
             
             validate_parsed_llm_response(parsed_response, parser_type)
             
+            # --- START: NEW VALIDATOR CALLBACK ---
+            # Call the post-processing validator if one was provided.
+            # If it raises an error, the outer except block will catch it and trigger a retry/fallback.
             if post_process_validator:
                 post_process_validator(parsed_response, items_to_process)
+            # --- END: NEW VALIDATOR CALLBACK ---
             
             logger.info("      -> Batch successfully processed and validated.")
             for item in items_to_process: item['llm_response'] = parsed_response[item['id']]
@@ -202,6 +220,8 @@ def run_llm_batch_job(
     logger.error(f"LLM batch failed for {job_name} after {max_retries} attempts. Halting pipeline.")
     return None
 
+
+# --- START: RESTORED HELPER FUNCTION ---
 def _parse_singleline_llm_response(raw_text: str) -> Dict[str, str]:
     parsed = {}
     line_regex = re.compile(r"^\s*([^:]+):\s*(.*)$")
@@ -210,8 +230,9 @@ def _parse_singleline_llm_response(raw_text: str) -> Dict[str, str]:
         if match:
             parsed[match.group(1).strip()] = match.group(2).strip()
     return parsed
+# --- END: RESTORED HELPER FUNCTION ---
 
-
+# --- START: RESTORED HELPER FUNCTION ---
 def _parse_structured_llm_response(raw_text: str, expected_ids: List[str]) -> Dict[str, str]:
     parsed = {}
     id_pattern = "|".join(re.escape(id) for id in expected_ids)
@@ -230,28 +251,25 @@ def _parse_structured_llm_response(raw_text: str, expected_ids: List[str]) -> Di
         current_id = first_line_parts[0].strip()
         if current_id not in expected_ids: continue
         
-        collecting, buffer = False, []
-        
-        # Start buffer with any content on the first line after the colon
-        if first_line_parts[1].strip():
-             buffer.append(first_line_parts[1].strip())
-
-        for line in lines[1:]:
-            line_upper_stripped = line.strip().upper()
-            if line_upper_stripped.startswith("MAPPINGS:"):
-                collecting = True
-                # If content exists on the same line as MAPPINGS:
-                if len(line.strip()) > len("MAPPINGS:"):
-                    buffer.append(line.split(":", 1)[1].strip())
-                continue # Don't append the "MAPPINGS:" line itself
-
-            if line_upper_stripped.startswith("VALIDATION:"):
-                collecting = False
-                break 
+        # This simpler logic finds the MAPPINGS: block and takes everything after it
+        # until the VALIDATION: block or the end of the block.
+        # It's more robust to CoT reasoning appearing before MAPPINGS:.
+        in_mappings = False
+        buffer = []
+        for line in lines:
+            stripped_upper = line.strip().upper()
+            if stripped_upper.startswith("MAPPINGS:"):
+                in_mappings = True
+                content_on_same_line = line.strip()[len("MAPPINGS:"):].strip()
+                if content_on_same_line:
+                    buffer.append(content_on_same_line)
+                continue
             
-            if collecting:
+            if in_mappings:
+                if stripped_upper.startswith("VALIDATION:"):
+                    break # Stop collecting when validation starts
                 buffer.append(line)
-        
+
         if buffer:
             parsed[current_id] = "\n".join(buffer).strip()
 

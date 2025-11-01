@@ -60,8 +60,11 @@ thinking_budget_tokens = 1024
 # This section remains the same.
 [stages]
     [stages.Segmenter]
-    primary_model = "gemini-flash" # Use the key from your [models] section
-    fallback_model = "sonnet"
+    #primary_model = "gemini-flash" # Use the key from your [models] section
+    primary_model = "gemini-pro" # Use the key from your [models] section
+    #primary_model = "haiku" # Use the key from your [models] section
+    fallback_model = "gemini-pro"
+    batch_size_in_items = 1
 
     [stages.GenerateBasicBase]       # <-- NEW SECTION
     primary_model = "gemini-pro"

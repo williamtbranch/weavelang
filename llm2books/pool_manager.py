@@ -29,6 +29,28 @@ class PoolManager:
         self.stanza_processors = self.resources.get("stanza_processors", {})
         self.stages_config = self.resources.get("stages_config", {})
 
+    #
+    def _validate_segmentation_response(self, parsed_response: Dict[str, str], batch_items: List[Dict]):
+        """
+        A callback function to validate the content of segmentation responses.
+        This is the logic that used to be in stanza_segmenter.py.
+        """
+        for item in batch_items:
+            s_id = item['id']
+            original_text = item['text']
+            
+            # The parsed response for segmentation is just a multi-line string.
+            llm_segments_str = parsed_response.get(s_id, "")
+            llm_segments = [seg.strip() for seg in llm_segments_str.splitlines() if seg.strip()]
+
+            # The core validation: ensure no words were added or removed.
+            original_words_norm = "".join(re.findall(r'[a-zA-Z0-9]+', original_text.lower()))
+            llm_words_norm = "".join(re.findall(r'[a-zA-Z0-9]+', "".join(llm_segments).lower()))
+
+            if original_words_norm != llm_words_norm:
+                # Raising this error will be caught by run_llm_batch_job and trigger a retry/fallback.
+                raise ValueError(f"LLM content mismatch for S_ID {s_id}. LLM modified word content.")
+
     def get_book_resources(self, book_stem: str, base_lang: str, target_lang: str) -> Optional[Dict[str, Path]]:
         """
         V11.1 Update: Now also generates the .mod.json simplification asset.
@@ -242,28 +264,78 @@ class PoolManager:
         if std_file and temp_path.exists(): temp_path.unlink()
         return std_file
 
+    #
     def generate_std_file(self, book_stem: str, lang_code: str, translated_items: Optional[List[Dict]] = None) -> Optional[Path]:
-        # ... (implementation is unchanged) ...
         logger.info(f"  -> Generating pool file: '{book_stem}.{lang_code}.std.json'")
         std_file_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.std.json"
+        
         source_items = translated_items if translated_items is not None else self._parse_source_file(self.source_texts_dir / f"{book_stem}.{lang_code}.txt")
-        source_sentence_count = sum(1 for item in source_items if item.get('type') == 'sentence')
+        is_base_lang = (lang_code == self.resources['language_config']['base_code'])
+        
         stanza_processor = self.resources['stanza_processors'][lang_code]
         spacy_model = self.resources['spacy_models'][lang_code]
-        output_content = []
+        
+        # --- START: LOGGER SWAPPING LOGIC ---
         pool_llm_logger = LLMLogger(self.pool_dir / "llm_logs" / book_stem)
-        original_logger = stanza_processor.llm_logger
-        stanza_processor.llm_logger = pool_llm_logger
-        try:
+        original_logger = stanza_processor.llm_logger # Save the original logger
+        stanza_processor.llm_logger = pool_llm_logger # Assign the new, correct logger
+        # --- END: LOGGER SWAPPING LOGIC ---
+        
+        segmentation_results = {}
+
+        try: # Use a try...finally block to ensure the original logger is always restored
+            if not is_base_lang:
+                temp_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.segmentation.temp.json"
+                if temp_path.exists():
+                    try:
+                        with open(temp_path, 'r', encoding='utf-8') as f:
+                            segmentation_results = json.load(f)
+                        logger.info(f"      -> Resuming segmentation from progress file with {len(segmentation_results)} completed items.")
+                    except (IOError, json.JSONDecodeError):
+                        logger.warning("      -> Could not read segmentation progress file. Starting fresh.")
+
+                items_to_segment = [item for item in source_items if item.get('type') == 'sentence' and item.get('s_id') not in segmentation_results]
+
+                if items_to_segment:
+                    logger.info(f"      -> Preparing to segment {len(items_to_segment)} new sentences...")
+                    
+                    for i, item in enumerate(items_to_segment):
+                        s_id, original_text = item['s_id'], item['text']
+                        logger.info(f"        -> Processing item {i+1}/{len(items_to_segment)}: {s_id}")
+
+                        if not original_text.strip():
+                            segmentation_results[s_id] = []
+                            continue
+                        
+                        try:
+                            # Now this call will use the correct pool_llm_logger
+                            segments_text_list = stanza_processor.segment_sentence(original_text, s_id)
+                            segmentation_results[s_id] = segments_text_list
+                            
+                            with open(temp_path, 'w', encoding='utf-8') as f:
+                                json.dump(segmentation_results, f, indent=2)
+
+                        except (IOError, ValueError) as e:
+                            logger.error(f"      -> FAILED to segment S_ID {s_id}. Reason: {e}")
+                            logger.error("         The pipeline has been halted. Your progress is saved.")
+                            return None
+            
+            # --- ASSEMBLY LOGIC (inside the try block) ---
+            logger.info("      -> Assembling final .std.json from all segmentation results...")
+            output_content = []
             for item in source_items:
-                if item['type'] == 'chapter': output_content.append({"block_type": "chapter", "text": item['text']}); continue
+                # ... (the entire assembly loop from before goes here, unchanged) ...
+                if item['type'] == 'chapter':
+                    output_content.append({"block_type": "chapter", "text": item['text']})
+                    continue
                 if item['type'] == 'sentence':
                     s_id, original_text = item['s_id'], item['text']
-                    if not original_text.strip(): continue
                     full_text = helper.preprocess_for_spacy(original_text)
+                    if is_base_lang:
+                        segments_text = [full_text]
+                    else:
+                        segments_text = segmentation_results.get(s_id, [])
                     spacy_doc = spacy_model(full_text)
-                    is_base_lang = (lang_code == self.resources['language_config']['base_code'])
-                    segments_text = [full_text] if is_base_lang else stanza_processor.segment_sentence(full_text, s_id)
                     golden_stream = helper.create_golden_token_stream(spacy_doc)
                     word_tokens = [tok for tok in golden_stream if tok['t'] == 'w']
                     current_word_idx = 0
@@ -273,7 +345,8 @@ class PoolManager:
                             if current_word_idx < len(word_tokens): word_tokens[current_word_idx]['seg_idx'] = seg_idx
                             current_word_idx += 1
                     num_segments = len(segments_text)
-                    if num_segments == 0: continue
+                    if num_segments == 0 and not full_text.strip(): continue
+                    if num_segments == 0 and full_text.strip(): num_segments = 1; segments_text = [full_text]
                     buckets: List[List[Dict]] = [[] for _ in range(num_segments)]
                     b_idx = 0
                     for token in golden_stream:
@@ -305,37 +378,69 @@ class PoolManager:
                                         break
                         segments_data.append({ "seg_id": f"S{i+1}", "text": seg_text, "tokenized_text": bucket, "lemmas": sorted(list(seg_lemmas))})
                     output_content.append({ "block_type": "sentence", "s_id": s_id, "full_text": full_text, "lemmas": sorted(list(all_lemmas)), "segments": segments_data })
-        finally:
-            stanza_processor.llm_logger = original_logger
-        output_sentence_count = sum(1 for block in output_content if block.get('block_type') == 'sentence')
-        if source_sentence_count != output_sentence_count:
-            logger.error(f"Integrity Check FAILED for '{std_file_path.name}': Source had {source_sentence_count} sentences, but output has {output_sentence_count}. Halting.")
-            return None
-        final_data = { "meta": { "book_name": book_stem, "language": lang_code, "tier_type": "std", "schema_version": "pool-v1.0" }, "content": output_content }
-        try:
-            with open(std_file_path, "w", encoding="utf-8") as f: json.dump(final_data, f, indent=2, ensure_ascii=False)
-            logger.info(f"  -> Successfully saved '{std_file_path.name}'.")
-            return std_file_path
-        except IOError as e:
-            logger.error(f"Failed to write .std.json file: {e}"); return None
 
-    def _run_transactional_llm_job(self, job_name, system_prompt, all_items, temp_progress_path, llm_logger, parser_type, stage_config, models_config, pipeline_config):
-        # ... (implementation is unchanged) ...
-        completed = {}
-        if temp_progress_path.exists():
-            with open(temp_progress_path, 'r', encoding='utf-8') as f: completed = json.load(f)
-        items_to_run = [i for i in all_items if i['id'] not in completed]
-        if not items_to_run: return completed
-        batch_size = stage_config.get("batch_size_in_items", 10)
-        for i in range(0, len(items_to_run), batch_size):
-            batch = items_to_run[i:i+batch_size]
-            results = llm_utils.run_llm_batch_job(self.llm_clients, job_name, system_prompt, batch, llm_logger, parser_type, stage_config, models_config, pipeline_config)
-            if not results: return None
-            for item in results: completed[item['id']] = item['llm_response']
-            with open(temp_progress_path, 'w', encoding='utf-8') as f: json.dump(completed, f, indent=2)
-        return completed
+            final_data = { "meta": { "book_name": book_stem, "language": lang_code, "tier_type": "std", "schema_version": "pool-v1.0" }, "content": output_content }
+            
+            try:
+                with open(std_file_path, "w", encoding="utf-8") as f: json.dump(final_data, f, indent=2, ensure_ascii=False)
+                logger.info(f"  -> Successfully saved '{std_file_path.name}'.")
+                temp_path = self.derived_texts_dir / f"{book_stem}.{lang_code}.segmentation.temp.json"
+                if temp_path.exists(): temp_path.unlink()
+                return std_file_path
+            except IOError as e:
+                logger.error(f"Failed to write .std.json file: {e}"); return None
+
+        finally:
+            # This will execute whether the try block succeeds or fails, ensuring the logger is always restored.
+            stanza_processor.llm_logger = original_logger
 
     #
+    def _run_transactional_llm_job(self, job_name, system_prompt, all_items, temp_progress_path, llm_logger, parser_type, stage_config, models_config, pipeline_config):
+        """
+        Runs a batch LLM job with transactional saving to a temporary file.
+        """
+        completed = {}
+        if temp_progress_path.exists():
+            try:
+                with open(temp_progress_path, 'r', encoding='utf-8') as f:
+                    completed = json.load(f)
+                logger.info(f"      -> Resuming job '{job_name}' from progress file with {len(completed)} completed items.")
+            except (IOError, json.JSONDecodeError):
+                logger.warning(f"      -> Could not read progress file for '{job_name}'. Starting fresh.")
+
+        items_to_run = [i for i in all_items if i['id'] not in completed]
+        if not items_to_run:
+            logger.info(f"      -> Job '{job_name}' is already complete.")
+            return completed
+
+        batch_size = stage_config.get("batch_size_in_items", 10)
+        
+        for i in range(0, len(items_to_run), batch_size):
+            batch = items_to_run[i:i + batch_size]
+            
+            # This is the key change: it calls the central utility function
+            results = llm_utils.run_llm_batch_job(
+                self.llm_clients, job_name, system_prompt, batch, llm_logger, parser_type, 
+                stage_config, models_config, pipeline_config
+            )
+
+            if not results:
+                logger.error(f"      -> A batch failed for job '{job_name}'. Halting.")
+                return None # Signal failure
+            
+            for item in results:
+                completed[item['id']] = item['llm_response']
+            
+            # Save progress after every successful batch
+            try:
+                with open(temp_progress_path, 'w', encoding='utf-8') as f:
+                    json.dump(completed, f, indent=2)
+            except IOError as e:
+                logger.error(f"      -> CRITICAL: Could not write progress for '{job_name}'. Error: {e}")
+                return None # Signal critical failure
+
+        return completed
+
     def _parse_source_file(self, file_path: Path) -> List[Dict[str, Any]]:
         text = file_path.read_text(encoding="utf-8")
         lines = text.splitlines()

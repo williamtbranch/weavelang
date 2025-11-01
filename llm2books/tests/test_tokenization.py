@@ -96,3 +96,34 @@ def test_tokenizer_handles_hyphenated_word_correctly(spacy_en_model):
     actual_types = [t['t'] for t in golden_stream]
     expected_types = [t['t'] for t in expected_stream]
     assert actual_types == expected_types, "The BWBWB token stream pattern is incorrect."
+
+def test_tokenizer_handles_unspaced_em_dash_correctly(spacy_en_model):
+    """
+    A specific regression test for the S350 "one—not" bug.
+    Asserts that an em dash does NOT cause fusion between two words.
+    """
+    # ARRANGE: The exact text fragment causing the error
+    text = "no one—not even his sister—thought that"
+    doc = spacy_en_model(text)
+
+    # ACT: Run the full tokenization process, including the flawed fuse_nlp_components
+    golden_stream = create_golden_token_stream(doc)
+    
+    # ASSERT: Check for the presence of the erroneously fused token.
+    # The test will pass only if this token is NOT found.
+    found_bad_token = any(t['v'] == 'one—not' for t in golden_stream if t['t'] == 'w')
+    
+    if found_bad_token:
+        pytest.fail("Tokenizer incorrectly fused 'one—not' into a single word token.")
+
+    # Also, assert the CORRECT word sequence to be 100% sure.
+    expected_words = ["no", "one", "not", "even", "his", "sister", "thought", "that"]
+    actual_words = [t['v'] for t in golden_stream if t['t'] == 'w']
+    
+    assert actual_words == expected_words, \
+        f"The final word token sequence is incorrect. Expected {expected_words}, but got {actual_words}"
+
+    # Finally, assert the BWBWB invariant is intact.
+    for i in range(len(golden_stream) - 1):
+        if golden_stream[i]['t'] == golden_stream[i+1]['t']:
+            pytest.fail(f"BWBWB Invariant Violated: Found consecutive '{golden_stream[i]['t']}' tokens.")
