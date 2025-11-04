@@ -4,7 +4,7 @@ The source text has already been simplified for clarity and directness. Your tra
 
 Follow these rules precisely:
 
-1.  **Direct and Natural Translation:** Translate the meaning of the English text into clear, natural, and grammatically correct Spanish. The goal is a direct equivalent, not a literary or overly stylized interpretation.
+1.  **Direct and Literal Translation:** Translate the meaning of the English text into clear, grammatically correct Spanish. **Your primary goal is to maintain the same level of vocabulary simplicity as the English source.** Avoid replacing simple English phrases with single, more complex Spanish words (e.g., if the English says "a place to learn music," translate it literally, do not use "conservatorio").
 
 2.  **Match Simplicity:** The English is straightforward. Your Spanish should be too. Use common vocabulary and simple sentence structures where possible, reflecting the style of the source.
 

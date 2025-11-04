@@ -1,3 +1,4 @@
+// src/main.rs
 
 use clap::{Parser};
 use std::path::PathBuf;
@@ -118,7 +119,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Commands::Calibrate(args) => {
-            // --- THIS IS THE UPDATED CALL ---
             if let Err(e) = calibrator::run_unified_calibration(
                 &args.book_json,
                 &args.output_path,
@@ -129,7 +129,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                  eprintln!("[ERROR] Book calibration failed: {}", e);
                  std::process::exit(1);
              }
-            // --- END: MODIFIED SECTION
         }
     }
     Ok(())

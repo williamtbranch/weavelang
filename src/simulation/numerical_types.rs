@@ -4,17 +4,34 @@ use crate::types::json_types::JsonSegmentV2;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-// --- VLevelRecipe is simplified. 'bas' is no longer needed for L0. ---
-#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq, Hash)]
+// --- NEW STRUCT ADDED HERE ---
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+pub struct LLevelRecipe {
+    pub bas: f32,
+    pub mod_v: f32,
+    pub adv: f32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VLevelRecipe {
-    pub sim: u32, // This field is now unused in L0 but kept for calibrator/map compatibility
-    pub bas: u32, // This field is now unused in L0 but kept for calibrator/map compatibility
+    pub bas: u32,
     pub mod_v: u32,
     pub adv: u32,
 }
 
+impl Default for VLevelRecipe {
+    fn default() -> Self {
+        Self {
+            bas: 0,
+            mod_v: 0,
+            adv: 0,
+        }
+    }
+}
+
+// ... (rest of the file is unchanged) ...
+
 impl VLevelRecipe {
-    // The inverse diglot level is now simply the higher of the two L0 levels.
     pub fn inv_diglot_level(&self) -> u32 {
         *([self.mod_v, self.adv].iter().max().unwrap_or(&0))
     }
@@ -60,7 +77,6 @@ pub struct NumericalDiglotSegmentMap {
     pub entries: Vec<NumericalDiglotEntry>,
 }
 
-// --- NumericalAdvSegmentBundle is now much simpler ---
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NumericalAdvSegmentBundle {
     pub a_id_str: String,
@@ -69,25 +85,20 @@ pub struct NumericalAdvSegmentBundle {
     pub mod_text_original: String,
     pub mod_lemma_ids: Vec<u32>,
 }
-// --- END CHANGE ---
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NumericalProcessedSentence {
     pub source_file_name_original: String,
     pub sentence_id_str: String,
     
-    // --- L0 Data ---
     pub adv_segment_bundles_numerical: Vec<NumericalAdvSegmentBundle>,
     
-    // --- L1 Data (NEW STRUCTURE) ---
     pub basic_base_tier_tokenized: Vec<JsonSegmentV2>,
     pub basic_target_tier_tokenized: Vec<JsonSegmentV2>,
     pub basic_target_lemma_ids: Vec<u32>,
     pub basic_diglot_map_numerical: Vec<NumericalDiglotSegmentMap>,
-    // --- THIS LINE IS THE FIX ---
-    pub basic_inverse_diglot_map_numerical: Vec<(String, Vec<u32>, String, usize, usize)>, // spa_wc added
+    pub basic_inverse_diglot_map_numerical: Vec<(String, Vec<u32>, String, usize, usize)>,
     
-    // Legacy fields kept for compatibility with other tools if needed, but not used in core_algo
     pub eng_text_original: String,
     pub eng_text_word_count: usize,
     pub adv_s_text_original: String,

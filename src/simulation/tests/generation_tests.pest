@@ -1,3 +1,4 @@
+// src/simulation/tests/generation_tests.pest
 // =======================================
 // WeaveLang Generation Test Suite Grammar
 // v11.1 - L1 contains BS, ID, BE, D
@@ -15,9 +16,9 @@ sub_test       = { "(" ~ "sub-test" ~ stringLiteral ~ sub_test_body ~ ")" }
 sub_test_body  = { learner_level ~ (assertion)+ }
 
 learner_level = { "(" ~ "level" ~ level_def+ ~ ")" }
-level_def     = { sim_level | bas_level | mod_level | adv_level }
+// MODIFIED: 'sim_level' has been removed from this rule.
+level_def     = { bas_level | mod_level | adv_level }
 level_value   = { number | "exhausted" }
-sim_level     = { "(" ~ "sim" ~ level_value ~ ")" }
 bas_level     = { "(" ~ "bas" ~ level_value ~ ")" }
 mod_level     = { "(" ~ "mod" ~ level_value ~ ")" }
 adv_level     = { "(" ~ "adv" ~ level_value ~ ")" }
@@ -25,19 +26,16 @@ adv_level     = { "(" ~ "adv" ~ level_value ~ ")" }
 assertion     = { (assert_level | assert_text) }
 assert_level  = { "(" ~ "assert-level" ~ output_level_value ~ ")" }
 assert_text   = { "(" ~ "assert-text" ~ stringLiteral ~ ")" }
-output_level_value   = @{ "AdvancedWeave" | "BasicTarget" | "BasicBaseDiglot" | "InverseDiglot" } // Added InverseDiglot
+output_level_value   = @{ "AdvancedWeave" | "BasicTarget" | "BasicBaseDiglot" | "InverseDiglot" }
 
 sentence_def = { "(" ~ "sentence" ~ l0_column_body ~ l1_column_body ~ ")" }
 
-// L0 now only contains Spanish segments (for Adv and Mod)
 l0_column_body = { "(" ~ "L0" ~ spanishSegment* ~ ")" } 
 
-// L1 now contains Basic Spanish, Inverse Diglot, Basic English, and Diglot definitions
 l1_column_body = { "(" ~ "L1" ~ basicSpanishSegment ~ invDiglotSegment ~ basicEnglishSegment ~ diglotSegment ~ ")" }
 
 phrase = { tokenizedPhrase | stringLiteral }
 
-// A rule for the basic tiers, which are single, unsegmented phrases
 basicSpanishSegment = { "(" ~ "BS" ~ phrase ~ lemmaList? ~ ")" }
 basicEnglishSegment = { "(" ~ "BE" ~ phrase ~ ")" }
 

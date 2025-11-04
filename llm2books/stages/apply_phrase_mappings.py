@@ -2,7 +2,7 @@
 from typing import Any, Dict, List
 import re
 
-from .base import Stage, logger # Inherit from the simpler Stage, not LLMStage
+from .base import Stage, logger
 from ..phrase_mapper_helpers import refactor_token_stream, parse_proper_nouns
 from .. import validator
 
@@ -31,7 +31,6 @@ class ApplyPhraseMappings(Stage):
         # This stage needs the target language SpaCy model for parsing proper nouns
         self.spacy_target = self.resources["spacy_models"][self.resources["language_config"]["target_code"]]
 
-    #
     def _load_and_validate_approved_map(self, input_data: Dict[str, Any]) -> Dict[str, List[str]]:
         """
         Gate 2 Validator: Loads the approved map and validates its entire
@@ -138,7 +137,6 @@ class ApplyPhraseMappings(Stage):
             logger.error("         Please correct the error in the file and re-run the pipeline.")
             return False
 
-    #
     def _process_data(self, data: Dict[str, Any], approved_map: Dict[str, List[str]]) -> Dict[str, Any]:
         """
         The main processing logic that applies the validated mappings.
@@ -184,35 +182,26 @@ class ApplyPhraseMappings(Stage):
                 "segments": [{"seg_id": "S1", "text": new_base_tier_full_text, "tokenized_text": new_base_tokens}]
             }
 
-            # --- START: NEW, SIMPLIFIED MAP BUILDING LOGIC ---
             new_diglot_map_entries = []
             all_proper_noun_lemmas = set()
 
-            # Iterate through the final, FUSED word tokens to build the map
             for token in new_base_tokens:
                 if token['t'] == 'w':
-                    # The value of the token IS the fused English word group
                     group_str = token['v']
                     
-                    # Look up the corresponding Spanish phrase from the map we parsed earlier
                     llm_output_phrase = llm_map_by_group.get(group_str, "NO_SUB")
 
-                    # Parse out any proper nouns from the Spanish side
                     clean_phrase, pn_lemmas = parse_proper_nouns(llm_output_phrase, self.spacy_target)
                     all_proper_noun_lemmas.update(pn_lemmas)
 
                     is_viable = clean_phrase.upper() != "NO_SUB"
                     
-                    # Calculate the word count on the FUSED English group string
                     word_count = len(re.findall(r"[\w']+", group_str))
                     
-                    # Append the final, correct map entry
                     new_diglot_map_entries.append([
                         token["di"], "TBD", clean_phrase, is_viable, word_count, pn_lemmas
                     ])
-            # --- END: NEW, SIMPLIFIED MAP BUILDING LOGIC ---
 
-            # Update the block with the new data structures
             for i, tier in enumerate(block["tiers"]):
                 if tier["tier_id"] == "basic_base":
                     block["tiers"][i] = new_base_tier

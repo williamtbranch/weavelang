@@ -28,7 +28,6 @@ fn generate_and_measure_at_locked_level(
     let empty_profile = NumericalLearnerProfile::new();
 
     let v_levels = VLevelRecipe {
-        sim: locked_v_level,
         bas: locked_v_level,
         mod_v: locked_v_level,
         adv: locked_v_level,

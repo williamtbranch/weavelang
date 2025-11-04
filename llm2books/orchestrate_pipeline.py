@@ -74,6 +74,7 @@ def check_approval_status(file_path: Path) -> bool:
     except Exception:
         return False
 
+# --- THIS IS THE CORRECTED STATE MACHINE LOGIC ---
 def determine_pipeline_state(
     final_book_path: Path,
     en_review_path: Path,
@@ -87,18 +88,26 @@ def determine_pipeline_state(
     dig_approved = check_approval_status(dig_review_path)
     invdig_approved = check_approval_status(invdig_review_path)
 
+    # --- THIS IS THE FIX ---
+    # The final state can only be reached if all three files exist and are approved.
     if en_approved and dig_approved and invdig_approved:
         return "MAPPINGS_APPROVED"
     
-    if en_approved and (dig_review_path.exists() or invdig_review_path.exists()):
-        return "AWAITING_MAPPING_REVIEW"
-        
+    # If the English is approved, but not all mappings are, we are either waiting for review OR need to generate them.
     if en_approved:
-        return "ENGLISH_APPROVED"
-
+        # If either mapping file is MISSING, we MUST be in the generation phase.
+        if not dig_review_path.exists() or not invdig_review_path.exists():
+            return "ENGLISH_APPROVED"
+        
+        # If both files exist, but at least one is unapproved, THEN we are waiting for review.
+        if not dig_approved or not invdig_approved:
+            return "AWAITING_MAPPING_REVIEW"
+            
+    # If the English file exists but isn't approved, we are waiting for that review.
     if en_review_path.exists():
         return "AWAITING_ENGLISH_REVIEW"
         
+    # If no review files exist at all, we are at the very beginning.
     return "START"
 
 def run_pipeline_phase(
@@ -222,7 +231,6 @@ def main():
         
         language_config = build_language_config(lang_manifest, args.base_lang, args.target_lang)
 
-        # --- THIS IS THE SIMPLIFIED AND CORRECTED LOGIC ---
         spacy_models = {}
         base_model_name = language_config.get("base_spacy_model")
         target_model_name = language_config.get("target_spacy_model")
@@ -231,13 +239,10 @@ def main():
             logger.info(f"  -> Loading SpaCy model for base language '{args.base_lang}': '{base_model_name}'")
             spacy_models[args.base_lang] = spacy.load(base_model_name, disable=["ner"])
         
-        #
         if target_model_name:
             logger.info(f"  -> Loading SpaCy model for target language '{args.target_lang}': '{target_model_name}'")
             spacy_models[args.target_lang] = spacy.load(target_model_name, disable=["ner"])
         
-        # --- START OF FIX ---
-        # We also need the Stanza processors for the PoolManager
         from .stanza_segmenter import EnglishStanzaProcessor, SpanishStanzaProcessor
         stanza_processors = {}
         logger.info(f"  -> Initializing Stanza processor for base language '{args.base_lang}'")
@@ -251,7 +256,6 @@ def main():
             stanza_processors['en'] = EnglishStanzaProcessor(config, llm_logger)
         elif args.target_lang == 'es':
             stanza_processors['es'] = SpanishStanzaProcessor(config, llm_logger)
-        # --- END OF FIX ---
 
     except Exception as e:
         logger.critical(f"Failed to load language resources (manifest, spacy, stanza): {e}"); sys.exit(1)
@@ -259,7 +263,7 @@ def main():
 
     shared_resources = {
         'llm_clients': llm_clients, 'spacy_models': spacy_models,
-        'stanza_processors': stanza_processors, # <-- ADD THIS KEY
+        'stanza_processors': stanza_processors,
         'models_config': config.get("models", {}), 'pipeline_config': config.get("pipeline", {}),
         'stages_config': config.get("stages", {}), 'content_project_dir': content_project_dir_str,
         'llm_logger': llm_logger, 'language_config': language_config,
@@ -267,8 +271,6 @@ def main():
     
     pool_manager = PoolManager(content_project_root, shared_resources)
     book_resources = pool_manager.get_book_resources(args.book_to_process, args.base_lang, args.target_lang)
-    
-    logger.info(f"DEBUG: PoolManager returned book_resources: {book_resources}")
     
     if not book_resources:
         logger.error(f"PoolManager failed to get or create required book resources. Halting.")

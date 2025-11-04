@@ -4,10 +4,20 @@ from typing import Any, Dict, List
 from .base import LLMStage, logger
 from .. import llm_prompts, llm_utils
 from ..phrase_mapper_helpers import refactor_token_stream
+from pathlib import Path
 
 HUMAN_REVIEW_DIR_NAME = "human_review"
 HUMAN_REVIEW_MARKER = "%%HUMAN_REVIEW_APPROVED%%"
 
+def check_approval_status(file_path: "Path") -> bool:
+    if not file_path.is_file():
+        return False
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            first_line = f.readline().strip()
+        return first_line == HUMAN_REVIEW_MARKER
+    except Exception:
+        return False
 
 class GenerateInverseDiglotMap(LLMStage):
     def __init__(self, book_stem: str, cli_args: Any, common_resources: Dict[str, Any]):
@@ -84,6 +94,14 @@ class GenerateInverseDiglotMap(LLMStage):
         self.stage_output_dir.mkdir(parents=True, exist_ok=True)
         self.llm_logger_dir.mkdir(parents=True, exist_ok=True)
         llm_logger = LLMLogger(self.llm_logger_dir)
+
+        if self.review_file_path.exists() and check_approval_status(self.review_file_path):
+            logger.info(f"      -> Found approved review file '{self.review_file_path.name}'. Skipping LLM generation.")
+            input_data = self._load_input_data()
+            if not input_data: return False
+            if not self._save_output_data(input_data, "SKIPPED_HAS_APPROVED_FILE"): return False
+            return True
+        system_prompt = self.get_system_prompt()
 
         input_data = self._load_input_data()
         if input_data is None: return False

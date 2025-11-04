@@ -1,5 +1,6 @@
-// src/corpus_generator.rs
+// src/simulation/corpus_generator.rs
 
+use crate::simulation::numerical_types::LLevelRecipe;
 use crate::config::Config;
 use crate::simulation::metrics::TextMetrics;
 use crate::simulation::{
@@ -16,33 +17,30 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path};
 
-// --- NEW ENUM FOR SEGMENT TYPES ---
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SegmentType {
     AdvancedSpanish,
     ModerateSpanish,
-    BasicSpanish,      // Represents the full BS sentence
-    InverseDiglot,     // Represents a successful ID weave
-    EnglishDiglot,     // Represents the final BE diglot fallback
+    BasicSpanish,
+    InverseDiglot,
+    EnglishDiglot,
 }
 
-// --- UPDATED STRUCT TO HOLD SIMULATION RESULTS ---
 #[derive(Debug, Clone, Default)]
 pub struct BookGenerationResult {
     pub all_output_lemma_instances: Vec<String>,
     pub total_target_words: usize,
     pub total_base_words: usize,
     pub level_stats: HashMap<OutputLevel, usize>,
-    pub segment_stats: HashMap<SegmentType, usize>, // No change here
+    pub segment_stats: HashMap<SegmentType, usize>,
     pub final_text_parts: Vec<String>,
 }
 
-// --- UPDATED SIMULATION FUNCTION ---
+// MODIFIED: 'sim_v' parameter removed from the function signature.
 pub fn generate_book_instance(
     numerical_chapter: &NumericalChapter,
     json_chapter: &JsonChapter,
     dictionary: &GlobalLemmaDictionary,
-    sim_v: u32,
     bas_v: u32,
     mod_v: u32,
     adv_v: u32,
@@ -53,7 +51,6 @@ pub fn generate_book_instance(
     
     let mut profile = NumericalLearnerProfile::new();
     let ordered_lemmas = frequency_manager::get_ordered_lemmas();
-    // Use `bas_v` for the profile, as it's the level for L1 checks
     if bas_v < u32::MAX {
         for lemma_str in ordered_lemmas.iter().take(bas_v as usize) {
             if let Some(lemma_id) = dictionary.get_id(lemma_str) {
@@ -62,7 +59,8 @@ pub fn generate_book_instance(
         }
     }
 
-    let v_levels = VLevelRecipe { sim: sim_v, bas: bas_v, mod_v, adv: adv_v };
+    // MODIFIED: VLevelRecipe no longer includes 'sim'.
+    let v_levels = VLevelRecipe { bas: bas_v, mod_v, adv: adv_v };
 
     for n_sentence in &numerical_chapter.sentences_numerical {
         let mut n_sentence_clone = n_sentence.clone();
@@ -91,7 +89,6 @@ pub fn generate_book_instance(
         result.final_text_parts.push(generated_text);
         *result.level_stats.entry(output.level).or_insert(0) += 1;
 
-        // --- THIS IS THE UPDATED LOGIC TO POPULATE SEGMENT STATS ---
         match output.level {
             OutputLevel::AdvancedWeave => {
                 if let Some(choices) = &output.l0_segment_choices {
@@ -109,24 +106,25 @@ pub fn generate_book_instance(
             OutputLevel::BasicBaseDiglot => {
                 *result.segment_stats.entry(SegmentType::EnglishDiglot).or_insert(0) += 1;
             },
-            // The InverseDiglot level is new
             OutputLevel::InverseDiglot => {
                  *result.segment_stats.entry(SegmentType::InverseDiglot).or_insert(0) += 1;
             }
         }
-        // --- END OF UPDATED LOGIC ---
     }
 
     Ok(result)
 }
 
 
-// --- UPDATED LOGGING FUNCTION ---
 fn log_analysis_to_file(
     log_file_path: &Path,
     book_instance_unique_id: &str,
     result: &BookGenerationResult,
     avd_score: f64,
+    start_v_recipe: Option<VLevelRecipe>,
+    end_v_recipe: Option<VLevelRecipe>,
+    start_l_recipe: Option<LLevelRecipe>,
+    end_l_recipe: Option<LLevelRecipe>,
 ) -> Result<(), std::io::Error> {
     let mut file = OpenOptions::new().create(true).append(true).open(log_file_path)?;
     let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
@@ -137,6 +135,17 @@ fn log_analysis_to_file(
     } else { 0.0 };
 
     writeln!(file, "--- Analysis for Book Instance: {} (at {}) ---", book_instance_unique_id, timestamp)?;
+
+    // --- NEW SECTION START ---
+    if let (Some(start_v), Some(end_v), Some(start_l), Some(end_l)) = (start_v_recipe, end_v_recipe, start_l_recipe, end_l_recipe) {
+        writeln!(file, "  Recipe Dynamics:")?;
+        writeln!(file, "    Start L-Levels (bas/mod/adv): {:.1} / {:.1} / {:.1}", start_l.bas, start_l.mod_v, start_l.adv)?;
+        writeln!(file, "    Start V-Levels (bas/mod/adv): {} / {} / {}", start_v.bas, start_v.mod_v, start_v.adv)?;
+        writeln!(file, "    End   L-Levels (bas/mod/adv): {:.1} / {:.1} / {:.1}", end_l.bas, end_l.mod_v, end_l.adv)?;
+        writeln!(file, "    End   V-Levels (bas/mod/adv): {} / {} / {}", end_v.bas, end_v.mod_v, end_v.adv)?;
+    }
+    // --- NEW SECTION END ---
+
     writeln!(file, "  AVD Score (Density-Weighted): {:.2}", avd_score)?;
     writeln!(file, "  Output Word Count Summary:")?;
     writeln!(file, "    Total Target Words:  {:>5}", result.total_target_words)?;
@@ -183,11 +192,9 @@ fn log_analysis_to_file(
     Ok(())
 }
 
-// --- The rest of the file (command parsing, main loop) is unchanged ---
-
+// MODIFIED: Removed 'sim_v' field.
 #[derive(Debug, Clone, Default)]
 struct ProcessingState {
-    sim_v: u32,
     bas_v: u32,
     mod_v: u32,
     adv_v: u32,
@@ -225,13 +232,14 @@ pub fn run_corpus_generation(
             let command = parts.get(0).cloned().unwrap_or("");
             if command == "%u-level" && parts.len() == 2 {
                 state.user_level = Some(parts[1].parse()?);
-                state.sim_v = 0; state.bas_v = 0; state.mod_v = 0; state.adv_v = 0;
+                state.bas_v = 0; state.mod_v = 0; state.adv_v = 0;
                 println!("[CMD] Set User Level to: {}", state.user_level.unwrap());
-            } else if (command == "%levels" || command == "%level") && parts.len() == 5 {
-                state.sim_v = parse_level_value(parts[1]); state.bas_v = parse_level_value(parts[2]);
-                state.mod_v = parse_level_value(parts[3]); state.adv_v = parse_level_value(parts[4]);
+            } else if (command == "%levels" || command == "%level") && parts.len() == 4 {
+                state.bas_v = parse_level_value(parts[1]);
+                state.mod_v = parse_level_value(parts[2]);
+                state.adv_v = parse_level_value(parts[3]);
                 state.user_level = None;
-                println!("[CMD] Set Manual Levels to: sim={}, bas={}, mod={}, adv={}", state.sim_v, state.bas_v, state.mod_v, state.adv_v);
+                println!("[CMD] Set Manual Levels to: bas={}, mod={}, adv={}", state.bas_v, state.mod_v, state.adv_v);
             } else {
                 eprintln!("[WARN] Unknown or malformed command: {}", line);
             }
@@ -251,10 +259,23 @@ pub fn run_corpus_generation(
         
         let mut full_book_result = BookGenerationResult::default();
         let filename: String;
+        
+        // --- MODIFIED SECTION START ---
+        // Variables to hold the recipes for logging
+        let mut start_v_recipe = None;
+        let mut end_v_recipe = None;
+        let mut start_l_recipe = None;
+        let mut end_l_recipe = None;
 
         if let Some(u_level) = state.user_level {
             let u_level_map = json_chapter.u_level_maps.get(&u_level.to_string())
                 .ok_or(format!("U-Level '{}' not found in map for book '{}'", u_level, book_stem))?;
+
+            // Capture the start and end recipes
+            start_v_recipe = u_level_map.map.first().map(|e| e.recipe.clone());
+            end_v_recipe = u_level_map.map.last().map(|e| e.recipe.clone());
+            start_l_recipe = u_level_map.map.first().map(|e| e.l_level_recipe.clone());
+            end_l_recipe = u_level_map.map.last().map(|e| e.l_level_recipe.clone());
 
             let end_level_for_range = (u_level_map.end_level - 1.0).floor() as u32;
             filename = if end_level_for_range > u_level {
@@ -290,7 +311,7 @@ pub fn run_corpus_generation(
                 
                 let slice_result = generate_book_instance(
                     &numerical_slice, &json_slice, &dictionary,
-                    recipe.sim, recipe.bas, recipe.mod_v, recipe.adv,
+                    recipe.bas, recipe.mod_v, recipe.adv,
                     inverse_diglot_threshold, debug_markers,
                 )?;
 
@@ -302,12 +323,12 @@ pub fn run_corpus_generation(
                 for (seg_type, count) in slice_result.segment_stats { *full_book_result.segment_stats.entry(seg_type).or_insert(0) += count; }
             }
         } else {
-            filename = format!("{}_S{}_B{}_M{}_A{}.txt", book_stem, state.sim_v, state.bas_v, state.mod_v, state.adv_v)
+            filename = format!("{}_B{}_M{}_A{}.txt", book_stem, state.bas_v, state.mod_v, state.adv_v)
                 .replace(&u32::MAX.to_string(), "EX");
             
             full_book_result = generate_book_instance(
                 &numerical_chapter, &json_chapter, &dictionary,
-                state.sim_v, state.bas_v, state.mod_v, state.adv_v,
+                state.bas_v, state.mod_v, state.adv_v,
                 inverse_diglot_threshold, debug_markers,
             )?;
         }
@@ -320,7 +341,9 @@ pub fn run_corpus_generation(
         fs::write(tts_output_dir.join(&filename), final_cleaned_text)?;
         println!("  -> Saved TTS file to: {}", filename);
         
-        log_analysis_to_file(&analysis_log_path, &filename, &full_book_result, avd_score)?;
+        // Pass the optional recipes to the logger
+        log_analysis_to_file(&analysis_log_path, &filename, &full_book_result, avd_score, start_v_recipe, end_v_recipe, start_l_recipe, end_l_recipe)?;
+        // --- MODIFIED SECTION END ---
     }
     
     println!("\n[INFO] Batch generation job finished.");

@@ -1,0 +1,44 @@
+Proposal: Enhanced sequence.txt Syntax (v2.0)
+1. Problem Statement
+The current sequence.txt format is a simple, flat list of commands. While functional for small jobs, it becomes highly repetitive and error-prone when generating large batches of books or multiple levels for a single book. It lacks readability, maintainability, and the flexibility to handle more complex generation scenarios.
+2. Proposed Solution: A Stateful, Command-Driven Syntax
+The proposed v2.0 syntax refactors the sequence file from a simple command list into a more powerful and readable run configuration script. The core change is the introduction of a "stateful" parser that operates within a book context.
+3. Key Features
+Book Context Blocks: Books are defined as sections, similar to a .toml or .ini file. All subsequent commands apply to the most recently declared book.
+Syntax: [BookName]
+Enhanced Level Generation Commands: The verbose %u-level repetition is replaced with more powerful and intuitive commands.
+%level <N>: Generates a single, specific user level (e.g., %level 7).
+%range <START>-<END>: Generates an inclusive range of levels (e.g., %range 11-35).
+%step <START>-<END> by <STEP>: Generates a range with a specific stride, ideal for sampling (e.g., %step 10-30 by 5).
+%all: A keyword to generate an output for every calibrated user level found within the book's JSON file.
+Advanced Directives (Future Scope): The new syntax allows for powerful extensions.
+%set <KEY> = <VALUE>: Temporarily overrides a generation setting (like inverse-diglot-threshold) for the current book block, enabling comparative runs.
+@include "<path>": Allows for modularity by including other sequence files.
+4. Complete Example
+The new syntax transforms a verbose file into a concise and readable script.
+
+# WeaveLang Corpus Generation Sequence (v2.0)
+
+# --- Process Metamorphosis ---
+[Metamorphosis]
+%level 1
+%level 7
+%range 10-35
+
+# --- Process a different book with a stepped sample ---
+[Alice_In_Wonderland]
+%step 10-30 by 4
+
+# --- Generate a comparison run for a test book ---
+[test_book]
+%set inverse-diglot-threshold = 0.6
+%level 15
+%set inverse-diglot-threshold = 0.2
+%level 15
+
+5. Summary of Benefits
+Readability: The file becomes self-documenting and easy to understand at a glance.
+Maintainability: Adding or modifying levels for a specific book is trivial and localized.
+Power & Flexibility: Commands like %range, %step, and %set enable complex generation scenarios that are currently impractical.
+Efficiency: Drastically reduces the number of lines required, minimizing the potential for copy-paste errors.
+This proposed enhancement would represent a significant improvement in the toolchain's usability and power, paving the way for more complex and efficient corpus generation.

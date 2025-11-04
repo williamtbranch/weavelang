@@ -1,7 +1,7 @@
 // src/types/json_types.rs
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::simulation::numerical_types::VLevelRecipe;
+use crate::simulation::numerical_types::{LLevelRecipe, VLevelRecipe};
 
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct JsonChapterMarkerBlock {
@@ -47,13 +47,15 @@ pub struct JsonSegmentV2 {
     pub lemmas: Vec<String>,
 }
 
+// --- MODIFIED SECTION START ---
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TierId {
-    Simple, // Note: This is now unused but kept for historical/parsing safety if needed
+    // 'Simple' has been removed.
     Basic,
     Moderate,
     Advanced,
 }
+// --- MODIFIED SECTION END ---
 
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct JsonSentenceBlock {
@@ -93,6 +95,7 @@ pub struct JsonChapterForParsing {
     pub content_blocks: Vec<JsonContentBlock>,
 }
 
+
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct JsonTierV2 {
     pub tier_id: String,
@@ -102,24 +105,22 @@ pub struct JsonTierV2 {
     pub segments: Vec<JsonSegmentV2>,
 }
 
-// --- THIS STRUCT IS THE PRIMARY CHANGE IN THIS FILE ---
+
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct JsonMappingsV2 {
-    // Renamed to reflect that this maps between the 'basic' base and target tiers
     #[serde(default, rename = "basic_spanish_to_basic_english_diglot")]
     pub basic_diglot: HashMap<String, Vec<(usize, Vec<String>, String, bool, usize, Vec<String>)>>,
 
-    // Renamed for clarity and to reflect its source/target
     #[serde(default, rename = "basic_target_to_basic_base_inv_diglot")]
     pub basic_inverse_diglot: HashMap<String, Vec<(usize, Vec<String>, String, usize, usize)>>,
 }
-// --- END OF PRIMARY CHANGE ---
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct JsonCurriculumMapEntry {
     pub level: f32,
     pub start_sentence_idx: usize,
     pub recipe: VLevelRecipe,
+    pub l_level_recipe: LLevelRecipe,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]

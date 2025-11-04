@@ -41,6 +41,37 @@ def refactor_token_stream(original_tokens: List[Dict[str, Any]], group_strings: 
     Pass 2 (Normalization): Uses smart_match_and_edit to correct token boundaries.
     Pass 3 (Grouping): Fuses the now-normalized tokens into multi-word groups.
     """
+    # --- START OF HOTFIX ---
+    # Pass 0: Pre-split any word tokens that were incorrectly fused by an em-dash.
+    pre_split_stream = []
+    for token in original_tokens:
+        if token.get('t') == 'w' and '—' in token['v']:
+            # This is the "one—not" case.
+            parts = token['v'].split('—', 1)
+            if len(parts) == 2 and parts[0] and parts[1]:
+                logger.warning(f"      -> HOTFIX: Splitting fused token '{token['v']}' into '{parts[0]}' and '{parts[1]}'.")
+                # Create the first word token, inheriting properties from the original.
+                token1 = token.copy()
+                token1['v'] = parts[0]
+                
+                # Create the background token for the em-dash.
+                b_token = {'t': 'b', 'v': '—'}
+                
+                # Create the second word token. It needs a new 'di' and 'l' if they exist.
+                # We'll mark them as temporary; they will be corrected by later processing.
+                token2 = {'t': 'w', 'v': parts[1], 'di': token.get('di', 0) + 0.5, 'l': []}
+                
+                pre_split_stream.extend([token1, b_token, token2])
+                continue
+        pre_split_stream.append(token)
+    
+    # Re-index 'di' values to be integers after the split.
+    di_counter = 0
+    for token in pre_split_stream:
+        if token['t'] == 'w':
+            token['di'] = di_counter
+            di_counter += 1
+    # --- END OF HOTFIX ---
     structurally_sound_stream = pre_fuse_word_tokens(original_tokens)
     normalized_stream = list(structurally_sound_stream)
     

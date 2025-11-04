@@ -43,8 +43,6 @@ fn run_dsl_generation_test_suite() {
     let _guard = TEST_SETUP.lock().unwrap();
     let dsl_content: &'static str = include_str!("generation_tests.weavetest");
     
-    // --- HELPER FUNCTIONS MOVED INSIDE THE TEST ---
-
     fn compile_dsl_sentence_to_numerical(
         test_case: &DslTestCase,
         dictionary: &mut GlobalLemmaDictionary,
@@ -97,9 +95,8 @@ fn run_dsl_generation_test_suite() {
             "S1".to_string(),
             test_case.sentence_def.l1_inv_diglot_tuples.iter().enumerate()
                 .map(|(idx, t)| {
-                    // Calculate the spanish word count from the DSL tuple's target_word
                     let spa_wc = t.target_word.split_whitespace().count();
-                    (idx, t.target_lemmas.clone(), t.base_substitute.clone(), t.base_substitute.split_whitespace().count(), spa_wc) // <--- CORRECTED (now produces a 5-tuple)
+                    (idx, t.target_lemmas.clone(), t.base_substitute.clone(), t.base_substitute.split_whitespace().count(), spa_wc)
                 })
                 .collect()
         );
@@ -148,8 +145,6 @@ fn run_dsl_generation_test_suite() {
         (is_passed, reasons)
     }
 
-    // --- MAIN TEST LOGIC ---
-
     let test_cases = match weavetest_parser::parse_weavetest_file(dsl_content) {
         Ok(data) => data,
         Err(e) => panic!(
@@ -183,9 +178,9 @@ fn run_dsl_generation_test_suite() {
                 }
             }
 
+            // MODIFIED: VLevelRecipe no longer takes 'sim'
             let v_levels = VLevelRecipe {
-                sim: 0,
-                bas: levels.bas, // <-- FIX
+                bas: levels.bas,
                 mod_v: levels.mod_level,
                 adv: levels.adv,
             };

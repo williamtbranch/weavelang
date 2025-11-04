@@ -1,9 +1,9 @@
-//*** START FILE: src/simulation/calibrator.rs ***//
+// src/simulation/calibrator.rs
 use super::{
     dictionary::GlobalLemmaDictionary,
     frequency_manager,
     metrics::TextMetrics,
-    numerical_types::{NumericalChapter, VLevelRecipe},
+    numerical_types::{LLevelRecipe, NumericalChapter, VLevelRecipe},
     preprocessor,
 };
 use crate::{
@@ -26,15 +26,18 @@ const LADDER_LINEAR_THRESHOLD: u32 = 500;
 const LADDER_PERCENTAGE_STEP: f32 = 1.01;
 const WORDS_PER_HOUR: f64 = 6.0;
 const INITIAL_LEARNING_THRESHOLD_WORDS: u32 = 10;
-const INITIAL_LEARNING_RATE_MULTIPLIER: f64 = 2.0; // 2x slower for first 10 words
+const INITIAL_LEARNING_RATE_MULTIPLIER: f64 = 2.0;
 
 // --- Structs for Data Serialization ---
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-struct LLevelRecipe { pub sim: f32, pub bas: f32, pub mod_v: f32, pub adv: f32 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
-struct ULevelAnalysisEntry { u_level: f32, target_avd: f64, actual_avd: f64, recipe: VLevelRecipe, l_level_recipe: LLevelRecipe }
-
+struct ULevelAnalysisEntry {
+    u_level: f32,
+    target_avd: f64,
+    actual_avd: f64,
+    recipe: VLevelRecipe,
+    l_level_recipe: LLevelRecipe,
+}
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 struct ULevelAnalysisData { u_level_map: Vec<ULevelAnalysisEntry> }
 
@@ -51,11 +54,10 @@ struct BookAnalysisData {
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
-struct BookLLevelTables { simple: LLevelTable, basic: LLevelTable, moderate: LLevelTable, advanced: LLevelTable }
+struct BookLLevelTables { basic: LLevelTable, moderate: LLevelTable, advanced: LLevelTable }
 
-// --- Internal State Enums ---
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum CalibrationPhase { SimBas, BasMod, ModAdv, AdvOnly, Complete }
+enum CalibrationPhase { BasMod, ModAdv, AdvOnly, Complete }
 
 // --- AVD Formula (Unchanged) ---
 const A_FIT: f64 = 4.15;
@@ -91,18 +93,13 @@ pub fn run_unified_calibration(
     
     let json_content = fs::read_to_string(book_json_path)?;
     
-    // --- START: MODIFIED SECTION ---
-    // Change: Use the new, safer struct for the initial parse.
-    // This parse will succeed because it doesn't look for `u_level_maps`.
     let json_chapter_for_parsing: JsonChapterForParsing = serde_json::from_str(&json_content)?;
     
-    // We create a full JsonChapter from the parsed data for the rest of the functions to use.
     let json_chapter = JsonChapter {
         book_meta: json_chapter_for_parsing.book_meta,
         content_blocks: json_chapter_for_parsing.content_blocks,
-        u_level_maps: HashMap::new(), // Start with an empty map
+        u_level_maps: HashMap::new(), 
     };
-    // --- END: MODIFIED SECTION ---
 
     let mut dictionary = GlobalLemmaDictionary::new();
     dictionary.populate_from_json_chapter(&json_chapter);
@@ -111,7 +108,8 @@ pub fn run_unified_calibration(
     println!("  -> Phase A: Pre-computing AVD cache...");
     let ladder = generate_vocabulary_ladder();
     let mut avd_cache: HashMap<TierId, Vec<(u32, f64)>> = HashMap::new();
-    for tier_id in [TierId::Simple, TierId::Basic, TierId::Moderate, TierId::Advanced] {
+    
+    for tier_id in [TierId::Basic, TierId::Moderate, TierId::Advanced] {
         let mut tier_results = Vec::new();
         for (i, &v_level) in ladder.iter().enumerate() {
             let avd = generate_and_measure(&numerical_chapter, &json_chapter, &dictionary, tier_id, v_level)?;
@@ -142,8 +140,6 @@ pub fn run_unified_calibration(
     println!("  -> Finalizing: Merging curriculum maps into book JSON...");
     let mut book_json_value: JsonValue = serde_json::from_str(&json_content)?;
     if let Some(obj) = book_json_value.as_object_mut() {
-        // This is safe because the `u_level_maps` key may or may not exist in the raw value.
-        // `insert` will add it or overwrite it.
         obj.insert("u_level_maps".to_string(), serde_json::to_value(curriculum_maps)?);
     }
     let mut file = File::create(output_path)?;
@@ -179,7 +175,6 @@ fn synthesize_l_level_tables(
 
         let table = LLevelTable { tier_id: format!("{:?}", tier_id), natural_exhaustion_level, levels };
         match tier_id {
-            TierId::Simple => tables.simple = table,
             TierId::Basic => tables.basic = table,
             TierId::Moderate => tables.moderate = table,
             TierId::Advanced => tables.advanced = table,
@@ -199,12 +194,10 @@ fn run_u_level_state_machine(
     let num_u_steps = max_level as usize * 10;
     let mut calculation_cache: HashMap<VLevelRecipe, f64> = HashMap::new();
     
-    // --- START OF REFACTORED LOGIC ---
     let mut last_best_l_recipe = LLevelRecipe::default();
     let mut last_best_v_recipe = VLevelRecipe::default();
     let mut last_best_avd = 0.0;
     
-    // This flag will be set to true once the book hits its maximum possible AVD.
     let mut is_maxed_out = false;
 
     for i in 0..=num_u_steps {
@@ -212,8 +205,6 @@ fn run_u_level_state_machine(
         let target_avd = get_avd_from_user_level(current_u_level);
 
         if is_maxed_out {
-            // If we've already hit the book's ceiling, don't re-calculate.
-            // Just fill in the remaining U-Levels with the best-ever result.
             u_level_analysis.u_level_map.push(ULevelAnalysisEntry {
                 u_level: current_u_level,
                 target_avd,
@@ -224,51 +215,41 @@ fn run_u_level_state_machine(
             continue;
         }
 
-        // Create a search space of candidate L-Level recipes to try for this U-Level.
-        // Start searching from the last known best recipe.
         let mut candidate_l_recipes = Vec::new();
         let mut current_l_recipe = last_best_l_recipe.clone();
         
-        // Generate a reasonable number of forward-looking candidates.
-        for _ in 0..100 { // 100 steps should be more than enough to find the next threshold
-            // Advance the recipe using the phase-based logic
+        for _ in 0..100 { 
             let (next_l_recipe, phase_complete) = advance_l_recipe(current_l_recipe, l_tables);
             if phase_complete { break; }
             candidate_l_recipes.push(next_l_recipe.clone());
             current_l_recipe = next_l_recipe;
         }
 
-        // Find the best candidate from the search space that doesn't overshoot the target AVD.
         let mut found_improvement = false;
         for candidate_l in candidate_l_recipes {
             let mut candidate_v = VLevelRecipe {
-                sim: find_v_level_for_l_level(&l_tables.simple, candidate_l.sim),
                 bas: find_v_level_for_l_level(&l_tables.basic, candidate_l.bas),
                 mod_v: find_v_level_for_l_level(&l_tables.moderate, candidate_l.mod_v),
                 adv: find_v_level_for_l_level(&l_tables.advanced, candidate_l.adv),
             };
 
-            // Apply the backfill logic to the candidate
             let u_level_floor = current_u_level.floor() as u32;
-            if candidate_v.sim < u_level_floor {
-                candidate_v.sim = u_level_floor;
+            if candidate_v.bas < u_level_floor {
+                candidate_v.bas = u_level_floor;
             }
 
             let candidate_avd = get_avd_for_recipe(numerical_chapter, json_chapter, dictionary, candidate_v.clone(), &mut calculation_cache)?;
             
             if candidate_avd <= target_avd {
-                // This is a better recipe that is still under the target. Update our best-known values.
                 last_best_l_recipe = candidate_l;
                 last_best_v_recipe = candidate_v;
                 last_best_avd = candidate_avd;
                 found_improvement = true;
             } else {
-                // We've overshot the target, so we stop searching for this U-Level.
                 break;
             }
         }
         
-        // Check if we failed to find any improvement. This means the book is maxed out.
         if !found_improvement {
             let (_, phase_complete) = advance_l_recipe(last_best_l_recipe.clone(), l_tables);
             if phase_complete {
@@ -282,7 +263,7 @@ fn run_u_level_state_machine(
             target_avd,
             actual_avd: last_best_avd,
             recipe: last_best_v_recipe.clone(),
-            l_level_recipe: last_best_l_recipe.clone(),
+            l_level_recipe: last_best_l_recipe.clone(), // <-- THIS IS THE KEY CHANGE
         });
         
         print!("\r     ...calibrating U-Level {:.1}", current_u_level);
@@ -307,7 +288,7 @@ fn generate_curriculum_maps(
         }).collect();
     
     let total_words_in_book: f64 = json_chapter.content_blocks.iter().map(|cb| match cb {
-        JsonContentBlock::Sentence(s) => s.tiers.iter().find(|t| t.tier_id == "base").map_or(0, |t| t.full_text.split_whitespace().count()),
+        JsonContentBlock::Sentence(s) => s.tiers.iter().find(|t| t.tier_id == "basic_base").map_or(0, |t| t.full_text.split_whitespace().count()),
         _ => 0,
     }) .sum::<usize>() as f64;
     let total_sentences_in_book = json_chapter.content_blocks.iter().filter(|cb| matches!(cb, JsonContentBlock::Sentence(_))).count();
@@ -323,8 +304,10 @@ fn generate_curriculum_maps(
             let new_words = v_end - v_start;
             let mut time_per_word = 1.0 / WORDS_PER_HOUR * 60.0;
             if v_end <= INITIAL_LEARNING_THRESHOLD_WORDS { time_per_word *= INITIAL_LEARNING_RATE_MULTIPLIER; }
-            let level_time_cost = new_words as f64 * time_per_word * 150.0; // 150 wpm reading speed
+            let level_time_cost = new_words as f64 * time_per_word * 150.0;
+            
             if cumulative_time_cost + level_time_cost > total_words_in_book { break; }
+            
             cumulative_time_cost += level_time_cost;
             time_costs.push((level, level_time_cost));
             end_level = level + 1;
@@ -343,10 +326,12 @@ fn generate_curriculum_maps(
                 .min_by(|a, b| (a.u_level - micro_level).abs().partial_cmp(&(b.u_level - micro_level).abs()).unwrap())
                 .ok_or("Could not find closest analysis entry for micro-level")?;
 
+            // --- THIS BLOCK IS THE KEY CHANGE ---
             map.push(JsonCurriculumMapEntry {
                 level: micro_level,
                 start_sentence_idx: sentence_cursor,
                 recipe: analysis_entry.recipe.clone(),
+                l_level_recipe: analysis_entry.l_level_recipe.clone(), // <-- ADD THIS LINE
             });
             
             let current_level_in_costs = start_level + (micro_level_step / 10);
@@ -369,34 +354,24 @@ fn find_v_level_for_l_level(table: &LLevelTable, l_level: f32) -> u32 {
     table.levels.iter().find(|&entry| entry.l_level >= l_level).map_or(u32::MAX, |l| l.v_low)
 }
 
+// MODIFIED: 'sim' field removed from initializers.
 fn generate_and_measure(nc: &NumericalChapter, jc: &JsonChapter, dict: &GlobalLemmaDictionary, tier: TierId, v: u32) -> Result<f64, Box<dyn Error>> {
     let vs = match tier {
-        TierId::Simple => VLevelRecipe { sim: v, ..Default::default() }, TierId::Basic => VLevelRecipe { bas: v, ..Default::default() },
-        TierId::Moderate => VLevelRecipe { mod_v: v, ..Default::default() }, TierId::Advanced => VLevelRecipe { adv: v, ..Default::default() },
+        TierId::Basic => VLevelRecipe { bas: v, mod_v: 0, adv: 0 },
+        TierId::Moderate => VLevelRecipe { bas: v, mod_v: v, adv: 0 },
+        TierId::Advanced => VLevelRecipe { bas: v, mod_v: v, adv: v },
     };
-    let r = corpus_generator::generate_book_instance(nc, jc, dict, vs.sim, vs.bas, vs.mod_v, vs.adv, 0.4, false)?;
+    let r = corpus_generator::generate_book_instance(nc, jc, dict, vs.bas, vs.mod_v, vs.adv, 0.4, false)?;
     Ok(TextMetrics::new(&r.all_output_lemma_instances, r.total_base_words).calculate_avd_score())
 }
 
+// MODIFIED: Call to generate_book_instance no longer includes 'r.sim'.
 fn get_avd_for_recipe(nc: &NumericalChapter, jc: &JsonChapter, dict: &GlobalLemmaDictionary, r: VLevelRecipe, c: &mut HashMap<VLevelRecipe, f64>) -> Result<f64, Box<dyn Error>> {
     if let Some(avd) = c.get(&r) { return Ok(*avd); }
-    let res = corpus_generator::generate_book_instance(nc, jc, dict, r.sim, r.bas, r.mod_v, r.adv, 0.4, false)?;
+    let res = corpus_generator::generate_book_instance(nc, jc, dict, r.bas, r.mod_v, r.adv, 0.4, false)?;
     let avd = TextMetrics::new(&res.all_output_lemma_instances, res.total_base_words).calculate_avd_score();
     c.insert(r, avd); Ok(avd)
 }
-
-// fn generate_catch_up_sequence(s_start: f32, s_end: f32, f_end: f32) -> Vec<(f32, f32)> {
-//     let s_steps = ((s_end - s_start) * 10.0).round() as u32;
-//     let f_steps = (f_end * 10.0).round() as u32;
-//     if s_steps == 0 || f_steps == 0 { return vec![(s_end, f_end)]; }
-//     let rate = f_steps as f32 / s_steps as f32;
-//     (0..=s_steps).map(|i| {
-//         let current_s = s_start + (i as f32 / 10.0);
-//         let mut current_f = (i as f32 * rate).round() / 10.0;
-//         current_f = current_f.min(f_end);
-//         (current_s, current_f)
-//     }).collect()
-// }
 
 fn advance_l_recipe(mut recipe: LLevelRecipe, l_tables: &BookLLevelTables) -> (LLevelRecipe, bool) {
     let phase = if recipe.adv >= l_tables.advanced.natural_exhaustion_level {
@@ -405,19 +380,11 @@ fn advance_l_recipe(mut recipe: LLevelRecipe, l_tables: &BookLLevelTables) -> (L
         CalibrationPhase::AdvOnly
     } else if recipe.bas >= l_tables.basic.natural_exhaustion_level {
         CalibrationPhase::ModAdv
-    } else if recipe.sim >= l_tables.simple.natural_exhaustion_level {
-        CalibrationPhase::BasMod
     } else {
-        CalibrationPhase::SimBas
+        CalibrationPhase::BasMod
     };
 
     match phase {
-        CalibrationPhase::SimBas => {
-            // In the first phase, we simply increment the Simple L-Level
-            recipe.sim = (recipe.sim * 10.0 + 1.0).round() / 10.0;
-            // The other tiers "chase" the simple tier.
-            recipe.bas = recipe.bas.max(recipe.sim);
-        }
         CalibrationPhase::BasMod => {
             recipe.bas = (recipe.bas * 10.0 + 1.0).round() / 10.0;
             recipe.mod_v = recipe.mod_v.max(recipe.bas);
@@ -430,12 +397,10 @@ fn advance_l_recipe(mut recipe: LLevelRecipe, l_tables: &BookLLevelTables) -> (L
             recipe.adv = (recipe.adv * 10.0 + 1.0).round() / 10.0;
         }
         CalibrationPhase::Complete => {
-            return (recipe, true); // Signal that we are done
+            return (recipe, true);
         }
     }
     
-    // Clamp values to their natural exhaustion levels
-    recipe.sim = recipe.sim.min(l_tables.simple.natural_exhaustion_level);
     recipe.bas = recipe.bas.min(l_tables.basic.natural_exhaustion_level);
     recipe.mod_v = recipe.mod_v.min(l_tables.moderate.natural_exhaustion_level);
     recipe.adv = recipe.adv.min(l_tables.advanced.natural_exhaustion_level);

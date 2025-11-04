@@ -18,9 +18,9 @@ pub struct DslSubTest {
     pub assertions: Vec<DslAssertion>,
 }
 
+// MODIFIED: Removed 'sim' field
 #[derive(Debug, Clone, Default)]
 pub struct DslLearnerLevel {
-    pub sim: u32,
     pub bas: u32,
     pub mod_level: u32,
     pub adv: u32,
@@ -28,13 +28,12 @@ pub struct DslLearnerLevel {
 
 pub const EXHAUSTED_LEVEL: u32 = u32::MAX;
 
-// --- DslSentenceDef now contains the inverse diglot tuples ---
 #[derive(Debug, Clone, Default)]
 pub struct DslSentenceDef {
     pub l0_adv_segments: Vec<DslSegment>,
     pub l0_mod_segments: Vec<DslSegment>,
     pub l1_basic_spanish: DslSegment,
-    pub l1_inv_diglot_tuples: Vec<DslInvDiglotTuple>, // <-- NEW FIELD
+    pub l1_inv_diglot_tuples: Vec<DslInvDiglotTuple>,
     pub l1_basic_english: DslSegment,
     pub l1_diglot_tuples: Vec<DslDiglotTuple>,
 }
@@ -54,7 +53,6 @@ pub struct DslDiglotTuple {
     pub is_proper_noun: bool,
 }
 
-// --- Re-added the DslInvDiglotTuple struct ---
 #[derive(Debug, Clone)]
 pub struct DslInvDiglotTuple {
     pub target_word: String,
@@ -72,13 +70,10 @@ pub enum DslAssertion {
 #[grammar = "simulation/tests/generation_tests.pest"]
 pub struct WeaveTestParser;
 
-// --- PUBLIC PARSING FUNCTION ---
 pub fn parse_weavetest_file(file_content: &str) -> Result<Vec<DslTestCase>, pest::error::Error<Rule>> {
     let file_pair = WeaveTestParser::parse(Rule::test_suite, file_content)?.next().unwrap();
     Ok(file_pair.into_inner().filter(|p| p.as_rule() == Rule::test_case).map(parse_test_case).collect())
 }
-
-// --- PARSING IMPLEMENTATION (with changes) ---
 
 fn parse_test_case(pair: Pair<Rule>) -> DslTestCase {
     let mut inner = pair.into_inner();
@@ -112,6 +107,7 @@ fn parse_sub_test(pair: Pair<Rule>) -> DslSubTest {
     DslSubTest { name, learner_level, assertions }
 }
 
+// MODIFIED: Removed logic for 'sim_level'
 fn parse_learner_level(pair: Pair<Rule>) -> DslLearnerLevel {
     let mut level = DslLearnerLevel::default();
     for def_pair in pair.into_inner() {
@@ -123,7 +119,6 @@ fn parse_learner_level(pair: Pair<Rule>) -> DslLearnerLevel {
             num_str => num_str.parse().unwrap(),
         };
         match rule {
-            Rule::sim_level => level.sim = value,
             Rule::bas_level => level.bas = value,
             Rule::mod_level => level.mod_level = value,
             Rule::adv_level => level.adv = value,
@@ -133,12 +128,10 @@ fn parse_learner_level(pair: Pair<Rule>) -> DslLearnerLevel {
     level
 }
 
-// --- This function is the main change ---
 fn parse_sentence_def(pair: Pair<Rule>) -> DslSentenceDef {
     let mut inner = pair.into_inner();
     let mut def = DslSentenceDef::default();
 
-    // Parse L0 Column (Adv/Mod pairs)
     let l0_body = inner.next().unwrap();
     let l0_segments: Vec<_> = l0_body.into_inner().map(parse_phrase_and_lemmas).collect();
     if l0_segments.len() % 2 != 0 {
@@ -149,11 +142,10 @@ fn parse_sentence_def(pair: Pair<Rule>) -> DslSentenceDef {
         def.l0_mod_segments.push(chunk[1].clone());
     }
 
-    // Parse L1 Column (BS, ID, BE, D)
     let l1_body = inner.next().unwrap();
     let mut l1_inner = l1_body.into_inner();
     def.l1_basic_spanish = parse_phrase_and_lemmas(l1_inner.next().unwrap());
-    def.l1_inv_diglot_tuples = l1_inner.next().unwrap().into_inner().map(parse_inv_diglot_tuple).collect(); // <-- PARSE ID
+    def.l1_inv_diglot_tuples = l1_inner.next().unwrap().into_inner().map(parse_inv_diglot_tuple).collect();
     def.l1_basic_english = parse_phrase_and_lemmas(l1_inner.next().unwrap());
     def.l1_diglot_tuples = l1_inner.next().unwrap().into_inner().map(parse_diglot_tuple).collect();
 
@@ -171,7 +163,6 @@ fn parse_assertion(pair: Pair<Rule>) -> DslAssertion {
     }
 }
 
-// --- Helper for parsing a generic segment ---
 fn parse_phrase_and_lemmas(pair: Pair<Rule>) -> DslSegment {
     let mut inner = pair.into_inner();
     let phrase_pair = inner.next().unwrap();
@@ -192,7 +183,6 @@ fn parse_phrase_and_lemmas(pair: Pair<Rule>) -> DslSegment {
     DslSegment { tokens, lemmas }
 }
 
-// --- Re-added the parser for inverse diglot tuples ---
 fn parse_inv_diglot_tuple(pair: Pair<Rule>) -> DslInvDiglotTuple {
     let mut inner = pair.into_inner();
     let target_word = inner.next().unwrap().as_str().to_string().replace("__", " ");
@@ -206,8 +196,6 @@ fn parse_inv_diglot_tuple(pair: Pair<Rule>) -> DslInvDiglotTuple {
         base_substitute,
     }
 }
-
-// --- All other helpers are unchanged ---
 
 fn parse_diglot_tuple(pair: Pair<Rule>) -> DslDiglotTuple {
     let mut inner = pair.into_inner();
@@ -232,7 +220,6 @@ fn parse_string_literal_content(pair: Pair<Rule>) -> String {
 }
 
 fn tokenize_simple_string(content: &str) -> Vec<JsonTokenV2> {
-    // ... implementation unchanged ...
     let mut tokens = Vec::new();
     let mut last_end = 0;
     let mut word_count = 0;
@@ -255,7 +242,6 @@ fn tokenize_simple_string(content: &str) -> Vec<JsonTokenV2> {
 }
 
 fn tokenize_bracketed_phrase(content: &str) -> Vec<JsonTokenV2> {
-    // ... implementation unchanged ...
     let mut tokens = Vec::new();
     let mut last_end = 0;
     let mut diglot_idx_counter = 0;

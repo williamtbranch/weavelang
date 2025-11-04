@@ -15,7 +15,7 @@ pub use profile::{LearnerLemmaInfo, LemmaState};
 pub use profile_io::{load_profile_snapshot, save_profile_snapshot, ProfileSnapshot};
 pub use simulation::dictionary::GlobalLemmaDictionary;
 pub use simulation::numerical_types::{
-    NumericalLearnerProfile, NumericalChapter, NumericalProcessedSentence,
+    LLevelRecipe, NumericalLearnerProfile, NumericalChapter, NumericalProcessedSentence,
 };
 pub use simulation::preprocessor::json_chapter_to_numerical;
 pub use simulation::core_algo::{

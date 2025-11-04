@@ -28,7 +28,6 @@ class ApplyInversePhraseMappings(Stage):
         self.human_review_dir = self.pipeline_run_dir / HUMAN_REVIEW_DIR_NAME
         self.input_map_path = self.human_review_dir / f"{self.book_stem}.invdig.txt"
 
-    #
     def _load_and_validate_approved_map(self, input_data: Dict[str, Any]) -> Dict[str, List[str]]:
         """
         Gate 2 Validator: Loads the approved inverse mapping file and validates
@@ -99,7 +98,6 @@ class ApplyInversePhraseMappings(Stage):
         logger.info("      -> Approved map passed all validation checks.")
         return parsed_map
 
-    #
     def run(self) -> bool:
         """Custom run method for this consumption stage."""
         logger.info(f"Executing Stage {self.stage_number}: {self.stage_name} for '{self.book_stem}'")
@@ -167,7 +165,6 @@ class ApplyInversePhraseMappings(Stage):
             for token in new_target_tokens:
                 if token['t'] == 'w':
                     group_str = token['v']
-                    # The 'v' of the token is the full Spanish word group
                     spa_word_count = len(re.findall(r"[\w']+", group_str))
                     
                     eng_substitute = llm_map_by_group.get(group_str, "NO_SUB")
