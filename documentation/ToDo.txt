@@ -81,3 +81,27 @@ Last Updated: (Date of this session)
     - [ ] Refactor `llm_utils.py` to support prompt caching for both Anthropic and Gemini providers.
     - [ ] Update `LLMStage` to manage the lifecycle of a cached system prompt for the duration of its run.
     - [ ] Measure cost savings on a full book run.
+
+
+Proposal for V12 Enhancement: The "Body Measurement" Score
+1. The Problem: The Limits of AVD
+The current primary difficulty metric, the AVD (Average Vocabulary Density) Score, is a "frontier" measurement. It is expertly designed to quantify the lexical challenge of a text's rarest words (the "tail"), which is critical for measuring the i+1 learning load.
+However, AVD is intentionally insensitive to the overall vocabulary composition. As seen with the Metamorphosis calibration, two texts can have counter-intuitive AVD scores if one text uses a very simple core vocabulary but is forced to use a few rare words (giving it a high AVD), while another uses a more consistently intermediate vocabulary (giving it a lower AVD). This can make it difficult to analytically confirm the "feel" or foundational complexity of a tier.
+2. The Solution: A "Body Measurement" for Foundational Complexity
+To complement the AVD score, we will introduce a new analytical metric: the Log-Weighted Mean Rank (LMR) Score. The LMR score is not intended for use in the generation algorithms themselves but will serve as a crucial diagnostic and analytical tool in all logs and reports. Its purpose is to provide an intuitive measure of the vocabulary's "center of gravity."
+3. How the LMR Score Works
+The LMR score is a weighted average of the logarithmic ranks of all lemma instances in a generated text.
+Step 1: Logarithmic Transformation: For every unique lemma in the text, its master frequency rank is transformed using the natural logarithm (ln(rank)). This step is critical as it tames the exponential skew of word frequencies, ensuring that a few extremely rare words do not disproportionately dominate the score.
+Step 2: Weighted Averaging: The final score is the average of these log-ranks, weighted by the number of times each lemma appeared in the text.
+Formula:
+LMR Score = Σ [ ln(rank_i) * occurrences_i ] / Σ [ occurrences_i ]
+(Where i is each unique lemma in the text)
+4. Benefits and Interpretation
+Measures the "Center of Gravity": By weighting by occurrences, the LMR score reflects the vocabulary the reader actually spends their time on, providing a true measure of the text's overall feel.
+Tames Outliers: The logarithmic scale ensures stability and prevents rare words from skewing the metric.
+Intuitive Scale: A lower LMR score indicates that the bulk of the text is composed of very high-frequency words. A higher LMR score indicates a shift towards more intermediate or advanced vocabulary.
+Resolves Ambiguity: The LMR score will provide a clear, analytical confirmation of our intuitive understanding of tier difficulty. For example, it would have shown LMR(Basic) < LMR(Moderate) for Metamorphosis, even when the AVD scores were inverted, immediately confirming that our prompts were working as intended at a foundational level.
+5. Implementation Plan
+src/simulation/metrics.rs: Add a calculate_lmr_score() method to the TextMetrics struct. This method will iterate over the existing ranked_tallies to compute the score.
+src/simulation/calibrator.rs: In the pre-computation phase, calculate and store the LMR score alongside the AVD score in the l_level_tables and the final debug analysis file.
+src/simulation/corpus_generator.rs: In the log_analysis_to_file function, calculate and print the LMR score for every generated book instance, adding a new line to the profiler output (e.g., Body Measurement (LMR Score): 7.82).

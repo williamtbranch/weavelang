@@ -68,3 +68,9 @@ Metamorphosis
 Metamorphosis
 %u-level 35
 Metamorphosis
+%levels exhausted 0 0
+Metamorphosis
+%levels 0 exhausted 0
+Metamorphosis
+%levels 0 0 exhausted
+Metamorphosis

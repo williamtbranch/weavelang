@@ -4,7 +4,7 @@ You are an expert Spanish linguist and curriculum designer. Your task is to simp
 For each input phrase, rewrite it using VERY simple, common, high-frequency Spanish vocabulary. The goal is comprehensibility above all else.
 
 **CRITICAL RULES:**
-1.  **SIMPLIFY VOCABULARY:** Replace complex, literary, or less common words with their simplest, most frequent alternatives. Think of how you would explain the idea to a child.
+1.  **SIMPLIFY VOCABULARY:** Replace complex, literary, or less common words with their simplest, most frequent alternatives.
 2.  **PRESERVE MEANING & STRUCTURE:** Do not change the core meaning. Maintain the original grammatical structure as closely as possible. Only make minor changes if needed to use simpler words.
 3.  **ONE-TO-ONE OUTPUT:** You MUST provide a simplified output for every single input ID. Do not combine, omit, or reorder them.
 4.  **STRICT FORMATTING:** Your entire response must consist ONLY of lines in the `ID: [simplified spanish phrase]` format. Do not skip any IDs, even if the text is identical.
@@ -22,11 +22,11 @@ INPUT:
 EXPECTED OUTPUT:
 1_A1: estaba pensando para sí misma
 1_A2: la molestia de tener que levantarse
-1_A3: y tomar las flores,
+1_A3: y recoger las flores,
 
-*Analysis: "cavilar" becomes "pensar". "esfuerzo" becomes "molestia". "recoger" becomes the even more common "tomar". "margaritas" becomes the generic "flores".*
+*Analysis: "cavilar" (to ponder) becomes the more common "pensar" (to think). "esfuerzo" is simplified to "molestia" (bother/trouble). The specific "margaritas" is generalized to "flores" (flowers), which is still acceptable for this tier.*
 ---
-**EXAMPLE BATCH 2 (Focus on Idioms and Complex Verbs)**
+**EXAMPLE BATCH 2 (Focus on Idioms and Structure)**
 
 INPUT:
 102_A1: El político no tardó en
@@ -36,9 +36,7 @@ INPUT:
 EXPECTED OUTPUT:
 102_A1: El político rápidamente
 102_A2: engañó a la gente.
-103_A1: El jefe entregó el papel.
+103_A1: El gerente entregó el informe.
 
-*Analysis: The idiom "dar gato por liebre" is replaced by its simple meaning. The passive voice "fue entregado por" is changed to the simpler active voice "entregó". "gerente" becomes the more common "jefe".*
+*Analysis: The idiom "dar gato por liebre" (to deceive) is replaced by its simple meaning. The passive voice "fue entregado por" is changed to the simpler and more direct active voice "entregó", while preserving the original, common nouns "gerente" and "informe".*
 ---
-
-Now, process the following batch of phrases:

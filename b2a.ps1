@@ -35,7 +35,7 @@ Import-EnvFile -Path (Join-Path $PSScriptRoot ".env")
 # --- Configuration ---
 $ToolRootPath = "E:/Bill/development/weavelang" # Your actual path
 $PythonScriptPath = "$ToolRootPath/book_to_audio.py"
-$InputFileName = "Metamorphosis_UL1-6.txt" # Your test file
+$InputFileName = "Metamorphosis_UL11.txt" # Your test file
 
 # --- TTS Service Selection ---
 $TtsService = "gemini" 
@@ -44,7 +44,7 @@ $TtsService = "gemini"
 # --- Gemini TTS Configuration ---
 $GeminiModelName = "models/gemini-2.5-pro-preview-tts"
 $GeminiVoiceName = @("Charon", "aoede", "Puck", "Zephyr", "Fenrir", "Kore", "Orus", "Leda") 
-$GeminiTtsPromptPrefix = "You are a professional voice actor with a Mexican Spanish accent."
+$GeminiTtsPromptPrefix = "You are a professional voice actor with a Mexican Spanish accent. Your are narrating a Spanglish text. Make sure to read the English as English and Spanish as Spanish."
 
 # --- Vertex AI TTS Configuration ---
 $VertexVoiceName = "es-US-Chirp3-HD-Achernar"
@@ -58,7 +58,7 @@ $OutputAudioFormat = "wav"
 $LogLevel = "INFO"
 $ConcurrentRequests = 1
 $ChunkMaxChars = 3000
-$MaxApiRetries = 5
+$MaxApiRetries = 2
 $RetryDelay = 20
 $DelayBetweenChunks = 0
 

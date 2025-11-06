@@ -22,6 +22,8 @@ use std::{
 };
 
 // --- Tunable Parameters ---
+const MOD_CATCHUP_START: f32 = 13.0;
+const ADV_CATCHUP_START: f32 = 13.0;
 const LADDER_LINEAR_THRESHOLD: u32 = 500;
 const LADDER_PERCENTAGE_STEP: f32 = 1.01;
 const WORDS_PER_HOUR: f64 = 6.0;
@@ -374,6 +376,7 @@ fn get_avd_for_recipe(nc: &NumericalChapter, jc: &JsonChapter, dict: &GlobalLemm
 }
 
 fn advance_l_recipe(mut recipe: LLevelRecipe, l_tables: &BookLLevelTables) -> (LLevelRecipe, bool) {
+    // Determine the current phase based on the recipe's state BEFORE this step.
     let phase = if recipe.adv >= l_tables.advanced.natural_exhaustion_level {
         CalibrationPhase::Complete
     } else if recipe.mod_v >= l_tables.moderate.natural_exhaustion_level {
@@ -384,23 +387,55 @@ fn advance_l_recipe(mut recipe: LLevelRecipe, l_tables: &BookLLevelTables) -> (L
         CalibrationPhase::BasMod
     };
 
+    // --- THIS IS THE FINAL, CORRECTED LOGIC ---
+    // Based on the phase, we perform different actions.
     match phase {
+        // Phase 1: Basic is leading. Moderate and Advanced are chasing.
         CalibrationPhase::BasMod => {
+            // Increment the leader.
             recipe.bas = (recipe.bas * 10.0 + 1.0).round() / 10.0;
-            recipe.mod_v = recipe.mod_v.max(recipe.bas);
+
+            // Recalculate the chasing tiers based on the leader's new position.
+            let mod_catchup_start_point = l_tables.basic.natural_exhaustion_level - MOD_CATCHUP_START;
+            if recipe.bas >= mod_catchup_start_point {
+                let progress_ratio = ((recipe.bas - mod_catchup_start_point) / MOD_CATCHUP_START).min(1.0);
+                let ramp_target = l_tables.basic.natural_exhaustion_level.min(l_tables.moderate.natural_exhaustion_level);
+                recipe.mod_v = progress_ratio * ramp_target;
+            }
+            
+            let adv_catchup_start_point = l_tables.moderate.natural_exhaustion_level - ADV_CATCHUP_START;
+            if recipe.mod_v >= adv_catchup_start_point {
+                 let progress_ratio = ((recipe.mod_v - adv_catchup_start_point) / ADV_CATCHUP_START).min(1.0);
+                 let ramp_target = l_tables.moderate.natural_exhaustion_level.min(l_tables.advanced.natural_exhaustion_level);
+                 recipe.adv = progress_ratio * ramp_target;
+            }
         }
+        // Phase 2: Basic is exhausted. Moderate is now leading. Advanced is chasing.
         CalibrationPhase::ModAdv => {
+            // Increment the new leader. Do NOT touch 'bas' anymore.
             recipe.mod_v = (recipe.mod_v * 10.0 + 1.0).round() / 10.0;
-            recipe.adv = recipe.adv.max(recipe.mod_v);
+
+            // Recalculate only the 'adv' tier based on 'mod_v'.
+            let adv_catchup_start_point = l_tables.moderate.natural_exhaustion_level - ADV_CATCHUP_START;
+            if recipe.mod_v >= adv_catchup_start_point {
+                let progress_ratio = ((recipe.mod_v - adv_catchup_start_point) / ADV_CATCHUP_START).min(1.0);
+                // THE CRITICAL FIX: The ramp target is now the Advanced tier's OWN exhaustion level.
+                let ramp_target = l_tables.advanced.natural_exhaustion_level;
+                recipe.adv = progress_ratio * ramp_target;
+            }
         }
+        // Phase 3: Basic and Moderate are exhausted. Advanced leads alone.
         CalibrationPhase::AdvOnly => {
+            // Increment the final leader. Do NOT touch 'bas' or 'mod_v'.
             recipe.adv = (recipe.adv * 10.0 + 1.0).round() / 10.0;
         }
+        // Phase 4: All are exhausted.
         CalibrationPhase::Complete => {
             return (recipe, true);
         }
     }
     
+    // Final clamp to ensure no value exceeds its natural limit.
     recipe.bas = recipe.bas.min(l_tables.basic.natural_exhaustion_level);
     recipe.mod_v = recipe.mod_v.min(l_tables.moderate.natural_exhaustion_level);
     recipe.adv = recipe.adv.min(l_tables.advanced.natural_exhaustion_level);

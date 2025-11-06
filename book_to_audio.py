@@ -397,7 +397,35 @@ async def main_async():
     content_project_dir_str = tool_config.get("content_project_dir"); content_project_dir = Path(content_project_dir_str).resolve()
     input_text_file = content_project_dir / "generated_tts_input" / args.input_filename
     output_audio_dir = content_project_dir / "audio"; output_audio_file_path = output_audio_dir / f"{Path(args.input_filename).stem}.{args.output_audio_format}"
-    full_text = input_text_file.read_text(encoding="utf-8")
+    import re
+
+    raw_text = input_text_file.read_text(encoding="utf-8")
+    
+    # 1. Replace any sequence of two or more newlines with a single newline.
+    #    This collapses paragraph breaks but preserves intentional single line breaks.
+    text_with_single_breaks = re.sub(r'\n{2,}', '\n', raw_text)
+    
+    # 2. Heuristic: For lines that do NOT end in punctuation, the single newline
+    #    provides a good pause. For lines that DO end in punctuation, the newline
+    #    can create an unnaturally long pause. We'll replace the newline with a space
+    #    in those specific cases.
+    final_text_parts = []
+    for line in text_with_single_breaks.splitlines():
+        stripped_line = line.strip()
+        if stripped_line:
+            # Check if the line ends with common sentence-ending punctuation.
+            if stripped_line.endswith(('.', '!', '?', '"', '”')):
+                final_text_parts.append(stripped_line)
+            else:
+                # If it's a heading or title, keep the line break for pacing.
+                # We'll represent this with a unique placeholder for now.
+                final_text_parts.append(stripped_line + "<PAUSE>")
+
+    # Join everything with spaces, then replace the placeholder with a newline.
+    # This ensures that even after joining, our intentional breaks are preserved.
+    full_text = ' '.join(final_text_parts).replace("<PAUSE>", "\n")
+
+
     effective_args = argparse.Namespace(**vars(args))
     text_chunks = chunk_text(full_text, effective_args.chunk_max_chars)
     start_time = time.time()
