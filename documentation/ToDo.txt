@@ -105,3 +105,15 @@ Resolves Ambiguity: The LMR score will provide a clear, analytical confirmation 
 src/simulation/metrics.rs: Add a calculate_lmr_score() method to the TextMetrics struct. This method will iterate over the existing ranked_tallies to compute the score.
 src/simulation/calibrator.rs: In the pre-computation phase, calculate and store the LMR score alongside the AVD score in the l_level_tables and the final debug analysis file.
 src/simulation/corpus_generator.rs: In the log_analysis_to_file function, calculate and print the LMR score for every generated book instance, adding a new line to the profiler output (e.g., Body Measurement (LMR Score): 7.82).
+
+Task 6: Unified Token Indexing Architecture (Cleanup)
+
+Context: Currently, the Forward Map (basic_base -> basic_target) relies on explicit di (Diglot Index) keys found on the English tokens. However, the Inverse Map (basic_target -> basic_base) relies on implicit array positioning (0, 1, 2...) of the Spanish tokens, often ignoring the di values present in the JSON (which are sometimes non-sequential).
+
+The Fix: We must standardize on Explicit, Persistent IDs for all mapped tiers.
+
+Update Python Pipeline (ApplyInversePhraseMappings.py): Ensure that when the basic_target tier is reconstructed, every word token is assigned a strict, sequential, and unique di value, just like the basic_base tier.
+
+Update Python Validator: Enforce that any tier involved in a mapping (Forward or Inverse) must have valid di keys on all word tokens.
+
+Update Rust bridge.rs: Remove the if use_json_di conditional logic. The bridge should always trust and use the di provided by the JSON for WordId generation. This unifies the logic and allows for future features like word reordering without breaking mappings.

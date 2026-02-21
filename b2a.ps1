@@ -35,7 +35,7 @@ Import-EnvFile -Path (Join-Path $PSScriptRoot ".env")
 # --- Configuration ---
 $ToolRootPath = "E:/Bill/development/weavelang" # Your actual path
 $PythonScriptPath = "$ToolRootPath/book_to_audio.py"
-$InputFileName = "Metamorphosis_UL11.txt" # Your test file
+$InputFileName = "Metamorphosis_UL26.txt" # Your test file
 
 # --- TTS Service Selection ---
 $TtsService = "gemini" 
@@ -57,7 +57,7 @@ $VertexLanguageCode = "es-US"
 $OutputAudioFormat = "wav"
 $LogLevel = "INFO"
 $ConcurrentRequests = 1
-$ChunkMaxChars = 3000
+$ChunkMaxChars = 5000
 $MaxApiRetries = 2
 $RetryDelay = 20
 $DelayBetweenChunks = 0

@@ -23,7 +23,7 @@ use std::{
 
 // --- Tunable Parameters ---
 const MOD_CATCHUP_START: f32 = 13.0;
-const ADV_CATCHUP_START: f32 = 13.0;
+const ADV_CATCHUP_START: f32 = 16.0;
 const LADDER_LINEAR_THRESHOLD: u32 = 500;
 const LADDER_PERCENTAGE_STEP: f32 = 1.01;
 const WORDS_PER_HOUR: f64 = 6.0;
