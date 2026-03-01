@@ -12,21 +12,11 @@ pub struct LLevelRecipe {
     pub adv: f32,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct VLevelRecipe {
     pub bas: u32,
     pub mod_v: u32,
     pub adv: u32,
-}
-
-impl Default for VLevelRecipe {
-    fn default() -> Self {
-        Self {
-            bas: 0,
-            mod_v: 0,
-            adv: 0,
-        }
-    }
 }
 
 // ... (rest of the file is unchanged) ...
@@ -49,13 +39,22 @@ pub struct NumericalLearnerProfile {
 }
 
 impl NumericalLearnerProfile {
-    pub fn new() -> Self { Self::default() }
-    pub fn is_lemma_active(&self, lemma_id: u32) -> bool { self.vocabulary.contains_key(&lemma_id) }
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn is_lemma_active(&self, lemma_id: u32) -> bool {
+        self.vocabulary.contains_key(&lemma_id)
+    }
     pub fn activate_lemma(&mut self, lemma_id: u32) {
-        if lemma_id != u32::MAX { self.vocabulary.insert(lemma_id, LearnerLemmaInfo::default()); }
+        if lemma_id != u32::MAX {
+            self.vocabulary
+                .insert(lemma_id, LearnerLemmaInfo::default());
+        }
     }
     pub fn are_lemmas_active(&self, lemma_ids: &[u32]) -> bool {
-        if lemma_ids.is_empty() { return true; }
+        if lemma_ids.is_empty() {
+            return true;
+        }
         lemma_ids.iter().all(|&id| self.is_lemma_active(id))
     }
 }
@@ -90,15 +89,15 @@ pub struct NumericalAdvSegmentBundle {
 pub struct NumericalProcessedSentence {
     pub source_file_name_original: String,
     pub sentence_id_str: String,
-    
+
     pub adv_segment_bundles_numerical: Vec<NumericalAdvSegmentBundle>,
-    
+
     pub basic_base_tier_tokenized: Vec<JsonSegmentV2>,
     pub basic_target_tier_tokenized: Vec<JsonSegmentV2>,
     pub basic_target_lemma_ids: Vec<u32>,
     pub basic_diglot_map_numerical: Vec<NumericalDiglotSegmentMap>,
     pub basic_inverse_diglot_map_numerical: Vec<(String, Vec<u32>, String, usize, usize)>,
-    
+
     pub eng_text_original: String,
     pub eng_text_word_count: usize,
     pub adv_s_text_original: String,

@@ -1,9 +1,9 @@
 // src/gui/components/detail_view/token_view.rs
 
-use eframe::egui;
 use crate::domain::sentence::Sentence;
 use crate::domain::token_stream::Token;
-use crate::gui::state::TierView;
+use crate::app::state::TierView;
+use eframe::egui;
 
 pub fn render(ui: &mut egui::Ui, sentence: &Sentence, view: TierView) {
     if let TierView::Simulation = view {
@@ -22,7 +22,7 @@ pub fn render(ui: &mut egui::Ui, sentence: &Sentence, view: TierView) {
         TierView::Simulation => unreachable!(),
     };
 
-    ui.heading(format!("Token Inspector: {}", tier_id));
+    ui.heading(format!("Token Inspector: {tier_id}"));
     ui.separator();
 
     if let Some(tier) = sentence.get_tier(tier_id) {
@@ -34,13 +34,12 @@ pub fn render(ui: &mut egui::Ui, sentence: &Sentence, view: TierView) {
 
                     // FIX: Iterate over segments
                     for (i, segment) in tier.segments.iter().enumerate() {
-                        
                         // Visual divider between segments
                         if i > 0 {
                             ui.add(egui::Label::new(
                                 egui::RichText::new(" | ")
                                     .color(egui::Color32::LIGHT_GRAY)
-                                    .strong()
+                                    .strong(),
                             ));
                         }
 
@@ -54,7 +53,8 @@ pub fn render(ui: &mut egui::Ui, sentence: &Sentence, view: TierView) {
                                         .color(egui::Color32::BLACK)
                                         .background_color(egui::Color32::from_rgb(200, 255, 200));
 
-                                    let response = ui.add(egui::Label::new(text).sense(egui::Sense::click()))
+                                    let response = ui
+                                        .add(egui::Label::new(text).sense(egui::Sense::click()))
                                         .on_hover_ui(|ui| {
                                             ui.strong("Word Data");
                                             ui.label(format!("ID: {:?}", word_data.id));
@@ -72,8 +72,8 @@ pub fn render(ui: &mut egui::Ui, sentence: &Sentence, view: TierView) {
             });
     } else {
         ui.colored_label(
-            egui::Color32::RED, 
-            format!("Tier '{}' data not found.", tier_id)
+            egui::Color32::RED,
+            format!("Tier '{tier_id}' data not found."),
         );
     }
 }

@@ -1,6 +1,6 @@
 // src/simulation/tests/weavetest_parser.rs
+use crate::types::json_types::{JsonTokenType, JsonTokenV2};
 use pest::{iterators::Pair, Parser};
-use crate::types::json_types::{JsonTokenV2, JsonTokenType};
 
 // --- CORE DATA STRUCTURES ---
 
@@ -70,9 +70,17 @@ pub enum DslAssertion {
 #[grammar = "simulation/tests/generation_tests.pest"]
 pub struct WeaveTestParser;
 
-pub fn parse_weavetest_file(file_content: &str) -> Result<Vec<DslTestCase>, pest::error::Error<Rule>> {
-    let file_pair = WeaveTestParser::parse(Rule::test_suite, file_content)?.next().unwrap();
-    Ok(file_pair.into_inner().filter(|p| p.as_rule() == Rule::test_case).map(parse_test_case).collect())
+pub fn parse_weavetest_file(
+    file_content: &str,
+) -> Result<Vec<DslTestCase>, pest::error::Error<Rule>> {
+    let file_pair = WeaveTestParser::parse(Rule::test_suite, file_content)?
+        .next()
+        .unwrap();
+    Ok(file_pair
+        .into_inner()
+        .filter(|p| p.as_rule() == Rule::test_case)
+        .map(parse_test_case)
+        .collect())
 }
 
 fn parse_test_case(pair: Pair<Rule>) -> DslTestCase {
@@ -85,10 +93,14 @@ fn parse_test_case(pair: Pair<Rule>) -> DslTestCase {
         match part.as_rule() {
             Rule::sentence_def => sentence_def = parse_sentence_def(part),
             Rule::sub_test => sub_tests.push(parse_sub_test(part)),
-            _ => (), 
+            _ => (),
         }
     }
-    DslTestCase { name, sentence_def, sub_tests }
+    DslTestCase {
+        name,
+        sentence_def,
+        sub_tests,
+    }
 }
 
 fn parse_sub_test(pair: Pair<Rule>) -> DslSubTest {
@@ -104,7 +116,11 @@ fn parse_sub_test(pair: Pair<Rule>) -> DslSubTest {
             _ => (),
         }
     }
-    DslSubTest { name, learner_level, assertions }
+    DslSubTest {
+        name,
+        learner_level,
+        assertions,
+    }
 }
 
 // MODIFIED: Removed logic for 'sim_level'
@@ -145,9 +161,19 @@ fn parse_sentence_def(pair: Pair<Rule>) -> DslSentenceDef {
     let l1_body = inner.next().unwrap();
     let mut l1_inner = l1_body.into_inner();
     def.l1_basic_spanish = parse_phrase_and_lemmas(l1_inner.next().unwrap());
-    def.l1_inv_diglot_tuples = l1_inner.next().unwrap().into_inner().map(parse_inv_diglot_tuple).collect();
+    def.l1_inv_diglot_tuples = l1_inner
+        .next()
+        .unwrap()
+        .into_inner()
+        .map(parse_inv_diglot_tuple)
+        .collect();
     def.l1_basic_english = parse_phrase_and_lemmas(l1_inner.next().unwrap());
-    def.l1_diglot_tuples = l1_inner.next().unwrap().into_inner().map(parse_diglot_tuple).collect();
+    def.l1_diglot_tuples = l1_inner
+        .next()
+        .unwrap()
+        .into_inner()
+        .map(parse_diglot_tuple)
+        .collect();
 
     def
 }
@@ -175,8 +201,9 @@ fn parse_phrase_and_lemmas(pair: Pair<Rule>) -> DslSegment {
         Rule::stringLiteral => tokenize_simple_string(&content),
         _ => unreachable!(),
     };
-    
-    let lemmas = inner.next()
+
+    let lemmas = inner
+        .next()
         .map(|p| p.into_inner().map(|l| l.as_str().to_string()).collect())
         .unwrap_or_default();
 
@@ -185,11 +212,24 @@ fn parse_phrase_and_lemmas(pair: Pair<Rule>) -> DslSegment {
 
 fn parse_inv_diglot_tuple(pair: Pair<Rule>) -> DslInvDiglotTuple {
     let mut inner = pair.into_inner();
-    let target_word = inner.next().unwrap().as_str().to_string().replace("__", " ");
+    let target_word = inner
+        .next()
+        .unwrap()
+        .as_str()
+        .to_string()
+        .replace("__", " ");
     let combined_lemmas_str = inner.next().unwrap().as_str();
-    let target_lemmas = combined_lemmas_str.split("__").map(|s| s.to_string()).collect();
-    let base_substitute = inner.next().unwrap().as_str().to_string().replace("__", " ");
-    
+    let target_lemmas = combined_lemmas_str
+        .split("__")
+        .map(|s| s.to_string())
+        .collect();
+    let base_substitute = inner
+        .next()
+        .unwrap()
+        .as_str()
+        .to_string()
+        .replace("__", " ");
+
     DslInvDiglotTuple {
         target_word,
         target_lemmas,
@@ -199,10 +239,23 @@ fn parse_inv_diglot_tuple(pair: Pair<Rule>) -> DslInvDiglotTuple {
 
 fn parse_diglot_tuple(pair: Pair<Rule>) -> DslDiglotTuple {
     let mut inner = pair.into_inner();
-    let word_to_replace = inner.next().unwrap().as_str().to_string().replace("__", " ");
+    let word_to_replace = inner
+        .next()
+        .unwrap()
+        .as_str()
+        .to_string()
+        .replace("__", " ");
     let combined_lemmas_str = inner.next().unwrap().as_str();
-    let replacement_lemmas = combined_lemmas_str.split("__").map(|s| s.to_string()).collect();
-    let replacement_word = inner.next().unwrap().as_str().to_string().replace("__", " ");
+    let replacement_lemmas = combined_lemmas_str
+        .split("__")
+        .map(|s| s.to_string())
+        .collect();
+    let replacement_word = inner
+        .next()
+        .unwrap()
+        .as_str()
+        .to_string()
+        .replace("__", " ");
     let mut is_viable = true;
     let mut is_proper_noun = false;
     for flag_pair in inner {
@@ -212,11 +265,21 @@ fn parse_diglot_tuple(pair: Pair<Rule>) -> DslDiglotTuple {
             _ => unreachable!(),
         }
     }
-    DslDiglotTuple { word_to_replace, replacement_lemmas, replacement_word, is_viable, is_proper_noun }
+    DslDiglotTuple {
+        word_to_replace,
+        replacement_lemmas,
+        replacement_word,
+        is_viable,
+        is_proper_noun,
+    }
 }
 
 fn parse_string_literal_content(pair: Pair<Rule>) -> String {
-    pair.into_inner().next().unwrap().as_str().replace("\\\"", "\"")
+    pair.into_inner()
+        .next()
+        .unwrap()
+        .as_str()
+        .replace("\\\"", "\"")
 }
 
 fn tokenize_simple_string(content: &str) -> Vec<JsonTokenV2> {
@@ -226,17 +289,34 @@ fn tokenize_simple_string(content: &str) -> Vec<JsonTokenV2> {
     let word_re = regex::Regex::new(r"[\w'-]+").unwrap();
     for mat in word_re.find_iter(content) {
         if mat.start() > last_end {
-            tokens.push(JsonTokenV2 { token_type: JsonTokenType::Background, value: content[last_end..mat.start()].to_string(), ..Default::default() });
+            tokens.push(JsonTokenV2 {
+                token_type: JsonTokenType::Background,
+                value: content[last_end..mat.start()].to_string(),
+                ..Default::default()
+            });
         }
-        tokens.push(JsonTokenV2 { token_type: JsonTokenType::Word, value: mat.as_str().to_string(), diglot_index: Some(word_count), ..Default::default() });
+        tokens.push(JsonTokenV2 {
+            token_type: JsonTokenType::Word,
+            value: mat.as_str().to_string(),
+            diglot_index: Some(word_count),
+            ..Default::default()
+        });
         word_count += 1;
         last_end = mat.end();
     }
     if last_end < content.len() {
-        tokens.push(JsonTokenV2 { token_type: JsonTokenType::Background, value: content[last_end..].to_string(), ..Default::default() });
+        tokens.push(JsonTokenV2 {
+            token_type: JsonTokenType::Background,
+            value: content[last_end..].to_string(),
+            ..Default::default()
+        });
     }
     if tokens.is_empty() && !content.is_empty() {
-        tokens.push(JsonTokenV2 { token_type: JsonTokenType::Background, value: content.to_string(), ..Default::default() });
+        tokens.push(JsonTokenV2 {
+            token_type: JsonTokenType::Background,
+            value: content.to_string(),
+            ..Default::default()
+        });
     }
     tokens
 }
@@ -250,17 +330,34 @@ fn tokenize_bracketed_phrase(content: &str) -> Vec<JsonTokenV2> {
         let full_match = cap.get(0).unwrap();
         let word_value = cap.get(1).unwrap().as_str();
         if full_match.start() > last_end {
-            tokens.push(JsonTokenV2 { token_type: JsonTokenType::Background, value: content[last_end..full_match.start()].to_string(), ..Default::default() });
+            tokens.push(JsonTokenV2 {
+                token_type: JsonTokenType::Background,
+                value: content[last_end..full_match.start()].to_string(),
+                ..Default::default()
+            });
         }
-        tokens.push(JsonTokenV2 { token_type: JsonTokenType::Word, value: word_value.to_string(), diglot_index: Some(diglot_idx_counter), ..Default::default() });
+        tokens.push(JsonTokenV2 {
+            token_type: JsonTokenType::Word,
+            value: word_value.to_string(),
+            diglot_index: Some(diglot_idx_counter),
+            ..Default::default()
+        });
         diglot_idx_counter += 1;
         last_end = full_match.end();
     }
     if last_end < content.len() {
-        tokens.push(JsonTokenV2 { token_type: JsonTokenType::Background, value: content[last_end..].to_string(), ..Default::default() });
+        tokens.push(JsonTokenV2 {
+            token_type: JsonTokenType::Background,
+            value: content[last_end..].to_string(),
+            ..Default::default()
+        });
     }
     if tokens.is_empty() && !content.is_empty() {
-        return vec![JsonTokenV2 { token_type: JsonTokenType::Background, value: content.to_string(), ..Default::default() }];
+        return vec![JsonTokenV2 {
+            token_type: JsonTokenType::Background,
+            value: content.to_string(),
+            ..Default::default()
+        }];
     }
     tokens
 }

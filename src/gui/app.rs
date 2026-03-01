@@ -5,28 +5,36 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::domain::bridge;
+use crate::domain::mapping_logic::apply_llm_mapping;
+use crate::domain::mapping::TierMapping;
 use crate::gui::components;
-use crate::gui::state::AppState;
-use crate::types::json_types::JsonChapter;
-use crate::services::python_bridge::BridgeService;
-use crate::services::llm_client::LlmService;
-use crate::services::prompt_manager::PromptManager;
-use crate::services::llm_logger::LlmLogger;
+use crate::app::state::AppState;
 use crate::parsing::source_parser;
+use crate::services::llm_client::LlmService;
+use crate::services::llm_logger::LlmLogger;
+use crate::services::prompt_manager::PromptManager;
+use crate::services::python_bridge::BridgeService;
+use crate::types::json_types::JsonChapter;
+use std::sync::mpsc::TryRecvError;
+use crate::services::llm_settings::StageBatchSettings;
+use crate::services::llm_worker::spawn_llm_job;
+use std::cmp::{min, max};
 
 pub struct WeaveLangApp {
     state: AppState,
     current_file_path: Option<PathBuf>,
     status_message: String,
+    terminal_history: Vec<String>,
+    terminal_input: String,
 }
 
 impl WeaveLangApp {
     pub fn new(
-        _cc: &eframe::CreationContext<'_>, 
-        bridge: Option<BridgeService>, 
+        _cc: &eframe::CreationContext<'_>,
+        bridge: Option<BridgeService>,
         llm: Option<LlmService>,
         prompts: Option<PromptManager>,
-        logger: Option<LlmLogger>
+        logger: Option<LlmLogger>,
     ) -> Self {
         let mut state = AppState::default();
         state.bridge = bridge;
@@ -35,14 +43,97 @@ impl WeaveLangApp {
         state.logger = logger;
 
         let mut status = Vec::new();
-        if state.bridge.is_some() { status.push("Bridge: OK"); } else { status.push("Bridge: OFF"); }
-        if state.llm.is_some() { status.push("LLM: OK"); } else { status.push("LLM: OFF"); }
+        if state.bridge.is_some() {
+            status.push("Bridge: OK");
+        } else {
+            status.push("Bridge: OFF");
+        }
+        if state.llm.is_some() {
+            status.push("LLM: OK");
+        } else {
+            status.push("LLM: OFF");
+        }
 
         Self {
             state,
             current_file_path: None,
             status_message: format!("Ready. [{}]", status.join(", ")),
+            terminal_history: vec!["WeaveLang Terminal initialized.".to_string()],
+            terminal_input: String::new(),
         }
+    }
+
+    fn execute_terminal_command(&mut self, cmd: &str) {
+        self.terminal_history.push(format!("> {}", cmd));
+        
+        // Temporarily take state to run engine
+        let mut engine = crate::app::engine::Engine::new(std::mem::take(&mut self.state));
+        engine.current_file_path = self.current_file_path.clone();
+        
+        match crate::app::terminal::run_terminal_command(&mut engine, cmd) {
+            Ok(Some(output)) => {
+                for line in output.lines() {
+                    self.terminal_history.push(line.to_string());
+                }
+            }
+            Ok(None) => {
+                self.terminal_history.push("Exit command ignored in GUI.".to_string());
+            }
+            Err(e) => {
+                self.terminal_history.push(format!("Error: {}", e));
+            }
+        }
+        
+        self.state = engine.state;
+        self.current_file_path = engine.current_file_path;
+    }
+
+    fn render_terminal(&mut self, ui: &mut egui::Ui) {
+        ui.vertical(|ui| {
+            ui.heading("Terminal");
+            ui.separator();
+            
+            // Scrollable history area
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .stick_to_bottom(true)
+                .max_height(ui.available_height() - 30.0)
+                .show(ui, |ui| {
+                    for line in &self.terminal_history {
+                        ui.label(egui::RichText::new(line).family(egui::FontFamily::Monospace));
+                    }
+                });
+                
+            ui.separator();
+            
+            // Input area
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(">").family(egui::FontFamily::Monospace));
+                let response = ui.add(
+                    egui::TextEdit::singleline(&mut self.terminal_input)
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(ui.available_width() - 50.0)
+                );
+                
+                if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    let cmd = self.terminal_input.clone();
+                    if !cmd.trim().is_empty() {
+                        self.execute_terminal_command(&cmd);
+                        self.terminal_input.clear();
+                        response.request_focus();
+                    }
+                }
+                
+                if ui.button("Run").clicked() {
+                    let cmd = self.terminal_input.clone();
+                    if !cmd.trim().is_empty() {
+                        self.execute_terminal_command(&cmd);
+                        self.terminal_input.clear();
+                        response.request_focus();
+                    }
+                }
+            });
+        });
     }
 
     fn render_menu_bar(&mut self, ui: &mut egui::Ui) {
@@ -71,6 +162,24 @@ impl WeaveLangApp {
                 }
             });
 
+            ui.menu_button("LLM", |ui| {
+                if ui.button("Settings...").clicked() {
+                    self.state.show_llm_settings = true;
+                    ui.close_menu();
+                }
+                if ui.button("Run Simplify Range...").clicked() {
+                    // initialize run dialog with sensible defaults
+                    let start = self.state.selected_sentence_idx;
+                    let end = min(start + 4, self.state.document.len().saturating_sub(1));
+                    self.state.llm_run_start = start;
+                    self.state.llm_run_end = end;
+                    self.state.llm_run_batch_size = self.state.llm_batch_settings.simplify;
+                    self.state.llm_run_prompt_name = "simplify_to_basic_english".to_string();
+                    self.state.show_llm_run = true;
+                    ui.close_menu();
+                }
+            });
+
             ui.separator();
             ui.label(format!("Status: {}", self.status_message));
         });
@@ -81,46 +190,8 @@ impl WeaveLangApp {
             .add_filter("WeaveLang JSON", &["json"])
             .pick_file()
         {
-            match fs::read_to_string(&path) {
-                Ok(json_content) => {
-                    match serde_json::from_str::<JsonChapter>(&json_content) {
-                        Ok(json_chapter) => {
-                            self.state.document.clear();
-                            self.state.book_map = Some(json_chapter.u_level_maps.clone());
-                            
-                            self.state.project_languages = (
-                                json_chapter.book_meta.base_language.clone(),
-                                json_chapter.book_meta.target_language.clone()
-                            );
-
-                            let mut error_count = 0;
-                            for block in json_chapter.content_blocks {
-                                if let crate::types::json_types::JsonContentBlock::Sentence(json_sentence) = block {
-                                    match bridge::json_to_domain_sentence(&json_sentence) {
-                                        Ok(domain_sentence) => {
-                                            self.state.document.push(domain_sentence);
-                                        }
-                                        Err(e) => {
-                                            eprintln!("Skipping invalid sentence: {}", e);
-                                            error_count += 1;
-                                        }
-                                    }
-                                }
-                            }
-
-                            self.current_file_path = None;
-                            self.state.selected_sentence_idx = 0;
-                            self.status_message = format!(
-                                "Imported {} sentences ({} errors).",
-                                self.state.document.len(),
-                                error_count
-                            );
-                        }
-                        Err(e) => self.status_message = format!("JSON Parse Error: {}", e),
-                    }
-                }
-                Err(e) => self.status_message = format!("File Read Error: {}", e),
-            }
+            let cmd = format!("import json {}", path.to_string_lossy());
+            self.execute_terminal_command(&cmd);
         }
     }
 
@@ -129,21 +200,8 @@ impl WeaveLangApp {
             .add_filter("Text File", &["txt"])
             .pick_file()
         {
-            match fs::read_to_string(&path) {
-                Ok(content) => {
-                    match source_parser::parse_source_file(&content) {
-                        Ok(docs) => {
-                            self.state.document = docs;
-                            self.state.book_map = None;
-                            self.state.selected_sentence_idx = 0;
-                            self.current_file_path = None; 
-                            self.status_message = format!("Imported {} sentences from source.", self.state.document.len());
-                        },
-                        Err(e) => self.status_message = format!("Source Parse Error: {}", e),
-                    }
-                },
-                Err(e) => self.status_message = format!("File Read Error: {}", e),
-            }
+            let cmd = format!("import source {}", path.to_string_lossy());
+            self.execute_terminal_command(&cmd);
         }
     }
 
@@ -157,18 +215,8 @@ impl WeaveLangApp {
         };
 
         if let Some(path) = path_opt {
-            match fs::File::create(&path) {
-                Ok(file) => {
-                    match bincode::serialize_into(file, &self.state) {
-                        Ok(_) => {
-                            self.current_file_path = Some(path);
-                            self.status_message = "Document saved successfully.".to_string();
-                        }
-                        Err(e) => self.status_message = format!("Serialization Error: {}", e),
-                    }
-                }
-                Err(e) => self.status_message = format!("File Create Error: {}", e),
-            }
+            let cmd = format!("save project {}", path.to_string_lossy());
+            self.execute_terminal_command(&cmd);
         }
     }
 
@@ -178,37 +226,341 @@ impl WeaveLangApp {
             .add_filter("WeaveLang Binary", &["wvl"])
             .pick_file()
         {
-            match fs::File::open(&path) {
-                Ok(file) => match bincode::deserialize_from(file) {
-                    Ok(state) => {
-                        // 1. Backup all runtime services from the current state
-                        let bridge = self.state.bridge.clone();
-                        let llm = self.state.llm.clone();
-                        let prompts = self.state.prompts.clone();
-                        let logger = self.state.logger.clone(); // <--- This was missing before!
-                        
-                        // 2. Overwrite state with data from disk
-                        self.state = state;
-                        
-                        // 3. Restore services
-                        self.state.bridge = bridge;
-                        self.state.llm = llm;
-                        self.state.prompts = prompts;
-                        self.state.logger = logger; // <--- Restore logger
-                        
-                        self.current_file_path = Some(path);
-                        self.status_message = format!("Loaded state.");
-                    }
-                    Err(e) => self.status_message = format!("Deserialization Error: {}", e),
-                },
-                Err(e) => self.status_message = format!("File Open Error: {}", e),
-            }
+            let cmd = format!("load project {}", path.to_string_lossy());
+            self.execute_terminal_command(&cmd);
         }
     }
 }
 
 impl App for WeaveLangApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
+        // Check for pending terminal commands from UI components
+        if let Some(cmd) = self.state.pending_terminal_command.take() {
+            self.execute_terminal_command(&cmd);
+        }
+
+        // Check for LLM results and apply them before rendering UI
+        // Drain receiver messages without holding a borrow across potential assignment
+        if self.state.llm_results_receiver.is_some() {
+            let mut clear_receiver = false;
+            loop {
+                // Try to get a message if receiver still exists
+                let msg = match self.state.llm_results_receiver.as_ref() {
+                    None => break,
+                    Some(rx) => match rx.try_recv() {
+                        Ok(v) => Ok(v),
+                        Err(e) => Err(e),
+                    },
+                };
+
+                match msg {
+                    Ok(Ok(results)) => {
+                        let mut applied = 0usize;
+                        let mut last_applied_text: Option<String> = None;
+                        
+                        // NEW: Check if this is a "Regeneration" job (single-click) vs a "Bulk" job.
+                        // Currently, we don't distinguish explicitly in the receiver, but "Regeneration" 
+                        // jobs have total=batch_size (or small N) and start at a specific index.
+                        // However, simpler heuristic:
+                        // If we are getting results for indices OTHER than the currently selected one, 
+                        // and we are NOT in a bulk run (llm_run_end > llm_run_start + batch), treat as collateral?
+                        
+                        // Actually, let's just use the `pending_collateral_updates` mechanism for ANY update 
+                        // that isn't the primary selected sentence IF we are not in "Run All" mode.
+                        // "Run All" mode is indicated by `state.show_llm_run` active? No, that's just the dialog.
+                        // We can check `state.llm_job_total`.
+                        
+                        // If `llm_job_total` is small (e.g. <= batch size) it's likely a single-click regen.
+                        // If it's large, it's a bulk run where we WANT auto-apply.
+                        
+                        let is_bulk_run = self.state.llm_job_total > self.state.llm_batch_settings.simplify.max(self.state.llm_batch_settings.translate).max(10);
+                        let selected_idx = self.state.selected_sentence_idx;
+                        let is_bulk_run = self.state.llm_job_total > self.state.llm_batch_settings.simplify.max(self.state.llm_batch_settings.translate).max(10);
+                        let selected_idx = self.state.selected_sentence_idx;
+                        let num_results = results.len();
+
+                        let (base_lang, target_lang) = self.state.project_languages.clone();
+                        let bridge_ref = self.state.bridge.as_ref();
+
+                        for (idx, s_id, tier_id, text) in results {
+                            if idx < self.state.document.len() {
+                                // Always apply if it's the selected sentence OR if it's a bulk run
+                                if is_bulk_run || idx == selected_idx {
+                                    let lang = tier_lang_code(&tier_id, &base_lang, &target_lang);
+                                    if let Some(sent) = self.state.document.get_mut(idx) {
+                                        apply_llm_result(sent, &tier_id, &text, bridge_ref, &lang);
+                                        if idx == selected_idx {
+                                             if tier_id.starts_with("MAPPING:") {
+                                                 last_applied_text = Some("Mapping Generated".to_string());
+                                             } else {
+                                                 last_applied_text = Some(sent.get_tier(&tier_id).map(|t| t.full_text()).unwrap_or_default());
+                                             }
+                                        }
+                                        applied += 1;
+                                    }
+                                } else {
+                                    // It's a collateral update (neighbor) in a non-bulk run
+                                    self.state.pending_collateral_updates.push((idx, s_id, tier_id, text));
+                                }
+                            }
+                        }
+                        // FIX: Progress should count ALL items processed by the LLM, 
+                        // whether applied immediately or parked for confirmation.
+                        self.state.llm_job_done = self.state.llm_job_done.saturating_add(num_results);
+
+                        // If we have collateral updates, show the confirmation dialog
+                        if !self.state.pending_collateral_updates.is_empty() {
+                            self.state.show_collateral_confirm = true;
+                        }
+
+                        // Update visible logs
+                        if let Some(txt) = last_applied_text {
+                            self.state.last_log = format!("LLM result: {}", txt);
+                        } else if applied > 0 {
+                            self.state.last_log = format!("LLM applied {} items.", applied);
+                        }
+
+                        if self.state.llm_job_total > 0 && self.state.llm_job_done >= self.state.llm_job_total {
+                            self.status_message = "LLM job completed.".to_string();
+                            // also reflect in last_log
+                            if self.state.last_log.is_empty() {
+                                self.state.last_log = "LLM job completed.".to_string();
+                            }
+                            clear_receiver = true;
+                            break;
+                        }
+                        // continue draining
+                    }
+                    Ok(Err(err_str)) => {
+                        self.status_message = format!("LLM job failed: {}", err_str);
+                        self.state.last_log = format!("LLM job failed: {}", err_str);
+                        clear_receiver = true;
+                        break;
+                    }
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
+                        self.status_message = "LLM results channel disconnected".to_string();
+                        self.state.last_log = "LLM results channel disconnected".to_string();
+                        clear_receiver = true;
+                        break;
+                    }
+                }
+            }
+
+            if clear_receiver {
+                self.state.llm_results_receiver = None;
+            }
+        }
+        
+        // --- Collateral Update Confirmation Dialog ---
+        if self.state.show_collateral_confirm && !self.state.pending_collateral_updates.is_empty() {
+             let mut open = true;
+             
+             let num_updates = self.state.pending_collateral_updates.len();
+             let first_idx = self.state.pending_collateral_updates.first().map(|(i,_,_,_)| *i).unwrap_or(0);
+             let last_idx = self.state.pending_collateral_updates.last().map(|(i,_,_,_)| *i).unwrap_or(0);
+             
+             egui::Window::new("Collateral Updates Detected")
+                .collapsible(false)
+                .resizable(false)
+                .open(&mut open)
+                .show(ctx, |ui| {
+                    ui.label(format!("The LLM returned updates for {} additional sentences (S{} - S{}).", num_updates, first_idx + 1, last_idx + 1));
+                    ui.label("This often happens when using a context window to prevent hallucinations.");
+                    ui.label("Do you want to apply these extra updates?");
+                    
+                    ui.separator();
+                    
+                    ui.horizontal(|ui| {
+                        if ui.button("Yes, Apply All").clicked() {
+                            // Move pending to a local var to apply
+                            let updates = std::mem::take(&mut self.state.pending_collateral_updates);
+                            let (base_lang, target_lang) = self.state.project_languages.clone();
+                            let bridge_ref = self.state.bridge.as_ref();
+                            for (idx, _s_id, tier_id, text) in updates {
+                                let lang = tier_lang_code(&tier_id, &base_lang, &target_lang);
+                                if let Some(sent) = self.state.document.get_mut(idx) {
+                                    apply_llm_result(sent, &tier_id, &text, bridge_ref, &lang);
+                                }
+                            }
+                            self.state.last_log = format!("Applied {} collateral updates.", num_updates);
+                            self.state.show_collateral_confirm = false;
+                        }
+                        
+                        if ui.button("No, Discard Extras").clicked() {
+                            self.state.pending_collateral_updates.clear();
+                             self.state.last_log = "Discarded collateral updates.".to_string();
+                             self.state.show_collateral_confirm = false;
+                        }
+                    });
+                });
+                
+             if !open {
+                 self.state.pending_collateral_updates.clear();
+                 self.state.show_collateral_confirm = false;
+             }
+        }
+        
+        // LLM Settings window
+        if self.state.show_llm_settings {
+            let mut open = true;
+            egui::Window::new("LLM Settings").open(&mut open).show(ctx, |ui| {
+                ui.label("Batch sizes (per-stage)");
+                ui.horizontal(|ui| {
+                    ui.label("Simplify:");
+                    ui.add(egui::DragValue::new(&mut self.state.llm_batch_settings.simplify).clamp_range(1..=100));
+                    if self.state.llm_batch_settings.simplify == 1 {
+                        ui.label(egui::RichText::new("⚠ Risk of Hallucination").color(egui::Color32::RED).small());
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Mapping:");
+                    ui.add(egui::DragValue::new(&mut self.state.llm_batch_settings.mapping).clamp_range(1..=100));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Translate:");
+                    ui.add(egui::DragValue::new(&mut self.state.llm_batch_settings.translate).clamp_range(1..=100));
+                    if self.state.llm_batch_settings.translate == 1 {
+                        ui.label(egui::RichText::new("⚠ Risk of Hallucination").color(egui::Color32::RED).small());
+                    }
+                });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Save").clicked() {
+                        if let Some(p) = &self.current_file_path {
+                            let proj_root = p.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+                            match self.state.llm_batch_settings.save(&proj_root) {
+                                Ok(_) => self.status_message = "LLM settings saved.".to_string(),
+                                Err(e) => self.status_message = format!("Failed to save settings: {}", e),
+                            }
+                        } else {
+                            self.status_message = "No project file open to save settings.".to_string();
+                        }
+                        self.state.show_llm_settings = false;
+                    }
+                    if ui.button("Close").clicked() {
+                        self.state.show_llm_settings = false;
+                    }
+                });
+            });
+            // Keep the flag in sync with window
+            self.state.show_llm_settings = open;
+        }
+
+        // LLM Run dialog
+        if self.state.show_llm_run {
+            let mut open = true;
+            egui::Window::new("Run LLM Job").open(&mut open).show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Start index:");
+                    ui.add(egui::DragValue::new(&mut self.state.llm_run_start).clamp_range(0..=999999usize));
+                    ui.label("End index:");
+                    ui.add(egui::DragValue::new(&mut self.state.llm_run_end).clamp_range(0..=999999usize));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Batch size:");
+                    ui.add(egui::DragValue::new(&mut self.state.llm_run_batch_size).clamp_range(1..=200usize));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Prompt name:");
+                    ui.text_edit_singleline(&mut self.state.llm_run_prompt_name);
+                });
+
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Start").clicked() {
+                        // clamp bounds
+                        let doc_len = self.state.document.len();
+                        let start = min(self.state.llm_run_start, doc_len.saturating_sub(1));
+                        let end = min(self.state.llm_run_end, doc_len.saturating_sub(1));
+                        let (s, e) = if start <= end { (start, end) } else { (end, start) };
+
+                        // Build items from base tier text for now
+                        let mut items: Vec<(usize, String, String)> = Vec::new();
+                        for idx in s..=e {
+                            if let Some(sent) = self.state.document.get(idx) {
+                                let parent_text = sent.get_tier("base").map(|t| t.full_text()).unwrap_or_default();
+                                items.push((idx, sent.id.clone(), parent_text));
+                            }
+                        }
+
+                        if items.is_empty() {
+                            self.status_message = "No sentences in selected range.".to_string();
+                        } else if self.state.prompts.is_none() || self.state.llm.is_none() || self.state.logger.is_none() {
+                            self.status_message = "LLM services not fully configured.".to_string();
+                        } else {
+                            let prompts = self.state.prompts.clone().unwrap();
+                            let llm = self.state.llm.clone().unwrap();
+                            let logger = self.state.logger.clone().unwrap();
+
+                            let (base_code, target_code) = self.state.project_languages.clone();
+                            let prompt_name = self.state.llm_run_prompt_name.clone();
+                            let batch = self.state.llm_run_batch_size;
+                            let model = "claude-3-haiku-20240307".to_string();
+
+
+                            // Snapshot current target tier text for the range so we can revert if needed
+                            let mut backup: Vec<(usize, String, String)> = Vec::new();
+                            for idx in s..=e {
+                                if let Some(sent) = self.state.document.get(idx) {
+                                    let prior = sent.get_tier(&prompt_name).map(|t| t.full_text()).unwrap_or_default();
+                                    backup.push((idx, prompt_name.clone(), prior));
+                                }
+                            }
+                            self.state.llm_job_backup = backup;
+
+                            let (rx, cancel_flag) = spawn_llm_job(
+                                prompts,
+                                llm,
+                                logger,
+                                base_code,
+                                target_code,
+                                prompt_name.clone(),
+                                prompt_name.clone(), // target_tier_id (legacy behavior: prompt == tier)
+                                items,
+                                batch,
+                                model,
+                                None,
+                                false, // not segment-level
+                            );
+
+                            // set job counters
+                            let total = s.checked_sub(0).and_then(|_| Some(e - s + 1)).unwrap_or(0usize);
+                            self.state.llm_job_total = total;
+                            self.state.llm_job_done = 0;
+                            self.state.llm_results_receiver = Some(rx);
+                            self.state.llm_cancel_flag = Some(cancel_flag);
+                            self.status_message = format!("LLM job '{}' started for [{}..{}]. {} items queued.", prompt_name, s, e, total);
+                        }
+
+                        self.state.show_llm_run = false;
+                    }
+                    if ui.button("Use current").clicked() {
+                        let cur = self.state.selected_sentence_idx;
+                        self.state.llm_run_start = cur;
+                        self.state.llm_run_end = cur;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.state.show_llm_run = false;
+                    }
+                });
+            });
+            self.state.show_llm_run = open;
+        }
+
+        // If a job is active, show quick controls in the main UI
+        if self.state.llm_results_receiver.is_some() {
+            egui::TopBottomPanel::top("llm_progress_panel").show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("LLM job running — results will apply when ready.");
+                    if ui.button("Cancel Job").clicked() {
+                        // Show confirmation dialog offering to keep or revert current progress
+                        self.state.show_cancel_confirm = true;
+                    }
+                });
+            });
+        }
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             self.render_menu_bar(ui);
             ui.separator();
@@ -218,6 +570,13 @@ impl App for WeaveLangApp {
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             components::info_bar::render(ui, &mut self.state);
         });
+
+        egui::TopBottomPanel::bottom("terminal_panel")
+            .resizable(true)
+            .default_height(150.0)
+            .show(ctx, |ui| {
+                self.render_terminal(ui);
+            });
 
         egui::SidePanel::left("left_panel")
             .resizable(true)
@@ -229,5 +588,102 @@ impl App for WeaveLangApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             components::detail_view::render(ui, &mut self.state);
         });
+
+        // Cancel confirmation dialog
+        if self.state.show_cancel_confirm {
+            let mut open = true;
+            egui::Window::new("Cancel LLM Job").open(&mut open).show(ctx, |ui| {
+                ui.label("Do you want to stop the running LLM job?");
+                ui.label("You can either keep the progress applied so far, or revert all changes from this job.");
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Keep current progress").clicked() {
+                        // Set cancel flag to stop further work but keep applied results
+                        if let Some(flag) = &self.state.llm_cancel_flag {
+                            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        self.state.show_cancel_confirm = false;
+                        self.status_message = "LLM job cancelling; keeping applied progress.".to_string();
+                    }
+                    if ui.button("Revert progress and stop").clicked() {
+                        // Set cancel flag and restore backups, then drop receiver
+                        if let Some(flag) = &self.state.llm_cancel_flag {
+                            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        for (idx, tier_id, prior_text) in &self.state.llm_job_backup {
+                            if *idx < self.state.document.len() {
+                                if let Some(sent) = self.state.document.get_mut(*idx) {
+                                    sent.update_tier_text(tier_id, prior_text.clone());
+                                }
+                            }
+                        }
+                        self.state.llm_job_backup.clear();
+                        self.state.llm_results_receiver = None;
+                        self.state.llm_cancel_flag = None;
+                        self.state.show_cancel_confirm = false;
+                        self.status_message = "LLM job cancelled and progress reverted.".to_string();
+                    }
+                    if ui.button("Close").clicked() {
+                        self.state.show_cancel_confirm = false;
+                    }
+                });
+            });
+            self.state.show_cancel_confirm = open;
+        }
+    }
+}
+
+fn apply_llm_result(
+        sent: &mut crate::domain::sentence::Sentence,
+        tier_id: &str,
+        text: &str,
+        bridge: Option<&crate::services::python_bridge::BridgeService>,
+        lang_code: &str,
+    ) {
+        if tier_id.starts_with("MAPPING:") {
+            // Format: MAPPING:source:target
+            let parts: Vec<&str> = tier_id.split(':').collect();
+            if parts.len() == 3 {
+                let source_id = parts[1];
+                let target_id = parts[2];
+                
+                let mut mapping_to_add: Option<TierMapping> = None;
+                
+                if let Some(source_tier) = sent.get_tier_mut(source_id) {
+                    if let Some(segment) = source_tier.segments.first_mut() {
+                        match apply_llm_mapping(
+                            &mut segment.stream, 
+                            text, 
+                            source_id, 
+                            target_id
+                        ) {
+                            Ok(m) => mapping_to_add = Some(m),
+                            Err(e) => eprintln!("Mapping Error: {}", e),
+                        }
+                    }
+                }
+                
+                if let Some(m) = mapping_to_add {
+                    sent.add_mapping(m);
+                }
+            }
+        } else {
+            // Tokenize via SpaCy if bridge is available, otherwise fall back to regex.
+            // Note: Full LLM segmentation is not done here (it would require async LLM calls).
+            // The text is treated as a single segment but with proper SpaCy tokens.
+            let segments = crate::services::tier_processor::tokenize_only(text, lang_code, bridge);
+            sent.update_tier_with_segments(tier_id, segments);
+        }
+    }
+
+/// Determine the language code for a given tier ID.
+/// Base-language tiers (base, basic_base) use the base language code.
+/// Target-language tiers (advanced_target, moderate_target, basic_target) use the target code.
+fn tier_lang_code<'a>(tier_id: &str, base_lang: &'a str, target_lang: &'a str) -> String {
+    match tier_id {
+        "base" | "basic_base" => base_lang.to_string(),
+        "advanced_target" | "moderate_target" | "basic_target" => target_lang.to_string(),
+        t if t.starts_with("MAPPING:") => base_lang.to_string(), // mappings operate on source tier
+        _ => base_lang.to_string(), // conservative default
     }
 }

@@ -1,7 +1,7 @@
 // src/types/json_types.rs
+use crate::simulation::numerical_types::{LLevelRecipe, VLevelRecipe};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::simulation::numerical_types::{LLevelRecipe, VLevelRecipe};
 
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct JsonChapterMarkerBlock {
@@ -10,17 +10,13 @@ pub struct JsonChapterMarkerBlock {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum JsonTokenType {
     #[serde(rename = "b")]
+    #[default]
     Background,
     #[serde(rename = "w")]
     Word,
-}
-
-impl Default for JsonTokenType {
-    fn default() -> Self {
-        JsonTokenType::Background
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -95,7 +91,6 @@ pub struct JsonChapterForParsing {
     pub content_blocks: Vec<JsonContentBlock>,
 }
 
-
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct JsonTierV2 {
     pub tier_id: String,
@@ -104,7 +99,6 @@ pub struct JsonTierV2 {
     pub lemmas: Vec<String>,
     pub segments: Vec<JsonSegmentV2>,
 }
-
 
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct JsonMappingsV2 {
@@ -127,4 +121,23 @@ pub struct JsonCurriculumMapEntry {
 pub struct JsonCurriculumMap {
     pub end_level: f32,
     pub map: Vec<JsonCurriculumMapEntry>,
+}
+
+/// Wrapper for .lm (level map) files — includes metadata header.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct LevelMapFile {
+    pub meta: LevelMapMeta,
+    pub levels: HashMap<String, JsonCurriculumMap>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct LevelMapMeta {
+    pub book_name: String,
+    pub base_language: String,
+    pub target_language: String,
+    pub natural_peak_level: u32,
+    pub peak_avd: f64,
+    pub peak_user_score: f64,
+    pub total_start_levels: u32,
+    pub schema_version: String,
 }

@@ -1,0 +1,773 @@
+--- Analysis for Book Instance: Metamorphosis_UL1-6.txt (at 2025-11-06 08:06:48) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 0.0 / 0.0 / 0.0
+    Start V-Levels (bas/mod/adv): 0 / 0 / 0
+    End   L-Levels (bas/mod/adv): 6.4 / 0.0 / 0.0
+    End   V-Levels (bas/mod/adv): 8 / 0 / 0
+  AVD Score (Density-Weighted): 1.67
+  Output Word Count Summary:
+    Total Target Words:   3862
+    Total Base Words:    19227
+    -------------------------
+    Total Output Words:  23089
+    Base Lang Pct:       83.27%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:     0 sentences (  0.00%)
+    L1 Basic Target:       1 sentences (  0.13%)
+    L1 Inverse Diglot:     3 sentences (  0.39%)
+    L1 Basic Diglot:     770 sentences ( 99.48%)
+
+  Segment/Sentence Type Distribution (Total: 774 units):
+    Basic Target Sentences        1 units (  0.13%)
+    Inverse Diglot Sentences      3 units (  0.39%)
+    Base Diglot Sentences       770 units ( 99.48%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL7-10.txt (at 2025-11-06 08:07:01) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 6.9 / 0.0 / 0.0
+    Start V-Levels (bas/mod/adv): 12 / 0 / 0
+    End   L-Levels (bas/mod/adv): 10.5 / 0.0 / 0.0
+    End   V-Levels (bas/mod/adv): 20 / 0 / 0
+  AVD Score (Density-Weighted): 6.00
+  Output Word Count Summary:
+    Total Target Words:   6659
+    Total Base Words:    16434
+    -------------------------
+    Total Output Words:  23093
+    Base Lang Pct:       71.16%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:     0 sentences (  0.00%)
+    L1 Basic Target:       2 sentences (  0.26%)
+    L1 Inverse Diglot:    11 sentences (  1.42%)
+    L1 Basic Diglot:     761 sentences ( 98.32%)
+
+  Segment/Sentence Type Distribution (Total: 774 units):
+    Basic Target Sentences        2 units (  0.26%)
+    Inverse Diglot Sentences     11 units (  1.42%)
+    Base Diglot Sentences       761 units ( 98.32%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL11.txt (at 2025-11-06 08:07:04) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 10.9 / 0.0 / 0.0
+    Start V-Levels (bas/mod/adv): 21 / 0 / 0
+    End   L-Levels (bas/mod/adv): 11.7 / 0.0 / 0.0
+    End   V-Levels (bas/mod/adv): 31 / 0 / 0
+  AVD Score (Density-Weighted): 13.67
+  Output Word Count Summary:
+    Total Target Words:   8663
+    Total Base Words:    14425
+    -------------------------
+    Total Output Words:  23088
+    Base Lang Pct:       62.48%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:     0 sentences (  0.00%)
+    L1 Basic Target:       4 sentences (  0.52%)
+    L1 Inverse Diglot:    25 sentences (  3.23%)
+    L1 Basic Diglot:     745 sentences ( 96.25%)
+
+  Segment/Sentence Type Distribution (Total: 774 units):
+    Basic Target Sentences        4 units (  0.52%)
+    Inverse Diglot Sentences     25 units (  3.23%)
+    Base Diglot Sentences       745 units ( 96.25%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL12.txt (at 2025-11-06 08:07:08) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 11.9 / 0.0 / 0.0
+    Start V-Levels (bas/mod/adv): 32 / 0 / 0
+    End   L-Levels (bas/mod/adv): 12.7 / 0.0 / 0.0
+    End   V-Levels (bas/mod/adv): 34 / 0 / 0
+  AVD Score (Density-Weighted): 17.33
+  Output Word Count Summary:
+    Total Target Words:   9243
+    Total Base Words:    13839
+    -------------------------
+    Total Output Words:  23082
+    Base Lang Pct:       59.96%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:     0 sentences (  0.00%)
+    L1 Basic Target:       5 sentences (  0.65%)
+    L1 Inverse Diglot:    38 sentences (  4.91%)
+    L1 Basic Diglot:     731 sentences ( 94.44%)
+
+  Segment/Sentence Type Distribution (Total: 774 units):
+    Basic Target Sentences        5 units (  0.65%)
+    Inverse Diglot Sentences     38 units (  4.91%)
+    Base Diglot Sentences       731 units ( 94.44%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL13.txt (at 2025-11-06 08:07:11) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 12.9 / 0.0 / 0.0
+    Start V-Levels (bas/mod/adv): 36 / 0 / 0
+    End   L-Levels (bas/mod/adv): 13.8 / 0.0 / 0.0
+    End   V-Levels (bas/mod/adv): 48 / 0 / 0
+  AVD Score (Density-Weighted): 23.67
+  Output Word Count Summary:
+    Total Target Words:  10076
+    Total Base Words:    12980
+    -------------------------
+    Total Output Words:  23056
+    Base Lang Pct:       56.30%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:     0 sentences (  0.00%)
+    L1 Basic Target:       6 sentences (  0.78%)
+    L1 Inverse Diglot:    69 sentences (  8.91%)
+    L1 Basic Diglot:     699 sentences ( 90.31%)
+
+  Segment/Sentence Type Distribution (Total: 774 units):
+    Basic Target Sentences        6 units (  0.78%)
+    Inverse Diglot Sentences     69 units (  8.91%)
+    Base Diglot Sentences       699 units ( 90.31%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL14.txt (at 2025-11-06 08:07:14) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 13.9 / 0.0 / 0.0
+    Start V-Levels (bas/mod/adv): 49 / 0 / 0
+    End   L-Levels (bas/mod/adv): 14.8 / 0.0 / 0.0
+    End   V-Levels (bas/mod/adv): 80 / 0 / 0
+  AVD Score (Density-Weighted): 30.33
+  Output Word Count Summary:
+    Total Target Words:  11050
+    Total Base Words:    11967
+    -------------------------
+    Total Output Words:  23017
+    Base Lang Pct:       51.99%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:     0 sentences (  0.00%)
+    L1 Basic Target:       7 sentences (  0.90%)
+    L1 Inverse Diglot:   119 sentences ( 15.37%)
+    L1 Basic Diglot:     648 sentences ( 83.72%)
+
+  Segment/Sentence Type Distribution (Total: 774 units):
+    Basic Target Sentences        7 units (  0.90%)
+    Inverse Diglot Sentences    119 units ( 15.37%)
+    Base Diglot Sentences       648 units ( 83.72%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL15.txt (at 2025-11-06 08:07:18) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 14.8 / 0.0 / 0.0
+    Start V-Levels (bas/mod/adv): 80 / 0 / 0
+    End   L-Levels (bas/mod/adv): 15.7 / 0.0 / 0.0
+    End   V-Levels (bas/mod/adv): 86 / 0 / 0
+  AVD Score (Density-Weighted): 38.33
+  Output Word Count Summary:
+    Total Target Words:  11633
+    Total Base Words:    11364
+    -------------------------
+    Total Output Words:  22997
+    Base Lang Pct:       49.42%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:     0 sentences (  0.00%)
+    L1 Basic Target:      10 sentences (  1.29%)
+    L1 Inverse Diglot:   171 sentences ( 22.09%)
+    L1 Basic Diglot:     593 sentences ( 76.61%)
+
+  Segment/Sentence Type Distribution (Total: 774 units):
+    Basic Target Sentences       10 units (  1.29%)
+    Inverse Diglot Sentences    171 units ( 22.09%)
+    Base Diglot Sentences       593 units ( 76.61%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL16.txt (at 2025-11-06 08:07:21) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 15.7 / 0.0 / 0.0
+    Start V-Levels (bas/mod/adv): 86 / 0 / 0
+    End   L-Levels (bas/mod/adv): 16.7 / 0.0 / 0.0
+    End   V-Levels (bas/mod/adv): 103 / 0 / 0
+  AVD Score (Density-Weighted): 49.33
+  Output Word Count Summary:
+    Total Target Words:  12070
+    Total Base Words:    10872
+    -------------------------
+    Total Output Words:  22942
+    Base Lang Pct:       47.39%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:     0 sentences (  0.00%)
+    L1 Basic Target:      11 sentences (  1.42%)
+    L1 Inverse Diglot:   235 sentences ( 30.36%)
+    L1 Basic Diglot:     528 sentences ( 68.22%)
+
+  Segment/Sentence Type Distribution (Total: 774 units):
+    Basic Target Sentences       11 units (  1.42%)
+    Inverse Diglot Sentences    235 units ( 30.36%)
+    Base Diglot Sentences       528 units ( 68.22%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL17.txt (at 2025-11-06 08:07:25) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 16.9 / 0.0 / 0.0
+    Start V-Levels (bas/mod/adv): 106 / 0 / 0
+    End   L-Levels (bas/mod/adv): 17.8 / 0.0 / 0.0
+    End   V-Levels (bas/mod/adv): 151 / 0 / 0
+  AVD Score (Density-Weighted): 65.33
+  Output Word Count Summary:
+    Total Target Words:  12642
+    Total Base Words:    10313
+    -------------------------
+    Total Output Words:  22955
+    Base Lang Pct:       44.93%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:     0 sentences (  0.00%)
+    L1 Basic Target:      15 sentences (  1.94%)
+    L1 Inverse Diglot:   310 sentences ( 40.05%)
+    L1 Basic Diglot:     449 sentences ( 58.01%)
+
+  Segment/Sentence Type Distribution (Total: 774 units):
+    Basic Target Sentences       15 units (  1.94%)
+    Inverse Diglot Sentences    310 units ( 40.05%)
+    Base Diglot Sentences       449 units ( 58.01%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL18.txt (at 2025-11-06 08:07:28) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 17.9 / 0.0 / 0.0
+    Start V-Levels (bas/mod/adv): 157 / 0 / 0
+    End   L-Levels (bas/mod/adv): 18.8 / 0.0 / 0.0
+    End   V-Levels (bas/mod/adv): 225 / 0 / 0
+  AVD Score (Density-Weighted): 81.67
+  Output Word Count Summary:
+    Total Target Words:  13401
+    Total Base Words:     9494
+    -------------------------
+    Total Output Words:  22895
+    Base Lang Pct:       41.47%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:     0 sentences (  0.00%)
+    L1 Basic Target:      20 sentences (  2.58%)
+    L1 Inverse Diglot:   414 sentences ( 53.49%)
+    L1 Basic Diglot:     340 sentences ( 43.93%)
+
+  Segment/Sentence Type Distribution (Total: 774 units):
+    Basic Target Sentences       20 units (  2.58%)
+    Inverse Diglot Sentences    414 units ( 53.49%)
+    Base Diglot Sentences       340 units ( 43.93%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL19.txt (at 2025-11-06 08:07:32) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 18.8 / 0.0 / 0.0
+    Start V-Levels (bas/mod/adv): 225 / 0 / 0
+    End   L-Levels (bas/mod/adv): 19.8 / 2.2 / 0.0
+    End   V-Levels (bas/mod/adv): 261 / 4 / 0
+  AVD Score (Density-Weighted): 106.00
+  Output Word Count Summary:
+    Total Target Words:  13935
+    Total Base Words:     8810
+    -------------------------
+    Total Output Words:  22745
+    Base Lang Pct:       38.73%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:     0 sentences (  0.00%)
+    L1 Basic Target:      24 sentences (  3.10%)
+    L1 Inverse Diglot:   479 sentences ( 61.89%)
+    L1 Basic Diglot:     271 sentences ( 35.01%)
+
+  Segment/Sentence Type Distribution (Total: 774 units):
+    Basic Target Sentences       24 units (  3.10%)
+    Inverse Diglot Sentences    479 units ( 61.89%)
+    Base Diglot Sentences       271 units ( 35.01%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL20.txt (at 2025-11-06 08:07:35) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 19.8 / 2.2 / 0.0
+    Start V-Levels (bas/mod/adv): 261 / 4 / 0
+    End   L-Levels (bas/mod/adv): 20.8 / 4.6 / 0.0
+    End   V-Levels (bas/mod/adv): 320 / 5 / 0
+  AVD Score (Density-Weighted): 133.33
+  Output Word Count Summary:
+    Total Target Words:  14321
+    Total Base Words:     8365
+    -------------------------
+    Total Output Words:  22686
+    Base Lang Pct:       36.87%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:     1 sentences (  0.13%)
+    L1 Basic Target:      27 sentences (  3.49%)
+    L1 Inverse Diglot:   527 sentences ( 68.09%)
+    L1 Basic Diglot:     219 sentences ( 28.29%)
+
+  Segment/Sentence Type Distribution (Total: 774 units):
+    Mod. Target Segments          1 units (  0.13%)
+    Basic Target Sentences       27 units (  3.49%)
+    Inverse Diglot Sentences    527 units ( 68.09%)
+    Base Diglot Sentences       219 units ( 28.29%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL21.txt (at 2025-11-06 08:07:39) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 20.9 / 4.9 / 0.0
+    Start V-Levels (bas/mod/adv): 323 / 5 / 0
+    End   L-Levels (bas/mod/adv): 21.8 / 7.1 / 0.0
+    End   V-Levels (bas/mod/adv): 430 / 13 / 0
+  AVD Score (Density-Weighted): 172.67
+  Output Word Count Summary:
+    Total Target Words:  14719
+    Total Base Words:     7922
+    -------------------------
+    Total Output Words:  22641
+    Base Lang Pct:       34.99%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:     1 sentences (  0.13%)
+    L1 Basic Target:      38 sentences (  4.91%)
+    L1 Inverse Diglot:   560 sentences ( 72.35%)
+    L1 Basic Diglot:     175 sentences ( 22.61%)
+
+  Segment/Sentence Type Distribution (Total: 774 units):
+    Mod. Target Segments          1 units (  0.13%)
+    Basic Target Sentences       38 units (  4.91%)
+    Inverse Diglot Sentences    560 units ( 72.35%)
+    Base Diglot Sentences       175 units ( 22.61%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL22.txt (at 2025-11-06 08:07:42) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 21.8 / 7.1 / 0.0
+    Start V-Levels (bas/mod/adv): 430 / 13 / 0
+    End   L-Levels (bas/mod/adv): 22.8 / 9.5 / 0.0
+    End   V-Levels (bas/mod/adv): 559 / 17 / 0
+  AVD Score (Density-Weighted): 216.00
+  Output Word Count Summary:
+    Total Target Words:  15554
+    Total Base Words:     7012
+    -------------------------
+    Total Output Words:  22566
+    Base Lang Pct:       31.07%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:     2 sentences (  0.26%)
+    L1 Basic Target:      52 sentences (  6.72%)
+    L1 Inverse Diglot:   602 sentences ( 77.78%)
+    L1 Basic Diglot:     118 sentences ( 15.25%)
+
+  Segment/Sentence Type Distribution (Total: 774 units):
+    Mod. Target Segments          2 units (  0.26%)
+    Basic Target Sentences       52 units (  6.72%)
+    Inverse Diglot Sentences    602 units ( 77.78%)
+    Base Diglot Sentences       118 units ( 15.25%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL23.txt (at 2025-11-06 08:07:45) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 22.9 / 9.8 / 0.0
+    Start V-Levels (bas/mod/adv): 571 / 17 / 0
+    End   L-Levels (bas/mod/adv): 23.8 / 11.9 / 0.0
+    End   V-Levels (bas/mod/adv): 706 / 33 / 0
+  AVD Score (Density-Weighted): 273.33
+  Output Word Count Summary:
+    Total Target Words:  16126
+    Total Base Words:     6336
+    -------------------------
+    Total Output Words:  22462
+    Base Lang Pct:       28.21%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:     4 sentences (  0.52%)
+    L1 Basic Target:      64 sentences (  8.27%)
+    L1 Inverse Diglot:   625 sentences ( 80.75%)
+    L1 Basic Diglot:      81 sentences ( 10.47%)
+
+  Segment/Sentence Type Distribution (Total: 774 units):
+    Mod. Target Segments          4 units (  0.52%)
+    Basic Target Sentences       64 units (  8.27%)
+    Inverse Diglot Sentences    625 units ( 80.75%)
+    Base Diglot Sentences        81 units ( 10.47%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL24.txt (at 2025-11-06 08:07:49) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 23.9 / 12.2 / 0.0
+    Start V-Levels (bas/mod/adv): 730 / 34 / 0
+    End   L-Levels (bas/mod/adv): 24.8 / 14.4 / 0.0
+    End   V-Levels (bas/mod/adv): 901 / 68 / 0
+  AVD Score (Density-Weighted): 353.33
+  Output Word Count Summary:
+    Total Target Words:  17258
+    Total Base Words:     5228
+    -------------------------
+    Total Output Words:  22486
+    Base Lang Pct:       23.25%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:     6 sentences (  0.78%)
+    L1 Basic Target:      94 sentences ( 12.14%)
+    L1 Inverse Diglot:   631 sentences ( 81.52%)
+    L1 Basic Diglot:      43 sentences (  5.56%)
+
+  Segment/Sentence Type Distribution (Total: 774 units):
+    Mod. Target Segments          6 units (  0.78%)
+    Basic Target Sentences       94 units ( 12.14%)
+    Inverse Diglot Sentences    631 units ( 81.52%)
+    Base Diglot Sentences        43 units (  5.56%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL25.txt (at 2025-11-06 08:07:52) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 24.9 / 14.6 / 0.0
+    Start V-Levels (bas/mod/adv): 911 / 75 / 0
+    End   L-Levels (bas/mod/adv): 25.8 / 16.8 / 2.2
+    End   V-Levels (bas/mod/adv): 1089 / 106 / 4
+  AVD Score (Density-Weighted): 439.00
+  Output Word Count Summary:
+    Total Target Words:  18016
+    Total Base Words:     4433
+    -------------------------
+    Total Output Words:  22449
+    Base Lang Pct:       19.75%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:    12 sentences (  1.55%)
+    L1 Basic Target:     109 sentences ( 14.08%)
+    L1 Inverse Diglot:   624 sentences ( 80.62%)
+    L1 Basic Diglot:      29 sentences (  3.75%)
+
+  Segment/Sentence Type Distribution (Total: 775 units):
+    Mod. Target Segments         13 units (  1.68%)
+    Basic Target Sentences      109 units ( 14.06%)
+    Inverse Diglot Sentences    624 units ( 80.52%)
+    Base Diglot Sentences        29 units (  3.74%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL26.txt (at 2025-11-06 08:07:56) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 25.9 / 17.1 / 2.7
+    Start V-Levels (bas/mod/adv): 1100 / 112 / 4
+    End   L-Levels (bas/mod/adv): 26.9 / 19.5 / 7.5
+    End   V-Levels (bas/mod/adv): 1610 / 250 / 15
+  AVD Score (Density-Weighted): 571.33
+  Output Word Count Summary:
+    Total Target Words:  18799
+    Total Base Words:     3601
+    -------------------------
+    Total Output Words:  22400
+    Base Lang Pct:       16.08%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:    18 sentences (  2.33%)
+    L1 Basic Target:     140 sentences ( 18.09%)
+    L1 Inverse Diglot:   598 sentences ( 77.26%)
+    L1 Basic Diglot:      18 sentences (  2.33%)
+
+  Segment/Sentence Type Distribution (Total: 776 units):
+    Adv. Target Segments          1 units (  0.13%)
+    Mod. Target Segments         19 units (  2.45%)
+    Basic Target Sentences      140 units ( 18.04%)
+    Inverse Diglot Sentences    598 units ( 77.06%)
+    Base Diglot Sentences        18 units (  2.32%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL27.txt (at 2025-11-06 08:07:59) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 26.9 / 19.5 / 7.5
+    Start V-Levels (bas/mod/adv): 1610 / 250 / 15
+    End   L-Levels (bas/mod/adv): 27.8 / 21.7 / 11.9
+    End   V-Levels (bas/mod/adv): 2058 / 430 / 32
+  AVD Score (Density-Weighted): 718.00
+  Output Word Count Summary:
+    Total Target Words:  19718
+    Total Base Words:     2603
+    -------------------------
+    Total Output Words:  22321
+    Base Lang Pct:       11.66%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:    29 sentences (  3.75%)
+    L1 Basic Target:     201 sentences ( 25.97%)
+    L1 Inverse Diglot:   534 sentences ( 68.99%)
+    L1 Basic Diglot:      10 sentences (  1.29%)
+
+  Segment/Sentence Type Distribution (Total: 779 units):
+    Adv. Target Segments          4 units (  0.51%)
+    Mod. Target Segments         30 units (  3.85%)
+    Basic Target Sentences      201 units ( 25.80%)
+    Inverse Diglot Sentences    534 units ( 68.55%)
+    Base Diglot Sentences        10 units (  1.28%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL28.txt (at 2025-11-06 08:08:03) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 27.9 / 21.9 / 12.4
+    Start V-Levels (bas/mod/adv): 2187 / 437 / 34
+    End   L-Levels (bas/mod/adv): 28.9 / 24.4 / 17.2
+    End   V-Levels (bas/mod/adv): 3087 / 847 / 114
+  AVD Score (Density-Weighted): 937.00
+  Output Word Count Summary:
+    Total Target Words:  20458
+    Total Base Words:     1826
+    -------------------------
+    Total Output Words:  22284
+    Base Lang Pct:        8.19%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:    54 sentences (  6.98%)
+    L1 Basic Target:     254 sentences ( 32.82%)
+    L1 Inverse Diglot:   461 sentences ( 59.56%)
+    L1 Basic Diglot:       5 sentences (  0.65%)
+
+  Segment/Sentence Type Distribution (Total: 792 units):
+    Adv. Target Segments          7 units (  0.88%)
+    Mod. Target Segments         65 units (  8.21%)
+    Basic Target Sentences      254 units ( 32.07%)
+    Inverse Diglot Sentences    461 units ( 58.21%)
+    Base Diglot Sentences         5 units (  0.63%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL29.txt (at 2025-11-06 08:08:06) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 28.9 / 24.4 / 17.2
+    Start V-Levels (bas/mod/adv): 3087 / 847 / 114
+    End   L-Levels (bas/mod/adv): 29.9 / 26.8 / 22.0
+    End   V-Levels (bas/mod/adv): 4574 / 1578 / 444
+  AVD Score (Density-Weighted): 1214.33
+  Output Word Count Summary:
+    Total Target Words:  20973
+    Total Base Words:     1229
+    -------------------------
+    Total Output Words:  22202
+    Base Lang Pct:        5.54%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:   114 sentences ( 14.73%)
+    L1 Basic Target:     301 sentences ( 38.89%)
+    L1 Inverse Diglot:   355 sentences ( 45.87%)
+    L1 Basic Diglot:       4 sentences (  0.52%)
+
+  Segment/Sentence Type Distribution (Total: 867 units):
+    Adv. Target Segments         36 units (  4.15%)
+    Mod. Target Segments        171 units ( 19.72%)
+    Basic Target Sentences      301 units ( 34.72%)
+    Inverse Diglot Sentences    355 units ( 40.95%)
+    Base Diglot Sentences         4 units (  0.46%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL30.txt (at 2025-11-06 08:08:09) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 30.0 / 27.1 / 22.5
+    Start V-Levels (bas/mod/adv): 5008 / 1695 / 541
+    End   L-Levels (bas/mod/adv): 30.9 / 29.3 / 26.9
+    End   V-Levels (bas/mod/adv): 9612 / 3247 / 1546
+  AVD Score (Density-Weighted): 1516.33
+  Output Word Count Summary:
+    Total Target Words:  21537
+    Total Base Words:      516
+    -------------------------
+    Total Output Words:  22053
+    Base Lang Pct:        2.34%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:   266 sentences ( 34.37%)
+    L1 Basic Target:     321 sentences ( 41.47%)
+    L1 Inverse Diglot:   186 sentences ( 24.03%)
+    L1 Basic Diglot:       1 sentences (  0.13%)
+
+  Segment/Sentence Type Distribution (Total: 1200 units):
+    Adv. Target Segments        271 units ( 22.58%)
+    Mod. Target Segments        421 units ( 35.08%)
+    Basic Target Sentences      321 units ( 26.75%)
+    Inverse Diglot Sentences    186 units ( 15.50%)
+    Base Diglot Sentences         1 units (  0.08%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL31.txt (at 2025-11-06 08:08:13) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 31.1 / 29.7 / 27.8
+    Start V-Levels (bas/mod/adv): 10416 / 3855 / 2037
+    End   L-Levels (bas/mod/adv): 31.6 / 31.0 / 30.3
+    End   V-Levels (bas/mod/adv): 21590 / 7868 / 4013
+  AVD Score (Density-Weighted): 1859.33
+  Output Word Count Summary:
+    Total Target Words:  21852
+    Total Base Words:      114
+    -------------------------
+    Total Output Words:  21966
+    Base Lang Pct:        0.52%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:   528 sentences ( 68.22%)
+    L1 Basic Target:     204 sentences ( 26.36%)
+    L1 Inverse Diglot:    42 sentences (  5.43%)
+    L1 Basic Diglot:       0 sentences (  0.00%)
+
+  Segment/Sentence Type Distribution (Total: 2065 units):
+    Adv. Target Segments       1128 units ( 54.62%)
+    Mod. Target Segments        691 units ( 33.46%)
+    Basic Target Sentences      204 units (  9.88%)
+    Inverse Diglot Sentences     42 units (  2.03%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL32.txt (at 2025-11-06 08:08:16) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 31.6 / 31.0 / 30.3
+    Start V-Levels (bas/mod/adv): 21590 / 7868 / 4013
+    End   L-Levels (bas/mod/adv): 31.9 / 31.7 / 32.0
+    End   V-Levels (bas/mod/adv): 4294967295 / 4294967295 / 7118
+  AVD Score (Density-Weighted): 2422.33
+  Output Word Count Summary:
+    Total Target Words:  21613
+    Total Base Words:        4
+    -------------------------
+    Total Output Words:  21617
+    Base Lang Pct:        0.02%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:   706 sentences ( 91.21%)
+    L1 Basic Target:      66 sentences (  8.53%)
+    L1 Inverse Diglot:     2 sentences (  0.26%)
+    L1 Basic Diglot:       0 sentences (  0.00%)
+
+  Segment/Sentence Type Distribution (Total: 2722 units):
+    Adv. Target Segments       1916 units ( 70.39%)
+    Mod. Target Segments        738 units ( 27.11%)
+    Basic Target Sentences       66 units (  2.42%)
+    Inverse Diglot Sentences      2 units (  0.07%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL33.txt (at 2025-11-06 08:08:19) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 31.9 / 31.7 / 32.2
+    Start V-Levels (bas/mod/adv): 4294967295 / 4294967295 / 7559
+    End   L-Levels (bas/mod/adv): 31.9 / 31.7 / 33.5
+    End   V-Levels (bas/mod/adv): 4294967295 / 4294967295 / 17335
+  AVD Score (Density-Weighted): 3095.33
+  Output Word Count Summary:
+    Total Target Words:  21509
+    Total Base Words:        0
+    -------------------------
+    Total Output Words:  21509
+    Base Lang Pct:        0.00%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:   774 sentences (100.00%)
+    L1 Basic Target:       0 sentences (  0.00%)
+    L1 Inverse Diglot:     0 sentences (  0.00%)
+    L1 Basic Diglot:       0 sentences (  0.00%)
+
+  Segment/Sentence Type Distribution (Total: 2999 units):
+    Adv. Target Segments       2562 units ( 85.43%)
+    Mod. Target Segments        437 units ( 14.57%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL34.txt (at 2025-11-06 08:08:23) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 31.9 / 31.7 / 33.8
+    Start V-Levels (bas/mod/adv): 4294967295 / 4294967295 / 19154
+    End   L-Levels (bas/mod/adv): 31.9 / 31.7 / 34.9
+    End   V-Levels (bas/mod/adv): 4294967295 / 4294967295 / 4294967295
+  AVD Score (Density-Weighted): 3958.67
+  Output Word Count Summary:
+    Total Target Words:  21426
+    Total Base Words:        0
+    -------------------------
+    Total Output Words:  21426
+    Base Lang Pct:        0.00%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:   774 sentences (100.00%)
+    L1 Basic Target:       0 sentences (  0.00%)
+    L1 Inverse Diglot:     0 sentences (  0.00%)
+    L1 Basic Diglot:       0 sentences (  0.00%)
+
+  Segment/Sentence Type Distribution (Total: 2999 units):
+    Adv. Target Segments       2899 units ( 96.67%)
+    Mod. Target Segments        100 units (  3.33%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_UL35.txt (at 2025-11-06 08:08:26) ---
+  Recipe Dynamics:
+    Start L-Levels (bas/mod/adv): 31.9 / 31.7 / 34.9
+    Start V-Levels (bas/mod/adv): 4294967295 / 4294967295 / 4294967295
+    End   L-Levels (bas/mod/adv): 31.9 / 31.7 / 34.9
+    End   V-Levels (bas/mod/adv): 4294967295 / 4294967295 / 4294967295
+  AVD Score (Density-Weighted): 4410.00
+  Output Word Count Summary:
+    Total Target Words:  21374
+    Total Base Words:        0
+    -------------------------
+    Total Output Words:  21374
+    Base Lang Pct:        0.00%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:   774 sentences (100.00%)
+    L1 Basic Target:       0 sentences (  0.00%)
+    L1 Inverse Diglot:     0 sentences (  0.00%)
+    L1 Basic Diglot:       0 sentences (  0.00%)
+
+  Segment/Sentence Type Distribution (Total: 2999 units):
+    Adv. Target Segments       2999 units (100.00%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_BEX_M0_A0.txt (at 2025-11-06 08:08:26) ---
+  AVD Score (Density-Weighted): 2147.33
+  Output Word Count Summary:
+    Total Target Words:  22177
+    Total Base Words:        0
+    -------------------------
+    Total Output Words:  22177
+    Base Lang Pct:        0.00%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:     0 sentences (  0.00%)
+    L1 Basic Target:     774 sentences (100.00%)
+    L1 Inverse Diglot:     0 sentences (  0.00%)
+    L1 Basic Diglot:       0 sentences (  0.00%)
+
+  Segment/Sentence Type Distribution (Total: 774 units):
+    Basic Target Sentences      774 units (100.00%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_B0_MEX_A0.txt (at 2025-11-06 08:08:27) ---
+  AVD Score (Density-Weighted): 2052.67
+  Output Word Count Summary:
+    Total Target Words:  21411
+    Total Base Words:        0
+    -------------------------
+    Total Output Words:  21411
+    Base Lang Pct:        0.00%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:   774 sentences (100.00%)
+    L1 Basic Target:       0 sentences (  0.00%)
+    L1 Inverse Diglot:     0 sentences (  0.00%)
+    L1 Basic Diglot:       0 sentences (  0.00%)
+
+  Segment/Sentence Type Distribution (Total: 2999 units):
+    Mod. Target Segments       2999 units (100.00%)
+----------------------------------------------------------------------
+
+--- Analysis for Book Instance: Metamorphosis_B0_M0_AEX.txt (at 2025-11-06 08:08:27) ---
+  AVD Score (Density-Weighted): 4410.00
+  Output Word Count Summary:
+    Total Target Words:  21374
+    Total Base Words:        0
+    -------------------------
+    Total Output Words:  21374
+    Base Lang Pct:        0.00%
+
+  Sentence Level Distribution:
+    L0 Advanced Weave:   774 sentences (100.00%)
+    L1 Basic Target:       0 sentences (  0.00%)
+    L1 Inverse Diglot:     0 sentences (  0.00%)
+    L1 Basic Diglot:       0 sentences (  0.00%)
+
+  Segment/Sentence Type Distribution (Total: 2999 units):
+    Adv. Target Segments       2999 units (100.00%)
+----------------------------------------------------------------------
+

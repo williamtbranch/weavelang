@@ -5,9 +5,7 @@ use crate::simulation::numerical_types::{
     NumericalAdvSegmentBundle, NumericalChapter, NumericalDiglotEntry, NumericalDiglotSegmentMap,
     NumericalProcessedSentence,
 };
-use crate::types::json_types::{
-    JsonChapter, JsonContentBlock, JsonSentenceBlock, JsonTierV2
-};
+use crate::types::json_types::{JsonChapter, JsonContentBlock, JsonSentenceBlock, JsonTierV2};
 use std::vec::Vec;
 
 pub fn json_chapter_to_numerical(
@@ -37,8 +35,12 @@ pub fn json_chapter_to_numerical(
     (numerical_chapter, english_word_counts)
 }
 fn find_tier_or_panic<'a>(tiers: &'a [JsonTierV2], tier_id: &str, s_id: &str) -> &'a JsonTierV2 {
-    tiers.iter().find(|t| t.tier_id == tier_id)
-        .unwrap_or_else(|| panic!("Data integrity error: Could not find '{}' tier in sentence '{}'", tier_id, s_id))
+    tiers
+        .iter()
+        .find(|t| t.tier_id == tier_id)
+        .unwrap_or_else(|| {
+            panic!("Data integrity error: Could not find '{tier_id}' tier in sentence '{s_id}'")
+        })
 }
 
 pub fn json_sentence_to_numerical(
@@ -49,7 +51,7 @@ pub fn json_sentence_to_numerical(
     let string_lemmas_to_ids = |lemmas: &[String], dict: &mut GlobalLemmaDictionary| -> Vec<u32> {
         lemmas.iter().map(|s| dict.get_id_or_insert(s)).collect()
     };
-    
+
     let s_id = &s_sentence.s_id;
 
     // We no longer need the original 'base' tier. 'basic_base' is now our source of truth for English.
@@ -58,14 +60,19 @@ pub fn json_sentence_to_numerical(
     let basic_target_tier = find_tier_or_panic(&s_sentence.tiers, "basic_target", s_id);
     let mod_target_tier = find_tier_or_panic(&s_sentence.tiers, "moderate_target", s_id);
     let adv_target_tier = find_tier_or_panic(&s_sentence.tiers, "advanced_target", s_id);
-    
+
     let adv_segment_bundles_numerical: Vec<NumericalAdvSegmentBundle> = adv_target_tier
         .segments
         .iter()
         .map(|adv_seg| {
             let seg_id = &adv_seg.seg_id;
-            let mod_seg = mod_target_tier.segments.iter().find(|s| &s.seg_id == seg_id)
-                .unwrap_or_else(|| panic!("Mismatch in seg_id '{}' for moderate tier in s_id '{}'", seg_id, s_id));
+            let mod_seg = mod_target_tier
+                .segments
+                .iter()
+                .find(|s| &s.seg_id == seg_id)
+                .unwrap_or_else(|| {
+                    panic!("Mismatch in seg_id '{seg_id}' for moderate tier in s_id '{s_id}'")
+                });
 
             NumericalAdvSegmentBundle {
                 a_id_str: adv_seg.seg_id.clone(),
@@ -78,37 +85,58 @@ pub fn json_sentence_to_numerical(
         .collect();
 
     let basic_diglot_map_numerical: Vec<NumericalDiglotSegmentMap> = s_sentence
-        .mappings.basic_diglot.iter()
+        .mappings
+        .basic_diglot
+        .iter()
         .map(|(seg_id, entries)| NumericalDiglotSegmentMap {
             s_segment_id_str: seg_id.clone(),
-            entries: entries.iter().map(|(base_di, lemmas, form, viable, eng_wc, proper_noun_lemmas)| {
-                let base_word = basic_base_tier.segments.iter().flat_map(|s| &s.tokenized_text)
-                    .find(|t| t.diglot_index == Some(*base_di)).map_or("", |t| &t.value);
-                
-                NumericalDiglotEntry {
-                    base_word_di: *base_di,
-                    eng_word_original: base_word.to_string(),
-                    spa_lemma_ids: string_lemmas_to_ids(lemmas, dictionary),
-                    exact_spa_form_original: form.clone(),
-                    viable: *viable,
-                    eng_word_count: *eng_wc,
-                    is_base_token_pn: !proper_noun_lemmas.is_empty(),
-                }
-            }).collect(),
-        }).collect();
-    
-    let mut basic_inverse_diglot_map_numerical: Vec<(String, Vec<u32>, String, usize, usize)> = Vec::new();
-    let tokens: Vec<_> = basic_target_tier.segments.iter()
+            entries: entries
+                .iter()
+                .map(
+                    |(base_di, lemmas, form, viable, eng_wc, proper_noun_lemmas)| {
+                        let base_word = basic_base_tier
+                            .segments
+                            .iter()
+                            .flat_map(|s| &s.tokenized_text)
+                            .find(|t| t.diglot_index == Some(*base_di))
+                            .map_or("", |t| &t.value);
+
+                        NumericalDiglotEntry {
+                            base_word_di: *base_di,
+                            eng_word_original: base_word.to_string(),
+                            spa_lemma_ids: string_lemmas_to_ids(lemmas, dictionary),
+                            exact_spa_form_original: form.clone(),
+                            viable: *viable,
+                            eng_word_count: *eng_wc,
+                            is_base_token_pn: !proper_noun_lemmas.is_empty(),
+                        }
+                    },
+                )
+                .collect(),
+        })
+        .collect();
+
+    let mut basic_inverse_diglot_map_numerical: Vec<(String, Vec<u32>, String, usize, usize)> =
+        Vec::new();
+    let tokens: Vec<_> = basic_target_tier
+        .segments
+        .iter()
         .flat_map(|s| &s.tokenized_text)
         .filter(|t| t.token_type == crate::types::json_types::JsonTokenType::Word)
         .collect();
-    
+
     for entries in s_sentence.mappings.basic_inverse_diglot.values() {
         for (idx, lemmas, sub, eng_wc, _spa_wc) in entries {
             let original_word_group = tokens.get(*idx).map_or("", |t| &t.value);
             let spa_word_count = original_word_group.split_whitespace().count();
             let lemma_ids = string_lemmas_to_ids(lemmas, dictionary);
-            basic_inverse_diglot_map_numerical.push((original_word_group.to_string(), lemma_ids, sub.clone(), *eng_wc, spa_word_count));
+            basic_inverse_diglot_map_numerical.push((
+                original_word_group.to_string(),
+                lemma_ids,
+                sub.clone(),
+                *eng_wc,
+                spa_word_count,
+            ));
         }
     }
 

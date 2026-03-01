@@ -2,7 +2,11 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum LemmaState { New, Active, Known }
+pub enum LemmaState {
+    New,
+    Active,
+    Known,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LearnerLemmaInfo {
@@ -12,6 +16,8 @@ pub struct LearnerLemmaInfo {
 
 impl Default for LearnerLemmaInfo {
     fn default() -> Self {
-        Self { state: LemmaState::New }
+        Self {
+            state: LemmaState::New,
+        }
     }
 }

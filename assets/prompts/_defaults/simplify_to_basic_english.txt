@@ -18,79 +18,83 @@ Follow these rules precisely:
 
 5.  **Ensure Natural Fluency:** The output MUST be natural, fluent, and grammatically perfect English. Avoid awkward, robotic, or overly simplistic phrasing that sounds like it was written for a young child. The tone should be clear and straightforward, not childish.
 
-6.  **Maintain Format:** You will receive sentences with an ID (e.g., `S123:`). You MUST respond ONLY with the simplified text for each ID, maintaining the exact same ID-based format. Do not add explanations or apologies.
+6.  **Maintain Format:** You will receive sentences with an ID (e.g., `S123:`). You MUST respond ONLY with the simplified text for each ID, maintaining the exact same ID-based format.
+    *   One line per ID.
+    *   Do not merge IDs (e.g., never write `S1-S2:`).
+    *   Even if a sentence is very short or looks like a title, YOU MUST provide a simplification for it using its original ID.
+    *   Do not add explanations or apologies.
 
 --- EXAMPLES ---
 
 INPUT:
-S1: It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.
+S_Ex1: It is widely accepted by all competent authorities that a person who lacks sufficient sustenance will inevitably experience the sensation of hunger.
 
 YOUR RESPONSE:
-S1: Everyone knows that a single man who has many things must want a woman to have a life with.
+S_Ex1: Everyone knows that a person who has no food will feel hungry.
 
 ---
 
 INPUT:
-S2: The wisdom of our ancestors is in the simile; and my unhallowed hands shall not disturb it, or the Country's done for.
+S_Ex2: The ancient traditions of our forebears must be preserved with the utmost reverence, lest our cultural heritage fade into oblivion.
 
 YOUR RESPONSE:
-S2: The parents of our people were wise to think that way, and I will not be the one to make it some other, and if I do, the place of our people will be no more.
+S_Ex2: We must keep the old ways of our fathers safe. If we do not, the story of our people will be forgotten.
 
 ---
 
 INPUT:
-S3: It is not down on any map; true places never are.
+S_Ex3: The location of his secret hideout was known only to the wind and the silent stars; no map possessed the knowledge.
 
 YOUR RESPONSE:
-S3: You will not find it on any paper, because true places are never put on them.
+S_Ex3: No person knew where he was hiding. You could not find it on any paper. Only the wind and the stars knew where it was.
 
 ---
 
 INPUT:
-S4: It was the best of times, it was the worst of times, it was the age of wisdom, it was the age of foolishness.
+S_Ex4: It was a season of abundant harvest, it was a season of devastating famine; some men grew fat while others starved in the streets.
 
 YOUR RESPONSE:
-S4: It was the best of times, it was the worst of times, it was a time of very good thinking and a time of very bad thinking and doing.
+S_Ex4: It was a time when there was much food, and a time when there was no food. Some men had too much to eat, while other men had nothing.
 
 ---
 
 INPUT:
-S7: The Revolution came; events succeeded each other with precipitation; the parliamentary families, decimated, pursued, hunted down, were dispersed.
+S_Ex5: The conflict erupted; battles followed one another with alarming speed; the ruling council, shattered, hunted, and fearful, was scattered to the winds.
 
-(analysis: "Revolution" is not likely to be found in the first 2000 most frequent words, if possible we paraphrase. "parliamentary families" also can be paraphrased.)
+(analysis: "Conflict" and "scattered" can be simplified. The structure should be broken down to show the sequence of events clearly.)
 
 YOUR RESPONSE:
-S7: Then there was a time of great fighting and change in the country, and things happened very fast. For the families of the men who made the laws, many were killed. People looked for the ones who were still alive to hurt them, so they had to go away to many different places.
+S_Ex5: Then the big war started. Fights happened very fast. The people who led the country were hurt and afraid, so they ran away to many different places.
 
 INPUT:
-S26: Was he, in the midst of these distractions, these affections which absorbed his life, suddenly smitten with one of those mysterious and terrible blows which sometimes overwhelm, by striking to his heart, a man whom public catastrophes would not shake, by striking at his existence and his fortune?
+S_Ex6: Was he, in the middle of his important work and deep love for his family, suddenly struck by a mysterious illness that could destroy a man whom even natural disasters could not shake?
 
-(analysis: The sentence is too long to be simplified into a single sentence without being unnatural. It is better to break it into two.)
+(analysis: The sentence is too long and complex. It uses rhetorical questions and nested clauses. It is better to break it into two sentences and simplify the abstract nouns like "distractions" and "affections" if they were present.)
+
 YOUR RESPONSE:
-
-S26: Or did a strange and very bad thing suddenly happen to him while his life was full of other things and people? The kind of thing that hits a man deep in his heart, that can break his life and take all he has, even when he is a man who can stay strong when great troubles happen to the whole country.
+S_Ex6: Did a strange and very bad thing suddenly happen to him while he was busy with his work and family? It was the kind of thing that can break a strong man, even a man who stays strong when the whole world is shaking.
 
 INPUT:
-S_MD1: To the last I grapple with thee; from hell's heart I stab at thee; for hate's sake I spit my last breath at thee.
+S_Ex7: To the very end I will struggle against you; from the deepest pit of my anger I strike at you; with my last breath I curse you.
 
-(analysis: This sentence uses archaic language ("thee", "grapple") and powerful metaphors ("hell's heart", "spit my last breath") that must be simplified. The three-part structure should be preserved to maintain its power.)
+(analysis: This simplifies archaic poetic structure while keeping the three-part power of the original intent.)
 
 YOUR RESPONSE:
-S_MD1: I will fight you until I die. I strike at you from the worst place in my heart. Because of my hate, I will use my last breath to spit at you.
+S_Ex7: I will fight you until I die. I hit you with all the anger in my heart. I use my last breath to say bad things to you.
 
 INPUT:
-S_EC1: ECDIS is a navigation information system that displays electronic charts and integrates data from various sensors.
+S_Ex8: The Chronometer is a precision timekeeping instrument that utilizes a complex escapement mechanism to maintain accuracy at sea.
 
-(analysis: This is a technical definition. Jargon like "navigation information system" and abstract verbs like "integrates data" must be simplified into concrete functions and actions.)
-
-YOUR RESPONSE:
-S_EC1: ECDIS is a computer system that helps to guide boats. It shows maps of the sea on a screen and also brings together information from many different machines on the boat.
-
-NPUT:
-S_25: He was finding it hard, in the midst of a current of odor which was a current of retribution and despair, to smell anything else.
-
-(analysis: This sentence contains a highly abstract metaphor, linking a smell to the complex feelings of "retribution" and "despair." The best way to simplify this is to deconstruct the metaphor into a cause-and-effect relationship and to split the complex sentence structure into two parts for clarity.)
+(analysis: Technical definition. "Precision timekeeping instrument" -> "clock that keeps time very well". "Escapement mechanism" -> "moving parts".)
 
 YOUR RESPONSE:
-S_25: The smell was all around him, and it made him feel that bad things were happening because of something that had been done, something that left no hope. He could not smell anything else because the smell was so strong.
+S_Ex8: The Chronometer is a clock that keeps time very well. It uses special moving parts inside to stay correct even when it is on a boat in the sea.
+
+INPUT:
+S_Ex9: He found it difficult, surrounded by the heavy scent of decay and lost hope, to perceive any other fragrance.
+
+(analysis: Abstract metaphor "scent of decay and lost hope". Simplify to concrete feeling + smell.)
+
+YOUR RESPONSE:
+S_Ex9: The smell of old and dead things was all around him, making him feel that there was no hope. He could not smell anything else because that smell was so strong.
 

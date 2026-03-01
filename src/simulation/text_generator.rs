@@ -33,8 +33,7 @@ pub fn generate_raw_text_from_levels(
                         .map(|choice| match choice {
                             // --- THIS IS THE FIX ---
                             // Only Adv and Mod choices exist now
-                            L0SegmentChoice::Adv(t)
-                            | L0SegmentChoice::Mod(t) => t.clone(),
+                            L0SegmentChoice::Adv(t) | L0SegmentChoice::Mod(t) => t.clone(),
                         })
                         .collect::<String>()
                 },
@@ -42,9 +41,7 @@ pub fn generate_raw_text_from_levels(
         }
         // --- THIS IS THE FIX ---
         // All other levels now just use the pre-assembled l1_final_text
-        OutputLevel::BasicTarget |
-        OutputLevel::InverseDiglot |
-        OutputLevel::BasicBaseDiglot => {
+        OutputLevel::BasicTarget | OutputLevel::InverseDiglot | OutputLevel::BasicBaseDiglot => {
             chosen_output
                 .l1_final_text
                 .as_ref()

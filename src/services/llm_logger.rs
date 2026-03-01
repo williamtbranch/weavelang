@@ -1,9 +1,9 @@
 // src/services/llm_logger.rs
 
+use chrono::Local;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
-use chrono::Local;
 
 #[derive(Clone)]
 pub struct LlmLogger {
@@ -20,21 +20,20 @@ impl LlmLogger {
 
     pub fn log_interaction(&self, context: &str, system: &str, user: &str, response: &str) {
         let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S");
-        
+
         let log_entry = format!(
             "\n========================================\n\
-             [{}] CONTEXT: {}\n\
+             [{timestamp}] CONTEXT: {context}\n\
              ========================================\n\
              --- SYSTEM PROMPT ---\n\
-             {}\n\
+             {system}\n\
              \n\
              --- USER PROMPT ---\n\
-             {}\n\
+             {user}\n\
              \n\
              --- LLM RESPONSE ---\n\
-             {}\n\
-             \n",
-            timestamp, context, system, user, response
+             {response}\n\
+             \n"
         );
 
         // Ensure directory exists (basic check)
@@ -42,10 +41,17 @@ impl LlmLogger {
             let _ = std::fs::create_dir_all(parent);
         }
 
-        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&self.log_path) {
+        if let Ok(mut file) = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.log_path)
+        {
             let _ = file.write_all(log_entry.as_bytes());
         } else {
-            eprintln!("[LlmLogger] Failed to write to log file: {:?}", self.log_path);
+            eprintln!(
+                "[LlmLogger] Failed to write to log file: {:?}",
+                self.log_path
+            );
         }
     }
 }

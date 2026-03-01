@@ -2,8 +2,8 @@
 
 use crate::domain::mapping::TierMapping;
 use crate::domain::primitives::WordId;
-use crate::domain::tier::{Tier, TierState};
 use crate::domain::segment::Segment;
+use crate::domain::tier::{Tier, TierState};
 use crate::domain::token_stream::TokenStream;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -44,76 +44,128 @@ impl Sentence {
         &self.mappings
     }
 
-    // --- UPDATED: Handles Creation of Missing Tiers ---
     pub fn update_tier_text(&mut self, tier_id: &str, new_text: String) {
-        // 1. Get or Create the target tier
-        let tier = self.tiers.entry(tier_id.to_string())
+        // Default to Dirty for manual edits
+        self.update_tier_text_internal(tier_id, new_text, TierState::Dirty)
+    }
+
+    pub fn update_tier_text_as_clean(&mut self, tier_id: &str, new_text: String) {
+        // LLM updates are clean (Valid)
+        self.update_tier_text_internal(tier_id, new_text, TierState::Valid)
+    }
+
+    /// Replace a tier's segments with pre-built segments (from tier_processor).
+    /// This is the preferred path for LLM-generated text that has been properly
+    /// segmented and tokenized via SpaCy.
+    pub fn update_tier_with_segments(&mut self, tier_id: &str, segments: Vec<Segment>) {
+        let tier = self
+            .tiers
+            .entry(tier_id.to_string())
             .or_insert_with(|| Tier::new(tier_id.to_string()));
 
-        tier.state = TierState::Dirty;
-        
-        // Collapse to single segment to preserve text
-        // (TokenStream::new handles basic regex splitting so it's not totally raw)
+        tier.state = TierState::Valid;
+        tier.segments = segments;
+
+        // Propagate staleness to dependents (same logic as update_tier_text_internal)
+        self.propagate_stale(tier_id);
+    }
+
+    fn update_tier_text_internal(&mut self, tier_id: &str, new_text: String, new_state: TierState) {
+        // 1. Update the target tier
+        let tier = self
+            .tiers
+            .entry(tier_id.to_string())
+            .or_insert_with(|| Tier::new(tier_id.to_string()));
+
+        tier.state = new_state;
+
         tier.segments.clear();
         tier.segments.push(Segment::from_stream(
             "S1".to_string(),
-            TokenStream::new(&new_text), 
-            vec![]
+            TokenStream::new(&new_text),
+            vec![],
         ));
 
-        // 2. Propagate "Stale" state to dependents
-        let next_tier_id = match tier_id {
-            "base" => None, // Base is root, but changes here ripple to Adv and BasBase manually via UI
-            "advanced_target" => Some("moderate_target"),
-            "moderate_target" => Some("basic_target"),
-            "basic_target" => Some("basic_base"),
-            _ => None,
-        };
+        // 2. Propagate staleness
+        self.propagate_stale(tier_id);
+    }
 
-        if let Some(dependent_id) = next_tier_id {
-            self.mark_tier_stale(dependent_id);
+    /// Propagate "Stale" state to dependents based on the tier graph:
+    /// Path A: Base -> Advanced -> Moderate -> Basic Target
+    /// Path B: Base -> Basic Base
+    fn propagate_stale(&mut self, tier_id: &str) {
+        match tier_id {
+            "base" => {
+                self.mark_tier_stale("advanced_target");
+                self.mark_tier_stale("basic_base");
+            }
+            "advanced_target" => {
+                self.mark_tier_stale("moderate_target");
+            }
+            "moderate_target" => {
+                self.mark_tier_stale("basic_target");
+            }
+            _ => {}
         }
-        
-        // Note: For Base -> Advanced and Base -> BasicBase, the UI handles 
-        // triggering the generation. We could link them here, but explicit 
-        // regeneration in the UI is safer for the "Source of Truth".
     }
 
     fn mark_tier_stale(&mut self, tier_id: &str) {
         if let Some(tier) = self.tiers.get_mut(tier_id) {
+            // Only mark as Stale if it was clean (Valid)
             if tier.state == TierState::Valid {
                 tier.state = TierState::Stale;
-                
-                let next_id = match tier_id {
-                    "advanced_target" => Some("moderate_target"),
-                    "moderate_target" => Some("basic_target"),
-                    "basic_target" => Some("basic_base"),
-                    _ => None,
-                };
-                if let Some(n) = next_id {
-                    self.mark_tier_stale(n);
+
+                // Recurse: if this tier becomes stale, its children also become stale
+                match tier_id {
+                    "advanced_target" => self.mark_tier_stale("moderate_target"),
+                    "moderate_target" => self.mark_tier_stale("basic_target"),
+                    _ => {}
                 }
             }
         }
     }
 
-    pub fn modify_word_text(&mut self, tier_id: &str, word_id: WordId, new_text: String) -> Result<(), String> {
-        let tier = self.tiers.get_mut(tier_id).ok_or_else(|| format!("Tier '{}' not found.", tier_id))?;
+    pub fn modify_word_text(
+        &mut self,
+        tier_id: &str,
+        word_id: WordId,
+        new_text: String,
+    ) -> Result<(), String> {
+        let tier = self
+            .tiers
+            .get_mut(tier_id)
+            .ok_or_else(|| format!("Tier '{tier_id}' not found."))?;
         for segment in &mut tier.segments {
-            if segment.stream.modify_word_text(word_id, new_text.clone()).is_ok() { return Ok(()); }
+            if segment
+                .stream
+                .modify_word_text(word_id, new_text.clone())
+                .is_ok()
+            {
+                return Ok(());
+            }
         }
-        Err(format!("WordId {:?} not found in any segment.", word_id))
+        Err(format!("WordId {word_id:?} not found in any segment."))
     }
 
     pub fn delete_word(&mut self, tier_id: &str, word_id: WordId) -> Result<(), String> {
-        let tier = self.tiers.get_mut(tier_id).ok_or_else(|| format!("Tier '{}' not found.", tier_id))?;
+        let tier = self
+            .tiers
+            .get_mut(tier_id)
+            .ok_or_else(|| format!("Tier '{tier_id}' not found."))?;
         let mut found = false;
         for segment in &mut tier.segments {
-            if segment.stream.delete_word(word_id).is_ok() { found = true; break; }
+            if segment.stream.delete_word(word_id).is_ok() {
+                found = true;
+                break;
+            }
         }
-        if !found { return Err(format!("WordId {:?} not found.", word_id)); }
+        if !found {
+            return Err(format!("WordId {word_id:?} not found."));
+        }
         for mapping in &mut self.mappings {
-            if mapping.from_tier_id == tier_id { mapping.remove_entries_for_word(word_id); }
+            if mapping.from_tier_id == tier_id {
+                mapping.remove_entries_for_word(word_id);
+            }
         }
         Ok(())
     }
@@ -123,25 +175,22 @@ impl Sentence {
 mod tests {
     use super::*;
     use crate::domain::token_stream::TokenStream;
-    use crate::domain::segment::Segment;
 
     #[test]
     fn test_sequential_ids_generation() {
-        // When we create a tier via update_tier_text, IDs should be auto-generated.
-        // NOTE: Currently, Sentence::update_tier_text delegates to TokenStream::new,
-        // which starts ID counter at 0.
-        
         let mut sentence = Sentence::new("S1".into());
         sentence.update_tier_text("base", "A b c".into());
 
         let tier = sentence.get_tier("base").unwrap();
         let segment = &tier.segments[0];
-        
-        // Extract IDs
-        let ids: Vec<u64> = segment.stream.tokens().iter()
+
+        let ids: Vec<u64> = segment
+            .stream
+            .tokens()
+            .iter()
             .filter_map(|t| match t {
                 crate::domain::token_stream::Token::Word(w) => Some(w.id.0),
-                _ => None
+                _ => None,
             })
             .collect();
 

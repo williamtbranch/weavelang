@@ -1,8 +1,8 @@
 // src/simulation/corpus_generator.rs
 
-use crate::simulation::numerical_types::LLevelRecipe;
 use crate::config::Config;
 use crate::simulation::metrics::TextMetrics;
+use crate::simulation::numerical_types::LLevelRecipe;
 use crate::simulation::{
     core_algo::{self, L0SegmentChoice, OutputLevel},
     dictionary::GlobalLemmaDictionary,
@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
-use std::path::{Path};
+use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SegmentType {
@@ -48,7 +48,7 @@ pub fn generate_book_instance(
     debug_markers: bool,
 ) -> Result<BookGenerationResult, Box<dyn Error>> {
     let mut result = BookGenerationResult::default();
-    
+
     let mut profile = NumericalLearnerProfile::new();
     let ordered_lemmas = frequency_manager::get_ordered_lemmas();
     if bas_v < u32::MAX {
@@ -60,12 +60,20 @@ pub fn generate_book_instance(
     }
 
     // MODIFIED: VLevelRecipe no longer includes 'sim'.
-    let v_levels = VLevelRecipe { bas: bas_v, mod_v, adv: adv_v };
+    let v_levels = VLevelRecipe {
+        bas: bas_v,
+        mod_v,
+        adv: adv_v,
+    };
 
     for n_sentence in &numerical_chapter.sentences_numerical {
         let mut n_sentence_clone = n_sentence.clone();
         let output = core_algo::determine_and_annotate_sentence_expression(
-            &mut n_sentence_clone, &profile, dictionary, &v_levels, inverse_diglot_threshold,
+            &mut n_sentence_clone,
+            &profile,
+            dictionary,
+            &v_levels,
+            inverse_diglot_threshold,
         );
         for &lemma_id in &output.lemma_ids {
             if let Some(lemma_str) = dictionary.get_str(lemma_id) {
@@ -76,16 +84,21 @@ pub fn generate_book_instance(
         result.total_target_words += output.spanish_word_count;
         result.total_base_words += output.english_word_count;
 
-        let s_sentence_json = json_chapter.content_blocks.iter()
+        let s_sentence_json = json_chapter
+            .content_blocks
+            .iter()
             .find_map(|cb| match cb {
                 JsonContentBlock::Sentence(s) if s.s_id == n_sentence.sentence_id_str => Some(s),
                 _ => None,
             })
             .ok_or("Mismatch between numerical and json sentences")?;
 
-        let generated_text =
-            text_generator::generate_raw_text_from_levels(&[s_sentence_json], &[output.clone()], debug_markers)?;
-        
+        let generated_text = text_generator::generate_raw_text_from_levels(
+            &[s_sentence_json],
+            &[output.clone()],
+            debug_markers,
+        )?;
+
         result.final_text_parts.push(generated_text);
         *result.level_stats.entry(output.level).or_insert(0) += 1;
 
@@ -93,28 +106,39 @@ pub fn generate_book_instance(
             OutputLevel::AdvancedWeave => {
                 if let Some(choices) = &output.l0_segment_choices {
                     for choice in choices {
-                        *result.segment_stats.entry(match choice {
-                            L0SegmentChoice::Adv(_) => SegmentType::AdvancedSpanish,
-                            L0SegmentChoice::Mod(_) => SegmentType::ModerateSpanish,
-                        }).or_insert(0) += 1;
+                        *result
+                            .segment_stats
+                            .entry(match choice {
+                                L0SegmentChoice::Adv(_) => SegmentType::AdvancedSpanish,
+                                L0SegmentChoice::Mod(_) => SegmentType::ModerateSpanish,
+                            })
+                            .or_insert(0) += 1;
                     }
                 }
-            },
+            }
             OutputLevel::BasicTarget => {
-                *result.segment_stats.entry(SegmentType::BasicSpanish).or_insert(0) += 1;
-            },
+                *result
+                    .segment_stats
+                    .entry(SegmentType::BasicSpanish)
+                    .or_insert(0) += 1;
+            }
             OutputLevel::BasicBaseDiglot => {
-                *result.segment_stats.entry(SegmentType::EnglishDiglot).or_insert(0) += 1;
-            },
+                *result
+                    .segment_stats
+                    .entry(SegmentType::EnglishDiglot)
+                    .or_insert(0) += 1;
+            }
             OutputLevel::InverseDiglot => {
-                 *result.segment_stats.entry(SegmentType::InverseDiglot).or_insert(0) += 1;
+                *result
+                    .segment_stats
+                    .entry(SegmentType::InverseDiglot)
+                    .or_insert(0) += 1;
             }
         }
     }
 
     Ok(result)
 }
-
 
 fn log_analysis_to_file(
     log_file_path: &Path,
@@ -126,69 +150,147 @@ fn log_analysis_to_file(
     start_l_recipe: Option<LLevelRecipe>,
     end_l_recipe: Option<LLevelRecipe>,
 ) -> Result<(), std::io::Error> {
-    let mut file = OpenOptions::new().create(true).append(true).open(log_file_path)?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_file_path)?;
     let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    
+
     let total_output_words = result.total_target_words + result.total_base_words;
     let base_lang_pct = if total_output_words > 0 {
         (result.total_base_words as f32 / total_output_words as f32) * 100.0
-    } else { 0.0 };
+    } else {
+        0.0
+    };
 
-    writeln!(file, "--- Analysis for Book Instance: {} (at {}) ---", book_instance_unique_id, timestamp)?;
+    writeln!(
+        file,
+        "--- Analysis for Book Instance: {book_instance_unique_id} (at {timestamp}) ---"
+    )?;
 
     // --- NEW SECTION START ---
-    if let (Some(start_v), Some(end_v), Some(start_l), Some(end_l)) = (start_v_recipe, end_v_recipe, start_l_recipe, end_l_recipe) {
+    if let (Some(start_v), Some(end_v), Some(start_l), Some(end_l)) =
+        (start_v_recipe, end_v_recipe, start_l_recipe, end_l_recipe)
+    {
         writeln!(file, "  Recipe Dynamics:")?;
-        writeln!(file, "    Start L-Levels (bas/mod/adv): {:.1} / {:.1} / {:.1}", start_l.bas, start_l.mod_v, start_l.adv)?;
-        writeln!(file, "    Start V-Levels (bas/mod/adv): {} / {} / {}", start_v.bas, start_v.mod_v, start_v.adv)?;
-        writeln!(file, "    End   L-Levels (bas/mod/adv): {:.1} / {:.1} / {:.1}", end_l.bas, end_l.mod_v, end_l.adv)?;
-        writeln!(file, "    End   V-Levels (bas/mod/adv): {} / {} / {}", end_v.bas, end_v.mod_v, end_v.adv)?;
+        writeln!(
+            file,
+            "    Start L-Levels (bas/mod/adv): {:.1} / {:.1} / {:.1}",
+            start_l.bas, start_l.mod_v, start_l.adv
+        )?;
+        writeln!(
+            file,
+            "    Start V-Levels (bas/mod/adv): {} / {} / {}",
+            start_v.bas, start_v.mod_v, start_v.adv
+        )?;
+        writeln!(
+            file,
+            "    End   L-Levels (bas/mod/adv): {:.1} / {:.1} / {:.1}",
+            end_l.bas, end_l.mod_v, end_l.adv
+        )?;
+        writeln!(
+            file,
+            "    End   V-Levels (bas/mod/adv): {} / {} / {}",
+            end_v.bas, end_v.mod_v, end_v.adv
+        )?;
     }
     // --- NEW SECTION END ---
 
-    writeln!(file, "  AVD Score (Density-Weighted): {:.2}", avd_score)?;
+    writeln!(file, "  AVD Score (Density-Weighted): {avd_score:.2}")?;
     writeln!(file, "  Output Word Count Summary:")?;
-    writeln!(file, "    Total Target Words:  {:>5}", result.total_target_words)?;
-    writeln!(file, "    Total Base Words:    {:>5}", result.total_base_words)?;
+    writeln!(
+        file,
+        "    Total Target Words:  {:>5}",
+        result.total_target_words
+    )?;
+    writeln!(
+        file,
+        "    Total Base Words:    {:>5}",
+        result.total_base_words
+    )?;
     writeln!(file, "    -------------------------")?;
-    writeln!(file, "    Total Output Words:  {:>5}", total_output_words)?;
-    writeln!(file, "    Base Lang Pct:       {:>5.2}%", base_lang_pct)?;
+    writeln!(file, "    Total Output Words:  {total_output_words:>5}")?;
+    writeln!(file, "    Base Lang Pct:       {base_lang_pct:>5.2}%")?;
 
     let total_sentences = result.level_stats.values().sum::<usize>();
     if total_sentences > 0 {
         let total_sentences_float = total_sentences as f32;
         writeln!(file, "\n  Sentence Level Distribution:")?;
-        let l0_count = *result.level_stats.get(&OutputLevel::AdvancedWeave).unwrap_or(&0);
-        let l1_bt_count = *result.level_stats.get(&OutputLevel::BasicTarget).unwrap_or(&0);
-        let l1_id_count = *result.level_stats.get(&OutputLevel::InverseDiglot).unwrap_or(&0);
-        let l1_bb_count = *result.level_stats.get(&OutputLevel::BasicBaseDiglot).unwrap_or(&0);
+        let l0_count = *result
+            .level_stats
+            .get(&OutputLevel::AdvancedWeave)
+            .unwrap_or(&0);
+        let l1_bt_count = *result
+            .level_stats
+            .get(&OutputLevel::BasicTarget)
+            .unwrap_or(&0);
+        let l1_id_count = *result
+            .level_stats
+            .get(&OutputLevel::InverseDiglot)
+            .unwrap_or(&0);
+        let l1_bb_count = *result
+            .level_stats
+            .get(&OutputLevel::BasicBaseDiglot)
+            .unwrap_or(&0);
 
-        writeln!(file, "    L0 Advanced Weave: {:>5} sentences ({:>6.2}%)", l0_count, (l0_count as f32 / total_sentences_float) * 100.0)?;
-        writeln!(file, "    L1 Basic Target:   {:>5} sentences ({:>6.2}%)", l1_bt_count, (l1_bt_count as f32 / total_sentences_float) * 100.0)?;
-        writeln!(file, "    L1 Inverse Diglot: {:>5} sentences ({:>6.2}%)", l1_id_count, (l1_id_count as f32 / total_sentences_float) * 100.0)?;
-        writeln!(file, "    L1 Basic Diglot:   {:>5} sentences ({:>6.2}%)", l1_bb_count, (l1_bb_count as f32 / total_sentences_float) * 100.0)?;
+        writeln!(
+            file,
+            "    L0 Advanced Weave: {:>5} sentences ({:>6.2}%)",
+            l0_count,
+            (l0_count as f32 / total_sentences_float) * 100.0
+        )?;
+        writeln!(
+            file,
+            "    L1 Basic Target:   {:>5} sentences ({:>6.2}%)",
+            l1_bt_count,
+            (l1_bt_count as f32 / total_sentences_float) * 100.0
+        )?;
+        writeln!(
+            file,
+            "    L1 Inverse Diglot: {:>5} sentences ({:>6.2}%)",
+            l1_id_count,
+            (l1_id_count as f32 / total_sentences_float) * 100.0
+        )?;
+        writeln!(
+            file,
+            "    L1 Basic Diglot:   {:>5} sentences ({:>6.2}%)",
+            l1_bb_count,
+            (l1_bb_count as f32 / total_sentences_float) * 100.0
+        )?;
     }
-    
+
     let total_segments = result.segment_stats.values().sum::<usize>();
     if total_segments > 0 {
-        writeln!(file, "\n  Segment/Sentence Type Distribution (Total: {} units):", total_segments)?;
+        writeln!(
+            file,
+            "\n  Segment/Sentence Type Distribution (Total: {total_segments} units):"
+        )?;
         let total_segments_float = total_segments as f32;
         let ordered_segment_types = [
             (SegmentType::AdvancedSpanish, "Adv. Target Segments"),
             (SegmentType::ModerateSpanish, "Mod. Target Segments"),
-            (SegmentType::BasicSpanish,    "Basic Target Sentences"),
-            (SegmentType::InverseDiglot,    "Inverse Diglot Sentences"),
-            (SegmentType::EnglishDiglot,    "Base Diglot Sentences"),
+            (SegmentType::BasicSpanish, "Basic Target Sentences"),
+            (SegmentType::InverseDiglot, "Inverse Diglot Sentences"),
+            (SegmentType::EnglishDiglot, "Base Diglot Sentences"),
         ];
 
         for (seg_type, label) in ordered_segment_types {
             if let Some(count) = result.segment_stats.get(&seg_type) {
-                writeln!(file, "    {:<25} {:>5} units ({:>6.2}%)", label, count, (*count as f32 / total_segments_float) * 100.0)?;
+                writeln!(
+                    file,
+                    "    {:<25} {:>5} units ({:>6.2}%)",
+                    label,
+                    count,
+                    (*count as f32 / total_segments_float) * 100.0
+                )?;
             }
         }
     }
-    
-    writeln!(file, "----------------------------------------------------------------------\n")?;
+
+    writeln!(
+        file,
+        "----------------------------------------------------------------------\n"
+    )?;
     Ok(())
 }
 
@@ -202,7 +304,11 @@ struct ProcessingState {
 }
 
 fn parse_level_value(s: &str) -> u32 {
-    if s.eq_ignore_ascii_case("exhausted") { u32::MAX } else { s.parse().unwrap_or(0) }
+    if s.eq_ignore_ascii_case("exhausted") {
+        u32::MAX
+    } else {
+        s.parse().unwrap_or(0)
+    }
 }
 
 pub fn run_corpus_generation(
@@ -219,47 +325,62 @@ pub fn run_corpus_generation(
     let mut state = ProcessingState::default();
 
     println!("[INFO] Starting batch generation job using progressive curriculum maps.");
-    let absolute_path = fs::canonicalize(&sequence_path).unwrap_or_else(|_| sequence_path.to_path_buf());
-    println!("[DEBUG] Attempting to open sequence file at absolute path: {}", absolute_path.display());
-    let sequence_file = File::open(&sequence_path)?;
+    let absolute_path =
+        fs::canonicalize(sequence_path).unwrap_or_else(|_| sequence_path.to_path_buf());
+    println!(
+        "[DEBUG] Attempting to open sequence file at absolute path: {}",
+        absolute_path.display()
+    );
+    let sequence_file = File::open(sequence_path)?;
 
     for line_result in BufReader::new(sequence_file).lines() {
         let line = line_result?.trim().to_string();
-        if line.is_empty() || line.starts_with('#') { continue; }
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
 
         if line.starts_with('%') {
             let parts: Vec<&str> = line.split_whitespace().collect();
-            let command = parts.get(0).cloned().unwrap_or("");
+            let command = parts.first().cloned().unwrap_or("");
             if command == "%u-level" && parts.len() == 2 {
                 state.user_level = Some(parts[1].parse()?);
-                state.bas_v = 0; state.mod_v = 0; state.adv_v = 0;
+                state.bas_v = 0;
+                state.mod_v = 0;
+                state.adv_v = 0;
                 println!("[CMD] Set User Level to: {}", state.user_level.unwrap());
             } else if (command == "%levels" || command == "%level") && parts.len() == 4 {
                 state.bas_v = parse_level_value(parts[1]);
                 state.mod_v = parse_level_value(parts[2]);
                 state.adv_v = parse_level_value(parts[3]);
                 state.user_level = None;
-                println!("[CMD] Set Manual Levels to: bas={}, mod={}, adv={}", state.bas_v, state.mod_v, state.adv_v);
+                println!(
+                    "[CMD] Set Manual Levels to: bas={}, mod={}, adv={}",
+                    state.bas_v, state.mod_v, state.adv_v
+                );
             } else {
-                eprintln!("[WARN] Unknown or malformed command: {}", line);
+                eprintln!("[WARN] Unknown or malformed command: {line}");
             }
             continue;
         }
 
         let book_stem = line;
-        println!("\n--- Processing Book: {} ---", book_stem);
+        println!("\n--- Processing Book: {book_stem} ---");
 
-        let json_file_path = project_config.content_project_dir_path().join(input_json_dir).join(format!("{}.json", book_stem));
+        let json_file_path = project_config
+            .content_project_dir_path()
+            .join(input_json_dir)
+            .join(format!("{book_stem}.json"));
         let json_content = fs::read_to_string(&json_file_path)?;
         let json_chapter = json_parser::parse_chapter_from_json(&json_content)?;
-        
+
         let mut dictionary = GlobalLemmaDictionary::new();
         dictionary.populate_from_json_chapter(&json_chapter);
-        let (numerical_chapter, _) = preprocessor::json_chapter_to_numerical(&json_chapter, &mut dictionary);
-        
+        let (numerical_chapter, _) =
+            preprocessor::json_chapter_to_numerical(&json_chapter, &mut dictionary);
+
         let mut full_book_result = BookGenerationResult::default();
         let filename: String;
-        
+
         // --- MODIFIED SECTION START ---
         // Variables to hold the recipes for logging
         let mut start_v_recipe = None;
@@ -268,8 +389,13 @@ pub fn run_corpus_generation(
         let mut end_l_recipe = None;
 
         if let Some(u_level) = state.user_level {
-            let u_level_map = json_chapter.u_level_maps.get(&u_level.to_string())
-                .ok_or(format!("U-Level '{}' not found in map for book '{}'", u_level, book_stem))?;
+            let u_level_map =
+                json_chapter
+                    .u_level_maps
+                    .get(&u_level.to_string())
+                    .ok_or(format!(
+                        "U-Level '{u_level}' not found in map for book '{book_stem}'"
+                    ))?;
 
             // Capture the start and end recipes
             start_v_recipe = u_level_map.map.first().map(|e| e.recipe.clone());
@@ -279,73 +405,119 @@ pub fn run_corpus_generation(
 
             let end_level_for_range = (u_level_map.end_level - 1.0).floor() as u32;
             filename = if end_level_for_range > u_level {
-                format!("{}_UL{}-{}.txt", book_stem, u_level, end_level_for_range)
+                format!("{book_stem}_UL{u_level}-{end_level_for_range}.txt")
             } else {
-                format!("{}_UL{}.txt", book_stem, u_level)
+                format!("{book_stem}_UL{u_level}.txt")
             };
 
             for (i, entry) in u_level_map.map.iter().enumerate() {
                 let start_idx = entry.start_sentence_idx;
                 let end_idx = if i + 1 < u_level_map.map.len() {
-                    u_level_map.map[i+1].start_sentence_idx
+                    u_level_map.map[i + 1].start_sentence_idx
                 } else {
                     numerical_chapter.sentences_numerical.len()
                 };
 
-                if start_idx >= end_idx { continue; }
+                if start_idx >= end_idx {
+                    continue;
+                }
 
                 let mut numerical_slice = numerical_chapter.clone();
-                numerical_slice.sentences_numerical = numerical_chapter.sentences_numerical[start_idx..end_idx].to_vec();
-                
+                numerical_slice.sentences_numerical =
+                    numerical_chapter.sentences_numerical[start_idx..end_idx].to_vec();
+
                 let mut json_slice = json_chapter.clone();
-                json_slice.content_blocks = json_chapter.content_blocks.iter().filter_map(|cb| match cb {
-                    JsonContentBlock::Sentence(s) => {
-                        if numerical_slice.sentences_numerical.iter().any(|ns| ns.sentence_id_str == s.s_id) {
-                            Some(JsonContentBlock::Sentence(s.clone()))
-                        } else { None }
-                    }
-                    _ => None
-                }).collect();
-                
+                json_slice.content_blocks = json_chapter
+                    .content_blocks
+                    .iter()
+                    .filter_map(|cb| match cb {
+                        JsonContentBlock::Sentence(s) => {
+                            if numerical_slice
+                                .sentences_numerical
+                                .iter()
+                                .any(|ns| ns.sentence_id_str == s.s_id)
+                            {
+                                Some(JsonContentBlock::Sentence(s.clone()))
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    })
+                    .collect();
+
                 let recipe = &entry.recipe;
-                
+
                 let slice_result = generate_book_instance(
-                    &numerical_slice, &json_slice, &dictionary,
-                    recipe.bas, recipe.mod_v, recipe.adv,
-                    inverse_diglot_threshold, debug_markers,
+                    &numerical_slice,
+                    &json_slice,
+                    &dictionary,
+                    recipe.bas,
+                    recipe.mod_v,
+                    recipe.adv,
+                    inverse_diglot_threshold,
+                    debug_markers,
                 )?;
 
-                full_book_result.final_text_parts.extend(slice_result.final_text_parts);
-                full_book_result.all_output_lemma_instances.extend(slice_result.all_output_lemma_instances);
+                full_book_result
+                    .final_text_parts
+                    .extend(slice_result.final_text_parts);
+                full_book_result
+                    .all_output_lemma_instances
+                    .extend(slice_result.all_output_lemma_instances);
                 full_book_result.total_target_words += slice_result.total_target_words;
                 full_book_result.total_base_words += slice_result.total_base_words;
-                for (level, count) in slice_result.level_stats { *full_book_result.level_stats.entry(level).or_insert(0) += count; }
-                for (seg_type, count) in slice_result.segment_stats { *full_book_result.segment_stats.entry(seg_type).or_insert(0) += count; }
+                for (level, count) in slice_result.level_stats {
+                    *full_book_result.level_stats.entry(level).or_insert(0) += count;
+                }
+                for (seg_type, count) in slice_result.segment_stats {
+                    *full_book_result.segment_stats.entry(seg_type).or_insert(0) += count;
+                }
             }
         } else {
-            filename = format!("{}_B{}_M{}_A{}.txt", book_stem, state.bas_v, state.mod_v, state.adv_v)
-                .replace(&u32::MAX.to_string(), "EX");
-            
+            filename = format!(
+                "{}_B{}_M{}_A{}.txt",
+                book_stem, state.bas_v, state.mod_v, state.adv_v
+            )
+            .replace(&u32::MAX.to_string(), "EX");
+
             full_book_result = generate_book_instance(
-                &numerical_chapter, &json_chapter, &dictionary,
-                state.bas_v, state.mod_v, state.adv_v,
-                inverse_diglot_threshold, debug_markers,
+                &numerical_chapter,
+                &json_chapter,
+                &dictionary,
+                state.bas_v,
+                state.mod_v,
+                state.adv_v,
+                inverse_diglot_threshold,
+                debug_markers,
             )?;
         }
-        
-        let metrics = TextMetrics::new(&full_book_result.all_output_lemma_instances, full_book_result.total_base_words);
+
+        let metrics = TextMetrics::new(
+            &full_book_result.all_output_lemma_instances,
+            full_book_result.total_base_words,
+        );
         let avd_score = metrics.calculate_avd_score();
-        
+
         let final_raw_text = full_book_result.final_text_parts.join("\n\n");
         let final_cleaned_text = text_generator::clean_text_for_tts(&final_raw_text);
         fs::write(tts_output_dir.join(&filename), final_cleaned_text)?;
-        println!("  -> Saved TTS file to: {}", filename);
-        
+        println!("  -> Saved TTS file to: {filename}");
+
         // Pass the optional recipes to the logger
-        log_analysis_to_file(&analysis_log_path, &filename, &full_book_result, avd_score, start_v_recipe, end_v_recipe, start_l_recipe, end_l_recipe)?;
+        log_analysis_to_file(
+            &analysis_log_path,
+            &filename,
+            &full_book_result,
+            avd_score,
+            start_v_recipe,
+            end_v_recipe,
+            start_l_recipe,
+            end_l_recipe,
+        )?;
         // --- MODIFIED SECTION END ---
     }
-    
+
     println!("\n[INFO] Batch generation job finished.");
     Ok(())
 }

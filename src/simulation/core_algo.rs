@@ -10,27 +10,27 @@ fn are_lemmas_known(
     tier_v_level: u32,
     dictionary: &GlobalLemmaDictionary,
 ) -> bool {
-    if lemma_ids.is_empty() { return true; }
-    if tier_v_level == u32::MAX { return true; }
+    if lemma_ids.is_empty() {
+        return true;
+    }
+    if tier_v_level == u32::MAX {
+        return true;
+    }
     lemma_ids.iter().all(|&id| {
-        dictionary.get_str(id)
+        dictionary
+            .get_str(id)
             .and_then(|lemma_str| frequency_manager::get_rank_for_lemma(lemma_str))
-            .map_or(true, |rank| rank <= tier_v_level)
+            .is_none_or(|rank| rank <= tier_v_level)
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub enum OutputLevel {
+    #[default]
     AdvancedWeave,
     BasicTarget,
     InverseDiglot,
     BasicBaseDiglot,
-}
-
-impl Default for OutputLevel {
-    fn default() -> Self {
-        OutputLevel::AdvancedWeave
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -96,10 +96,12 @@ pub fn determine_and_annotate_sentence_expression(
 
     // --- 2. If L0 fails, try the full L1 BasicTarget tier ---
     if are_lemmas_known(&n_sentence.basic_target_lemma_ids, v_levels.bas, dictionary) {
-        let full_text = n_sentence.basic_target_tier_tokenized.iter()
+        let full_text = n_sentence
+            .basic_target_tier_tokenized
+            .iter()
             .map(|seg| seg.text.clone())
             .collect::<String>();
-        
+
         return ChosenLevelOutput {
             level: OutputLevel::BasicTarget,
             lemma_ids: n_sentence.basic_target_lemma_ids.clone(),
@@ -109,21 +111,24 @@ pub fn determine_and_annotate_sentence_expression(
             english_word_count: 0,
         };
     }
-    
+
     // --- 3. If BasicTarget fails, try the L1 InverseDiglot Weave ---
     let mut known_word_instances = 0;
     let mut can_render_inverse_diglot = true;
     let inv_diglot_map = &n_sentence.basic_inverse_diglot_map_numerical;
-    let total_word_instances: usize = inv_diglot_map.iter().map(|(_, _, _, _, spa_wc)| spa_wc).sum();
+    let total_word_instances: usize = inv_diglot_map
+        .iter()
+        .map(|(_, _, _, _, spa_wc)| spa_wc)
+        .sum();
 
     for (_, lemmas, sub, _, _spa_wc) in inv_diglot_map.iter() {
         // --- THIS IS THE FIX ---
         // The check MUST use the V-Level, not the profile.
         if *sub == "PROPER_NOUN" || are_lemmas_known(lemmas, v_levels.bas, dictionary) {
-             // We need to calculate how many words this group represents to add to our known tally
+            // We need to calculate how many words this group represents to add to our known tally
             let corresponding_entry = inv_diglot_map.iter().find(|(_, l, _, _, _)| l == lemmas);
             if let Some((_, _, _, _, spa_wc_val)) = corresponding_entry {
-                 known_word_instances += spa_wc_val;
+                known_word_instances += spa_wc_val;
             }
         } else if *sub == "NO_SUB" {
             // If a NO_SUB group's lemmas are unknown, the whole sentence is impossible.
@@ -131,18 +136,22 @@ pub fn determine_and_annotate_sentence_expression(
             break;
         }
     }
-    
+
     if can_render_inverse_diglot {
         let known_ratio = if total_word_instances > 0 {
             known_word_instances as f32 / total_word_instances as f32
-        } else { 1.0 };
-        
+        } else {
+            1.0
+        };
+
         if known_ratio >= 0.5 {
             let mut final_parts = Vec::new();
             let mut collected_lemmas = Vec::new();
             let mut spanish_words = 0;
             let mut english_words = 0;
-            let target_tokens = n_sentence.basic_target_tier_tokenized.first()
+            let target_tokens = n_sentence
+                .basic_target_tier_tokenized
+                .first()
                 .map_or(Vec::new(), |seg| seg.tokenized_text.clone());
 
             let mut map_idx = 0;
@@ -163,7 +172,7 @@ pub fn determine_and_annotate_sentence_expression(
                 }
                 map_idx += 1;
             }
-            
+
             return ChosenLevelOutput {
                 level: OutputLevel::InverseDiglot,
                 lemma_ids: collected_lemmas,
@@ -180,11 +189,15 @@ pub fn determine_and_annotate_sentence_expression(
     let mut spanish_words = 0;
     let mut english_words = 0;
     let mut final_parts: Vec<String> = Vec::new();
-    let diglot_lookup: HashMap<usize, _> = n_sentence.basic_diglot_map_numerical.iter()
+    let diglot_lookup: HashMap<usize, _> = n_sentence
+        .basic_diglot_map_numerical
+        .iter()
         .flat_map(|seg_map| &seg_map.entries)
         .map(|entry| (entry.base_word_di, entry))
         .collect();
-    let base_tokens = n_sentence.basic_base_tier_tokenized.first()
+    let base_tokens = n_sentence
+        .basic_base_tier_tokenized
+        .first()
         .map_or(Vec::new(), |seg| seg.tokenized_text.clone());
 
     for token in &base_tokens {
@@ -197,7 +210,11 @@ pub fn determine_and_annotate_sentence_expression(
         if let Some(entry) = diglot_lookup.get(&di) {
             // --- THIS IS THE FIX ---
             // This check must ALSO use the V-Level, not the profile.
-            if entry.viable && entry.exact_spa_form_original != "NO_SUB" && (entry.is_base_token_pn || are_lemmas_known(&entry.spa_lemma_ids, v_levels.bas, dictionary)) {
+            if entry.viable
+                && entry.exact_spa_form_original != "NO_SUB"
+                && (entry.is_base_token_pn
+                    || are_lemmas_known(&entry.spa_lemma_ids, v_levels.bas, dictionary))
+            {
                 final_parts.push(entry.exact_spa_form_original.clone());
                 l1_collected_lemma_ids.extend(&entry.spa_lemma_ids);
                 spanish_words += entry.eng_word_count;
@@ -209,7 +226,7 @@ pub fn determine_and_annotate_sentence_expression(
             english_words += token.value.split_whitespace().count();
         }
     }
-    
+
     ChosenLevelOutput {
         level: OutputLevel::BasicBaseDiglot,
         lemma_ids: l1_collected_lemma_ids,

@@ -14,10 +14,10 @@ pub struct WordId(pub u64);
 pub struct WordData {
     /// The unique stable ID for this word instance.
     pub id: WordId,
-    
+
     /// The actual text displayed (e.g., "cats").
     pub text: String,
-    
+
     /// The normalized lemmas (e.g., ["cat"]).
     pub lemmas: Vec<String>,
 }

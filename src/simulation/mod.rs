@@ -1,13 +1,13 @@
-pub mod dictionary;
-pub mod numerical_types;
-pub mod preprocessor;
+pub mod avd_hunter;
+pub mod calibrator;
 pub mod core_algo;
-pub mod text_generator;
+pub mod dictionary;
 pub mod frequency_manager;
 pub mod global_settings;
 pub mod metrics;
-pub mod avd_hunter;
-pub mod calibrator;
+pub mod numerical_types;
+pub mod preprocessor;
+pub mod text_generator;
 
 #[cfg(test)]
 mod tests;

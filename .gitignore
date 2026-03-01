@@ -11,3 +11,7 @@ voices.txt
 xx*
 weavelang_pipeline.egg-info
 temp
+.github/
+.llm_cache/
+Metamorphosis.json
+*.exe

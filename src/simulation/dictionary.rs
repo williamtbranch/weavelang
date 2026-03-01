@@ -22,24 +22,35 @@ impl GlobalLemmaDictionary {
 
     pub fn get_id_or_insert(&mut self, lemma_str: &str) -> u32 {
         let cleaned_lemma = lemma_str.trim().to_lowercase();
-        if cleaned_lemma.is_empty() { return u32::MAX; }
+        if cleaned_lemma.is_empty() {
+            return u32::MAX;
+        }
 
-        *self.str_to_id.entry(cleaned_lemma.clone()).or_insert_with(|| {
-            let id = self.next_id;
-            self.id_to_entry.push(LemmaDictEntry { text: cleaned_lemma });
-            self.next_id += 1;
-            id
-        })
+        *self
+            .str_to_id
+            .entry(cleaned_lemma.clone())
+            .or_insert_with(|| {
+                let id = self.next_id;
+                self.id_to_entry.push(LemmaDictEntry {
+                    text: cleaned_lemma,
+                });
+                self.next_id += 1;
+                id
+            })
     }
 
     pub fn get_id(&self, lemma_str: &str) -> Option<u32> {
-        self.str_to_id.get(&lemma_str.trim().to_lowercase()).copied()
+        self.str_to_id
+            .get(&lemma_str.trim().to_lowercase())
+            .copied()
     }
 
     pub fn get_str(&self, lemma_id: u32) -> Option<&String> {
-        self.id_to_entry.get(lemma_id as usize).map(|entry| &entry.text)
+        self.id_to_entry
+            .get(lemma_id as usize)
+            .map(|entry| &entry.text)
     }
-    
+
     pub fn populate_from_json_chapter(&mut self, json_chapter_data: &JsonChapter) {
         for block in &json_chapter_data.content_blocks {
             if let JsonContentBlock::Sentence(s_sentence) = block {
@@ -55,9 +66,9 @@ impl GlobalLemmaDictionary {
                         }
                     }
                 }
-                
+
                 // --- THIS IS THE FIX for the forward map ---
-                for (_, entries) in &s_sentence.mappings.basic_diglot {
+                for entries in s_sentence.mappings.basic_diglot.values() {
                     for (_, lemmas, _, viable, _, _) in entries {
                         if *viable {
                             for lemma in lemmas {
@@ -66,10 +77,10 @@ impl GlobalLemmaDictionary {
                         }
                     }
                 }
-                
+
                 // --- THIS IS THE FIX for the inverse map ---
-                for (_, entries) in &s_sentence.mappings.basic_inverse_diglot {
-                     for (_, lemmas, _, _, _) in entries { 
+                for entries in s_sentence.mappings.basic_inverse_diglot.values() {
+                    for (_, lemmas, _, _, _) in entries {
                         for lemma in lemmas {
                             self.get_id_or_insert(lemma);
                         }

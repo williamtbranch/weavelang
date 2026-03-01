@@ -1,11 +1,11 @@
 //*** START FILE: src/profile_io.rs ***//
-use crate::simulation::numerical_types::NumericalLearnerProfile;
 use crate::simulation::dictionary::GlobalLemmaDictionary;
-use serde::{Serialize, Deserialize};
+use crate::simulation::numerical_types::NumericalLearnerProfile;
+use serde::{Deserialize, Serialize};
+use std::error::Error;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Error as IoError, ErrorKind as IoErrorKind};
 use std::path::Path;
-use std::error::Error;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProfileSnapshot {
@@ -19,7 +19,7 @@ pub fn save_profile_snapshot(
     file_path: &Path,
 ) -> Result<(), Box<dyn Error>> {
     let snapshot = ProfileSnapshot {
-        profile: profile.clone(), 
+        profile: profile.clone(),
         dictionary: dictionary.clone(),
     };
     let file = File::create(file_path)?;
@@ -34,7 +34,7 @@ pub fn load_profile_snapshot(
     if !file_path.exists() {
         return Err(Box::new(IoError::new(
             IoErrorKind::NotFound,
-            format!("Profile snapshot file not found at {:?}", file_path),
+            format!("Profile snapshot file not found at {file_path:?}"),
         )));
     }
     let file = File::open(file_path)?;

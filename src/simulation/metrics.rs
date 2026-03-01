@@ -1,4 +1,3 @@
-
 use crate::simulation::frequency_manager;
 use std::collections::HashMap;
 
@@ -51,7 +50,10 @@ impl TextMetrics {
             ranked_tallies.push((0, english_word_count as u32));
         }
 
-        let total_word_count = ranked_tallies.iter().map(|(_, tally)| *tally as u64).sum::<u64>();
+        let total_word_count = ranked_tallies
+            .iter()
+            .map(|(_, tally)| *tally as u64)
+            .sum::<u64>();
         ranked_tallies.sort_unstable_by_key(|k| k.0);
 
         Self {
@@ -96,7 +98,8 @@ impl TextMetrics {
             return 0.0;
         }
 
-        let new_word_tally: u64 = self.ranked_tallies
+        let new_word_tally: u64 = self
+            .ranked_tallies
             .iter()
             .filter(|(rank, _)| *rank > previous_v_level)
             .map(|(_, tally)| *tally as u64)

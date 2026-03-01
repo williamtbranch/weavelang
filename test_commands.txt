@@ -1,0 +1,7 @@
+config list
+config set stages.GenerateBasicBase.batch_size_in_items 5
+config list
+import source test_case/source.txt
+list nav
+status
+exit

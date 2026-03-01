@@ -1,8 +1,6 @@
 // src/simulation/tests/test_generation.rs
 
-use super::weavetest_parser::{
-    self, DslAssertion, DslSubTest, DslTestCase, EXHAUSTED_LEVEL,
-};
+use super::weavetest_parser::{self, DslAssertion, DslSubTest, DslTestCase, EXHAUSTED_LEVEL};
 use crate::simulation::core_algo::{
     determine_and_annotate_sentence_expression, ChosenLevelOutput, OutputLevel,
 };
@@ -42,7 +40,7 @@ static TEST_SETUP: Lazy<Mutex<()>> = Lazy::new(|| {
 fn run_dsl_generation_test_suite() {
     let _guard = TEST_SETUP.lock().unwrap();
     let dsl_content: &'static str = include_str!("generation_tests.weavetest");
-    
+
     fn compile_dsl_sentence_to_numerical(
         test_case: &DslTestCase,
         dictionary: &mut GlobalLemmaDictionary,
@@ -50,74 +48,163 @@ fn run_dsl_generation_test_suite() {
         let mut json_sentence = JsonSentenceBlock::default();
         json_sentence.s_id = test_case.name.clone();
 
-        let mut adv_target_tier = JsonTierV2 { tier_id: "advanced_target".to_string(), ..Default::default() };
-        let mut mod_target_tier = JsonTierV2 { tier_id: "moderate_target".to_string(), ..Default::default() };
-        let mut basic_spanish_tier = JsonTierV2 { tier_id: "basic_target".to_string(), ..Default::default() };
-        let mut basic_english_tier = JsonTierV2 { tier_id: "basic_base".to_string(), ..Default::default() };
-        let mut literary_base_tier = JsonTierV2 { tier_id: "base".to_string(), ..Default::default() };
-
-        let dsl_seg_to_json_seg = |seg: &super::weavetest_parser::DslSegment, seg_id: String| -> JsonSegmentV2 {
-            JsonSegmentV2 {
-                seg_id,
-                text: seg.tokens.iter().map(|t| t.value.as_str()).collect(),
-                tokenized_text: seg.tokens.clone(),
-                lemmas: seg.lemmas.clone(),
-            }
+        let mut adv_target_tier = JsonTierV2 {
+            tier_id: "advanced_target".to_string(),
+            ..Default::default()
+        };
+        let mut mod_target_tier = JsonTierV2 {
+            tier_id: "moderate_target".to_string(),
+            ..Default::default()
+        };
+        let mut basic_spanish_tier = JsonTierV2 {
+            tier_id: "basic_target".to_string(),
+            ..Default::default()
+        };
+        let mut basic_english_tier = JsonTierV2 {
+            tier_id: "basic_base".to_string(),
+            ..Default::default()
+        };
+        let mut literary_base_tier = JsonTierV2 {
+            tier_id: "base".to_string(),
+            ..Default::default()
         };
 
+        let dsl_seg_to_json_seg =
+            |seg: &super::weavetest_parser::DslSegment, seg_id: String| -> JsonSegmentV2 {
+                JsonSegmentV2 {
+                    seg_id,
+                    text: seg.tokens.iter().map(|t| t.value.as_str()).collect(),
+                    tokenized_text: seg.tokens.clone(),
+                    lemmas: seg.lemmas.clone(),
+                }
+            };
+
         for (i, seg) in test_case.sentence_def.l0_adv_segments.iter().enumerate() {
-            adv_target_tier.segments.push(dsl_seg_to_json_seg(seg, format!("A{}", i + 1)));
+            adv_target_tier
+                .segments
+                .push(dsl_seg_to_json_seg(seg, format!("A{}", i + 1)));
         }
         for (i, seg) in test_case.sentence_def.l0_mod_segments.iter().enumerate() {
-            mod_target_tier.segments.push(dsl_seg_to_json_seg(seg, format!("A{}", i + 1)));
+            mod_target_tier
+                .segments
+                .push(dsl_seg_to_json_seg(seg, format!("A{}", i + 1)));
         }
-        
-        let bs_def = &test_case.sentence_def.l1_basic_spanish;
-        basic_spanish_tier.segments.push(dsl_seg_to_json_seg(bs_def, "S1".to_string()));
-        basic_spanish_tier.lemmas = bs_def.lemmas.clone();
-        
-        let be_def = &test_case.sentence_def.l1_basic_english;
-        basic_english_tier.segments.push(dsl_seg_to_json_seg(be_def, "S1".to_string()));
 
-        let tiers = vec![&mut adv_target_tier, &mut mod_target_tier, &mut basic_spanish_tier, &mut basic_english_tier];
+        let bs_def = &test_case.sentence_def.l1_basic_spanish;
+        basic_spanish_tier
+            .segments
+            .push(dsl_seg_to_json_seg(bs_def, "S1".to_string()));
+        basic_spanish_tier.lemmas = bs_def.lemmas.clone();
+
+        let be_def = &test_case.sentence_def.l1_basic_english;
+        basic_english_tier
+            .segments
+            .push(dsl_seg_to_json_seg(be_def, "S1".to_string()));
+
+        let tiers = vec![
+            &mut adv_target_tier,
+            &mut mod_target_tier,
+            &mut basic_spanish_tier,
+            &mut basic_english_tier,
+        ];
         for tier in tiers {
-            tier.full_text = tier.segments.iter().map(|s| s.text.clone()).collect::<String>();
+            tier.full_text = tier
+                .segments
+                .iter()
+                .map(|s| s.text.clone())
+                .collect::<String>();
         }
 
         json_sentence.mappings.basic_diglot.insert(
             "S1".to_string(),
-            test_case.sentence_def.l1_diglot_tuples.iter().enumerate().map(|(i, t)| {
-                let proper_noun_lemmas = if t.is_proper_noun { t.replacement_lemmas.clone() } else { Vec::new() };
-                (i, t.replacement_lemmas.clone(), t.replacement_word.clone(), t.is_viable, t.word_to_replace.split_whitespace().count(), proper_noun_lemmas)
-            }).collect(),
+            test_case
+                .sentence_def
+                .l1_diglot_tuples
+                .iter()
+                .enumerate()
+                .map(|(i, t)| {
+                    let proper_noun_lemmas = if t.is_proper_noun {
+                        t.replacement_lemmas.clone()
+                    } else {
+                        Vec::new()
+                    };
+                    (
+                        i,
+                        t.replacement_lemmas.clone(),
+                        t.replacement_word.clone(),
+                        t.is_viable,
+                        t.word_to_replace.split_whitespace().count(),
+                        proper_noun_lemmas,
+                    )
+                })
+                .collect(),
         );
         json_sentence.mappings.basic_inverse_diglot.insert(
             "S1".to_string(),
-            test_case.sentence_def.l1_inv_diglot_tuples.iter().enumerate()
+            test_case
+                .sentence_def
+                .l1_inv_diglot_tuples
+                .iter()
+                .enumerate()
                 .map(|(idx, t)| {
                     let spa_wc = t.target_word.split_whitespace().count();
-                    (idx, t.target_lemmas.clone(), t.base_substitute.clone(), t.base_substitute.split_whitespace().count(), spa_wc)
+                    (
+                        idx,
+                        t.target_lemmas.clone(),
+                        t.base_substitute.clone(),
+                        t.base_substitute.split_whitespace().count(),
+                        spa_wc,
+                    )
                 })
-                .collect()
+                .collect(),
         );
 
-        json_sentence.tiers = vec![literary_base_tier, adv_target_tier, mod_target_tier, basic_spanish_tier, basic_english_tier];
+        json_sentence.tiers = vec![
+            literary_base_tier,
+            adv_target_tier,
+            mod_target_tier,
+            basic_spanish_tier,
+            basic_english_tier,
+        ];
         let mock_chapter = JsonChapter {
-            book_meta: JsonBookMetaV2 { book_name: test_case.name.clone(), ..Default::default() },
+            book_meta: JsonBookMetaV2 {
+                book_name: test_case.name.clone(),
+                ..Default::default()
+            },
             content_blocks: vec![JsonContentBlock::Sentence(json_sentence.clone())],
             ..Default::default()
         };
-        let (numerical_chapter, _) = preprocessor::json_chapter_to_numerical(&mock_chapter, dictionary);
-        (numerical_chapter.sentences_numerical.into_iter().next().unwrap(), json_sentence)
+        let (numerical_chapter, _) =
+            preprocessor::json_chapter_to_numerical(&mock_chapter, dictionary);
+        (
+            numerical_chapter
+                .sentences_numerical
+                .into_iter()
+                .next()
+                .unwrap(),
+            json_sentence,
+        )
     }
 
     fn get_expected_text<'s>(sub_test: &'s DslSubTest) -> &'s str {
-        sub_test.assertions.iter()
-            .find_map(|a| if let DslAssertion::Text(txt) = a { Some(txt.as_str()) } else { None })
+        sub_test
+            .assertions
+            .iter()
+            .find_map(|a| {
+                if let DslAssertion::Text(txt) = a {
+                    Some(txt.as_str())
+                } else {
+                    None
+                }
+            })
             .unwrap_or("")
     }
 
-    fn run_assertions(sub_test: &DslSubTest, output: &ChosenLevelOutput, actual_text: &str) -> (bool, Vec<String>) {
+    fn run_assertions(
+        sub_test: &DslSubTest,
+        output: &ChosenLevelOutput,
+        actual_text: &str,
+    ) -> (bool, Vec<String>) {
         let mut is_passed = true;
         let mut reasons = Vec::new();
         for assertion in &sub_test.assertions {
@@ -131,13 +218,19 @@ fn run_dsl_generation_test_suite() {
                     };
                     if expected_level_str != expected_level_str_from_enum {
                         is_passed = false;
-                        reasons.push(format!("Level Mismatch: Expected {}, got {}", expected_level_str, expected_level_str_from_enum));
+                        reasons.push(format!(
+                            "Level Mismatch: Expected {}, got {}",
+                            expected_level_str, expected_level_str_from_enum
+                        ));
                     }
                 }
                 DslAssertion::Text(expected_text) => {
                     if actual_text != *expected_text {
                         is_passed = false;
-                        reasons.push(format!("Text Mismatch: Expected '{}', got '{}'", expected_text, actual_text));
+                        reasons.push(format!(
+                            "Text Mismatch: Expected '{}', got '{}'",
+                            expected_text, actual_text
+                        ));
                     }
                 }
             }
@@ -169,9 +262,12 @@ fn run_dsl_generation_test_suite() {
         for sub_test in &test_case.sub_tests {
             println!("\n  Sub-Test: [{}]", sub_test.name);
             let mut profile = NumericalLearnerProfile::new();
-            
+
             let levels = &sub_test.learner_level;
-            let highest_level = *[levels.bas, levels.mod_level, levels.adv].iter().max().unwrap_or(&0);
+            let highest_level = *[levels.bas, levels.mod_level, levels.adv]
+                .iter()
+                .max()
+                .unwrap_or(&0);
             if highest_level < EXHAUSTED_LEVEL {
                 for i in 1..=highest_level {
                     profile.activate_lemma(dictionary.get_id_or_insert(&format!("lem{}", i)));
@@ -203,7 +299,7 @@ fn run_dsl_generation_test_suite() {
 
             let actual_text = text_generator::clean_text_for_tts(&raw_text);
             let (is_passed, failure_reasons) = run_assertions(sub_test, &output, &actual_text);
-            
+
             println!("    Expected: '{}'", get_expected_text(sub_test));
             println!("    Actual:   '{}'", actual_text);
             if is_passed {
@@ -225,7 +321,11 @@ fn run_dsl_generation_test_suite() {
     println!("\n============================================================");
     if total_failed > 0 {
         println!("\n--- TEST SUITE SUMMARY ---");
-        println!( "{} / {} sub-tests passed.", total_passed, total_passed + total_failed);
+        println!(
+            "{} / {} sub-tests passed.",
+            total_passed,
+            total_passed + total_failed
+        );
         println!("\nFailed sub-tests:");
         for detail in failed_details {
             println!("  - {}", detail);

@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 default-run = "weavelang_rust_gui"
 
+[lib]
+name = "weavelang_rust_gui"
+path = "src/lib.rs"
+
 [dependencies]
 # GUI Framework
 eframe = "0.27.2"
@@ -31,10 +35,24 @@ reqwest = { version = "0.11", features = ["blocking", "json"] }
 dotenv = "0.15"
 # ------------------------------------
 
+# Hashing for cache keys
+sha2 = "0.10"
+hex = "0.4"
+
+# Tokenizer
+tiktoken-rs = "0.5"
+
+# Local API Server
+tiny_http = "0.12"
+
 [dev-dependencies]
 pest = "2.7"       
 pest_derive = "2.7" 
 
 [[bin]]
-name = "level-analyzer"
-path = "src/bin/level_analyzer.rs"
+name = "weavelang_cli"
+path = "src/cli/main.rs"
+
+[[bin]]
+name = "weavelang_rust_gui"
+path = "src/main.rs"

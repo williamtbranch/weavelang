@@ -3,7 +3,7 @@
 pub mod app;
 pub mod components;
 pub mod preview;
-pub mod state;
+// pub mod state; // Moved to crate::app::state
 
 // Future modules
 //pub mod editor;
