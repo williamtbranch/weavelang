@@ -6,197 +6,45 @@ VALIDATION: Capítulo 0
 
 S2:
 MAPPINGS:
-Metamorfosis -> Metamorphosis
 VALIDATION: Metamorfosis
 
 S3:
 MAPPINGS:
-por -> by
-Franz -> Franz
-Kafka -> Kafka
 VALIDATION: por Franz Kafka
 
 S4:
 MAPPINGS:
-Capítulo -> Chapter
-I -> I
 VALIDATION: Capítulo I
 
 S5:
 MAPPINGS:
-Una mañana -> One morning
-cuando -> when
-Gregor Samsa -> Gregor Samsa
-se despertó -> woke up
-de -> from
-malos -> bad
-sueños -> dreams
-vio -> he saw
-que -> that
-se había transformado -> he had transformed
-en -> in
-su -> his
-cama -> bed
-en -> into
-un tipo de -> a kind of
-insecto -> insect
-muy -> very
-desagradable -> unpleasant
-VALIDATION: Una mañana cuando Gregor Samsa se despertó de malos sueños vio que se había transformado en su cama en un tipo de insecto muy desagradable
+VALIDATION: Una mañana, cuando Gregor Samsa se despertó de malos sueños, vio que se había convertido en su cama en una clase de bicho muy malo.
 
 S6:
 MAPPINGS:
-Estaba acostado -> He was lying
-sobre -> on
-su -> his
-espalda -> back
-que -> which
-era -> was
-dura -> hard
-como -> like
-un -> a
-caparazón -> shell
-y -> and
-si -> if
-levantaba -> he lifted
-un poco -> a little
-la cabeza -> his head
-podía ver -> he could see
-su -> his
-estómago -> stomach
-marrón -> brown
-que -> which
-era -> was
-un poco -> a little
-redondo -> round
-y -> and
-estaba hecho de -> was made of
-partes -> parts
-curvas -> curved
-parecidas a -> similar to
-un -> a
-caparazón -> shell
-VALIDATION: Estaba acostado sobre su espalda que era dura como un caparazón y si levantaba un poco la cabeza podía ver su estómago marrón que era un poco redondo y estaba hecho de partes curvas parecidas a un caparazón
+VALIDATION: Estaba tumbado sobre su espalda, que era dura como un caparazón, y si levantaba un poco la cabeza, podía ver su estómago marrón, que era un poco redondo y estaba hecho de partes curvas como de caparazón.
 
 S7:
 MAPPINGS:
-Las -> The
-sábanas -> sheets
-de la cama -> on the bed
-no podían -> could not
-cubrirlo -> cover him
-bien -> well
-y -> and
-parecía -> it seemed
-que -> that
-se caerían -> they would fall off
-pronto -> soon
-VALIDATION: Las sábanas de la cama no podían cubrirlo bien y parecía que se caerían pronto
+VALIDATION: El cobertor de la cama realmente no podía cubrirlo, y parecía que se caería pronto.
 
 S8:
 MAPPINGS:
-Tenía -> He had
-muchas -> many
-patas -> legs
-que eran -> that were
-muy -> very
-delgadas -> thin
-y -> and
-esto -> this
-era -> was
-triste de ver -> sad to see
-porque -> because
-el resto -> the rest
-de su cuerpo -> of his body
-era -> was
-muy -> very
-grande -> large
-Cuando -> When
-las miraba -> he looked at them
-se movían -> they moved
-pero -> but
-él -> he
-no podía -> could not
-controlarlas -> control them
-VALIDATION: Tenía muchas patas que eran muy delgadas y esto era triste de ver porque el resto de su cuerpo era muy grande Cuando las miraba se movían pero él no podía controlarlas
+VALIDATION: Tenía muchas patas que eran muy delgadas, y era triste ver esto porque el resto de su cuerpo era tan grande. Cuando las miraba, se movían, pero no podía controlarlas.
 
 S9:
 MAPPINGS:
-Qué -> What
-me ha pasado -> has happened to me
-pensó -> he thought
-VALIDATION: Qué me ha pasado pensó
+VALIDATION: “¿Qué me ha pasado?”, pensó.
 
 S10:
 MAPPINGS:
-No era -> It was not
-un -> a
-sueño -> dream
-VALIDATION: No era un sueño
+VALIDATION: No era un sueño.
 
 S11:
 MAPPINGS:
-Su -> His
-habitación -> room
-era -> was
-una -> a
-habitación -> room
-normal -> normal
-para -> for
-una -> a
-persona -> person
-pero -> but
-un poco -> a little
-pequeña -> small
-y -> and
-estaba tranquila -> it lay quietly
-entre -> between
-las -> the
-cuatro -> four
-paredes -> walls
-que -> that
-conocía bien -> he knew well
-VALIDATION: Su habitación era una habitación normal para una persona pero un poco pequeña y estaba tranquila entre las cuatro paredes que conocía bien
+VALIDATION: Su habitación era una habitación normal para una persona, pero un poco pequeña, y estaba tranquila entre las cuatro paredes que conocía bien.
 
 S12:
 MAPPINGS:
-Pedazos -> Pieces
-de -> of
-tela -> cloth
-para -> for
-su -> his
-trabajo -> work
-estaban -> were
-sobre -> on
-la -> the
-mesa -> table
-ya que -> as
-él -> he
-era -> was
-un -> a
-hombre -> man
-que -> who
-viajaba -> traveled
-para vender -> to sell
-cosas -> things
-Encima de -> On top of
-la -> the
-mesa -> table
-una -> a
-imagen -> picture
-que -> that
-había cortado -> he had cut
-recientemente -> recently
-de -> from
-una -> a
-revista -> magazine
-estaba -> was
-en -> on
-la -> the
-pared -> wall
-en -> in
-un -> a
-bonito -> pretty
-marco -> frame
-de color dorado -> gilded
-VALIDATION: Pedazos de tela para su trabajo estaban sobre la mesa ya que él era un hombre que viajaba para vender cosas Encima de la mesa una imagen que había cortado recientemente de una revista estaba en la pared en un bonito marco de color dorado
+VALIDATION: Trozos de tela para su trabajo estaban sobre la mesa, ya que era un hombre que viajaba para vender cosas. Sobre la mesa, una imagen que había cortado recientemente de una revista estaba en la pared en un marco bonito de color dorado.
+

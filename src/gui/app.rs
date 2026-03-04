@@ -1,24 +1,18 @@
 // src/gui/app.rs
 
 use eframe::{egui, App, Frame};
-use std::fs;
 use std::path::PathBuf;
 
-use crate::domain::bridge;
-use crate::domain::mapping_logic::apply_llm_mapping;
-use crate::domain::mapping::TierMapping;
 use crate::gui::components;
 use crate::app::state::AppState;
-use crate::parsing::source_parser;
+use crate::app::terminal::apply_llm_result;
 use crate::services::llm_client::LlmService;
 use crate::services::llm_logger::LlmLogger;
 use crate::services::prompt_manager::PromptManager;
 use crate::services::python_bridge::BridgeService;
-use crate::types::json_types::JsonChapter;
+use crate::services::tier_processor::lang_for_tier;
 use std::sync::mpsc::TryRecvError;
-use crate::services::llm_settings::StageBatchSettings;
-use crate::services::llm_worker::spawn_llm_job;
-use std::cmp::{min, max};
+use std::cmp::min;
 
 pub struct WeaveLangApp {
     state: AppState,
@@ -157,25 +151,140 @@ impl WeaveLangApp {
                     ui.close_menu();
                 }
                 ui.separator();
+                if ui.button("Export JSON...").clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("JSON", &["json"])
+                        .save_file()
+                    {
+                        let cmd = format!("export json {}", path.to_string_lossy());
+                        self.execute_terminal_command(&cmd);
+                    }
+                    ui.close_menu();
+                }
+                ui.separator();
+                if ui.button("Debug Dump...").clicked() {
+                    self.state.debug_dump_start = self.state.selected_sentence_idx;
+                    self.state.debug_dump_end   = self.state.selected_sentence_idx;
+                    self.state.debug_dump_path  = String::new();
+                    self.state.show_debug_dump  = true;
+                    ui.close_menu();
+                }
+                ui.separator();
                 if ui.button("Exit").clicked() {
                     std::process::exit(0);
                 }
             });
 
-            ui.menu_button("LLM", |ui| {
-                if ui.button("Settings...").clicked() {
+            ui.menu_button("Pipeline", |ui| {
+                const PIPELINE_STAGES: &[(&str, &str)] = &[
+                    ("GenerateBasicBase",        "Generate Basic Base..."),
+                    ("GenerateAdvancedTarget",   "Generate Advanced Translation..."),
+                    ("GenerateModerateTarget",   "Generate Moderate Target..."),
+                    ("GenerateBasicTarget",      "Generate Basic Target..."),
+                ];
+                const MAPPING_STAGES: &[(&str, &str)] = &[
+                    ("GeneratePhraseMap",        "Generate Phrase Map..."),
+                    ("GenerateInversePhraseMap", "Generate Inverse Phrase Map..."),
+                ];
+
+                for (stage_key, label) in PIPELINE_STAGES {
+                    if ui.button(*label).clicked() {
+                        let start = self.state.selected_sentence_idx;
+                        let end   = min(start + self.state.llm_batch_settings.simplify.saturating_sub(1),
+                                        self.state.document.len().saturating_sub(1));
+                        self.state.llm_run_prompt_name = stage_key.to_string();
+                        self.state.llm_run_start = start;
+                        self.state.llm_run_end   = end;
+                        self.state.show_llm_run  = true;
+                        ui.close_menu();
+                    }
+                }
+                ui.separator();
+                for (stage_key, label) in MAPPING_STAGES {
+                    if ui.button(*label).clicked() {
+                        let cur = self.state.selected_sentence_idx;
+                        self.state.llm_run_prompt_name = stage_key.to_string();
+                        self.state.llm_run_start = cur;
+                        self.state.llm_run_end   = cur;
+                        self.state.show_llm_run  = true;
+                        ui.close_menu();
+                    }
+                }
+                ui.separator();
+                if ui.button("LLM Settings...").clicked() {
                     self.state.show_llm_settings = true;
                     ui.close_menu();
                 }
-                if ui.button("Run Simplify Range...").clicked() {
-                    // initialize run dialog with sensible defaults
-                    let start = self.state.selected_sentence_idx;
-                    let end = min(start + 4, self.state.document.len().saturating_sub(1));
-                    self.state.llm_run_start = start;
-                    self.state.llm_run_end = end;
-                    self.state.llm_run_batch_size = self.state.llm_batch_settings.simplify;
-                    self.state.llm_run_prompt_name = "simplify_to_basic_english".to_string();
-                    self.state.show_llm_run = true;
+            });
+
+            ui.menu_button("Tools", |ui| {
+                if ui.button("Measure AVD...").clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("Text File", &["txt"])
+                        .pick_file()
+                    {
+                        let cmd = format!("measure_avd {}", path.to_string_lossy());
+                        self.execute_terminal_command(&cmd);
+                    }
+                    ui.close_menu();
+                }
+                if ui.button("Measure User Score...").clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("Text File", &["txt"])
+                        .pick_file()
+                    {
+                        let cmd = format!("measure_user_score {}", path.to_string_lossy());
+                        self.execute_terminal_command(&cmd);
+                    }
+                    ui.close_menu();
+                }
+                ui.separator();
+                if ui.button("Generate Weave (All)").clicked() {
+                    self.execute_terminal_command("generate_weave all");
+                    ui.close_menu();
+                }
+                if ui.button("Generate Weave (Level)...").clicked() {
+                    // Emit as terminal command; user can type the level in the terminal
+                    self.execute_terminal_command("generate_weave all");
+                    ui.close_menu();
+                }
+                ui.separator();
+                if ui.button("Import Level Map...").clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("Level Map", &["lm", "json"])
+                        .pick_file()
+                    {
+                        let cmd = format!("import level_map {}", path.to_string_lossy());
+                        self.execute_terminal_command(&cmd);
+                    }
+                    ui.close_menu();
+                }
+                if ui.button("Export Level Map...").clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("Level Map", &["lm"])
+                        .save_file()
+                    {
+                        let cmd = format!("export level_map {}", path.to_string_lossy());
+                        self.execute_terminal_command(&cmd);
+                    }
+                    ui.close_menu();
+                }
+            });
+
+            ui.menu_button("Preferences", |ui| {
+                if ui.button("LLM Settings...").clicked() {
+                    self.state.show_llm_settings = true;
+                    ui.close_menu();
+                }
+                ui.separator();
+                if ui.button("Config List").clicked() {
+                    self.execute_terminal_command("config list");
+                    ui.close_menu();
+                }
+                if ui.button("Config Set...").clicked() {
+                    self.state.config_set_key   = String::new();
+                    self.state.config_set_value = String::new();
+                    self.state.show_config_set  = true;
                     ui.close_menu();
                 }
             });
@@ -275,8 +384,6 @@ impl App for WeaveLangApp {
                         
                         let is_bulk_run = self.state.llm_job_total > self.state.llm_batch_settings.simplify.max(self.state.llm_batch_settings.translate).max(10);
                         let selected_idx = self.state.selected_sentence_idx;
-                        let is_bulk_run = self.state.llm_job_total > self.state.llm_batch_settings.simplify.max(self.state.llm_batch_settings.translate).max(10);
-                        let selected_idx = self.state.selected_sentence_idx;
                         let num_results = results.len();
 
                         let (base_lang, target_lang) = self.state.project_languages.clone();
@@ -286,7 +393,7 @@ impl App for WeaveLangApp {
                             if idx < self.state.document.len() {
                                 // Always apply if it's the selected sentence OR if it's a bulk run
                                 if is_bulk_run || idx == selected_idx {
-                                    let lang = tier_lang_code(&tier_id, &base_lang, &target_lang);
+                                    let lang = lang_for_tier(&tier_id, &base_lang, &target_lang);
                                     if let Some(sent) = self.state.document.get_mut(idx) {
                                         apply_llm_result(sent, &tier_id, &text, bridge_ref, &lang);
                                         if idx == selected_idx {
@@ -373,24 +480,13 @@ impl App for WeaveLangApp {
                     
                     ui.horizontal(|ui| {
                         if ui.button("Yes, Apply All").clicked() {
-                            // Move pending to a local var to apply
-                            let updates = std::mem::take(&mut self.state.pending_collateral_updates);
-                            let (base_lang, target_lang) = self.state.project_languages.clone();
-                            let bridge_ref = self.state.bridge.as_ref();
-                            for (idx, _s_id, tier_id, text) in updates {
-                                let lang = tier_lang_code(&tier_id, &base_lang, &target_lang);
-                                if let Some(sent) = self.state.document.get_mut(idx) {
-                                    apply_llm_result(sent, &tier_id, &text, bridge_ref, &lang);
-                                }
-                            }
-                            self.state.last_log = format!("Applied {} collateral updates.", num_updates);
+                            self.state.pending_terminal_command = Some("approve collateral".to_string());
                             self.state.show_collateral_confirm = false;
                         }
                         
                         if ui.button("No, Discard Extras").clicked() {
-                            self.state.pending_collateral_updates.clear();
-                             self.state.last_log = "Discarded collateral updates.".to_string();
-                             self.state.show_collateral_confirm = false;
+                            self.state.pending_terminal_command = Some("discard collateral".to_string());
+                            self.state.show_collateral_confirm = false;
                         }
                     });
                 });
@@ -402,8 +498,7 @@ impl App for WeaveLangApp {
         }
         
         // LLM Settings window
-        if self.state.show_llm_settings {
-            let mut open = true;
+        if self.state.show_llm_settings {            let mut open = true;
             egui::Window::new("LLM Settings").open(&mut open).show(ctx, |ui| {
                 ui.label("Batch sizes (per-stage)");
                 ui.horizontal(|ui| {
@@ -450,7 +545,7 @@ impl App for WeaveLangApp {
         // LLM Run dialog
         if self.state.show_llm_run {
             let mut open = true;
-            egui::Window::new("Run LLM Job").open(&mut open).show(ctx, |ui| {
+            egui::Window::new("Run Pipeline Stage").open(&mut open).show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.label("Start index:");
                     ui.add(egui::DragValue::new(&mut self.state.llm_run_start).clamp_range(0..=999999usize));
@@ -458,81 +553,37 @@ impl App for WeaveLangApp {
                     ui.add(egui::DragValue::new(&mut self.state.llm_run_end).clamp_range(0..=999999usize));
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Batch size:");
-                    ui.add(egui::DragValue::new(&mut self.state.llm_run_batch_size).clamp_range(1..=200usize));
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Prompt name:");
-                    ui.text_edit_singleline(&mut self.state.llm_run_prompt_name);
+                    ui.label("Stage:");
+                    egui::ComboBox::from_id_source("stage_select")
+                        .selected_text(&self.state.llm_run_prompt_name)
+                        .show_ui(ui, |ui| {
+                            const STAGES: &[(&str, &str)] = &[
+                                ("GenerateBasicBase",        "Basic Base (English simplify)"),
+                                ("GenerateAdvancedTarget",   "Advanced Target (translate)"),
+                                ("GenerateModerateTarget",   "Moderate Target (segment simplify)"),
+                                ("GenerateBasicTarget",      "Basic Target (simplify)"),
+                                ("GeneratePhraseMap",        "Phrase Map"),
+                                ("GenerateInversePhraseMap", "Inverse Phrase Map"),
+                            ];
+                            for (key, label) in STAGES {
+                                ui.selectable_value(
+                                    &mut self.state.llm_run_prompt_name,
+                                    key.to_string(),
+                                    *label,
+                                );
+                            }
+                        });
                 });
 
                 ui.separator();
                 ui.horizontal(|ui| {
                     if ui.button("Start").clicked() {
-                        // clamp bounds
                         let doc_len = self.state.document.len();
                         let start = min(self.state.llm_run_start, doc_len.saturating_sub(1));
-                        let end = min(self.state.llm_run_end, doc_len.saturating_sub(1));
+                        let end   = min(self.state.llm_run_end,   doc_len.saturating_sub(1));
                         let (s, e) = if start <= end { (start, end) } else { (end, start) };
-
-                        // Build items from base tier text for now
-                        let mut items: Vec<(usize, String, String)> = Vec::new();
-                        for idx in s..=e {
-                            if let Some(sent) = self.state.document.get(idx) {
-                                let parent_text = sent.get_tier("base").map(|t| t.full_text()).unwrap_or_default();
-                                items.push((idx, sent.id.clone(), parent_text));
-                            }
-                        }
-
-                        if items.is_empty() {
-                            self.status_message = "No sentences in selected range.".to_string();
-                        } else if self.state.prompts.is_none() || self.state.llm.is_none() || self.state.logger.is_none() {
-                            self.status_message = "LLM services not fully configured.".to_string();
-                        } else {
-                            let prompts = self.state.prompts.clone().unwrap();
-                            let llm = self.state.llm.clone().unwrap();
-                            let logger = self.state.logger.clone().unwrap();
-
-                            let (base_code, target_code) = self.state.project_languages.clone();
-                            let prompt_name = self.state.llm_run_prompt_name.clone();
-                            let batch = self.state.llm_run_batch_size;
-                            let model = "claude-3-haiku-20240307".to_string();
-
-
-                            // Snapshot current target tier text for the range so we can revert if needed
-                            let mut backup: Vec<(usize, String, String)> = Vec::new();
-                            for idx in s..=e {
-                                if let Some(sent) = self.state.document.get(idx) {
-                                    let prior = sent.get_tier(&prompt_name).map(|t| t.full_text()).unwrap_or_default();
-                                    backup.push((idx, prompt_name.clone(), prior));
-                                }
-                            }
-                            self.state.llm_job_backup = backup;
-
-                            let (rx, cancel_flag) = spawn_llm_job(
-                                prompts,
-                                llm,
-                                logger,
-                                base_code,
-                                target_code,
-                                prompt_name.clone(),
-                                prompt_name.clone(), // target_tier_id (legacy behavior: prompt == tier)
-                                items,
-                                batch,
-                                model,
-                                None,
-                                false, // not segment-level
-                            );
-
-                            // set job counters
-                            let total = s.checked_sub(0).and_then(|_| Some(e - s + 1)).unwrap_or(0usize);
-                            self.state.llm_job_total = total;
-                            self.state.llm_job_done = 0;
-                            self.state.llm_results_receiver = Some(rx);
-                            self.state.llm_cancel_flag = Some(cancel_flag);
-                            self.status_message = format!("LLM job '{}' started for [{}..{}]. {} items queued.", prompt_name, s, e, total);
-                        }
-
+                        let cmd = format!("run generate {} {} {}", self.state.llm_run_prompt_name, s, e);
+                        self.state.pending_terminal_command = Some(cmd);
                         self.state.show_llm_run = false;
                     }
                     if ui.button("Use current").clicked() {
@@ -630,60 +681,5 @@ impl App for WeaveLangApp {
             });
             self.state.show_cancel_confirm = open;
         }
-    }
-}
-
-fn apply_llm_result(
-        sent: &mut crate::domain::sentence::Sentence,
-        tier_id: &str,
-        text: &str,
-        bridge: Option<&crate::services::python_bridge::BridgeService>,
-        lang_code: &str,
-    ) {
-        if tier_id.starts_with("MAPPING:") {
-            // Format: MAPPING:source:target
-            let parts: Vec<&str> = tier_id.split(':').collect();
-            if parts.len() == 3 {
-                let source_id = parts[1];
-                let target_id = parts[2];
-                
-                let mut mapping_to_add: Option<TierMapping> = None;
-                
-                if let Some(source_tier) = sent.get_tier_mut(source_id) {
-                    if let Some(segment) = source_tier.segments.first_mut() {
-                        match apply_llm_mapping(
-                            &mut segment.stream, 
-                            text, 
-                            source_id, 
-                            target_id
-                        ) {
-                            Ok(m) => mapping_to_add = Some(m),
-                            Err(e) => eprintln!("Mapping Error: {}", e),
-                        }
-                    }
-                }
-                
-                if let Some(m) = mapping_to_add {
-                    sent.add_mapping(m);
-                }
-            }
-        } else {
-            // Tokenize via SpaCy if bridge is available, otherwise fall back to regex.
-            // Note: Full LLM segmentation is not done here (it would require async LLM calls).
-            // The text is treated as a single segment but with proper SpaCy tokens.
-            let segments = crate::services::tier_processor::tokenize_only(text, lang_code, bridge);
-            sent.update_tier_with_segments(tier_id, segments);
-        }
-    }
-
-/// Determine the language code for a given tier ID.
-/// Base-language tiers (base, basic_base) use the base language code.
-/// Target-language tiers (advanced_target, moderate_target, basic_target) use the target code.
-fn tier_lang_code<'a>(tier_id: &str, base_lang: &'a str, target_lang: &'a str) -> String {
-    match tier_id {
-        "base" | "basic_base" => base_lang.to_string(),
-        "advanced_target" | "moderate_target" | "basic_target" => target_lang.to_string(),
-        t if t.starts_with("MAPPING:") => base_lang.to_string(), // mappings operate on source tier
-        _ => base_lang.to_string(), // conservative default
     }
 }

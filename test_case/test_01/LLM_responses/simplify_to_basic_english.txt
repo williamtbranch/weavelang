@@ -3,7 +3,7 @@ S2: Metamorphosis
 S3: by Franz Kafka
 S4: Chapter I
 S5: One morning, when Gregor Samsa woke up from bad dreams, he saw that he had changed in his bed into a very bad kind of bug.
-S6: He lay on his back, which was hard like a shell, and if he moved his head up a little, he could see his brown stomach, which was a little round and had lines that made it into hard parts.
+S6: He lay on his back, which was hard like a shell, and if he moved his head up a little, he could see his brown stomach, which was a little round and was made of curved shell like parts.
 S7: The covers on the bed could not really cover him, and it looked like they would fall off soon.
 S8: He had many legs that were very thin, and this was sad to see because the rest of his body was so big. When he looked at them, they moved around but he could not control them.
 S9: “What’s happened to me?” he thought.

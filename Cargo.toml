@@ -48,6 +48,7 @@ tiny_http = "0.12"
 [dev-dependencies]
 pest = "2.7"       
 pest_derive = "2.7" 
+serde_json = "1.0"
 
 [[bin]]
 name = "weavelang_cli"

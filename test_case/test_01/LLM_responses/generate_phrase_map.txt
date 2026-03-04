@@ -6,229 +6,45 @@ VALIDATION: Chapter 0
 
 S2:
 MAPPINGS:
-Metamorphosis -> {{Metamorfosis}}
 VALIDATION: Metamorphosis
 
 S3:
 MAPPINGS:
-by -> por
-Franz -> {{Franz}}
-Kafka -> {{Kafka}}
 VALIDATION: by Franz Kafka
 
 S4:
 MAPPINGS:
-Chapter -> Capítulo
-I -> I
 VALIDATION: Chapter I
 
 S5:
 MAPPINGS:
-One -> Una
-morning -> mañana
-when -> cuando
-Gregor -> {{Gregor}}
-Samsa -> {{Samsa}}
-woke up -> se despertó
-from -> de
-bad -> malos
-dreams -> sueños
-he -> él
-saw -> vio
-that -> que
-he -> él
-had changed -> se había convertido
-in -> en
-his -> su
-bed -> cama
-into -> en
-a -> un
-very -> muy
-bad -> mal
-kind of -> tipo de
-bug -> bicho
-VALIDATION: One morning when Gregor Samsa woke up from bad dreams he saw that he had changed in his bed into a very bad kind of bug
+VALIDATION: One morning, when Gregor Samsa woke up from bad dreams, he saw that he had changed in his bed into a very bad kind of bug.
 
 S6:
 MAPPINGS:
-He -> Él
-lay -> yacía
-on -> sobre
-his -> su
-back -> espalda
-which -> que
-was -> era
-hard -> dura
-like -> como
-a -> un
-shell -> caparazón
-and -> y
-if -> si
-he -> él
-moved -> levantaba
-his -> su
-head -> cabeza
-up -> NO_SUB
-a little -> un poco
-he -> él
-could see -> podía ver
-his -> su
-brown -> marrón
-stomach -> vientre
-which -> que
-was -> era
-a little -> un poco
-round -> redondo
-and -> y
-was made of -> estaba hecho de
-curved -> curvas
-shell like -> en forma de concha
-parts -> partes
-VALIDATION: He lay on his back which was hard like a shell and if he moved his head up a little he could see his brown stomach which was a little round and was made of curved shell like parts
+VALIDATION: He lay on his back, which was hard like a shell, and if he moved his head up a little, he could see his brown stomach, which was a little round and was made of curved shell like parts.
 
 S7:
 MAPPINGS:
-The -> Las
-covers -> mantas
-on -> sobre
-the -> la
-bed -> cama
-could not -> no podían
-really -> realmente
-cover -> cubrir
-him -> lo
-and -> y
-it looked like -> parecía que
-they -> ellas
-would fall off -> se caerían
-soon -> pronto
-VALIDATION: The covers on the bed could not really cover him and it looked like they would fall off soon
+VALIDATION: The covers on the bed could not really cover him, and it looked like they would fall off soon.
 
 S8:
 MAPPINGS:
-He -> Él
-had -> tenía
-many -> muchas
-legs -> piernas
-that -> que
-were -> eran
-very -> muy
-thin -> delgadas
-and -> y
-this -> esto
-was -> era
-sad -> triste
-to see -> de ver
-because -> porque
-the rest -> el resto
-of -> de
-his -> su
-body -> cuerpo
-was -> era
-so -> tan
-big -> grande
-When -> Cuando
-he -> él
-looked -> miraba
-at -> a
-them -> ellas
-they -> ellas
-moved around -> se movían
-but -> pero
-he -> él
-could not -> no podía
-control -> controlar
-them -> las
-VALIDATION: He had many legs that were very thin and this was sad to see because the rest of his body was so big When he looked at them they moved around but he could not control them
+VALIDATION: He had many legs that were very thin, and this was sad to see because the rest of his body was so big. When he looked at them, they moved around but he could not control them.
 
 S9:
 MAPPINGS:
-What’s happened -> Qué ha pasado
-to me -> me
-he -> él
-thought -> pensó
-VALIDATION: What’s happened to me he thought
-
-
-S9:
-MAPPINGS:
-What’s happened -> Qué ha pasado
-to me -> me
-he -> él
-thought -> pensó
-VALIDATION: What’s happened to me he thought
+VALIDATION: “What’s happened to me?” he thought.
 
 S10:
 MAPPINGS:
-It wasn’t -> No era
-a -> un
-dream -> sueño
-VALIDATION: It wasn’t a dream
+VALIDATION: It wasn’t a dream.
 
 S11:
 MAPPINGS:
-His -> Su
-room -> habitación
-was -> era
-a -> una
-normal -> normal
-room -> habitación
-for -> para
-a -> una
-person -> persona
-but -> pero
-a little -> un poco
-small -> pequeña
-and -> y
-it was -> era
-quiet -> tranquila
-between -> entre
-the -> las
-four -> cuatro
-walls -> paredes
-he -> él
-knew -> conocía
-well -> bien
-VALIDATION: His room was a normal room for a person but a little small and it was quiet between the four walls he knew well
+VALIDATION: His room was a normal room for a person, but a little small, and it was quiet between the four walls he knew well.
 
 S12:
 MAPPINGS:
-Pieces -> Trozos
-of -> de
-cloth -> tela
-for -> para
-his -> su
-work -> trabajo
-were -> estaban
-on -> sobre
-the -> la
-table -> mesa
-as -> ya que
-he -> él
-was -> era
-a -> un
-man -> hombre
-who -> que
-traveled -> viajaba
-to sell -> para vender
-things -> cosas
-Above -> Encima de
-the -> la
-table -> mesa
-a -> una
-picture -> imagen
-he -> él
-had recently cut -> había recortado recientemente
-from -> de
-a -> una
-magazine -> revista
-was -> estaba
-on -> en
-the -> la
-wall -> pared
-in -> en
-a -> un
-nice -> bonito
-gold-colored -> dorado
-frame -> marco
-VALIDATION: Pieces of cloth for his work were on the table as he was a man who traveled to sell things Above the table a picture he had recently cut from a magazine was on the wall in a nice gold-colored frame
+VALIDATION: Pieces of cloth for his work were on the table, as he was a man who traveled to sell things. Above the table, a picture he had recently cut from a magazine was on the wall in a nice, gold-colored frame.
+

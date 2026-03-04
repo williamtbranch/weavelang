@@ -63,6 +63,7 @@ pub struct MockLlmProvider {
     /// Current prompt/stage context — set before each complete() call.
     current_context: String,
     /// Cache of parsed canned files: prompt_name → { id → response_text }.
+    #[allow(dead_code)]
     cache: HashMap<String, CannedFile>,
 }
 
@@ -85,6 +86,7 @@ impl MockLlmProvider {
     }
 
     /// Load and parse a canned response file, caching the result.
+    #[allow(dead_code)]
     fn get_or_load(&mut self, prompt_name: &str) -> Result<&CannedFile, String> {
         if !self.cache.contains_key(prompt_name) {
             let path = self.responses_dir.join(format!("{}.txt", prompt_name));

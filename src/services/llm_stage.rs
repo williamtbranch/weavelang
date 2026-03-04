@@ -94,18 +94,61 @@ impl LlmStageService {
                 None => return Err(format!("LLM calls failed for batch: {}", last_err)),
             };
 
-            // Parse id-prefixed lines
+            // Parse id-prefixed lines — supports two formats:
+            //  1. Single-line: "S1: <text>"
+            //  2. Multi-line block: "S1:\n<lines until next ID or end>"
+            //
+            // For multi-line blocks (e.g. phrase maps) we accumulate all lines
+            // after the bare "S1:" header until we hit the next ID header or the
+            // end of the response.
+            let id_header_re = Regex::new(r"^\s*([A-Za-z0-9_-]+)\s*:\s*$").map_err(|e| e.to_string())?;
+            let mut current_id: Option<(usize, String)> = None; // (chunk_idx, sid)
+            let mut current_lines: Vec<String> = Vec::new();
+
+            let flush = |current_id: &mut Option<(usize, String)>,
+                         current_lines: &mut Vec<String>,
+                         results: &mut Vec<(usize, String, String)>| {
+                if let Some((idx, sid)) = current_id.take() {
+                    let text = current_lines.join("\n").trim().to_string();
+                    if !text.is_empty() {
+                        results.push((idx, sid, text));
+                    }
+                }
+                current_lines.clear();
+            };
+
             for line in resp.lines() {
+                // Check for single-line format first: "S1: <text>"
                 if let Some(cap) = id_re.captures(line) {
                     let sid = cap[1].trim().to_string();
                     let gen = cap[2].trim().to_string();
 
-                    // Only accept IDs that were part of this chunk
                     if let Some((idx, _s_id, _)) = chunk.iter().find(|(_, s, _)| s == &sid) {
+                        // Flush any pending multi-line block
+                        flush(&mut current_id, &mut current_lines, &mut results);
                         results.push((*idx, sid.clone(), gen.clone()));
+                        continue;
                     }
                 }
+
+                // Check for bare ID header: "S1:" (multi-line block start)
+                if let Some(cap) = id_header_re.captures(line) {
+                    let sid = cap[1].trim().to_string();
+                    if let Some((idx, _s_id, _)) = chunk.iter().find(|(_, s, _)| s == &sid) {
+                        // Flush previous block, start new one
+                        flush(&mut current_id, &mut current_lines, &mut results);
+                        current_id = Some((*idx, sid));
+                        continue;
+                    }
+                }
+
+                // Accumulate lines for current multi-line block
+                if current_id.is_some() {
+                    current_lines.push(line.to_string());
+                }
             }
+            // Flush the last block
+            flush(&mut current_id, &mut current_lines, &mut results);
 
             // Log the interaction
             let _ = self.logger.log_interaction(

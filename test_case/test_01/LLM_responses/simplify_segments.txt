@@ -8,16 +8,6 @@ S5_S3: en su cama en un insecto horrible.
 S6_S1: Estaba sobre su espalda dura,
 S6_S2: y si levantaba un poco la cabeza
 S6_S3: podía ver su estómago marrón,
-S6_S4: ligeramente abombado y dividido por arcos en secciones rígidas.
-S7_S1: La ropa de cama apenas lograba cubrirlo 
-S7_S2: y parecía lista para deslizarse en cualquier momento.
-S8_S1: Sus muchas patas, lastimosamente delgadas 
-S8_S2: comparadas con el tamaño del resto de su cuerpo, 
-S8_S3: se agitaban indefensas mientras él las contemplaba.
-S9_S1: "¿Qué me ha pasado?", pensó.
-S10_S1: No era un sueño.
-S11_S1: Su habitación, una habitación humana apropiada 
-S11_S2: aunque un poco demasiado pequeña, 
 S6_S4: un poco curvado y dividido por líneas en partes duras.
 S7_S1: Las sábanas apenas podían cubrirlo
 S7_S2: y parecían listas para caerse en cualquier momento.
@@ -28,9 +18,9 @@ S9_S1: "¿Qué me ha pasado?", pensó.
 S10_S1: No era un sueño.
 S11_S1: Su habitación, una habitación normal de persona
 S11_S2: aunque un poco muy pequeña,
-S11_S3: yacía apaciblemente entre sus cuatro paredes familiares.
-S12_S1: Una colección de muestras textiles se extendía sobre la mesa 
-S12_S2: — Samsa era un viajante de comercio 
-S12_S3: — y encima de ella colgaba un cuadro 
-S12_S4: que había recortado recientemente de una revista ilustrada 
-S12_S5: y enmarcado en un bonito marco dorado.
+S11_S3: estaba tranquilo entre sus cuatro paredes conocidas.
+S12_S1: Una colección de telas estaba puesta sobre la mesa
+S12_S2: — Samsa era un vendedor
+S12_S3: — y encima de ella había un cuadro
+S12_S4: que había cortado hace poco de una revista con fotos
+S12_S5: y puesto en un bonito marco dorado.

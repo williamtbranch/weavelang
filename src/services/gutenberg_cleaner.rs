@@ -37,7 +37,6 @@ impl GutenbergCleaner {
                 continue;
             }
             if trimmed.starts_with(END_BOOK_MARKER_PREFIX) {
-                in_book_content = false;
                 break;
             }
             if in_book_content {
@@ -92,7 +91,7 @@ impl GutenbergCleaner {
         for line_raw in lines {
             // Collapse stray carriage returns that may still be embedded.
             // (Most are normalized above, but guard defensively.)
-            let mut line = line_raw.replace('\r', "\n");
+            let line = line_raw.replace('\r', "\n");
             // Clean line of any remaining single-line bracket markers
             let line_cleaned_cow = SINGLE_LINE_BRACKET_REGEX.replace_all(&line, "");
             // Replace internal newlines in a physical line with spaces so a
@@ -137,7 +136,7 @@ impl GutenbergCleaner {
             output_paragraphs.push(current_paragraph_lines.join(" "));
         }
 
-        output_paragraphs.join("\n")
+        output_paragraphs.join("\n\n")
     }
 }
 
@@ -156,14 +155,14 @@ mod tests {
     fn test_clean_paragraph_breaks() {
         let raw = "Paragraph one.\n\nParagraph two.";
         let cleaned = GutenbergCleaner::clean_text(raw);
-        assert_eq!(cleaned, "Paragraph one.\nParagraph two.");
+        assert_eq!(cleaned, "Paragraph one.\n\nParagraph two.");
     }
 
     #[test]
     fn test_clean_illustration_block_user_example() {
         let raw = "Mr. Bennet made no answer.\n\n[Illustration:\n\n“He came down to see the place”\n\n[_Copyright 1894 by George Allen._]]\n\nThis was invitation enough.";
         let cleaned = GutenbergCleaner::clean_text(raw);
-        let expected = "Mr. Bennet made no answer.\nThis was invitation enough.";
+        let expected = "Mr. Bennet made no answer.\n\nThis was invitation enough.";
         assert_eq!(cleaned, expected);
     }
 
@@ -171,7 +170,7 @@ mod tests {
     fn test_clean_single_line_illustration() {
         let raw = "Text before.\n[Illustration: Some pic]\nText after.";
         let cleaned = GutenbergCleaner::clean_text(raw);
-        assert_eq!(cleaned, "Text before.\nText after.");
+        assert_eq!(cleaned, "Text before.\n\nText after.");
     }
 
     #[test]

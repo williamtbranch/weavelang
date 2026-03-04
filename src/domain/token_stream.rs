@@ -354,6 +354,7 @@ impl TokenStream {
     /// where a non-space background token connects two words.
     ///
     /// Ported from `helper.py::fuse_tokens`.
+    #[allow(dead_code)]
     pub(crate) fn fuse_across_background(mut tokens: Vec<Token>) -> Vec<Token> {
         let mut i = 0;
         while i + 2 < tokens.len() {

@@ -17,6 +17,7 @@ pub fn spawn_llm_job(
     prompts: PromptManager,
     llm: LlmService,
     logger: LlmLogger,
+    config: crate::config::Config,
     base_code: String,
     target_code: String,
     prompt_name: String,
@@ -32,7 +33,7 @@ pub fn spawn_llm_job(
     let cancel_thread_flag = cancel_flag.clone();
 
     std::thread::spawn(move || {
-        let svc = LlmStageService::new(prompts, llm, logger);
+        let svc = LlmStageService::new(prompts.clone(), llm.clone(), logger.clone());
 
         let fb_ref = fallback_model.as_deref();
 
@@ -47,14 +48,27 @@ pub fn spawn_llm_job(
             Some(cancel_thread_flag.as_ref()),
         );
 
-        // Map results to include target_tier_id so the UI knows which tier to update.
-        // When segment_level is true, reassemble Sn_Sm results into one result per sentence.
         let mapped: Result<Vec<(usize, String, String, String)>, String> = match res {
-            Ok(v) if segment_level => Ok(reassemble_segment_results(v, &target_tier_id)),
-            Ok(v) => Ok(v
-                .into_iter()
-                .map(|(idx, sid, gen)| (idx, sid, target_tier_id.clone(), gen))
-                .collect()),
+            Ok(v) if segment_level => {
+                let reassembled = reassemble_segment_results(v, &target_tier_id);
+                Ok(reassembled)
+            }
+            Ok(v) => {
+                if target_tier_id == "advanced_target" {
+                    let mut segmented_results = Vec::new();
+                    for (idx, sid, gen) in v.into_iter() {
+                        let segs = crate::services::llm_segmenter::segment_sentence(
+                            &gen, &sid, &llm, &prompts, &logger, &config, &base_code, &target_code
+                        ).unwrap_or_else(|_| vec![gen]);
+                        segmented_results.push((idx, sid, target_tier_id.clone(), segs.join("\0")));
+                    }
+                    Ok(segmented_results)
+                } else {
+                    Ok(v.into_iter()
+                        .map(|(idx, sid, gen)| (idx, sid, target_tier_id.clone(), gen))
+                        .collect())
+                }
+            }
             Err(e) => Err(e),
         };
 
@@ -102,25 +116,13 @@ fn reassemble_segment_results(
             .to_string();
         let sent_idx = entries[0].0;
 
-        // Join segment texts with spaces, trim trailing whitespace.
+        // Join segment texts with \0 to preserve boundaries.
+        // NOTE: we do NOT trim here. Trimming destroys the original spacings output by LLM.
         let full_text: String = entries
             .iter()
-            .enumerate()
-            .map(|(i, (_, _, text))| {
-                if i < entries.len() - 1 {
-                    // Non-final segment: ensure a trailing space for separation
-                    if text.ends_with(' ') {
-                        text.clone()
-                    } else {
-                        format!("{} ", text)
-                    }
-                } else {
-                    text.clone()
-                }
-            })
-            .collect::<String>()
-            .trim_end()
-            .to_string();
+            .map(|(_, _, text)| text.to_string())
+            .collect::<Vec<String>>()
+            .join("\0");
 
         out.push((sent_idx, sent_id, target_tier_id.to_string(), full_text));
     }
@@ -264,11 +266,11 @@ mod tests {
         assert_eq!(result[0].0, 5);
         assert_eq!(result[0].1, "S5");
         assert_eq!(result[0].2, "moderate_target");
-        assert_eq!(result[0].3, "Una mañana, cuando Gregor despertó de sueños malos.");
+        assert_eq!(result[0].3, "Una mañana,\0cuando Gregor despertó\0de sueños malos.");
         // Sentence S6
         assert_eq!(result[1].0, 6);
         assert_eq!(result[1].1, "S6");
-        assert_eq!(result[1].3, "Estaba sobre su espalda dura.");
+        assert_eq!(result[1].3, "Estaba sobre\0su espalda dura.");
     }
 
     #[test]
@@ -281,7 +283,7 @@ mod tests {
 
         let result = reassemble_segment_results(segments, "moderate_target");
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].3, "Hello world.");
+        assert_eq!(result[0].3, "Hello \0world.");
     }
 
     #[test]
@@ -295,7 +297,7 @@ mod tests {
 
         let result = reassemble_segment_results(segments, "mod");
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].3, "first second third.");
+        assert_eq!(result[0].3, "first\0second\0third.");
     }
 
     #[test]

@@ -20,7 +20,9 @@ fn are_lemmas_known(
         dictionary
             .get_str(id)
             .and_then(|lemma_str| frequency_manager::get_rank_for_lemma(lemma_str))
-            .is_none_or(|rank| rank <= tier_v_level)
+            // Missing from freq list → treat as max rank (unknown), matching
+            // the Python pipeline which uses freq_map.get(lemma, max_rank).
+            .unwrap_or(u32::MAX) <= tier_v_level
     })
 }
 
@@ -116,24 +118,34 @@ pub fn determine_and_annotate_sentence_expression(
     let mut known_word_instances = 0;
     let mut can_render_inverse_diglot = true;
     let inv_diglot_map = &n_sentence.basic_inverse_diglot_map_numerical;
+
+    // Skip InverseDiglot entirely when the inverse map is empty — there
+    // is nothing to substitute and we would just echo the basic_target
+    // unchanged.  Fall through to BasicBaseDiglot instead.
+    if inv_diglot_map.is_empty() {
+        can_render_inverse_diglot = false;
+    }
+
     let total_word_instances: usize = inv_diglot_map
         .iter()
         .map(|(_, _, _, _, spa_wc)| spa_wc)
         .sum();
 
-    for (_, lemmas, sub, _, _spa_wc) in inv_diglot_map.iter() {
-        // --- THIS IS THE FIX ---
-        // The check MUST use the V-Level, not the profile.
-        if *sub == "PROPER_NOUN" || are_lemmas_known(lemmas, v_levels.bas, dictionary) {
-            // We need to calculate how many words this group represents to add to our known tally
-            let corresponding_entry = inv_diglot_map.iter().find(|(_, l, _, _, _)| l == lemmas);
-            if let Some((_, _, _, _, spa_wc_val)) = corresponding_entry {
-                known_word_instances += spa_wc_val;
+    if can_render_inverse_diglot {
+        for (_, lemmas, sub, _, _spa_wc) in inv_diglot_map.iter() {
+            // --- THIS IS THE FIX ---
+            // The check MUST use the V-Level, not the profile.
+            if *sub == "PROPER_NOUN" || are_lemmas_known(lemmas, v_levels.bas, dictionary) {
+                // We need to calculate how many words this group represents to add to our known tally
+                let corresponding_entry = inv_diglot_map.iter().find(|(_, l, _, _, _)| l == lemmas);
+                if let Some((_, _, _, _, spa_wc_val)) = corresponding_entry {
+                    known_word_instances += spa_wc_val;
+                }
+            } else if *sub == "NO_SUB" {
+                // If a NO_SUB group's lemmas are unknown, the whole sentence is impossible.
+                can_render_inverse_diglot = false;
+                break;
             }
-        } else if *sub == "NO_SUB" {
-            // If a NO_SUB group's lemmas are unknown, the whole sentence is impossible.
-            can_render_inverse_diglot = false;
-            break;
         }
     }
 
@@ -169,6 +181,11 @@ pub fn determine_and_annotate_sentence_expression(
                         final_parts.push(sub.to_string());
                         english_words += eng_wc;
                     }
+                } else {
+                    // No map entry for this word position — keep the
+                    // original target-language word.
+                    final_parts.push(token.value.clone());
+                    spanish_words += 1;
                 }
                 map_idx += 1;
             }

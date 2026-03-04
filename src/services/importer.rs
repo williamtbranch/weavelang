@@ -3,15 +3,13 @@ use crate::domain::normalization::{
     CHAPTER_MAIN_REGEX, EM_DASH_SECTION_REGEX, SHORT_LINE_NUMERAL_CHAPTER_REGEX,
     SPECIAL_SECTION_REGEX,
 };
-use crate::domain::segmentation::merge_short_segments;
 use crate::domain::token_stream::{Token, TokenStream};
-use crate::services::python_bridge::{PythonBridge, RawSpacyToken};
+use crate::services::python_bridge::PythonBridge;
 use crate::services::gutenberg_cleaner::GutenbergCleaner;
 use crate::types::json_types::{
     JsonBookMetaV2, JsonChapter, JsonChapterMarkerBlock, JsonContentBlock, JsonMappingsV2,
     JsonSegmentV2, JsonSentenceBlock, JsonTierV2, JsonTokenType, JsonTokenV2,
 };
-use regex::Regex;
 use std::collections::HashMap;
 
 /// Testable helper: import from already-cleaned book text using provided seg/token handlers.
@@ -35,14 +33,36 @@ where
         if cleaned_text.is_empty() { continue; }
 
         if let Some(title) = BookImporter::detect_chapter_heading(&cleaned_text) {
-            content_blocks.push(JsonContentBlock::ChapterMarker(JsonChapterMarkerBlock { text: title }));
+            content_blocks.push(JsonContentBlock::ChapterMarker(JsonChapterMarkerBlock { text: title.clone() }));
+            // Also emit the heading as a sentence (matches Python pipeline behavior).
+            let s_id = format!("S{}", s_counter);
+            s_counter += 1;
+            let raw_tokens = tok_fn(&title)?;
+            let token_stream = TokenStream::from_raw_spacy(raw_tokens, &title);
+            let json_tokens = BookImporter::convert_to_json_tokens(&token_stream);
+            let segment = JsonSegmentV2 {
+                seg_id: s_id.clone(),
+                text: title.clone(),
+                tokenized_text: json_tokens,
+                lemmas: vec![],
+            };
+            let tier = JsonTierV2 {
+                tier_id: "base".to_string(),
+                full_text: title.clone(),
+                lemmas: vec![],
+                segments: vec![segment],
+            };
+            content_blocks.push(JsonContentBlock::Sentence(JsonSentenceBlock {
+                s_id,
+                tiers: vec![tier],
+                mappings: JsonMappingsV2::default(),
+            }));
             continue;
         }
 
         let sentences = seg_fn(&cleaned_text)?;
-        let merged_sentences = merge_short_segments(sentences, 5);
 
-        for sent_text in merged_sentences {
+        for sent_text in sentences {
             let s_id = format!("S{}", s_counter);
             s_counter += 1;
 
@@ -150,15 +170,37 @@ impl BookImporter {
 
             // 3. Chapter Detection
             if let Some(title) = Self::detect_chapter_heading(&cleaned_text) {
-                content_blocks.push(JsonContentBlock::ChapterMarker(JsonChapterMarkerBlock { text: title }));
+                content_blocks.push(JsonContentBlock::ChapterMarker(JsonChapterMarkerBlock { text: title.clone() }));
+                // Also emit the heading as a sentence (matches Python pipeline behavior).
+                let s_id = format!("S{}", s_counter);
+                s_counter += 1;
+                let raw_tokens = bridge.tokenize(&title, "en")?;
+                let token_stream = TokenStream::from_raw_spacy(raw_tokens, &title);
+                let json_tokens = Self::convert_to_json_tokens(&token_stream);
+                let segment = JsonSegmentV2 {
+                    seg_id: s_id.clone(),
+                    text: title.clone(),
+                    tokenized_text: json_tokens,
+                    lemmas: vec![],
+                };
+                let tier = JsonTierV2 {
+                    tier_id: "base".to_string(),
+                    full_text: title.clone(),
+                    lemmas: vec![],
+                    segments: vec![segment],
+                };
+                content_blocks.push(JsonContentBlock::Sentence(JsonSentenceBlock {
+                    s_id,
+                    tiers: vec![tier],
+                    mappings: JsonMappingsV2::default(),
+                }));
                 continue;
             }
 
             // 4. Segmentation
             let sentences = bridge.segment(&cleaned_text, "en")?;
-            let merged_sentences = merge_short_segments(sentences, 5);
 
-            for sent_text in merged_sentences {
+            for sent_text in sentences {
                 let s_id = format!("S{}", s_counter);
                 s_counter += 1;
 
@@ -245,12 +287,13 @@ impl BookImporter {
     }
     
 
-/// Testable helper: import from already-cleaned book text using provided seg/token handlers.
-pub(crate) fn import_from_cleaned_with_handlers<FSeg, FTok>(
-    cleaned_book_text: &str,
-    book_name: &str,
-    seg_fn: FSeg,
-    tok_fn: FTok,
+    /// Testable helper: import from already-cleaned book text using provided seg/token handlers.
+    #[allow(dead_code)]
+    pub(crate) fn import_from_cleaned_with_handlers<FSeg, FTok>(
+        cleaned_book_text: &str,
+        book_name: &str,
+        seg_fn: FSeg,
+        tok_fn: FTok,
 ) -> Result<JsonChapter, String>
 where
     FSeg: Fn(&str) -> Result<Vec<String>, String>,
@@ -266,14 +309,36 @@ where
         if cleaned_text.is_empty() { continue; }
 
         if let Some(title) = BookImporter::detect_chapter_heading(&cleaned_text) {
-            content_blocks.push(JsonContentBlock::ChapterMarker(JsonChapterMarkerBlock { text: title }));
+            content_blocks.push(JsonContentBlock::ChapterMarker(JsonChapterMarkerBlock { text: title.clone() }));
+            // Also emit the heading as a sentence (matches Python pipeline behavior).
+            let s_id = format!("S{}", s_counter);
+            s_counter += 1;
+            let raw_tokens = tok_fn(&title)?;
+            let token_stream = TokenStream::from_raw_spacy(raw_tokens, &title);
+            let json_tokens = BookImporter::convert_to_json_tokens(&token_stream);
+            let segment = JsonSegmentV2 {
+                seg_id: s_id.clone(),
+                text: title.clone(),
+                tokenized_text: json_tokens,
+                lemmas: vec![],
+            };
+            let tier = JsonTierV2 {
+                tier_id: "base".to_string(),
+                full_text: title.clone(),
+                lemmas: vec![],
+                segments: vec![segment],
+            };
+            content_blocks.push(JsonContentBlock::Sentence(JsonSentenceBlock {
+                s_id,
+                tiers: vec![tier],
+                mappings: JsonMappingsV2::default(),
+            }));
             continue;
         }
 
         let sentences = seg_fn(&cleaned_text)?;
-        let merged_sentences = merge_short_segments(sentences, 5);
 
-        for sent_text in merged_sentences {
+        for sent_text in sentences {
             let s_id = format!("S{}", s_counter);
             s_counter += 1;
 

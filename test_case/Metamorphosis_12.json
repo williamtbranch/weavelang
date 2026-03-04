@@ -1,0 +1,8560 @@
+{
+  "book_meta": {
+    "base_language": "en",
+    "book_name": "Metamorphosis",
+    "schema_version": "3.2",
+    "target_language": "es"
+  },
+  "content_blocks": [
+    {
+      "block_type": "chapter",
+      "text": "Chapter 0"
+    },
+    {
+      "block_type": "sentence",
+      "mappings": {
+        "basic_spanish_to_basic_english_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "capitulo"
+              ],
+              "Capítulo",
+              true,
+              1,
+              []
+            ],
+            [
+              1,
+              [
+                "cero"
+              ],
+              "cero",
+              true,
+              1,
+              []
+            ]
+          ]
+        },
+        "basic_target_to_basic_base_inv_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "capitulo"
+              ],
+              "Chapter",
+              1,
+              1
+            ],
+            [
+              1,
+              [],
+              "0",
+              1,
+              1
+            ]
+          ]
+        }
+      },
+      "s_id": "S1",
+      "tiers": [
+        {
+          "full_text": "Capítulo 0",
+          "lemmas": [
+            "capitulo"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "capitulo"
+              ],
+              "seg_id": "S1",
+              "text": "Capítulo 0"
+            }
+          ],
+          "tier_id": "advanced_target"
+        },
+        {
+          "full_text": "Capítulo 0",
+          "lemmas": [
+            "capitulo"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "capitulo"
+              ],
+              "seg_id": "S1",
+              "text": "Capítulo 0"
+            }
+          ],
+          "tier_id": "moderate_target"
+        },
+        {
+          "full_text": "Chapter 0",
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "Chapter 0",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "chapter"
+                  ],
+                  "t": "w",
+                  "v": "Chapter"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 1,
+                  "l": [
+                    "0"
+                  ],
+                  "t": "w",
+                  "v": "0"
+                },
+                {
+                  "t": "b",
+                  "v": ""
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_base"
+        },
+        {
+          "full_text": "Capítulo 0",
+          "lemmas": [
+            "capitulo"
+          ],
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "Capítulo 0",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "capitulo"
+                  ],
+                  "t": "w",
+                  "v": "Capítulo"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 1,
+                  "l": [],
+                  "t": "w",
+                  "v": "0"
+                },
+                {
+                  "t": "b",
+                  "v": ""
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_target"
+        }
+      ]
+    },
+    {
+      "block_type": "sentence",
+      "mappings": {
+        "basic_spanish_to_basic_english_diglot": {
+          "S1": [
+            [
+              0,
+              [],
+              "Metamorfosis",
+              true,
+              1,
+              [
+                "metamorfosis"
+              ]
+            ]
+          ]
+        },
+        "basic_target_to_basic_base_inv_diglot": {
+          "S1": [
+            [
+              0,
+              [],
+              "Metamorphosis",
+              1,
+              1
+            ]
+          ]
+        }
+      },
+      "s_id": "S2",
+      "tiers": [
+        {
+          "full_text": "La metamorfosis",
+          "lemmas": [
+            "el"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "el"
+              ],
+              "seg_id": "S1",
+              "text": "La metamorfosis"
+            }
+          ],
+          "tier_id": "advanced_target"
+        },
+        {
+          "full_text": "La metamorfosis",
+          "lemmas": [
+            "el"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "el"
+              ],
+              "seg_id": "S1",
+              "text": "La metamorfosis"
+            }
+          ],
+          "tier_id": "moderate_target"
+        },
+        {
+          "full_text": "Metamorphosis",
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "Metamorphosis",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "metamorphosis"
+                  ],
+                  "t": "w",
+                  "v": "Metamorphosis"
+                },
+                {
+                  "t": "b",
+                  "v": ""
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_base"
+        },
+        {
+          "full_text": "Metamorfosis",
+          "lemmas": [],
+          "segments": [
+            {
+              "lemmas": [],
+              "seg_id": "S1",
+              "text": "Metamorfosis",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [],
+                  "t": "w",
+                  "v": "Metamorfosis"
+                },
+                {
+                  "t": "b",
+                  "v": ""
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_target"
+        }
+      ]
+    },
+    {
+      "block_type": "sentence",
+      "mappings": {
+        "basic_spanish_to_basic_english_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "por"
+              ],
+              "por",
+              true,
+              1,
+              []
+            ],
+            [
+              1,
+              [],
+              "Franz",
+              true,
+              1,
+              [
+                "franz"
+              ]
+            ],
+            [
+              2,
+              [],
+              "Kafka",
+              true,
+              1,
+              [
+                "kafka"
+              ]
+            ]
+          ]
+        },
+        "basic_target_to_basic_base_inv_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "por"
+              ],
+              "by",
+              1,
+              1
+            ],
+            [
+              1,
+              [],
+              "Franz",
+              1,
+              1
+            ],
+            [
+              2,
+              [],
+              "Kafka",
+              1,
+              1
+            ]
+          ]
+        }
+      },
+      "s_id": "S3",
+      "tiers": [
+        {
+          "full_text": "por Franz Kafka",
+          "lemmas": [
+            "por"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "por"
+              ],
+              "seg_id": "S1",
+              "text": "por Franz Kafka"
+            }
+          ],
+          "tier_id": "advanced_target"
+        },
+        {
+          "full_text": "por Franz Kafka",
+          "lemmas": [
+            "por"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "por"
+              ],
+              "seg_id": "S1",
+              "text": "por Franz Kafka"
+            }
+          ],
+          "tier_id": "moderate_target"
+        },
+        {
+          "full_text": "by Franz Kafka",
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "by Franz Kafka",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "by"
+                  ],
+                  "t": "w",
+                  "v": "by"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 1,
+                  "l": [
+                    "franz"
+                  ],
+                  "t": "w",
+                  "v": "Franz"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 2,
+                  "l": [
+                    "kafka"
+                  ],
+                  "t": "w",
+                  "v": "Kafka"
+                },
+                {
+                  "t": "b",
+                  "v": ""
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_base"
+        },
+        {
+          "full_text": "por Franz Kafka",
+          "lemmas": [
+            "por"
+          ],
+          "segments": [
+            {
+              "lemmas": [],
+              "seg_id": "S1",
+              "text": "por Franz Kafka",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "por"
+                  ],
+                  "t": "w",
+                  "v": "por"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 1,
+                  "l": [],
+                  "t": "w",
+                  "v": "Franz"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 2,
+                  "l": [],
+                  "t": "w",
+                  "v": "Kafka"
+                },
+                {
+                  "t": "b",
+                  "v": ""
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_target"
+        }
+      ]
+    },
+    {
+      "block_type": "chapter",
+      "text": "Chapter I"
+    },
+    {
+      "block_type": "sentence",
+      "mappings": {
+        "basic_spanish_to_basic_english_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "capitulo"
+              ],
+              "Capítulo",
+              true,
+              1,
+              []
+            ],
+            [
+              1,
+              [
+                "i"
+              ],
+              "I",
+              true,
+              1,
+              []
+            ]
+          ]
+        },
+        "basic_target_to_basic_base_inv_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "capitulo"
+              ],
+              "Chapter",
+              1,
+              1
+            ],
+            [
+              1,
+              [
+                "i"
+              ],
+              "I",
+              1,
+              1
+            ]
+          ]
+        }
+      },
+      "s_id": "S4",
+      "tiers": [
+        {
+          "full_text": "Capítulo I",
+          "lemmas": [
+            "capitulo",
+            "i"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "capitulo",
+                "i"
+              ],
+              "seg_id": "S1",
+              "text": "Capítulo I"
+            }
+          ],
+          "tier_id": "advanced_target"
+        },
+        {
+          "full_text": "Capítulo I",
+          "lemmas": [
+            "capitulo",
+            "i"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "capitulo",
+                "i"
+              ],
+              "seg_id": "S1",
+              "text": "Capítulo I"
+            }
+          ],
+          "tier_id": "moderate_target"
+        },
+        {
+          "full_text": "Chapter I",
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "Chapter I",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "chapter"
+                  ],
+                  "t": "w",
+                  "v": "Chapter"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 1,
+                  "l": [
+                    "i"
+                  ],
+                  "t": "w",
+                  "v": "I"
+                },
+                {
+                  "t": "b",
+                  "v": ""
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_base"
+        },
+        {
+          "full_text": "Capítulo I",
+          "lemmas": [
+            "capitulo",
+            "i"
+          ],
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "Capítulo I",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "capitulo"
+                  ],
+                  "t": "w",
+                  "v": "Capítulo"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 1,
+                  "l": [
+                    "i"
+                  ],
+                  "t": "w",
+                  "v": "I"
+                },
+                {
+                  "t": "b",
+                  "v": ""
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_target"
+        }
+      ]
+    },
+    {
+      "block_type": "sentence",
+      "mappings": {
+        "basic_spanish_to_basic_english_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "uno"
+              ],
+              "Una",
+              true,
+              1,
+              []
+            ],
+            [
+              1,
+              [
+                "manana"
+              ],
+              "mañana",
+              true,
+              1,
+              []
+            ],
+            [
+              2,
+              [
+                "cuando"
+              ],
+              "cuando",
+              true,
+              1,
+              []
+            ],
+            [
+              3,
+              [],
+              "Gregor",
+              true,
+              1,
+              [
+                "gregor"
+              ]
+            ],
+            [
+              4,
+              [],
+              "Samsa",
+              true,
+              1,
+              [
+                "samsa"
+              ]
+            ],
+            [
+              5,
+              [
+                "despertar",
+                "el"
+              ],
+              "se despertó",
+              true,
+              2,
+              []
+            ],
+            [
+              6,
+              [
+                "de"
+              ],
+              "de",
+              true,
+              1,
+              []
+            ],
+            [
+              7,
+              [
+                "mal"
+              ],
+              "mal",
+              true,
+              1,
+              []
+            ],
+            [
+              8,
+              [
+                "sueno"
+              ],
+              "sueños",
+              true,
+              1,
+              []
+            ],
+            [
+              9,
+              [
+                "el"
+              ],
+              "él",
+              true,
+              1,
+              []
+            ],
+            [
+              10,
+              [
+                "ver"
+              ],
+              "vio",
+              true,
+              1,
+              []
+            ],
+            [
+              11,
+              [
+                "que"
+              ],
+              "que",
+              true,
+              1,
+              []
+            ],
+            [
+              12,
+              [
+                "el"
+              ],
+              "él",
+              true,
+              1,
+              []
+            ],
+            [
+              13,
+              [
+                "convertir",
+                "el",
+                "haber"
+              ],
+              "se había convertido",
+              true,
+              2,
+              []
+            ],
+            [
+              14,
+              [
+                "en"
+              ],
+              "en",
+              true,
+              1,
+              []
+            ],
+            [
+              15,
+              [
+                "su"
+              ],
+              "su",
+              true,
+              1,
+              []
+            ],
+            [
+              16,
+              [
+                "cama"
+              ],
+              "cama",
+              true,
+              1,
+              []
+            ],
+            [
+              17,
+              [
+                "en"
+              ],
+              "en",
+              true,
+              1,
+              []
+            ],
+            [
+              18,
+              [
+                "uno"
+              ],
+              "un",
+              true,
+              1,
+              []
+            ],
+            [
+              19,
+              [
+                "mucho"
+              ],
+              "muy",
+              true,
+              1,
+              []
+            ],
+            [
+              20,
+              [
+                "mal"
+              ],
+              "mal",
+              true,
+              1,
+              []
+            ],
+            [
+              21,
+              [
+                "de",
+                "tipo"
+              ],
+              "tipo de",
+              true,
+              2,
+              []
+            ],
+            [
+              22,
+              [
+                "bicho"
+              ],
+              "bicho",
+              true,
+              1,
+              []
+            ]
+          ]
+        },
+        "basic_target_to_basic_base_inv_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "manana",
+                "uno"
+              ],
+              "One morning",
+              2,
+              2
+            ],
+            [
+              1,
+              [
+                "cuando"
+              ],
+              "when",
+              1,
+              1
+            ],
+            [
+              2,
+              [],
+              "Gregor Samsa",
+              2,
+              2
+            ],
+            [
+              3,
+              [
+                "despertar",
+                "el"
+              ],
+              "woke up",
+              2,
+              2
+            ],
+            [
+              4,
+              [
+                "de",
+                "malo",
+                "sueno"
+              ],
+              "from bad dreams",
+              3,
+              3
+            ],
+            [
+              5,
+              [
+                "que",
+                "ver"
+              ],
+              "he saw that",
+              3,
+              2
+            ],
+            [
+              6,
+              [
+                "convertir",
+                "el",
+                "haber"
+              ],
+              "he had been transformed",
+              4,
+              3
+            ],
+            [
+              7,
+              [
+                "cama",
+                "en",
+                "su"
+              ],
+              "in his bed",
+              3,
+              3
+            ],
+            [
+              8,
+              [
+                "en"
+              ],
+              "into",
+              1,
+              1
+            ],
+            [
+              9,
+              [
+                "clase",
+                "de",
+                "uno"
+              ],
+              "a kind of",
+              3,
+              3
+            ],
+            [
+              10,
+              [
+                "bicho",
+                "malo",
+                "mucho"
+              ],
+              "terrible vermin",
+              2,
+              3
+            ]
+          ]
+        }
+      },
+      "s_id": "S5",
+      "tiers": [
+        {
+          "full_text": "Una mañana, cuando Gregor Samsa despertó de sueños intranquilos, se encontró transformado en su cama en un horrible bicho.",
+          "lemmas": [
+            "bicho",
+            "cama",
+            "cuando",
+            "de",
+            "despertar",
+            "el",
+            "en",
+            "encontrar",
+            "horrible",
+            "intranquilo",
+            "manana",
+            "su",
+            "sueno",
+            "transformado",
+            "uno"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "cuando",
+                "despertar",
+                "manana",
+                "uno"
+              ],
+              "seg_id": "S1",
+              "text": "Una mañana, cuando Gregor Samsa despertó "
+            },
+            {
+              "lemmas": [
+                "de",
+                "el",
+                "encontrar",
+                "intranquilo",
+                "sueno",
+                "transformado"
+              ],
+              "seg_id": "S2",
+              "text": "de sueños intranquilos, se encontró transformado "
+            },
+            {
+              "lemmas": [
+                "bicho",
+                "cama",
+                "en",
+                "horrible",
+                "su",
+                "uno"
+              ],
+              "seg_id": "S3",
+              "text": "en su cama en un horrible bicho."
+            }
+          ],
+          "tier_id": "advanced_target"
+        },
+        {
+          "full_text": "Una mañana, cuando Gregor Samsa despertó de sueños malos, se encontró cambiado en su cama en un insecto horrible.",
+          "lemmas": [
+            "cama",
+            "cambiado",
+            "cuando",
+            "de",
+            "despertar",
+            "el",
+            "en",
+            "encontrar",
+            "horrible",
+            "insecto",
+            "malo",
+            "manana",
+            "su",
+            "sueno",
+            "uno"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "cuando",
+                "despertar",
+                "manana",
+                "uno"
+              ],
+              "seg_id": "S1",
+              "text": "Una mañana, cuando Gregor Samsa despertó "
+            },
+            {
+              "lemmas": [
+                "cambiado",
+                "de",
+                "el",
+                "encontrar",
+                "malo",
+                "sueno"
+              ],
+              "seg_id": "S2",
+              "text": "de sueños malos, se encontró cambiado "
+            },
+            {
+              "lemmas": [
+                "cama",
+                "en",
+                "horrible",
+                "insecto",
+                "su",
+                "uno"
+              ],
+              "seg_id": "S3",
+              "text": "en su cama en un insecto horrible."
+            }
+          ],
+          "tier_id": "moderate_target"
+        },
+        {
+          "full_text": "One morning, when Gregor Samsa woke up from bad dreams, he saw that he had changed in his bed into a very bad kind of bug.",
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "One morning, when Gregor Samsa woke up from bad dreams, he saw that he had changed in his bed into a very bad kind of bug.",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "one"
+                  ],
+                  "t": "w",
+                  "v": "One"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 1,
+                  "l": [
+                    "morning"
+                  ],
+                  "t": "w",
+                  "v": "morning"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 2,
+                  "l": [
+                    "when"
+                  ],
+                  "t": "w",
+                  "v": "when"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 3,
+                  "l": [
+                    "gregor"
+                  ],
+                  "t": "w",
+                  "v": "Gregor"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 4,
+                  "l": [
+                    "samsa"
+                  ],
+                  "t": "w",
+                  "v": "Samsa"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 5,
+                  "l": [
+                    "up",
+                    "wake"
+                  ],
+                  "t": "w",
+                  "v": "woke up"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 6,
+                  "l": [
+                    "from"
+                  ],
+                  "t": "w",
+                  "v": "from"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 7,
+                  "l": [
+                    "bad"
+                  ],
+                  "t": "w",
+                  "v": "bad"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 8,
+                  "l": [
+                    "dream"
+                  ],
+                  "t": "w",
+                  "v": "dreams"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 9,
+                  "l": [
+                    "he"
+                  ],
+                  "t": "w",
+                  "v": "he"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 10,
+                  "l": [
+                    "see"
+                  ],
+                  "t": "w",
+                  "v": "saw"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 11,
+                  "l": [
+                    "that"
+                  ],
+                  "t": "w",
+                  "v": "that"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 12,
+                  "l": [
+                    "he"
+                  ],
+                  "t": "w",
+                  "v": "he"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 13,
+                  "l": [
+                    "change",
+                    "have"
+                  ],
+                  "t": "w",
+                  "v": "had changed"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 14,
+                  "l": [
+                    "in"
+                  ],
+                  "t": "w",
+                  "v": "in"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 15,
+                  "l": [
+                    "his"
+                  ],
+                  "t": "w",
+                  "v": "his"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 16,
+                  "l": [
+                    "bed"
+                  ],
+                  "t": "w",
+                  "v": "bed"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 17,
+                  "l": [
+                    "into"
+                  ],
+                  "t": "w",
+                  "v": "into"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 18,
+                  "l": [
+                    "a"
+                  ],
+                  "t": "w",
+                  "v": "a"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 19,
+                  "l": [
+                    "very"
+                  ],
+                  "t": "w",
+                  "v": "very"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 20,
+                  "l": [
+                    "bad"
+                  ],
+                  "t": "w",
+                  "v": "bad"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 21,
+                  "l": [
+                    "kind",
+                    "of"
+                  ],
+                  "t": "w",
+                  "v": "kind of"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 22,
+                  "l": [
+                    "bug"
+                  ],
+                  "t": "w",
+                  "v": "bug"
+                },
+                {
+                  "t": "b",
+                  "v": "."
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_base"
+        },
+        {
+          "full_text": "Una mañana, cuando Gregor Samsa se despertó de malos sueños, vio que se había convertido en su cama en una clase de bicho muy malo.",
+          "lemmas": [
+            "bicho",
+            "cama",
+            "clase",
+            "convertir",
+            "cuando",
+            "de",
+            "despertar",
+            "el",
+            "en",
+            "haber",
+            "malo",
+            "manana",
+            "mucho",
+            "que",
+            "su",
+            "sueno",
+            "uno",
+            "ver"
+          ],
+          "segments": [
+            {
+              "lemmas": [],
+              "seg_id": "S1",
+              "text": "Una mañana, cuando Gregor Samsa se despertó de malos sueños, vio que se había convertido en su cama en una clase de bicho muy malo.",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "manana",
+                    "uno"
+                  ],
+                  "t": "w",
+                  "v": "Una mañana"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 2,
+                  "l": [
+                    "cuando"
+                  ],
+                  "t": "w",
+                  "v": "cuando"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 3,
+                  "l": [],
+                  "t": "w",
+                  "v": "Gregor Samsa"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 5,
+                  "l": [
+                    "despertar",
+                    "el"
+                  ],
+                  "t": "w",
+                  "v": "se despertó"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 7,
+                  "l": [
+                    "de",
+                    "malo",
+                    "sueno"
+                  ],
+                  "t": "w",
+                  "v": "de malos sueños"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 10,
+                  "l": [
+                    "que",
+                    "ver"
+                  ],
+                  "t": "w",
+                  "v": "vio que"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 12,
+                  "l": [
+                    "convertir",
+                    "el",
+                    "haber"
+                  ],
+                  "t": "w",
+                  "v": "se había convertido"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 15,
+                  "l": [
+                    "cama",
+                    "en",
+                    "su"
+                  ],
+                  "t": "w",
+                  "v": "en su cama"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 18,
+                  "l": [
+                    "en"
+                  ],
+                  "t": "w",
+                  "v": "en"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 19,
+                  "l": [
+                    "clase",
+                    "de",
+                    "uno"
+                  ],
+                  "t": "w",
+                  "v": "una clase de"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 22,
+                  "l": [
+                    "bicho",
+                    "malo",
+                    "mucho"
+                  ],
+                  "t": "w",
+                  "v": "bicho muy malo"
+                },
+                {
+                  "t": "b",
+                  "v": "."
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_target"
+        }
+      ]
+    },
+    {
+      "block_type": "sentence",
+      "mappings": {
+        "basic_spanish_to_basic_english_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "el"
+              ],
+              "Él",
+              true,
+              1,
+              []
+            ],
+            [
+              1,
+              [
+                "yacer"
+              ],
+              "yacía",
+              true,
+              1,
+              []
+            ],
+            [
+              2,
+              [
+                "sobre"
+              ],
+              "sobre",
+              true,
+              1,
+              []
+            ],
+            [
+              3,
+              [
+                "su"
+              ],
+              "su",
+              true,
+              1,
+              []
+            ],
+            [
+              4,
+              [
+                "espalda"
+              ],
+              "espalda",
+              true,
+              1,
+              []
+            ],
+            [
+              5,
+              [
+                "que"
+              ],
+              "que",
+              true,
+              1,
+              []
+            ],
+            [
+              6,
+              [
+                "ser"
+              ],
+              "era",
+              true,
+              1,
+              []
+            ],
+            [
+              7,
+              [
+                "duro"
+              ],
+              "dura",
+              true,
+              1,
+              []
+            ],
+            [
+              8,
+              [
+                "como"
+              ],
+              "como",
+              true,
+              1,
+              []
+            ],
+            [
+              9,
+              [
+                "uno"
+              ],
+              "un",
+              true,
+              1,
+              []
+            ],
+            [
+              10,
+              [
+                "caparazon"
+              ],
+              "caparazón",
+              true,
+              1,
+              []
+            ],
+            [
+              11,
+              [
+                "y"
+              ],
+              "y",
+              true,
+              1,
+              []
+            ],
+            [
+              12,
+              [
+                "si"
+              ],
+              "si",
+              true,
+              1,
+              []
+            ],
+            [
+              13,
+              [
+                "el"
+              ],
+              "él",
+              true,
+              1,
+              []
+            ],
+            [
+              14,
+              [
+                "levantar"
+              ],
+              "levantaba",
+              true,
+              1,
+              []
+            ],
+            [
+              15,
+              [
+                "su"
+              ],
+              "su",
+              true,
+              1,
+              []
+            ],
+            [
+              16,
+              [
+                "cabeza"
+              ],
+              "cabeza",
+              true,
+              1,
+              []
+            ],
+            [
+              17,
+              [],
+              "NO_SUB",
+              false,
+              1,
+              []
+            ],
+            [
+              18,
+              [
+                "poco",
+                "uno"
+              ],
+              "un poco",
+              true,
+              2,
+              []
+            ],
+            [
+              19,
+              [
+                "el"
+              ],
+              "él",
+              true,
+              1,
+              []
+            ],
+            [
+              20,
+              [
+                "poder",
+                "ver"
+              ],
+              "podía ver",
+              true,
+              2,
+              []
+            ],
+            [
+              21,
+              [
+                "su"
+              ],
+              "su",
+              true,
+              1,
+              []
+            ],
+            [
+              22,
+              [
+                "marron"
+              ],
+              "marrón",
+              true,
+              1,
+              []
+            ],
+            [
+              23,
+              [
+                "vientre"
+              ],
+              "vientre",
+              true,
+              1,
+              []
+            ],
+            [
+              24,
+              [
+                "que"
+              ],
+              "que",
+              true,
+              1,
+              []
+            ],
+            [
+              25,
+              [
+                "ser"
+              ],
+              "era",
+              true,
+              1,
+              []
+            ],
+            [
+              26,
+              [
+                "poco",
+                "uno"
+              ],
+              "un poco",
+              true,
+              2,
+              []
+            ],
+            [
+              27,
+              [
+                "redondo"
+              ],
+              "redondo",
+              true,
+              1,
+              []
+            ],
+            [
+              28,
+              [
+                "y"
+              ],
+              "y",
+              true,
+              1,
+              []
+            ],
+            [
+              29,
+              [
+                "de",
+                "estar",
+                "hecho"
+              ],
+              "estaba hecho de",
+              true,
+              3,
+              []
+            ],
+            [
+              30,
+              [
+                "curva"
+              ],
+              "curvas",
+              true,
+              1,
+              []
+            ],
+            [
+              31,
+              [
+                "concha",
+                "de",
+                "en",
+                "forma"
+              ],
+              "en forma de concha",
+              true,
+              2,
+              []
+            ],
+            [
+              32,
+              [
+                "parte"
+              ],
+              "partes",
+              true,
+              1,
+              []
+            ]
+          ]
+        },
+        "basic_target_to_basic_base_inv_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "estar",
+                "tumbado"
+              ],
+              "He was lying",
+              3,
+              2
+            ],
+            [
+              1,
+              [
+                "espalda",
+                "sobre",
+                "su"
+              ],
+              "on his back",
+              3,
+              3
+            ],
+            [
+              2,
+              [
+                "que"
+              ],
+              "which",
+              1,
+              1
+            ],
+            [
+              3,
+              [
+                "ser"
+              ],
+              "was",
+              1,
+              1
+            ],
+            [
+              4,
+              [
+                "duro"
+              ],
+              "hard",
+              1,
+              1
+            ],
+            [
+              5,
+              [
+                "caparazon",
+                "como",
+                "uno"
+              ],
+              "like a shell",
+              3,
+              3
+            ],
+            [
+              6,
+              [
+                "y"
+              ],
+              "and",
+              1,
+              1
+            ],
+            [
+              7,
+              [
+                "si"
+              ],
+              "if",
+              1,
+              1
+            ],
+            [
+              8,
+              [
+                "levantar"
+              ],
+              "he lifted",
+              2,
+              1
+            ],
+            [
+              9,
+              [
+                "poco",
+                "uno"
+              ],
+              "a little",
+              2,
+              2
+            ],
+            [
+              10,
+              [
+                "cabeza",
+                "el"
+              ],
+              "his head",
+              2,
+              2
+            ],
+            [
+              11,
+              [
+                "poder",
+                "ver"
+              ],
+              "he could see",
+              3,
+              2
+            ],
+            [
+              12,
+              [
+                "su"
+              ],
+              "his",
+              1,
+              1
+            ],
+            [
+              13,
+              [
+                "estomago"
+              ],
+              "stomach",
+              1,
+              1
+            ],
+            [
+              14,
+              [
+                "marron"
+              ],
+              "brown",
+              1,
+              1
+            ],
+            [
+              15,
+              [
+                "que"
+              ],
+              "which",
+              1,
+              1
+            ],
+            [
+              16,
+              [
+                "ser"
+              ],
+              "was",
+              1,
+              1
+            ],
+            [
+              17,
+              [
+                "poco",
+                "redondo",
+                "uno"
+              ],
+              "a little round",
+              3,
+              3
+            ],
+            [
+              18,
+              [
+                "y"
+              ],
+              "and",
+              1,
+              1
+            ],
+            [
+              19,
+              [
+                "de",
+                "estar",
+                "hecho"
+              ],
+              "was made of",
+              3,
+              3
+            ],
+            [
+              20,
+              [
+                "parte"
+              ],
+              "parts",
+              1,
+              1
+            ],
+            [
+              21,
+              [
+                "curvo"
+              ],
+              "curved",
+              1,
+              1
+            ],
+            [
+              22,
+              [
+                "caparazon",
+                "como",
+                "de"
+              ],
+              "like a shell",
+              3,
+              3
+            ]
+          ]
+        }
+      },
+      "s_id": "S6",
+      "tiers": [
+        {
+          "full_text": "Yacía sobre su espalda acorazada, y si levantaba un poco la cabeza podía ver su vientre pardo, ligeramente abombado y dividido por arcos en secciones rígidas.",
+          "lemmas": [
+            "abombado",
+            "acorazado",
+            "arco",
+            "cabeza",
+            "dividido",
+            "el",
+            "espalda",
+            "levantar",
+            "ligeramente",
+            "pardo",
+            "poco",
+            "poder",
+            "por",
+            "rigido",
+            "seccion",
+            "si",
+            "sobre",
+            "su",
+            "uno",
+            "ver",
+            "vientre",
+            "y",
+            "yacia"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "acorazado",
+                "espalda",
+                "sobre",
+                "su",
+                "yacia"
+              ],
+              "seg_id": "S1",
+              "text": "Yacía sobre su espalda acorazada, "
+            },
+            {
+              "lemmas": [
+                "cabeza",
+                "el",
+                "levantar",
+                "poco",
+                "si",
+                "uno",
+                "y"
+              ],
+              "seg_id": "S2",
+              "text": "y si levantaba un poco la cabeza "
+            },
+            {
+              "lemmas": [
+                "pardo",
+                "poder",
+                "su",
+                "ver",
+                "vientre"
+              ],
+              "seg_id": "S3",
+              "text": "podía ver su vientre pardo, "
+            },
+            {
+              "lemmas": [
+                "abombado",
+                "arco",
+                "dividido",
+                "ligeramente",
+                "por",
+                "rigido",
+                "seccion",
+                "y"
+              ],
+              "seg_id": "S4",
+              "text": "ligeramente abombado y dividido por arcos en secciones rígidas."
+            }
+          ],
+          "tier_id": "advanced_target"
+        },
+        {
+          "full_text": "Estaba sobre su espalda dura, y si levantaba un poco la cabeza podía ver su estómago marrón, un poco curvado y dividido por líneas en partes duras.",
+          "lemmas": [
+            "cabeza",
+            "curvado",
+            "dividido",
+            "duro",
+            "el",
+            "en",
+            "espalda",
+            "estar",
+            "estomago",
+            "levantar",
+            "linea",
+            "marron",
+            "parte",
+            "poco",
+            "poder",
+            "por",
+            "si",
+            "sobre",
+            "su",
+            "uno",
+            "ver",
+            "y"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "duro",
+                "espalda",
+                "estar",
+                "sobre",
+                "su"
+              ],
+              "seg_id": "S1",
+              "text": "Estaba sobre su espalda dura, "
+            },
+            {
+              "lemmas": [
+                "cabeza",
+                "el",
+                "levantar",
+                "poco",
+                "si",
+                "uno",
+                "y"
+              ],
+              "seg_id": "S2",
+              "text": "y si levantaba un poco la cabeza "
+            },
+            {
+              "lemmas": [
+                "estomago",
+                "marron",
+                "poder",
+                "su",
+                "ver"
+              ],
+              "seg_id": "S3",
+              "text": "podía ver su estómago marrón, "
+            },
+            {
+              "lemmas": [
+                "curvado",
+                "dividido",
+                "duro",
+                "en",
+                "linea",
+                "parte",
+                "poco",
+                "por",
+                "uno",
+                "y"
+              ],
+              "seg_id": "S4",
+              "text": "un poco curvado y dividido por líneas en partes duras."
+            }
+          ],
+          "tier_id": "moderate_target"
+        },
+        {
+          "full_text": "He lay on his back, which was hard like a shell, and if he moved his head up a little, he could see his brown stomach, which was a little round and was made of curved shell like parts.",
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "He lay on his back, which was hard like a shell, and if he moved his head up a little, he could see his brown stomach, which was a little round and was made of curved shell like parts.",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "he"
+                  ],
+                  "t": "w",
+                  "v": "He"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 1,
+                  "l": [
+                    "lie"
+                  ],
+                  "t": "w",
+                  "v": "lay"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 2,
+                  "l": [
+                    "on"
+                  ],
+                  "t": "w",
+                  "v": "on"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 3,
+                  "l": [
+                    "his"
+                  ],
+                  "t": "w",
+                  "v": "his"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 4,
+                  "l": [
+                    "back"
+                  ],
+                  "t": "w",
+                  "v": "back"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 5,
+                  "l": [
+                    "which"
+                  ],
+                  "t": "w",
+                  "v": "which"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 6,
+                  "l": [
+                    "be"
+                  ],
+                  "t": "w",
+                  "v": "was"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 7,
+                  "l": [
+                    "hard"
+                  ],
+                  "t": "w",
+                  "v": "hard"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 8,
+                  "l": [
+                    "like"
+                  ],
+                  "t": "w",
+                  "v": "like"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 9,
+                  "l": [
+                    "a"
+                  ],
+                  "t": "w",
+                  "v": "a"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 10,
+                  "l": [
+                    "shell"
+                  ],
+                  "t": "w",
+                  "v": "shell"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 11,
+                  "l": [
+                    "and"
+                  ],
+                  "t": "w",
+                  "v": "and"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 12,
+                  "l": [
+                    "if"
+                  ],
+                  "t": "w",
+                  "v": "if"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 13,
+                  "l": [
+                    "he"
+                  ],
+                  "t": "w",
+                  "v": "he"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 14,
+                  "l": [
+                    "move"
+                  ],
+                  "t": "w",
+                  "v": "moved"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 15,
+                  "l": [
+                    "his"
+                  ],
+                  "t": "w",
+                  "v": "his"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 16,
+                  "l": [
+                    "head"
+                  ],
+                  "t": "w",
+                  "v": "head"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 17,
+                  "l": [
+                    "up"
+                  ],
+                  "t": "w",
+                  "v": "up"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 18,
+                  "l": [
+                    "a",
+                    "little"
+                  ],
+                  "t": "w",
+                  "v": "a little"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 19,
+                  "l": [
+                    "he"
+                  ],
+                  "t": "w",
+                  "v": "he"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 20,
+                  "l": [
+                    "could",
+                    "see"
+                  ],
+                  "t": "w",
+                  "v": "could see"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 21,
+                  "l": [
+                    "his"
+                  ],
+                  "t": "w",
+                  "v": "his"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 22,
+                  "l": [
+                    "brown"
+                  ],
+                  "t": "w",
+                  "v": "brown"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 23,
+                  "l": [
+                    "stomach"
+                  ],
+                  "t": "w",
+                  "v": "stomach"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 24,
+                  "l": [
+                    "which"
+                  ],
+                  "t": "w",
+                  "v": "which"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 25,
+                  "l": [
+                    "be"
+                  ],
+                  "t": "w",
+                  "v": "was"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 26,
+                  "l": [
+                    "a",
+                    "little"
+                  ],
+                  "t": "w",
+                  "v": "a little"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 27,
+                  "l": [
+                    "round"
+                  ],
+                  "t": "w",
+                  "v": "round"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 28,
+                  "l": [
+                    "and"
+                  ],
+                  "t": "w",
+                  "v": "and"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 29,
+                  "l": [
+                    "be",
+                    "make",
+                    "of"
+                  ],
+                  "t": "w",
+                  "v": "was made of"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 30,
+                  "l": [
+                    "curved"
+                  ],
+                  "t": "w",
+                  "v": "curved"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 31,
+                  "l": [
+                    "like",
+                    "shell"
+                  ],
+                  "t": "w",
+                  "v": "shell like"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 32,
+                  "l": [
+                    "part"
+                  ],
+                  "t": "w",
+                  "v": "parts"
+                },
+                {
+                  "t": "b",
+                  "v": "."
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_base"
+        },
+        {
+          "full_text": "Estaba tumbado sobre su espalda, que era dura como un caparazón, y si levantaba un poco la cabeza, podía ver su estómago marrón, que era un poco redondo y estaba hecho de partes curvas como de caparazón.",
+          "lemmas": [
+            "cabeza",
+            "caparazon",
+            "como",
+            "curvo",
+            "de",
+            "duro",
+            "el",
+            "espalda",
+            "estar",
+            "estomago",
+            "hecho",
+            "levantar",
+            "marron",
+            "parte",
+            "poco",
+            "poder",
+            "que",
+            "redondo",
+            "ser",
+            "si",
+            "sobre",
+            "su",
+            "tumbado",
+            "uno",
+            "ver",
+            "y"
+          ],
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "Estaba tumbado sobre su espalda, que era dura como un caparazón, y si levantaba un poco la cabeza, podía ver su estómago marrón, que era un poco redondo y estaba hecho de partes curvas como de caparazón.",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "estar",
+                    "tumbado"
+                  ],
+                  "t": "w",
+                  "v": "Estaba tumbado"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 2,
+                  "l": [
+                    "espalda",
+                    "sobre",
+                    "su"
+                  ],
+                  "t": "w",
+                  "v": "sobre su espalda"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 5,
+                  "l": [
+                    "que"
+                  ],
+                  "t": "w",
+                  "v": "que"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 6,
+                  "l": [
+                    "ser"
+                  ],
+                  "t": "w",
+                  "v": "era"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 7,
+                  "l": [
+                    "duro"
+                  ],
+                  "t": "w",
+                  "v": "dura"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 8,
+                  "l": [
+                    "caparazon",
+                    "como",
+                    "uno"
+                  ],
+                  "t": "w",
+                  "v": "como un caparazón"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 11,
+                  "l": [
+                    "y"
+                  ],
+                  "t": "w",
+                  "v": "y"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 12,
+                  "l": [
+                    "si"
+                  ],
+                  "t": "w",
+                  "v": "si"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 13,
+                  "l": [
+                    "levantar"
+                  ],
+                  "t": "w",
+                  "v": "levantaba"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 14,
+                  "l": [
+                    "poco",
+                    "uno"
+                  ],
+                  "t": "w",
+                  "v": "un poco"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 16,
+                  "l": [
+                    "cabeza",
+                    "el"
+                  ],
+                  "t": "w",
+                  "v": "la cabeza"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 18,
+                  "l": [
+                    "poder",
+                    "ver"
+                  ],
+                  "t": "w",
+                  "v": "podía ver"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 20,
+                  "l": [
+                    "su"
+                  ],
+                  "t": "w",
+                  "v": "su"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 21,
+                  "l": [
+                    "estomago"
+                  ],
+                  "t": "w",
+                  "v": "estómago"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 22,
+                  "l": [
+                    "marron"
+                  ],
+                  "t": "w",
+                  "v": "marrón"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 23,
+                  "l": [
+                    "que"
+                  ],
+                  "t": "w",
+                  "v": "que"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 24,
+                  "l": [
+                    "ser"
+                  ],
+                  "t": "w",
+                  "v": "era"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 25,
+                  "l": [
+                    "poco",
+                    "redondo",
+                    "uno"
+                  ],
+                  "t": "w",
+                  "v": "un poco redondo"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 28,
+                  "l": [
+                    "y"
+                  ],
+                  "t": "w",
+                  "v": "y"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 29,
+                  "l": [
+                    "de",
+                    "estar",
+                    "hecho"
+                  ],
+                  "t": "w",
+                  "v": "estaba hecho de"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 32,
+                  "l": [
+                    "parte"
+                  ],
+                  "t": "w",
+                  "v": "partes"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 33,
+                  "l": [
+                    "curvo"
+                  ],
+                  "t": "w",
+                  "v": "curvas"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 34,
+                  "l": [
+                    "caparazon",
+                    "como",
+                    "de"
+                  ],
+                  "t": "w",
+                  "v": "como de caparazón"
+                },
+                {
+                  "t": "b",
+                  "v": "."
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_target"
+        }
+      ]
+    },
+    {
+      "block_type": "sentence",
+      "mappings": {
+        "basic_spanish_to_basic_english_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "el"
+              ],
+              "Las",
+              true,
+              1,
+              []
+            ],
+            [
+              1,
+              [
+                "manta"
+              ],
+              "mantas",
+              true,
+              1,
+              []
+            ],
+            [
+              2,
+              [
+                "sobre"
+              ],
+              "sobre",
+              true,
+              1,
+              []
+            ],
+            [
+              3,
+              [
+                "el"
+              ],
+              "la",
+              true,
+              1,
+              []
+            ],
+            [
+              4,
+              [
+                "cama"
+              ],
+              "cama",
+              true,
+              1,
+              []
+            ],
+            [
+              5,
+              [
+                "no",
+                "poder"
+              ],
+              "no podían",
+              true,
+              2,
+              []
+            ],
+            [
+              6,
+              [
+                "realmente"
+              ],
+              "realmente",
+              true,
+              1,
+              []
+            ],
+            [
+              7,
+              [
+                "cubrir"
+              ],
+              "cubrir",
+              true,
+              1,
+              []
+            ],
+            [
+              8,
+              [
+                "el"
+              ],
+              "lo",
+              true,
+              1,
+              []
+            ],
+            [
+              9,
+              [
+                "y"
+              ],
+              "y",
+              true,
+              1,
+              []
+            ],
+            [
+              10,
+              [
+                "parecer",
+                "que"
+              ],
+              "parecía que",
+              true,
+              3,
+              []
+            ],
+            [
+              11,
+              [
+                "el"
+              ],
+              "ellas",
+              true,
+              1,
+              []
+            ],
+            [
+              12,
+              [
+                "caer",
+                "el"
+              ],
+              "se caerían",
+              true,
+              3,
+              []
+            ],
+            [
+              13,
+              [
+                "pronto"
+              ],
+              "pronto",
+              true,
+              1,
+              []
+            ]
+          ]
+        },
+        "basic_target_to_basic_base_inv_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "el"
+              ],
+              "The",
+              1,
+              1
+            ],
+            [
+              1,
+              [
+                "cobertor"
+              ],
+              "blanket",
+              1,
+              1
+            ],
+            [
+              2,
+              [
+                "cama",
+                "de",
+                "el"
+              ],
+              "on the bed",
+              3,
+              3
+            ],
+            [
+              3,
+              [
+                "realmente"
+              ],
+              "really",
+              1,
+              1
+            ],
+            [
+              4,
+              [
+                "no",
+                "poder"
+              ],
+              "could not",
+              2,
+              2
+            ],
+            [
+              5,
+              [
+                "cubrir"
+              ],
+              "cover him",
+              2,
+              1
+            ],
+            [
+              6,
+              [
+                "y"
+              ],
+              "and",
+              1,
+              1
+            ],
+            [
+              7,
+              [
+                "parecer"
+              ],
+              "it seemed",
+              2,
+              1
+            ],
+            [
+              8,
+              [
+                "que"
+              ],
+              "that",
+              1,
+              1
+            ],
+            [
+              9,
+              [
+                "caer",
+                "el"
+              ],
+              "it would fall off",
+              4,
+              2
+            ],
+            [
+              10,
+              [
+                "pronto"
+              ],
+              "soon",
+              1,
+              1
+            ]
+          ]
+        }
+      },
+      "s_id": "S7",
+      "tiers": [
+        {
+          "full_text": "La ropa de cama apenas lograba cubrirlo y parecía lista para deslizarse en cualquier momento.",
+          "lemmas": [
+            "apenas",
+            "cama",
+            "cualquiera",
+            "cubrir",
+            "de",
+            "deslizar",
+            "el",
+            "en",
+            "listo",
+            "lograr",
+            "momento",
+            "para",
+            "parecer",
+            "ropa",
+            "y"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "apenas",
+                "cama",
+                "cubrir",
+                "de",
+                "el",
+                "lograr",
+                "ropa"
+              ],
+              "seg_id": "S1",
+              "text": "La ropa de cama apenas lograba cubrirlo "
+            },
+            {
+              "lemmas": [
+                "cualquiera",
+                "deslizar",
+                "en",
+                "listo",
+                "momento",
+                "para",
+                "parecer",
+                "y"
+              ],
+              "seg_id": "S2",
+              "text": "y parecía lista para deslizarse en cualquier momento."
+            }
+          ],
+          "tier_id": "advanced_target"
+        },
+        {
+          "full_text": "Las sábanas apenas podían cubrirlo y parecían listas para caerse en cualquier momento.",
+          "lemmas": [
+            "apenas",
+            "caer",
+            "cualquiera",
+            "cubrir",
+            "el",
+            "en",
+            "lista",
+            "momento",
+            "para",
+            "parecer",
+            "poder",
+            "sabana",
+            "y"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "apenas",
+                "cubrir",
+                "el",
+                "poder",
+                "sabana"
+              ],
+              "seg_id": "S1",
+              "text": "Las sábanas apenas podían cubrirlo "
+            },
+            {
+              "lemmas": [
+                "caer",
+                "cualquiera",
+                "en",
+                "lista",
+                "momento",
+                "para",
+                "parecer",
+                "y"
+              ],
+              "seg_id": "S2",
+              "text": "y parecían listas para caerse en cualquier momento."
+            }
+          ],
+          "tier_id": "moderate_target"
+        },
+        {
+          "full_text": "The covers on the bed could not really cover him, and it looked like they would fall off soon.",
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "The covers on the bed could not really cover him, and it looked like they would fall off soon.",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "the"
+                  ],
+                  "t": "w",
+                  "v": "The"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 1,
+                  "l": [
+                    "cover"
+                  ],
+                  "t": "w",
+                  "v": "covers"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 2,
+                  "l": [
+                    "on"
+                  ],
+                  "t": "w",
+                  "v": "on"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 3,
+                  "l": [
+                    "the"
+                  ],
+                  "t": "w",
+                  "v": "the"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 4,
+                  "l": [
+                    "bed"
+                  ],
+                  "t": "w",
+                  "v": "bed"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 5,
+                  "l": [
+                    "could",
+                    "not"
+                  ],
+                  "t": "w",
+                  "v": "could not"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 6,
+                  "l": [
+                    "really"
+                  ],
+                  "t": "w",
+                  "v": "really"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 7,
+                  "l": [
+                    "cover"
+                  ],
+                  "t": "w",
+                  "v": "cover"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 8,
+                  "l": [
+                    "he"
+                  ],
+                  "t": "w",
+                  "v": "him"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 9,
+                  "l": [
+                    "and"
+                  ],
+                  "t": "w",
+                  "v": "and"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 10,
+                  "l": [
+                    "it",
+                    "like",
+                    "look"
+                  ],
+                  "t": "w",
+                  "v": "it looked like"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 11,
+                  "l": [
+                    "they"
+                  ],
+                  "t": "w",
+                  "v": "they"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 12,
+                  "l": [
+                    "fall",
+                    "off",
+                    "would"
+                  ],
+                  "t": "w",
+                  "v": "would fall off"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 13,
+                  "l": [
+                    "soon"
+                  ],
+                  "t": "w",
+                  "v": "soon"
+                },
+                {
+                  "t": "b",
+                  "v": "."
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_base"
+        },
+        {
+          "full_text": "El cobertor de la cama realmente no podía cubrirlo, y parecía que se caería pronto.",
+          "lemmas": [
+            "caer",
+            "cama",
+            "cobertor",
+            "cubrir",
+            "de",
+            "el",
+            "no",
+            "parecer",
+            "poder",
+            "pronto",
+            "que",
+            "realmente",
+            "y"
+          ],
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "El cobertor de la cama realmente no podía cubrirlo, y parecía que se caería pronto.",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "el"
+                  ],
+                  "t": "w",
+                  "v": "El"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 1,
+                  "l": [
+                    "cobertor"
+                  ],
+                  "t": "w",
+                  "v": "cobertor"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 2,
+                  "l": [
+                    "cama",
+                    "de",
+                    "el"
+                  ],
+                  "t": "w",
+                  "v": "de la cama"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 5,
+                  "l": [
+                    "realmente"
+                  ],
+                  "t": "w",
+                  "v": "realmente"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 6,
+                  "l": [
+                    "no",
+                    "poder"
+                  ],
+                  "t": "w",
+                  "v": "no podía"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 8,
+                  "l": [
+                    "cubrir"
+                  ],
+                  "t": "w",
+                  "v": "cubrirlo"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 9,
+                  "l": [
+                    "y"
+                  ],
+                  "t": "w",
+                  "v": "y"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 10,
+                  "l": [
+                    "parecer"
+                  ],
+                  "t": "w",
+                  "v": "parecía"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 11,
+                  "l": [
+                    "que"
+                  ],
+                  "t": "w",
+                  "v": "que"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 12,
+                  "l": [
+                    "caer",
+                    "el"
+                  ],
+                  "t": "w",
+                  "v": "se caería"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 14,
+                  "l": [
+                    "pronto"
+                  ],
+                  "t": "w",
+                  "v": "pronto"
+                },
+                {
+                  "t": "b",
+                  "v": "."
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_target"
+        }
+      ]
+    },
+    {
+      "block_type": "sentence",
+      "mappings": {
+        "basic_spanish_to_basic_english_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "el"
+              ],
+              "Él",
+              true,
+              1,
+              []
+            ],
+            [
+              1,
+              [
+                "tener"
+              ],
+              "tenía",
+              true,
+              1,
+              []
+            ],
+            [
+              2,
+              [
+                "mucho"
+              ],
+              "muchas",
+              true,
+              1,
+              []
+            ],
+            [
+              3,
+              [
+                "pierna"
+              ],
+              "piernas",
+              true,
+              1,
+              []
+            ],
+            [
+              4,
+              [
+                "que"
+              ],
+              "que",
+              true,
+              1,
+              []
+            ],
+            [
+              5,
+              [
+                "ser"
+              ],
+              "eran",
+              true,
+              1,
+              []
+            ],
+            [
+              6,
+              [
+                "mucho"
+              ],
+              "muy",
+              true,
+              1,
+              []
+            ],
+            [
+              7,
+              [
+                "delgado"
+              ],
+              "delgadas",
+              true,
+              1,
+              []
+            ],
+            [
+              8,
+              [
+                "y"
+              ],
+              "y",
+              true,
+              1,
+              []
+            ],
+            [
+              9,
+              [
+                "este"
+              ],
+              "esto",
+              true,
+              1,
+              []
+            ],
+            [
+              10,
+              [
+                "ser"
+              ],
+              "era",
+              true,
+              1,
+              []
+            ],
+            [
+              11,
+              [
+                "triste"
+              ],
+              "triste",
+              true,
+              1,
+              []
+            ],
+            [
+              12,
+              [
+                "de",
+                "ver"
+              ],
+              "de ver",
+              true,
+              2,
+              []
+            ],
+            [
+              13,
+              [
+                "porque"
+              ],
+              "porque",
+              true,
+              1,
+              []
+            ],
+            [
+              14,
+              [
+                "el",
+                "resto"
+              ],
+              "el resto",
+              true,
+              2,
+              []
+            ],
+            [
+              15,
+              [
+                "de"
+              ],
+              "de",
+              true,
+              1,
+              []
+            ],
+            [
+              16,
+              [
+                "su"
+              ],
+              "su",
+              true,
+              1,
+              []
+            ],
+            [
+              17,
+              [
+                "cuerpo"
+              ],
+              "cuerpo",
+              true,
+              1,
+              []
+            ],
+            [
+              18,
+              [
+                "ser"
+              ],
+              "era",
+              true,
+              1,
+              []
+            ],
+            [
+              19,
+              [
+                "tanto"
+              ],
+              "tan",
+              true,
+              1,
+              []
+            ],
+            [
+              20,
+              [
+                "grande"
+              ],
+              "grande",
+              true,
+              1,
+              []
+            ],
+            [
+              21,
+              [
+                "cuando"
+              ],
+              "Cuando",
+              true,
+              1,
+              []
+            ],
+            [
+              22,
+              [
+                "el"
+              ],
+              "él",
+              true,
+              1,
+              []
+            ],
+            [
+              23,
+              [
+                "mirar"
+              ],
+              "miraba",
+              true,
+              1,
+              []
+            ],
+            [
+              24,
+              [
+                "a"
+              ],
+              "a",
+              true,
+              1,
+              []
+            ],
+            [
+              25,
+              [
+                "el"
+              ],
+              "las",
+              true,
+              1,
+              []
+            ],
+            [
+              26,
+              [
+                "el"
+              ],
+              "ellas",
+              true,
+              1,
+              []
+            ],
+            [
+              27,
+              [
+                "el",
+                "mover"
+              ],
+              "se movían",
+              true,
+              2,
+              []
+            ],
+            [
+              28,
+              [
+                "pero"
+              ],
+              "pero",
+              true,
+              1,
+              []
+            ],
+            [
+              29,
+              [
+                "el"
+              ],
+              "él",
+              true,
+              1,
+              []
+            ],
+            [
+              30,
+              [
+                "no",
+                "poder"
+              ],
+              "no podía",
+              true,
+              2,
+              []
+            ],
+            [
+              31,
+              [
+                "controlar"
+              ],
+              "controlar",
+              true,
+              1,
+              []
+            ],
+            [
+              32,
+              [
+                "el"
+              ],
+              "las",
+              true,
+              1,
+              []
+            ]
+          ]
+        },
+        "basic_target_to_basic_base_inv_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "tener"
+              ],
+              "It had",
+              2,
+              1
+            ],
+            [
+              1,
+              [
+                "mucho"
+              ],
+              "many",
+              1,
+              1
+            ],
+            [
+              2,
+              [
+                "pata"
+              ],
+              "legs",
+              1,
+              1
+            ],
+            [
+              3,
+              [
+                "que"
+              ],
+              "that",
+              1,
+              1
+            ],
+            [
+              4,
+              [
+                "ser"
+              ],
+              "were",
+              1,
+              1
+            ],
+            [
+              5,
+              [
+                "mucho"
+              ],
+              "very",
+              1,
+              1
+            ],
+            [
+              6,
+              [
+                "delgado"
+              ],
+              "thin",
+              1,
+              1
+            ],
+            [
+              7,
+              [
+                "y"
+              ],
+              "and",
+              1,
+              1
+            ],
+            [
+              8,
+              [
+                "ser",
+                "triste"
+              ],
+              "it was sad",
+              3,
+              2
+            ],
+            [
+              9,
+              [
+                "ver"
+              ],
+              "to see",
+              2,
+              1
+            ],
+            [
+              10,
+              [
+                "este"
+              ],
+              "this",
+              1,
+              1
+            ],
+            [
+              11,
+              [
+                "porque"
+              ],
+              "because",
+              1,
+              1
+            ],
+            [
+              12,
+              [
+                "el",
+                "resto"
+              ],
+              "the rest",
+              2,
+              2
+            ],
+            [
+              13,
+              [
+                "cuerpo",
+                "de",
+                "su"
+              ],
+              "of its body",
+              3,
+              3
+            ],
+            [
+              14,
+              [
+                "ser"
+              ],
+              "was",
+              1,
+              1
+            ],
+            [
+              15,
+              [
+                "tanto"
+              ],
+              "so",
+              1,
+              1
+            ],
+            [
+              16,
+              [
+                "grande"
+              ],
+              "large",
+              1,
+              1
+            ],
+            [
+              17,
+              [
+                "cuando"
+              ],
+              "When",
+              1,
+              1
+            ],
+            [
+              18,
+              [
+                "el",
+                "mirar"
+              ],
+              "he looked at them",
+              4,
+              2
+            ],
+            [
+              19,
+              [
+                "el",
+                "mover"
+              ],
+              "they moved",
+              2,
+              2
+            ],
+            [
+              20,
+              [
+                "pero"
+              ],
+              "but",
+              1,
+              1
+            ],
+            [
+              21,
+              [
+                "no",
+                "poder"
+              ],
+              "he could not",
+              3,
+              2
+            ],
+            [
+              22,
+              [
+                "controlar"
+              ],
+              "control them",
+              2,
+              1
+            ]
+          ]
+        }
+      },
+      "s_id": "S8",
+      "tiers": [
+        {
+          "full_text": "Sus muchas patas, lastimosamente delgadas comparadas con el tamaño del resto de su cuerpo, se agitaban indefensas mientras él las contemplaba.",
+          "lemmas": [
+            "agitar",
+            "comparado",
+            "con",
+            "contemplar",
+            "cuerpo",
+            "del",
+            "delgado",
+            "el",
+            "indefenso",
+            "lastimosamente",
+            "mientras",
+            "mucho",
+            "pata",
+            "resto",
+            "su",
+            "tamano"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "delgado",
+                "lastimosamente",
+                "mucho",
+                "pata",
+                "su"
+              ],
+              "seg_id": "S1",
+              "text": "Sus muchas patas, lastimosamente delgadas "
+            },
+            {
+              "lemmas": [
+                "comparado",
+                "con",
+                "cuerpo",
+                "del",
+                "el",
+                "resto",
+                "su",
+                "tamano"
+              ],
+              "seg_id": "S2",
+              "text": "comparadas con el tamaño del resto de su cuerpo, "
+            },
+            {
+              "lemmas": [
+                "agitar",
+                "contemplar",
+                "el",
+                "indefenso",
+                "mientras"
+              ],
+              "seg_id": "S3",
+              "text": "se agitaban indefensas mientras él las contemplaba."
+            }
+          ],
+          "tier_id": "advanced_target"
+        },
+        {
+          "full_text": "Sus muchas patas, muy delgadas comparadas con el tamaño del resto de su cuerpo, se movían sin control mientras él las miraba.",
+          "lemmas": [
+            "comparado",
+            "con",
+            "control",
+            "cuerpo",
+            "de",
+            "del",
+            "delgado",
+            "el",
+            "mientras",
+            "mirar",
+            "mover",
+            "mucho",
+            "pata",
+            "resto",
+            "sin",
+            "su",
+            "tamano"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "delgado",
+                "mucho",
+                "pata",
+                "su"
+              ],
+              "seg_id": "S1",
+              "text": "Sus muchas patas, muy delgadas "
+            },
+            {
+              "lemmas": [
+                "comparado",
+                "con",
+                "cuerpo",
+                "de",
+                "del",
+                "el",
+                "resto",
+                "su",
+                "tamano"
+              ],
+              "seg_id": "S2",
+              "text": "comparadas con el tamaño del resto de su cuerpo, "
+            },
+            {
+              "lemmas": [
+                "control",
+                "el",
+                "mientras",
+                "mirar",
+                "mover",
+                "sin"
+              ],
+              "seg_id": "S3",
+              "text": "se movían sin control mientras él las miraba."
+            }
+          ],
+          "tier_id": "moderate_target"
+        },
+        {
+          "full_text": "He had many legs that were very thin, and this was sad to see because the rest of his body was so big. When he looked at them, they moved around but he could not control them.",
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "He had many legs that were very thin, and this was sad to see because the rest of his body was so big. When he looked at them, they moved around but he could not control them.",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "he"
+                  ],
+                  "t": "w",
+                  "v": "He"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 1,
+                  "l": [
+                    "have"
+                  ],
+                  "t": "w",
+                  "v": "had"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 2,
+                  "l": [
+                    "many"
+                  ],
+                  "t": "w",
+                  "v": "many"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 3,
+                  "l": [
+                    "leg"
+                  ],
+                  "t": "w",
+                  "v": "legs"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 4,
+                  "l": [
+                    "that"
+                  ],
+                  "t": "w",
+                  "v": "that"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 5,
+                  "l": [
+                    "be"
+                  ],
+                  "t": "w",
+                  "v": "were"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 6,
+                  "l": [
+                    "very"
+                  ],
+                  "t": "w",
+                  "v": "very"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 7,
+                  "l": [
+                    "thin"
+                  ],
+                  "t": "w",
+                  "v": "thin"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 8,
+                  "l": [
+                    "and"
+                  ],
+                  "t": "w",
+                  "v": "and"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 9,
+                  "l": [
+                    "this"
+                  ],
+                  "t": "w",
+                  "v": "this"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 10,
+                  "l": [
+                    "be"
+                  ],
+                  "t": "w",
+                  "v": "was"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 11,
+                  "l": [
+                    "sad"
+                  ],
+                  "t": "w",
+                  "v": "sad"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 12,
+                  "l": [
+                    "see",
+                    "to"
+                  ],
+                  "t": "w",
+                  "v": "to see"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 13,
+                  "l": [
+                    "because"
+                  ],
+                  "t": "w",
+                  "v": "because"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 14,
+                  "l": [
+                    "rest",
+                    "the"
+                  ],
+                  "t": "w",
+                  "v": "the rest"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 15,
+                  "l": [
+                    "of"
+                  ],
+                  "t": "w",
+                  "v": "of"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 16,
+                  "l": [
+                    "his"
+                  ],
+                  "t": "w",
+                  "v": "his"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 17,
+                  "l": [
+                    "body"
+                  ],
+                  "t": "w",
+                  "v": "body"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 18,
+                  "l": [
+                    "be"
+                  ],
+                  "t": "w",
+                  "v": "was"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 19,
+                  "l": [
+                    "so"
+                  ],
+                  "t": "w",
+                  "v": "so"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 20,
+                  "l": [
+                    "big"
+                  ],
+                  "t": "w",
+                  "v": "big"
+                },
+                {
+                  "t": "b",
+                  "v": ". "
+                },
+                {
+                  "di": 21,
+                  "l": [
+                    "when"
+                  ],
+                  "t": "w",
+                  "v": "When"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 22,
+                  "l": [
+                    "he"
+                  ],
+                  "t": "w",
+                  "v": "he"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 23,
+                  "l": [
+                    "look"
+                  ],
+                  "t": "w",
+                  "v": "looked"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 24,
+                  "l": [
+                    "at"
+                  ],
+                  "t": "w",
+                  "v": "at"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 25,
+                  "l": [
+                    "they"
+                  ],
+                  "t": "w",
+                  "v": "them"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 26,
+                  "l": [
+                    "they"
+                  ],
+                  "t": "w",
+                  "v": "they"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 27,
+                  "l": [
+                    "around",
+                    "move"
+                  ],
+                  "t": "w",
+                  "v": "moved around"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 28,
+                  "l": [
+                    "but"
+                  ],
+                  "t": "w",
+                  "v": "but"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 29,
+                  "l": [
+                    "he"
+                  ],
+                  "t": "w",
+                  "v": "he"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 30,
+                  "l": [
+                    "could",
+                    "not"
+                  ],
+                  "t": "w",
+                  "v": "could not"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 31,
+                  "l": [
+                    "control"
+                  ],
+                  "t": "w",
+                  "v": "control"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 32,
+                  "l": [
+                    "they"
+                  ],
+                  "t": "w",
+                  "v": "them"
+                },
+                {
+                  "t": "b",
+                  "v": "."
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_base"
+        },
+        {
+          "full_text": "Tenía muchas patas que eran muy delgadas, y era triste ver esto porque el resto de su cuerpo era tan grande. Cuando las miraba, se movían, pero no podía controlarlas.",
+          "lemmas": [
+            "controlar",
+            "cuando",
+            "cuerpo",
+            "de",
+            "delgado",
+            "el",
+            "este",
+            "grande",
+            "mirar",
+            "mover",
+            "mucho",
+            "no",
+            "pata",
+            "pero",
+            "poder",
+            "porque",
+            "que",
+            "resto",
+            "ser",
+            "su",
+            "tanto",
+            "tener",
+            "triste",
+            "ver",
+            "y"
+          ],
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "Tenía muchas patas que eran muy delgadas, y era triste ver esto porque el resto de su cuerpo era tan grande. Cuando las miraba, se movían, pero no podía controlarlas.",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "tener"
+                  ],
+                  "t": "w",
+                  "v": "Tenía"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 1,
+                  "l": [
+                    "mucho"
+                  ],
+                  "t": "w",
+                  "v": "muchas"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 2,
+                  "l": [
+                    "pata"
+                  ],
+                  "t": "w",
+                  "v": "patas"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 3,
+                  "l": [
+                    "que"
+                  ],
+                  "t": "w",
+                  "v": "que"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 4,
+                  "l": [
+                    "ser"
+                  ],
+                  "t": "w",
+                  "v": "eran"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 5,
+                  "l": [
+                    "mucho"
+                  ],
+                  "t": "w",
+                  "v": "muy"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 6,
+                  "l": [
+                    "delgado"
+                  ],
+                  "t": "w",
+                  "v": "delgadas"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 7,
+                  "l": [
+                    "y"
+                  ],
+                  "t": "w",
+                  "v": "y"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 8,
+                  "l": [
+                    "ser",
+                    "triste"
+                  ],
+                  "t": "w",
+                  "v": "era triste"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 10,
+                  "l": [
+                    "ver"
+                  ],
+                  "t": "w",
+                  "v": "ver"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 11,
+                  "l": [
+                    "este"
+                  ],
+                  "t": "w",
+                  "v": "esto"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 12,
+                  "l": [
+                    "porque"
+                  ],
+                  "t": "w",
+                  "v": "porque"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 13,
+                  "l": [
+                    "el",
+                    "resto"
+                  ],
+                  "t": "w",
+                  "v": "el resto"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 15,
+                  "l": [
+                    "cuerpo",
+                    "de",
+                    "su"
+                  ],
+                  "t": "w",
+                  "v": "de su cuerpo"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 18,
+                  "l": [
+                    "ser"
+                  ],
+                  "t": "w",
+                  "v": "era"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 19,
+                  "l": [
+                    "tanto"
+                  ],
+                  "t": "w",
+                  "v": "tan"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 20,
+                  "l": [
+                    "grande"
+                  ],
+                  "t": "w",
+                  "v": "grande"
+                },
+                {
+                  "t": "b",
+                  "v": ". "
+                },
+                {
+                  "di": 21,
+                  "l": [
+                    "cuando"
+                  ],
+                  "t": "w",
+                  "v": "Cuando"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 22,
+                  "l": [
+                    "el",
+                    "mirar"
+                  ],
+                  "t": "w",
+                  "v": "las miraba"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 24,
+                  "l": [
+                    "el",
+                    "mover"
+                  ],
+                  "t": "w",
+                  "v": "se movían"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 26,
+                  "l": [
+                    "pero"
+                  ],
+                  "t": "w",
+                  "v": "pero"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 27,
+                  "l": [
+                    "no",
+                    "poder"
+                  ],
+                  "t": "w",
+                  "v": "no podía"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 29,
+                  "l": [
+                    "controlar"
+                  ],
+                  "t": "w",
+                  "v": "controlarlas"
+                },
+                {
+                  "t": "b",
+                  "v": "."
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_target"
+        }
+      ]
+    },
+    {
+      "block_type": "sentence",
+      "mappings": {
+        "basic_spanish_to_basic_english_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "haber",
+                "pasar",
+                "que"
+              ],
+              "Qué ha pasado",
+              true,
+              3,
+              []
+            ],
+            [
+              1,
+              [
+                "yo"
+              ],
+              "me",
+              true,
+              2,
+              []
+            ],
+            [
+              2,
+              [
+                "el"
+              ],
+              "él",
+              true,
+              1,
+              []
+            ],
+            [
+              3,
+              [
+                "pensar"
+              ],
+              "pensó",
+              true,
+              1,
+              []
+            ]
+          ]
+        },
+        "basic_target_to_basic_base_inv_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "que"
+              ],
+              "What",
+              1,
+              1
+            ],
+            [
+              1,
+              [
+                "haber",
+                "pasar",
+                "yo"
+              ],
+              "has happened to me",
+              4,
+              3
+            ],
+            [
+              2,
+              [
+                "pensar"
+              ],
+              "he thought",
+              2,
+              1
+            ]
+          ]
+        }
+      },
+      "s_id": "S9",
+      "tiers": [
+        {
+          "full_text": "\"¿Qué me ha pasado?\", pensó.",
+          "lemmas": [
+            "haber",
+            "pasar",
+            "pensar",
+            "que",
+            "yo"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "haber",
+                "pasar",
+                "pensar",
+                "que",
+                "yo"
+              ],
+              "seg_id": "S1",
+              "text": "\"¿Qué me ha pasado?\", pensó."
+            }
+          ],
+          "tier_id": "advanced_target"
+        },
+        {
+          "full_text": "\"¿Qué me ha pasado?\", pensó.",
+          "lemmas": [
+            "haber",
+            "pasar",
+            "pensar",
+            "que",
+            "yo"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "haber",
+                "pasar",
+                "pensar",
+                "que",
+                "yo"
+              ],
+              "seg_id": "S1",
+              "text": "\"¿Qué me ha pasado?\", pensó."
+            }
+          ],
+          "tier_id": "moderate_target"
+        },
+        {
+          "full_text": "“What’s happened to me?” he thought.",
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "“What’s happened to me?” he thought.",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": "“"
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "happen",
+                    "what",
+                    "’s"
+                  ],
+                  "t": "w",
+                  "v": "What’s happened"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 1,
+                  "l": [
+                    "i",
+                    "to"
+                  ],
+                  "t": "w",
+                  "v": "to me"
+                },
+                {
+                  "t": "b",
+                  "v": "?” "
+                },
+                {
+                  "di": 2,
+                  "l": [
+                    "he"
+                  ],
+                  "t": "w",
+                  "v": "he"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 3,
+                  "l": [
+                    "think"
+                  ],
+                  "t": "w",
+                  "v": "thought"
+                },
+                {
+                  "t": "b",
+                  "v": "."
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_base"
+        },
+        {
+          "full_text": "“¿Qué me ha pasado?”, pensó.",
+          "lemmas": [
+            "haber",
+            "pasar",
+            "pensar",
+            "que",
+            "yo"
+          ],
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "“¿Qué me ha pasado?”, pensó.",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": "“¿"
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "que"
+                  ],
+                  "t": "w",
+                  "v": "Qué"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 1,
+                  "l": [
+                    "haber",
+                    "pasar",
+                    "yo"
+                  ],
+                  "t": "w",
+                  "v": "me ha pasado"
+                },
+                {
+                  "t": "b",
+                  "v": "?”, "
+                },
+                {
+                  "di": 4,
+                  "l": [
+                    "pensar"
+                  ],
+                  "t": "w",
+                  "v": "pensó"
+                },
+                {
+                  "t": "b",
+                  "v": "."
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_target"
+        }
+      ]
+    },
+    {
+      "block_type": "sentence",
+      "mappings": {
+        "basic_spanish_to_basic_english_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "no",
+                "ser"
+              ],
+              "No era",
+              true,
+              3,
+              []
+            ],
+            [
+              1,
+              [
+                "uno"
+              ],
+              "un",
+              true,
+              1,
+              []
+            ],
+            [
+              2,
+              [
+                "sueno"
+              ],
+              "sueño",
+              true,
+              1,
+              []
+            ]
+          ]
+        },
+        "basic_target_to_basic_base_inv_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "no",
+                "ser"
+              ],
+              "It was not",
+              3,
+              2
+            ],
+            [
+              1,
+              [
+                "uno"
+              ],
+              "a",
+              1,
+              1
+            ],
+            [
+              2,
+              [
+                "sueno"
+              ],
+              "dream",
+              1,
+              1
+            ]
+          ]
+        }
+      },
+      "s_id": "S10",
+      "tiers": [
+        {
+          "full_text": "No era un sueño.",
+          "lemmas": [
+            "no",
+            "ser",
+            "sueno",
+            "uno"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "no",
+                "ser",
+                "sueno",
+                "uno"
+              ],
+              "seg_id": "S1",
+              "text": "No era un sueño."
+            }
+          ],
+          "tier_id": "advanced_target"
+        },
+        {
+          "full_text": "No era un sueño.",
+          "lemmas": [
+            "no",
+            "ser",
+            "sueno",
+            "uno"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "no",
+                "ser",
+                "sueno",
+                "uno"
+              ],
+              "seg_id": "S1",
+              "text": "No era un sueño."
+            }
+          ],
+          "tier_id": "moderate_target"
+        },
+        {
+          "full_text": "It wasn’t a dream.",
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "It wasn’t a dream.",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "be",
+                    "it"
+                  ],
+                  "t": "w",
+                  "v": "It wasn’t"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 1,
+                  "l": [
+                    "not"
+                  ],
+                  "t": "w",
+                  "v": "a"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 2,
+                  "l": [
+                    "a"
+                  ],
+                  "t": "w",
+                  "v": "dream"
+                },
+                {
+                  "t": "b",
+                  "v": "."
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_base"
+        },
+        {
+          "full_text": "No era un sueño.",
+          "lemmas": [
+            "no",
+            "ser",
+            "sueno",
+            "uno"
+          ],
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "No era un sueño.",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "no",
+                    "ser"
+                  ],
+                  "t": "w",
+                  "v": "No era"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 2,
+                  "l": [
+                    "uno"
+                  ],
+                  "t": "w",
+                  "v": "un"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 3,
+                  "l": [
+                    "sueno"
+                  ],
+                  "t": "w",
+                  "v": "sueño"
+                },
+                {
+                  "t": "b",
+                  "v": "."
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_target"
+        }
+      ]
+    },
+    {
+      "block_type": "sentence",
+      "mappings": {
+        "basic_spanish_to_basic_english_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "su"
+              ],
+              "Su",
+              true,
+              1,
+              []
+            ],
+            [
+              1,
+              [
+                "habitacion"
+              ],
+              "habitación",
+              true,
+              1,
+              []
+            ],
+            [
+              2,
+              [
+                "ser"
+              ],
+              "era",
+              true,
+              1,
+              []
+            ],
+            [
+              3,
+              [
+                "uno"
+              ],
+              "una",
+              true,
+              1,
+              []
+            ],
+            [
+              4,
+              [
+                "normal"
+              ],
+              "normal",
+              true,
+              1,
+              []
+            ],
+            [
+              5,
+              [
+                "habitacion"
+              ],
+              "habitación",
+              true,
+              1,
+              []
+            ],
+            [
+              6,
+              [
+                "para"
+              ],
+              "para",
+              true,
+              1,
+              []
+            ],
+            [
+              7,
+              [
+                "uno"
+              ],
+              "una",
+              true,
+              1,
+              []
+            ],
+            [
+              8,
+              [
+                "persona"
+              ],
+              "persona",
+              true,
+              1,
+              []
+            ],
+            [
+              9,
+              [
+                "pero"
+              ],
+              "pero",
+              true,
+              1,
+              []
+            ],
+            [
+              10,
+              [
+                "poco",
+                "uno"
+              ],
+              "un poco",
+              true,
+              2,
+              []
+            ],
+            [
+              11,
+              [
+                "pequeno"
+              ],
+              "pequeña",
+              true,
+              1,
+              []
+            ],
+            [
+              12,
+              [
+                "y"
+              ],
+              "y",
+              true,
+              1,
+              []
+            ],
+            [
+              13,
+              [
+                "ser"
+              ],
+              "era",
+              true,
+              2,
+              []
+            ],
+            [
+              14,
+              [
+                "tranquilo"
+              ],
+              "tranquila",
+              true,
+              1,
+              []
+            ],
+            [
+              15,
+              [
+                "entre"
+              ],
+              "entre",
+              true,
+              1,
+              []
+            ],
+            [
+              16,
+              [
+                "el"
+              ],
+              "las",
+              true,
+              1,
+              []
+            ],
+            [
+              17,
+              [
+                "cuatro"
+              ],
+              "cuatro",
+              true,
+              1,
+              []
+            ],
+            [
+              18,
+              [
+                "pared"
+              ],
+              "paredes",
+              true,
+              1,
+              []
+            ],
+            [
+              19,
+              [
+                "el"
+              ],
+              "él",
+              true,
+              1,
+              []
+            ],
+            [
+              20,
+              [
+                "conocer"
+              ],
+              "conocía",
+              true,
+              1,
+              []
+            ],
+            [
+              21,
+              [
+                "bien"
+              ],
+              "bien",
+              true,
+              1,
+              []
+            ]
+          ]
+        },
+        "basic_target_to_basic_base_inv_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "su"
+              ],
+              "His",
+              1,
+              1
+            ],
+            [
+              1,
+              [
+                "habitacion"
+              ],
+              "room",
+              1,
+              1
+            ],
+            [
+              2,
+              [
+                "ser"
+              ],
+              "was",
+              1,
+              1
+            ],
+            [
+              3,
+              [
+                "uno"
+              ],
+              "a",
+              1,
+              1
+            ],
+            [
+              4,
+              [
+                "habitacion"
+              ],
+              "room",
+              1,
+              1
+            ],
+            [
+              5,
+              [
+                "normal"
+              ],
+              "normal",
+              1,
+              1
+            ],
+            [
+              6,
+              [
+                "para"
+              ],
+              "for",
+              1,
+              1
+            ],
+            [
+              7,
+              [
+                "uno"
+              ],
+              "a",
+              1,
+              1
+            ],
+            [
+              8,
+              [
+                "persona"
+              ],
+              "person",
+              1,
+              1
+            ],
+            [
+              9,
+              [
+                "pero"
+              ],
+              "but",
+              1,
+              1
+            ],
+            [
+              10,
+              [
+                "pequeno",
+                "poco",
+                "uno"
+              ],
+              "a little small",
+              3,
+              3
+            ],
+            [
+              11,
+              [
+                "y"
+              ],
+              "and",
+              1,
+              1
+            ],
+            [
+              12,
+              [
+                "estar",
+                "tranquilo"
+              ],
+              "it lay quietly",
+              3,
+              2
+            ],
+            [
+              13,
+              [
+                "entre"
+              ],
+              "between",
+              1,
+              1
+            ],
+            [
+              14,
+              [
+                "el"
+              ],
+              "the",
+              1,
+              1
+            ],
+            [
+              15,
+              [
+                "cuatro"
+              ],
+              "four",
+              1,
+              1
+            ],
+            [
+              16,
+              [
+                "pared"
+              ],
+              "walls",
+              1,
+              1
+            ],
+            [
+              17,
+              [
+                "que"
+              ],
+              "that",
+              1,
+              1
+            ],
+            [
+              18,
+              [
+                "bien",
+                "conocer"
+              ],
+              "he knew well",
+              3,
+              2
+            ]
+          ]
+        }
+      },
+      "s_id": "S11",
+      "tiers": [
+        {
+          "full_text": "Su habitación, una habitación humana apropiada aunque un poco demasiado pequeña, yacía apaciblemente entre sus cuatro paredes familiares.",
+          "lemmas": [
+            "apaciblemente",
+            "apropiado",
+            "aunque",
+            "cuatro",
+            "demasiado",
+            "entre",
+            "familiar",
+            "habitacion",
+            "humano",
+            "pared",
+            "pequeno",
+            "poco",
+            "su",
+            "uno",
+            "yacer"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "apropiado",
+                "habitacion",
+                "humano",
+                "su",
+                "uno"
+              ],
+              "seg_id": "S1",
+              "text": "Su habitación, una habitación humana apropiada "
+            },
+            {
+              "lemmas": [
+                "aunque",
+                "demasiado",
+                "pequeno",
+                "poco"
+              ],
+              "seg_id": "S2",
+              "text": "aunque un poco demasiado pequeña, "
+            },
+            {
+              "lemmas": [
+                "apaciblemente",
+                "cuatro",
+                "entre",
+                "familiar",
+                "pared",
+                "su",
+                "yacer"
+              ],
+              "seg_id": "S3",
+              "text": "yacía apaciblemente entre sus cuatro paredes familiares."
+            }
+          ],
+          "tier_id": "advanced_target"
+        },
+        {
+          "full_text": "Su habitación, una habitación normal de persona aunque un poco muy pequeña, estaba tranquilo entre sus cuatro paredes conocidas.",
+          "lemmas": [
+            "aunque",
+            "conocido",
+            "cuatro",
+            "de",
+            "entre",
+            "estar",
+            "habitacion",
+            "mucho",
+            "normal",
+            "pared",
+            "pequeno",
+            "persona",
+            "poco",
+            "su",
+            "tranquilo",
+            "uno"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "de",
+                "habitacion",
+                "normal",
+                "persona",
+                "su",
+                "uno"
+              ],
+              "seg_id": "S1",
+              "text": "Su habitación, una habitación normal de persona "
+            },
+            {
+              "lemmas": [
+                "aunque",
+                "mucho",
+                "pequeno",
+                "poco",
+                "uno"
+              ],
+              "seg_id": "S2",
+              "text": "aunque un poco muy pequeña, "
+            },
+            {
+              "lemmas": [
+                "conocido",
+                "cuatro",
+                "entre",
+                "estar",
+                "pared",
+                "su",
+                "tranquilo"
+              ],
+              "seg_id": "S3",
+              "text": "estaba tranquilo entre sus cuatro paredes conocidas."
+            }
+          ],
+          "tier_id": "moderate_target"
+        },
+        {
+          "full_text": "His room was a normal room for a person, but a little small, and it was quiet between the four walls he knew well.",
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "His room was a normal room for a person, but a little small, and it was quiet between the four walls he knew well.",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "his"
+                  ],
+                  "t": "w",
+                  "v": "His"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 1,
+                  "l": [
+                    "room"
+                  ],
+                  "t": "w",
+                  "v": "room"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 2,
+                  "l": [
+                    "be"
+                  ],
+                  "t": "w",
+                  "v": "was"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 3,
+                  "l": [
+                    "a"
+                  ],
+                  "t": "w",
+                  "v": "a"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 4,
+                  "l": [
+                    "normal"
+                  ],
+                  "t": "w",
+                  "v": "normal"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 5,
+                  "l": [
+                    "room"
+                  ],
+                  "t": "w",
+                  "v": "room"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 6,
+                  "l": [
+                    "for"
+                  ],
+                  "t": "w",
+                  "v": "for"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 7,
+                  "l": [
+                    "a"
+                  ],
+                  "t": "w",
+                  "v": "a"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 8,
+                  "l": [
+                    "person"
+                  ],
+                  "t": "w",
+                  "v": "person"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 9,
+                  "l": [
+                    "but"
+                  ],
+                  "t": "w",
+                  "v": "but"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 10,
+                  "l": [
+                    "a",
+                    "little"
+                  ],
+                  "t": "w",
+                  "v": "a little"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 11,
+                  "l": [
+                    "small"
+                  ],
+                  "t": "w",
+                  "v": "small"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 12,
+                  "l": [
+                    "and"
+                  ],
+                  "t": "w",
+                  "v": "and"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 13,
+                  "l": [
+                    "be",
+                    "it"
+                  ],
+                  "t": "w",
+                  "v": "it was"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 14,
+                  "l": [
+                    "quiet"
+                  ],
+                  "t": "w",
+                  "v": "quiet"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 15,
+                  "l": [
+                    "between"
+                  ],
+                  "t": "w",
+                  "v": "between"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 16,
+                  "l": [
+                    "the"
+                  ],
+                  "t": "w",
+                  "v": "the"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 17,
+                  "l": [
+                    "four"
+                  ],
+                  "t": "w",
+                  "v": "four"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 18,
+                  "l": [
+                    "wall"
+                  ],
+                  "t": "w",
+                  "v": "walls"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 19,
+                  "l": [
+                    "he"
+                  ],
+                  "t": "w",
+                  "v": "he"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 20,
+                  "l": [
+                    "know"
+                  ],
+                  "t": "w",
+                  "v": "knew"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 21,
+                  "l": [
+                    "well"
+                  ],
+                  "t": "w",
+                  "v": "well"
+                },
+                {
+                  "t": "b",
+                  "v": "."
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_base"
+        },
+        {
+          "full_text": "Su habitación era una habitación normal para una persona, pero un poco pequeña, y estaba tranquila entre las cuatro paredes que conocía bien.",
+          "lemmas": [
+            "bien",
+            "conocer",
+            "cuatro",
+            "el",
+            "entre",
+            "estar",
+            "habitacion",
+            "normal",
+            "para",
+            "pared",
+            "pequeno",
+            "pero",
+            "persona",
+            "poco",
+            "que",
+            "ser",
+            "su",
+            "tranquilo",
+            "uno",
+            "y"
+          ],
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "Su habitación era una habitación normal para una persona, pero un poco pequeña, y estaba tranquila entre las cuatro paredes que conocía bien.",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "su"
+                  ],
+                  "t": "w",
+                  "v": "Su"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 1,
+                  "l": [
+                    "habitacion"
+                  ],
+                  "t": "w",
+                  "v": "habitación"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 2,
+                  "l": [
+                    "ser"
+                  ],
+                  "t": "w",
+                  "v": "era"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 3,
+                  "l": [
+                    "uno"
+                  ],
+                  "t": "w",
+                  "v": "una"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 4,
+                  "l": [
+                    "habitacion"
+                  ],
+                  "t": "w",
+                  "v": "habitación"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 5,
+                  "l": [
+                    "normal"
+                  ],
+                  "t": "w",
+                  "v": "normal"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 6,
+                  "l": [
+                    "para"
+                  ],
+                  "t": "w",
+                  "v": "para"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 7,
+                  "l": [
+                    "uno"
+                  ],
+                  "t": "w",
+                  "v": "una"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 8,
+                  "l": [
+                    "persona"
+                  ],
+                  "t": "w",
+                  "v": "persona"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 9,
+                  "l": [
+                    "pero"
+                  ],
+                  "t": "w",
+                  "v": "pero"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 10,
+                  "l": [
+                    "pequeno",
+                    "poco",
+                    "uno"
+                  ],
+                  "t": "w",
+                  "v": "un poco pequeña"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 13,
+                  "l": [
+                    "y"
+                  ],
+                  "t": "w",
+                  "v": "y"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 14,
+                  "l": [
+                    "estar",
+                    "tranquilo"
+                  ],
+                  "t": "w",
+                  "v": "estaba tranquila"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 16,
+                  "l": [
+                    "entre"
+                  ],
+                  "t": "w",
+                  "v": "entre"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 17,
+                  "l": [
+                    "el"
+                  ],
+                  "t": "w",
+                  "v": "las"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 18,
+                  "l": [
+                    "cuatro"
+                  ],
+                  "t": "w",
+                  "v": "cuatro"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 19,
+                  "l": [
+                    "pared"
+                  ],
+                  "t": "w",
+                  "v": "paredes"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 20,
+                  "l": [
+                    "que"
+                  ],
+                  "t": "w",
+                  "v": "que"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 21,
+                  "l": [
+                    "bien",
+                    "conocer"
+                  ],
+                  "t": "w",
+                  "v": "conocía bien"
+                },
+                {
+                  "t": "b",
+                  "v": "."
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_target"
+        }
+      ]
+    },
+    {
+      "block_type": "sentence",
+      "mappings": {
+        "basic_spanish_to_basic_english_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "trozo"
+              ],
+              "Trozos",
+              true,
+              1,
+              []
+            ],
+            [
+              1,
+              [
+                "de"
+              ],
+              "de",
+              true,
+              1,
+              []
+            ],
+            [
+              2,
+              [
+                "telar"
+              ],
+              "tela",
+              true,
+              1,
+              []
+            ],
+            [
+              3,
+              [
+                "para"
+              ],
+              "para",
+              true,
+              1,
+              []
+            ],
+            [
+              4,
+              [
+                "su"
+              ],
+              "su",
+              true,
+              1,
+              []
+            ],
+            [
+              5,
+              [
+                "trabajar"
+              ],
+              "trabajo",
+              true,
+              1,
+              []
+            ],
+            [
+              6,
+              [
+                "estar"
+              ],
+              "estaban",
+              true,
+              1,
+              []
+            ],
+            [
+              7,
+              [
+                "en"
+              ],
+              "en",
+              true,
+              1,
+              []
+            ],
+            [
+              8,
+              [
+                "el"
+              ],
+              "la",
+              true,
+              1,
+              []
+            ],
+            [
+              9,
+              [
+                "mesa"
+              ],
+              "mesa",
+              true,
+              1,
+              []
+            ],
+            [
+              10,
+              [
+                "que",
+                "ya"
+              ],
+              "ya que",
+              true,
+              1,
+              []
+            ],
+            [
+              11,
+              [
+                "el"
+              ],
+              "él",
+              true,
+              1,
+              []
+            ],
+            [
+              12,
+              [
+                "estar"
+              ],
+              "estaba",
+              true,
+              1,
+              []
+            ],
+            [
+              13,
+              [
+                "uno"
+              ],
+              "un",
+              true,
+              1,
+              []
+            ],
+            [
+              14,
+              [
+                "hombre"
+              ],
+              "hombre",
+              true,
+              1,
+              []
+            ],
+            [
+              15,
+              [
+                "que"
+              ],
+              "que",
+              true,
+              1,
+              []
+            ],
+            [
+              16,
+              [
+                "viajar"
+              ],
+              "viajaba",
+              true,
+              1,
+              []
+            ],
+            [
+              17,
+              [
+                "para",
+                "vender"
+              ],
+              "para vender",
+              true,
+              2,
+              []
+            ],
+            [
+              18,
+              [
+                "cosa"
+              ],
+              "cosas",
+              true,
+              1,
+              []
+            ],
+            [
+              19,
+              [
+                "de",
+                "encima"
+              ],
+              "Encima de",
+              true,
+              1,
+              []
+            ],
+            [
+              20,
+              [
+                "el"
+              ],
+              "la",
+              true,
+              1,
+              []
+            ],
+            [
+              21,
+              [
+                "mesa"
+              ],
+              "mesa",
+              true,
+              1,
+              []
+            ],
+            [
+              22,
+              [
+                "uno"
+              ],
+              "un",
+              true,
+              1,
+              []
+            ],
+            [
+              23,
+              [
+                "imagen"
+              ],
+              "imagen",
+              true,
+              1,
+              []
+            ],
+            [
+              24,
+              [
+                "el"
+              ],
+              "él",
+              true,
+              1,
+              []
+            ],
+            [
+              25,
+              [
+                "haber",
+                "recientemente",
+                "recortar"
+              ],
+              "había recortado recientemente",
+              true,
+              3,
+              []
+            ],
+            [
+              26,
+              [
+                "de"
+              ],
+              "de",
+              true,
+              1,
+              []
+            ],
+            [
+              27,
+              [
+                "uno"
+              ],
+              "un",
+              true,
+              1,
+              []
+            ],
+            [
+              28,
+              [
+                "revista"
+              ],
+              "revista",
+              true,
+              1,
+              []
+            ],
+            [
+              29,
+              [
+                "estar"
+              ],
+              "estaba",
+              true,
+              1,
+              []
+            ],
+            [
+              30,
+              [
+                "en"
+              ],
+              "en",
+              true,
+              1,
+              []
+            ],
+            [
+              31,
+              [
+                "el"
+              ],
+              "la",
+              true,
+              1,
+              []
+            ],
+            [
+              32,
+              [
+                "pared"
+              ],
+              "pared",
+              true,
+              1,
+              []
+            ],
+            [
+              33,
+              [
+                "en"
+              ],
+              "en",
+              true,
+              1,
+              []
+            ],
+            [
+              34,
+              [
+                "uno"
+              ],
+              "un",
+              true,
+              1,
+              []
+            ],
+            [
+              35,
+              [
+                "bonito"
+              ],
+              "bonito",
+              true,
+              1,
+              []
+            ],
+            [
+              36,
+              [
+                "dorado"
+              ],
+              "dorado",
+              true,
+              2,
+              []
+            ],
+            [
+              37,
+              [
+                "marco"
+              ],
+              "marco",
+              true,
+              1,
+              []
+            ]
+          ]
+        },
+        "basic_target_to_basic_base_inv_diglot": {
+          "S1": [
+            [
+              0,
+              [
+                "trozos"
+              ],
+              "Pieces",
+              1,
+              1
+            ],
+            [
+              1,
+              [
+                "de"
+              ],
+              "from",
+              1,
+              1
+            ],
+            [
+              2,
+              [
+                "tela"
+              ],
+              "cloth",
+              1,
+              1
+            ],
+            [
+              3,
+              [
+                "para"
+              ],
+              "for",
+              1,
+              1
+            ],
+            [
+              4,
+              [
+                "su"
+              ],
+              "his",
+              1,
+              1
+            ],
+            [
+              5,
+              [
+                "trabajo"
+              ],
+              "work",
+              1,
+              1
+            ],
+            [
+              6,
+              [
+                "estar"
+              ],
+              "were",
+              1,
+              1
+            ],
+            [
+              7,
+              [
+                "el",
+                "mesa",
+                "sobre"
+              ],
+              "on the table",
+              3,
+              3
+            ],
+            [
+              8,
+              [
+                "que",
+                "ya"
+              ],
+              "since",
+              1,
+              2
+            ],
+            [
+              9,
+              [
+                "ser"
+              ],
+              "he was",
+              2,
+              1
+            ],
+            [
+              10,
+              [
+                "uno"
+              ],
+              "a",
+              1,
+              1
+            ],
+            [
+              11,
+              [
+                "hombre"
+              ],
+              "man",
+              1,
+              1
+            ],
+            [
+              12,
+              [
+                "que"
+              ],
+              "that",
+              1,
+              1
+            ],
+            [
+              13,
+              [
+                "viajar"
+              ],
+              "traveled",
+              1,
+              1
+            ],
+            [
+              14,
+              [
+                "para",
+                "vender"
+              ],
+              "to sell",
+              2,
+              2
+            ],
+            [
+              15,
+              [
+                "cosa"
+              ],
+              "things",
+              1,
+              1
+            ],
+            [
+              16,
+              [
+                "el",
+                "mesa",
+                "sobre"
+              ],
+              "On the table",
+              3,
+              3
+            ],
+            [
+              17,
+              [
+                "uno"
+              ],
+              "a",
+              1,
+              1
+            ],
+            [
+              18,
+              [
+                "imagen"
+              ],
+              "picture",
+              1,
+              1
+            ],
+            [
+              19,
+              [
+                "que"
+              ],
+              "that",
+              1,
+              1
+            ],
+            [
+              20,
+              [
+                "cortar",
+                "haber",
+                "recientemente"
+              ],
+              "he had recently cut",
+              4,
+              3
+            ],
+            [
+              21,
+              [
+                "de"
+              ],
+              "from",
+              1,
+              1
+            ],
+            [
+              22,
+              [
+                "uno"
+              ],
+              "a",
+              1,
+              1
+            ],
+            [
+              23,
+              [
+                "revista"
+              ],
+              "magazine",
+              1,
+              1
+            ],
+            [
+              24,
+              [
+                "estar"
+              ],
+              "was",
+              1,
+              1
+            ],
+            [
+              25,
+              [
+                "el",
+                "en",
+                "pared"
+              ],
+              "on the wall",
+              3,
+              3
+            ],
+            [
+              26,
+              [
+                "bonito",
+                "color",
+                "de",
+                "dorado",
+                "en",
+                "marco",
+                "uno"
+              ],
+              "in a pretty golden frame",
+              5,
+              7
+            ]
+          ]
+        }
+      },
+      "s_id": "S12",
+      "tiers": [
+        {
+          "full_text": "Una colección de muestras textiles se extendía sobre la mesa — Samsa era un viajante de comercio — y encima de ella colgaba un cuadro que había recortado recientemente de una revista ilustrada y enmarcado en un bonito marco dorado.",
+          "lemmas": [
+            "bonito",
+            "coleccion",
+            "colgar",
+            "comercio",
+            "cuadro",
+            "de",
+            "dorado",
+            "el",
+            "encima",
+            "enmarcado",
+            "extender",
+            "haber",
+            "ilustrado",
+            "marco",
+            "mesa",
+            "muestra",
+            "que",
+            "recientemente",
+            "recortar",
+            "revista",
+            "samsa",
+            "ser",
+            "sobre",
+            "textil",
+            "uno",
+            "viajante",
+            "y"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "coleccion",
+                "de",
+                "el",
+                "extender",
+                "mesa",
+                "muestra",
+                "sobre",
+                "textil",
+                "uno"
+              ],
+              "seg_id": "S1",
+              "text": "Una colección de muestras textiles se extendía sobre la mesa "
+            },
+            {
+              "lemmas": [
+                "comercio",
+                "de",
+                "samsa",
+                "ser",
+                "uno",
+                "viajante"
+              ],
+              "seg_id": "S2",
+              "text": "— Samsa era un viajante de comercio "
+            },
+            {
+              "lemmas": [
+                "colgar",
+                "cuadro",
+                "de",
+                "el",
+                "encima",
+                "uno",
+                "y"
+              ],
+              "seg_id": "S3",
+              "text": "— y encima de ella colgaba un cuadro "
+            },
+            {
+              "lemmas": [
+                "de",
+                "haber",
+                "ilustrado",
+                "que",
+                "recientemente",
+                "recortar",
+                "revista",
+                "uno"
+              ],
+              "seg_id": "S4",
+              "text": "que había recortado recientemente de una revista ilustrada "
+            },
+            {
+              "lemmas": [
+                "bonito",
+                "dorado",
+                "enmarcado",
+                "marco",
+                "uno",
+                "y"
+              ],
+              "seg_id": "S5",
+              "text": "y enmarcado en un bonito marco dorado."
+            }
+          ],
+          "tier_id": "advanced_target"
+        },
+        {
+          "full_text": "Una colección de telas estaba puesta sobre la mesa — Samsa era un vendedor — y encima de ella había un cuadro que había cortado hace poco de una revista con fotos y puesto en un bonito marco dorado.",
+          "lemmas": [
+            "bonito",
+            "coleccion",
+            "con",
+            "cortar",
+            "cuadro",
+            "de",
+            "dorado",
+            "el",
+            "en",
+            "encima",
+            "estar",
+            "foto",
+            "haber",
+            "hacer",
+            "marco",
+            "mesa",
+            "poco",
+            "puesto",
+            "que",
+            "revista",
+            "samsa",
+            "ser",
+            "sobre",
+            "tela",
+            "uno",
+            "vendedor",
+            "y"
+          ],
+          "segments": [
+            {
+              "lemmas": [
+                "coleccion",
+                "de",
+                "el",
+                "estar",
+                "mesa",
+                "puesto",
+                "sobre",
+                "tela",
+                "uno"
+              ],
+              "seg_id": "S1",
+              "text": "Una colección de telas estaba puesta sobre la mesa "
+            },
+            {
+              "lemmas": [
+                "samsa",
+                "ser",
+                "uno",
+                "vendedor"
+              ],
+              "seg_id": "S2",
+              "text": "— Samsa era un vendedor "
+            },
+            {
+              "lemmas": [
+                "cuadro",
+                "de",
+                "el",
+                "encima",
+                "haber",
+                "uno",
+                "y"
+              ],
+              "seg_id": "S3",
+              "text": "— y encima de ella había un cuadro "
+            },
+            {
+              "lemmas": [
+                "con",
+                "cortar",
+                "de",
+                "foto",
+                "haber",
+                "hacer",
+                "poco",
+                "que",
+                "revista",
+                "uno"
+              ],
+              "seg_id": "S4",
+              "text": "que había cortado hace poco de una revista con fotos "
+            },
+            {
+              "lemmas": [
+                "bonito",
+                "dorado",
+                "en",
+                "marco",
+                "puesto",
+                "uno",
+                "y"
+              ],
+              "seg_id": "S5",
+              "text": "y puesto en un bonito marco dorado."
+            }
+          ],
+          "tier_id": "moderate_target"
+        },
+        {
+          "full_text": "Pieces of cloth for his work were on the table, as he was a man who traveled to sell things. Above the table, a picture he had recently cut from a magazine was on the wall in a nice, gold-colored frame.",
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "Pieces of cloth for his work were on the table, as he was a man who traveled to sell things. Above the table, a picture he had recently cut from a magazine was on the wall in a nice, gold-colored frame.",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "piece"
+                  ],
+                  "t": "w",
+                  "v": "Pieces"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 1,
+                  "l": [
+                    "of"
+                  ],
+                  "t": "w",
+                  "v": "of"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 2,
+                  "l": [
+                    "cloth"
+                  ],
+                  "t": "w",
+                  "v": "cloth"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 3,
+                  "l": [
+                    "for"
+                  ],
+                  "t": "w",
+                  "v": "for"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 4,
+                  "l": [
+                    "his"
+                  ],
+                  "t": "w",
+                  "v": "his"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 5,
+                  "l": [
+                    "work"
+                  ],
+                  "t": "w",
+                  "v": "work"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 6,
+                  "l": [
+                    "be"
+                  ],
+                  "t": "w",
+                  "v": "were"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 7,
+                  "l": [
+                    "on"
+                  ],
+                  "t": "w",
+                  "v": "on"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 8,
+                  "l": [
+                    "the"
+                  ],
+                  "t": "w",
+                  "v": "the"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 9,
+                  "l": [
+                    "table"
+                  ],
+                  "t": "w",
+                  "v": "table"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 10,
+                  "l": [
+                    "as"
+                  ],
+                  "t": "w",
+                  "v": "as"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 11,
+                  "l": [
+                    "he"
+                  ],
+                  "t": "w",
+                  "v": "he"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 12,
+                  "l": [
+                    "be"
+                  ],
+                  "t": "w",
+                  "v": "was"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 13,
+                  "l": [
+                    "a"
+                  ],
+                  "t": "w",
+                  "v": "a"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 14,
+                  "l": [
+                    "man"
+                  ],
+                  "t": "w",
+                  "v": "man"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 15,
+                  "l": [
+                    "who"
+                  ],
+                  "t": "w",
+                  "v": "who"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 16,
+                  "l": [
+                    "travel"
+                  ],
+                  "t": "w",
+                  "v": "traveled"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 17,
+                  "l": [
+                    "sell",
+                    "to"
+                  ],
+                  "t": "w",
+                  "v": "to sell"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 18,
+                  "l": [
+                    "thing"
+                  ],
+                  "t": "w",
+                  "v": "things"
+                },
+                {
+                  "t": "b",
+                  "v": ". "
+                },
+                {
+                  "di": 19,
+                  "l": [
+                    "above"
+                  ],
+                  "t": "w",
+                  "v": "Above"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 20,
+                  "l": [
+                    "the"
+                  ],
+                  "t": "w",
+                  "v": "the"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 21,
+                  "l": [
+                    "table"
+                  ],
+                  "t": "w",
+                  "v": "table"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 22,
+                  "l": [
+                    "a"
+                  ],
+                  "t": "w",
+                  "v": "a"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 23,
+                  "l": [
+                    "picture"
+                  ],
+                  "t": "w",
+                  "v": "picture"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 24,
+                  "l": [
+                    "he"
+                  ],
+                  "t": "w",
+                  "v": "he"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 25,
+                  "l": [
+                    "cut",
+                    "have",
+                    "recently"
+                  ],
+                  "t": "w",
+                  "v": "had recently cut"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 26,
+                  "l": [
+                    "from"
+                  ],
+                  "t": "w",
+                  "v": "from"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 27,
+                  "l": [
+                    "a"
+                  ],
+                  "t": "w",
+                  "v": "a"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 28,
+                  "l": [
+                    "magazine"
+                  ],
+                  "t": "w",
+                  "v": "magazine"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 29,
+                  "l": [
+                    "be"
+                  ],
+                  "t": "w",
+                  "v": "was"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 30,
+                  "l": [
+                    "on"
+                  ],
+                  "t": "w",
+                  "v": "on"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 31,
+                  "l": [
+                    "the"
+                  ],
+                  "t": "w",
+                  "v": "the"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 32,
+                  "l": [
+                    "wall"
+                  ],
+                  "t": "w",
+                  "v": "wall"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 33,
+                  "l": [
+                    "in"
+                  ],
+                  "t": "w",
+                  "v": "in"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 34,
+                  "l": [
+                    "a"
+                  ],
+                  "t": "w",
+                  "v": "a"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 35,
+                  "l": [
+                    "nice"
+                  ],
+                  "t": "w",
+                  "v": "nice"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 36,
+                  "l": [
+                    "gold"
+                  ],
+                  "t": "w",
+                  "v": "gold-colored"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 37,
+                  "l": [
+                    "color"
+                  ],
+                  "t": "w",
+                  "v": "frame"
+                },
+                {
+                  "t": "b",
+                  "v": "."
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_base"
+        },
+        {
+          "full_text": "Trozos de tela para su trabajo estaban sobre la mesa, ya que era un hombre que viajaba para vender cosas. Sobre la mesa, una imagen que había cortado recientemente de una revista estaba en la pared en un marco bonito de color dorado.",
+          "lemmas": [
+            "bonito",
+            "color",
+            "cortar",
+            "cosa",
+            "de",
+            "dorado",
+            "el",
+            "en",
+            "estar",
+            "haber",
+            "hombre",
+            "imagen",
+            "marco",
+            "mesa",
+            "para",
+            "pared",
+            "que",
+            "recientemente",
+            "revista",
+            "ser",
+            "sobre",
+            "su",
+            "tela",
+            "trabajo",
+            "trozos",
+            "uno",
+            "vender",
+            "viajar",
+            "ya"
+          ],
+          "segments": [
+            {
+              "seg_id": "S1",
+              "text": "Trozos de tela para su trabajo estaban sobre la mesa, ya que era un hombre que viajaba para vender cosas. Sobre la mesa, una imagen que había cortado recientemente de una revista estaba en la pared en un marco bonito de color dorado.",
+              "tokenized_text": [
+                {
+                  "t": "b",
+                  "v": ""
+                },
+                {
+                  "di": 0,
+                  "l": [
+                    "trozos"
+                  ],
+                  "t": "w",
+                  "v": "Trozos"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 1,
+                  "l": [
+                    "de"
+                  ],
+                  "t": "w",
+                  "v": "de"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 2,
+                  "l": [
+                    "tela"
+                  ],
+                  "t": "w",
+                  "v": "tela"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 3,
+                  "l": [
+                    "para"
+                  ],
+                  "t": "w",
+                  "v": "para"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 4,
+                  "l": [
+                    "su"
+                  ],
+                  "t": "w",
+                  "v": "su"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 5,
+                  "l": [
+                    "trabajo"
+                  ],
+                  "t": "w",
+                  "v": "trabajo"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 6,
+                  "l": [
+                    "estar"
+                  ],
+                  "t": "w",
+                  "v": "estaban"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 7,
+                  "l": [
+                    "el",
+                    "mesa",
+                    "sobre"
+                  ],
+                  "t": "w",
+                  "v": "sobre la mesa"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 10,
+                  "l": [
+                    "que",
+                    "ya"
+                  ],
+                  "t": "w",
+                  "v": "ya que"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 12,
+                  "l": [
+                    "ser"
+                  ],
+                  "t": "w",
+                  "v": "era"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 13,
+                  "l": [
+                    "uno"
+                  ],
+                  "t": "w",
+                  "v": "un"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 14,
+                  "l": [
+                    "hombre"
+                  ],
+                  "t": "w",
+                  "v": "hombre"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 15,
+                  "l": [
+                    "que"
+                  ],
+                  "t": "w",
+                  "v": "que"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 16,
+                  "l": [
+                    "viajar"
+                  ],
+                  "t": "w",
+                  "v": "viajaba"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 17,
+                  "l": [
+                    "para",
+                    "vender"
+                  ],
+                  "t": "w",
+                  "v": "para vender"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 19,
+                  "l": [
+                    "cosa"
+                  ],
+                  "t": "w",
+                  "v": "cosas"
+                },
+                {
+                  "t": "b",
+                  "v": ". "
+                },
+                {
+                  "di": 20,
+                  "l": [
+                    "el",
+                    "mesa",
+                    "sobre"
+                  ],
+                  "t": "w",
+                  "v": "Sobre la mesa"
+                },
+                {
+                  "t": "b",
+                  "v": ", "
+                },
+                {
+                  "di": 23,
+                  "l": [
+                    "uno"
+                  ],
+                  "t": "w",
+                  "v": "una"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 24,
+                  "l": [
+                    "imagen"
+                  ],
+                  "t": "w",
+                  "v": "imagen"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 25,
+                  "l": [
+                    "que"
+                  ],
+                  "t": "w",
+                  "v": "que"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 26,
+                  "l": [
+                    "cortar",
+                    "haber",
+                    "recientemente"
+                  ],
+                  "t": "w",
+                  "v": "había cortado recientemente"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 29,
+                  "l": [
+                    "de"
+                  ],
+                  "t": "w",
+                  "v": "de"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 30,
+                  "l": [
+                    "uno"
+                  ],
+                  "t": "w",
+                  "v": "una"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 31,
+                  "l": [
+                    "revista"
+                  ],
+                  "t": "w",
+                  "v": "revista"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 32,
+                  "l": [
+                    "estar"
+                  ],
+                  "t": "w",
+                  "v": "estaba"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 33,
+                  "l": [
+                    "el",
+                    "en",
+                    "pared"
+                  ],
+                  "t": "w",
+                  "v": "en la pared"
+                },
+                {
+                  "t": "b",
+                  "v": " "
+                },
+                {
+                  "di": 36,
+                  "l": [
+                    "bonito",
+                    "color",
+                    "de",
+                    "dorado",
+                    "en",
+                    "marco",
+                    "uno"
+                  ],
+                  "t": "w",
+                  "v": "en un marco bonito de color dorado"
+                },
+                {
+                  "t": "b",
+                  "v": "."
+                }
+              ]
+            }
+          ],
+          "tier_id": "basic_target"
+        }
+      ]
+    }
+  ]
+} 

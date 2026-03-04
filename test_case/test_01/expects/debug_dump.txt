@@ -1,54 +1,57 @@
 === Debug Dump: sentences 0 to 11 ===
-=== Book: Metamorphosis | Languages: en/es ===
+=== Book: source_input | Languages: en/es ===
 
 ================================================================
-=== S1 (index 0): "(no base tier)" ===
+=== S1 (index 0): "Chapter 0:" ===
 ================================================================
+
+--- Base (Original) (base) ---
+  Text: "Chapter 0:"
+  State: Valid
 
 --- Advanced Target (advanced_target) ---
   Text: "Capítulo 0"
   State: Valid
-  Lemmas (1): capitulo
 
 --- Moderate Target (moderate_target) ---
   Text: "Capítulo 0"
   State: Valid
-  Lemmas (1): capitulo
 
 --- Basic Target (basic_target) ---
   Text: "Capítulo 0"
-  State: Valid
-  Lemmas (1): capitulo
+  State: Stale
 
 --- Basic Base (Simplified) (basic_base) ---
   Text: "Chapter 0"
   State: Valid
 
 --- Mapping: basic_base → basic_target (2 entries) ---
-  w0: "Capítulo" lemmas=[capitulo]
-  w1: "cero" lemmas=[cero]
+  w0: "Capítulo" lemmas=[]
+  w1: "cero" lemmas=[]
 
 --- Mapping: basic_target → basic_base (2 entries) ---
-  w0: "Chapter" lemmas=[capitulo]
+  w0: "Chapter" lemmas=[]
   w1: "0" lemmas=[]
 
 ================================================================
-=== S2 (index 1): "(no base tier)" ===
+=== S2 (index 1): "Metamorphosis" ===
 ================================================================
+
+--- Base (Original) (base) ---
+  Text: "Metamorphosis"
+  State: Valid
 
 --- Advanced Target (advanced_target) ---
   Text: "La metamorfosis"
   State: Valid
-  Lemmas (1): el
 
 --- Moderate Target (moderate_target) ---
   Text: "La metamorfosis"
   State: Valid
-  Lemmas (1): el
 
 --- Basic Target (basic_target) ---
   Text: "Metamorfosis"
-  State: Valid
+  State: Stale
 
 --- Basic Base (Simplified) (basic_base) ---
   Text: "Metamorphosis"
@@ -61,624 +64,445 @@
   w0: "Metamorphosis" lemmas=[]
 
 ================================================================
-=== S3 (index 2): "(no base tier)" ===
+=== S3 (index 2): "by Franz Kafka" ===
 ================================================================
+
+--- Base (Original) (base) ---
+  Text: "by Franz Kafka"
+  State: Valid
 
 --- Advanced Target (advanced_target) ---
   Text: "por Franz Kafka"
   State: Valid
-  Lemmas (1): por
 
 --- Moderate Target (moderate_target) ---
   Text: "por Franz Kafka"
   State: Valid
-  Lemmas (1): por
 
 --- Basic Target (basic_target) ---
   Text: "por Franz Kafka"
-  State: Valid
-  Lemmas (1): por
+  State: Stale
 
 --- Basic Base (Simplified) (basic_base) ---
   Text: "by Franz Kafka"
   State: Valid
 
 --- Mapping: basic_base → basic_target (3 entries) ---
-  w0: "por" lemmas=[por]
+  w0: "por" lemmas=[]
   w1: "Franz" lemmas=[] [PROPER]
   w2: "Kafka" lemmas=[] [PROPER]
 
 --- Mapping: basic_target → basic_base (3 entries) ---
-  w0: "by" lemmas=[por]
+  w0: "by" lemmas=[]
   w1: "Franz" lemmas=[]
   w2: "Kafka" lemmas=[]
 
 ================================================================
-=== S4 (index 3): "(no base tier)" ===
+=== S4 (index 3): "Chapter I" ===
 ================================================================
+
+--- Base (Original) (base) ---
+  Text: "Chapter I"
+  State: Valid
 
 --- Advanced Target (advanced_target) ---
   Text: "Capítulo I"
   State: Valid
-  Lemmas (2): capitulo, i
 
 --- Moderate Target (moderate_target) ---
   Text: "Capítulo I"
   State: Valid
-  Lemmas (2): capitulo, i
 
 --- Basic Target (basic_target) ---
   Text: "Capítulo I"
-  State: Valid
-  Lemmas (2): capitulo, i
+  State: Stale
 
 --- Basic Base (Simplified) (basic_base) ---
   Text: "Chapter I"
   State: Valid
 
 --- Mapping: basic_base → basic_target (2 entries) ---
-  w0: "Capítulo" lemmas=[capitulo]
-  w1: "I" lemmas=[i]
+  w0: "Capítulo" lemmas=[]
+  w1: "I" lemmas=[]
 
 --- Mapping: basic_target → basic_base (2 entries) ---
-  w0: "Chapter" lemmas=[capitulo]
-  w1: "I" lemmas=[i]
+  w0: "Chapter" lemmas=[]
+  w1: "I" lemmas=[]
 
 ================================================================
-=== S5 (index 4): "(no base tier)" ===
+=== S5 (index 4): "One morning, when Gregor Samsa woke from troubled dreams, he found himself tr..." ===
 ================================================================
+
+--- Base (Original) (base) ---
+  Text: "One morning, when Gregor Samsa woke from troubled dreams, he found himself transformed in his bed into a horrible vermin."
+  State: Valid
 
 --- Advanced Target (advanced_target) ---
-  Text: "Una mañana, cuando Gregor Samsa despertó de sueños intranquilos, se encontró transformado en su cama en un horrible bicho."
+  Text: "Una mañana, cuando Gregor Samsa despertó de sueños malos, se encontró cambiado en su cama en un horrible bicho."
   State: Valid
-  Segments (3):
-    [0] "Una mañana, cuando Gregor Samsa despertó "
-    [1] "de sueños intranquilos, se encontró transformado "
-    [2] "en su cama en un horrible bicho."
-  Lemmas (15): bicho, cama, cuando, de, despertar, el, en, encontrar, horrible, intranquilo, manana, su, sueno, transformado, uno
 
 --- Moderate Target (moderate_target) ---
   Text: "Una mañana, cuando Gregor Samsa despertó de sueños malos, se encontró cambiado en su cama en un insecto horrible."
   State: Valid
-  Segments (3):
-    [0] "Una mañana, cuando Gregor Samsa despertó "
-    [1] "de sueños malos, se encontró cambiado "
-    [2] "en su cama en un insecto horrible."
-  Lemmas (15): cama, cambiado, cuando, de, despertar, el, en, encontrar, horrible, insecto, malo, manana, su, sueno, uno
 
 --- Basic Target (basic_target) ---
   Text: "Una mañana, cuando Gregor Samsa se despertó de malos sueños, vio que se había convertido en su cama en una clase de bicho muy malo."
-  State: Valid
-  Lemmas (18): bicho, cama, clase, convertir, cuando, de, despertar, el, en, haber, malo, manana, mucho, que, su, sueno, uno, ver
+  State: Stale
 
 --- Basic Base (Simplified) (basic_base) ---
   Text: "One morning, when Gregor Samsa woke up from bad dreams, he saw that he had changed in his bed into a very bad kind of bug."
   State: Valid
 
 --- Mapping: basic_base → basic_target (23 entries) ---
-  w0: "Una" lemmas=[uno]
-  w1: "mañana" lemmas=[manana]
-  w2: "cuando" lemmas=[cuando]
+  w0: "Una" lemmas=[]
+  w1: "mañana" lemmas=[]
+  w2: "cuando" lemmas=[]
   w3: "Gregor" lemmas=[] [PROPER]
   w4: "Samsa" lemmas=[] [PROPER]
-  w5: "se despertó" lemmas=[despertar, el]
-  w6: "de" lemmas=[de]
-  w7: "mal" lemmas=[mal]
-  w8: "sueños" lemmas=[sueno]
-  w9: "él" lemmas=[el]
-  w10: "vio" lemmas=[ver]
-  w11: "que" lemmas=[que]
-  w12: "él" lemmas=[el]
-  w13: "se había convertido" lemmas=[convertir, el, haber]
-  w14: "en" lemmas=[en]
-  w15: "su" lemmas=[su]
-  w16: "cama" lemmas=[cama]
-  w17: "en" lemmas=[en]
-  w18: "un" lemmas=[uno]
-  w19: "muy" lemmas=[mucho]
-  w20: "mal" lemmas=[mal]
-  w21: "tipo de" lemmas=[de, tipo]
-  w22: "bicho" lemmas=[bicho]
-
---- Mapping: basic_target → basic_base (11 entries) ---
-  w0: "One morning" lemmas=[manana, uno]
-  w1: "when" lemmas=[cuando]
-  w2: "Gregor Samsa" lemmas=[]
-  w3: "woke up" lemmas=[despertar, el]
-  w4: "from bad dreams" lemmas=[de, malo, sueno]
-  w5: "he saw that" lemmas=[que, ver]
-  w6: "he had been transformed" lemmas=[convertir, el, haber]
-  w7: "in his bed" lemmas=[cama, en, su]
-  w8: "into" lemmas=[en]
-  w9: "a kind of" lemmas=[clase, de, uno]
-  w10: "terrible vermin" lemmas=[bicho, malo, mucho]
+  w5: "se despertó" lemmas=[]
+  w7: "de" lemmas=[]
+  w8: "malos" lemmas=[]
+  w9: "sueños" lemmas=[]
+  w10: "él" lemmas=[]
+  w11: "vio" lemmas=[]
+  w12: "que" lemmas=[]
+  w13: "él" lemmas=[]
+  w14: "se había convertido" lemmas=[]
+  w16: "en" lemmas=[]
+  w17: "su" lemmas=[]
+  w18: "cama" lemmas=[]
+  w19: "en" lemmas=[]
+  w20: "un" lemmas=[]
+  w21: "muy" lemmas=[]
+  w22: "mal" lemmas=[]
+  w23: "tipo de" lemmas=[]
+  w25: "bicho" lemmas=[]
 
 ================================================================
-=== S6 (index 5): "(no base tier)" ===
+=== S6 (index 5): "He lay on his armour-like back, and if he lifted his head a little he could s..." ===
 ================================================================
+
+--- Base (Original) (base) ---
+  Text: "He lay on his armour-like back, and if he lifted his head a little he could see his brown belly, slightly domed and divided by arches into stiff sections."
+  State: Valid
 
 --- Advanced Target (advanced_target) ---
-  Text: "Yacía sobre su espalda acorazada, y si levantaba un poco la cabeza podía ver su vientre pardo, ligeramente abombado y dividido por arcos en secciones rígidas."
+  Text: "Estaba sobre su espalda dura, y si levantaba un poco la cabeza podía ver su vientre pardo, un poco curvado y dividido por líneas en partes duras."
   State: Valid
-  Segments (4):
-    [0] "Yacía sobre su espalda acorazada, "
-    [1] "y si levantaba un poco la cabeza "
-    [2] "podía ver su vientre pardo, "
-    [3] "ligeramente abombado y dividido por arcos en secciones rígidas."
-  Lemmas (23): abombado, acorazado, arco, cabeza, dividido, el, espalda, levantar, ligeramente, pardo, poco, poder, por, rigido, seccion, si, sobre, su, uno, ver ... (+3 more)
 
 --- Moderate Target (moderate_target) ---
-  Text: "Estaba sobre su espalda dura, y si levantaba un poco la cabeza podía ver su estómago marrón, un poco curvado y dividido por líneas en partes duras."
+  Text: "Estaba sobre su espalda dura, y si levantaba un poco la cabeza podía ver su vientre pardo, un poco curvado y dividido por líneas en partes duras."
   State: Valid
-  Segments (4):
-    [0] "Estaba sobre su espalda dura, "
-    [1] "y si levantaba un poco la cabeza "
-    [2] "podía ver su estómago marrón, "
-    [3] "un poco curvado y dividido por líneas en partes duras."
-  Lemmas (22): cabeza, curvado, dividido, duro, el, en, espalda, estar, estomago, levantar, linea, marron, parte, poco, poder, por, si, sobre, su, uno ... (+2 more)
 
 --- Basic Target (basic_target) ---
   Text: "Estaba tumbado sobre su espalda, que era dura como un caparazón, y si levantaba un poco la cabeza, podía ver su estómago marrón, que era un poco redondo y estaba hecho de partes curvas como de caparazón."
-  State: Valid
-  Lemmas (26): cabeza, caparazon, como, curvo, de, duro, el, espalda, estar, estomago, hecho, levantar, marron, parte, poco, poder, que, redondo, ser, si ... (+6 more)
+  State: Stale
 
 --- Basic Base (Simplified) (basic_base) ---
-  Text: "He lay on his back, which was hard like a shell, and if he moved his head up a little, he could see his brown stomach, which was a little round and was made of curved shell like parts."
+  Text: "He lay on his back, which was hard like a shell, and if he moved his head up a little, he could see his brown stomach, which was a little round and had lines that made it into hard parts."
   State: Valid
 
---- Mapping: basic_base → basic_target (33 entries) ---
-  w0: "Él" lemmas=[el]
-  w1: "yacía" lemmas=[yacer]
-  w2: "sobre" lemmas=[sobre]
-  w3: "su" lemmas=[su]
-  w4: "espalda" lemmas=[espalda]
-  w5: "que" lemmas=[que]
-  w6: "era" lemmas=[ser]
-  w7: "dura" lemmas=[duro]
-  w8: "como" lemmas=[como]
-  w9: "un" lemmas=[uno]
-  w10: "caparazón" lemmas=[caparazon]
-  w11: "y" lemmas=[y]
-  w12: "si" lemmas=[si]
-  w13: "él" lemmas=[el]
-  w14: "levantaba" lemmas=[levantar]
-  w15: "su" lemmas=[su]
-  w16: "cabeza" lemmas=[cabeza]
-  w17: "NO_SUB" lemmas=[] [NOT VIABLE]
-  w18: "un poco" lemmas=[poco, uno]
-  w19: "él" lemmas=[el]
-  w20: "podía ver" lemmas=[poder, ver]
-  w21: "su" lemmas=[su]
-  w22: "marrón" lemmas=[marron]
-  w23: "vientre" lemmas=[vientre]
-  w24: "que" lemmas=[que]
-  w25: "era" lemmas=[ser]
-  w26: "un poco" lemmas=[poco, uno]
-  w27: "redondo" lemmas=[redondo]
-  w28: "y" lemmas=[y]
-  w29: "estaba hecho de" lemmas=[de, estar, hecho]
-  w30: "curvas" lemmas=[curva]
-  w31: "en forma de concha" lemmas=[concha, de, en, forma]
-  w32: "partes" lemmas=[parte]
-
---- Mapping: basic_target → basic_base (23 entries) ---
-  w0: "He was lying" lemmas=[estar, tumbado]
-  w1: "on his back" lemmas=[espalda, sobre, su]
-  w2: "which" lemmas=[que]
-  w3: "was" lemmas=[ser]
-  w4: "hard" lemmas=[duro]
-  w5: "like a shell" lemmas=[caparazon, como, uno]
-  w6: "and" lemmas=[y]
-  w7: "if" lemmas=[si]
-  w8: "he lifted" lemmas=[levantar]
-  w9: "a little" lemmas=[poco, uno]
-  w10: "his head" lemmas=[cabeza, el]
-  w11: "he could see" lemmas=[poder, ver]
-  w12: "his" lemmas=[su]
-  w13: "stomach" lemmas=[estomago]
-  w14: "brown" lemmas=[marron]
-  w15: "which" lemmas=[que]
-  w16: "was" lemmas=[ser]
-  w17: "a little round" lemmas=[poco, redondo, uno]
-  w18: "and" lemmas=[y]
-  w19: "was made of" lemmas=[de, estar, hecho]
-  w20: "parts" lemmas=[parte]
-  w21: "curved" lemmas=[curvo]
-  w22: "like a shell" lemmas=[caparazon, como, de]
+--- Mappings: (none) ---
 
 ================================================================
-=== S7 (index 6): "(no base tier)" ===
+=== S7 (index 6): "The bedding was hardly able to cover it and seemed ready to slide off any mom..." ===
 ================================================================
+
+--- Base (Original) (base) ---
+  Text: "The bedding was hardly able to cover it and seemed ready to slide off any moment."
+  State: Valid
 
 --- Advanced Target (advanced_target) ---
   Text: "La ropa de cama apenas lograba cubrirlo y parecía lista para deslizarse en cualquier momento."
   State: Valid
-  Segments (2):
-    [0] "La ropa de cama apenas lograba cubrirlo "
-    [1] "y parecía lista para deslizarse en cualquier momento."
-  Lemmas (15): apenas, cama, cualquiera, cubrir, de, deslizar, el, en, listo, lograr, momento, para, parecer, ropa, y
 
 --- Moderate Target (moderate_target) ---
   Text: "Las sábanas apenas podían cubrirlo y parecían listas para caerse en cualquier momento."
   State: Valid
-  Segments (2):
-    [0] "Las sábanas apenas podían cubrirlo "
-    [1] "y parecían listas para caerse en cualquier momento."
-  Lemmas (13): apenas, caer, cualquiera, cubrir, el, en, lista, momento, para, parecer, poder, sabana, y
 
 --- Basic Target (basic_target) ---
   Text: "El cobertor de la cama realmente no podía cubrirlo, y parecía que se caería pronto."
-  State: Valid
-  Lemmas (13): caer, cama, cobertor, cubrir, de, el, no, parecer, poder, pronto, que, realmente, y
+  State: Stale
 
 --- Basic Base (Simplified) (basic_base) ---
   Text: "The covers on the bed could not really cover him, and it looked like they would fall off soon."
   State: Valid
 
 --- Mapping: basic_base → basic_target (14 entries) ---
-  w0: "Las" lemmas=[el]
-  w1: "mantas" lemmas=[manta]
-  w2: "sobre" lemmas=[sobre]
-  w3: "la" lemmas=[el]
-  w4: "cama" lemmas=[cama]
-  w5: "no podían" lemmas=[no, poder]
-  w6: "realmente" lemmas=[realmente]
-  w7: "cubrir" lemmas=[cubrir]
-  w8: "lo" lemmas=[el]
-  w9: "y" lemmas=[y]
-  w10: "parecía que" lemmas=[parecer, que]
-  w11: "ellas" lemmas=[el]
-  w12: "se caerían" lemmas=[caer, el]
-  w13: "pronto" lemmas=[pronto]
-
---- Mapping: basic_target → basic_base (11 entries) ---
-  w0: "The" lemmas=[el]
-  w1: "blanket" lemmas=[cobertor]
-  w2: "on the bed" lemmas=[cama, de, el]
-  w3: "really" lemmas=[realmente]
-  w4: "could not" lemmas=[no, poder]
-  w5: "cover him" lemmas=[cubrir]
-  w6: "and" lemmas=[y]
-  w7: "it seemed" lemmas=[parecer]
-  w8: "that" lemmas=[que]
-  w9: "it would fall off" lemmas=[caer, el]
-  w10: "soon" lemmas=[pronto]
+  w0: "Las" lemmas=[]
+  w1: "mantas" lemmas=[]
+  w2: "sobre" lemmas=[]
+  w3: "la" lemmas=[]
+  w4: "cama" lemmas=[]
+  w5: "no podían" lemmas=[]
+  w7: "realmente" lemmas=[]
+  w8: "cubrir" lemmas=[]
+  w9: "lo" lemmas=[]
+  w10: "y" lemmas=[]
+  w11: "parecía que" lemmas=[]
+  w14: "ellas" lemmas=[]
+  w15: "se caerían" lemmas=[]
+  w18: "pronto" lemmas=[]
 
 ================================================================
-=== S8 (index 7): "(no base tier)" ===
+=== S8 (index 7): "His many legs, pitifully thin compared with the size of the rest of him, wave..." ===
 ================================================================
+
+--- Base (Original) (base) ---
+  Text: "His many legs, pitifully thin compared with the size of the rest of him, waved about helplessly as he looked."
+  State: Valid
 
 --- Advanced Target (advanced_target) ---
-  Text: "Sus muchas patas, lastimosamente delgadas comparadas con el tamaño del resto de su cuerpo, se agitaban indefensas mientras él las contemplaba."
+  Text: "Sus muchas patas, muy delgadas comparadas con el tamaño del resto de su cuerpo, se agitaban indefensas mientras él las contemplaba."
   State: Valid
-  Segments (3):
-    [0] "Sus muchas patas, lastimosamente delgadas "
-    [1] "comparadas con el tamaño del resto de su cuerpo, "
-    [2] "se agitaban indefensas mientras él las contemplaba."
-  Lemmas (16): agitar, comparado, con, contemplar, cuerpo, del, delgado, el, indefenso, lastimosamente, mientras, mucho, pata, resto, su, tamano
 
 --- Moderate Target (moderate_target) ---
   Text: "Sus muchas patas, muy delgadas comparadas con el tamaño del resto de su cuerpo, se movían sin control mientras él las miraba."
   State: Valid
-  Segments (3):
-    [0] "Sus muchas patas, muy delgadas "
-    [1] "comparadas con el tamaño del resto de su cuerpo, "
-    [2] "se movían sin control mientras él las miraba."
-  Lemmas (17): comparado, con, control, cuerpo, de, del, delgado, el, mientras, mirar, mover, mucho, pata, resto, sin, su, tamano
 
 --- Basic Target (basic_target) ---
   Text: "Tenía muchas patas que eran muy delgadas, y era triste ver esto porque el resto de su cuerpo era tan grande. Cuando las miraba, se movían, pero no podía controlarlas."
-  State: Valid
-  Lemmas (25): controlar, cuando, cuerpo, de, delgado, el, este, grande, mirar, mover, mucho, no, pata, pero, poder, porque, que, resto, ser, su ... (+5 more)
+  State: Stale
 
 --- Basic Base (Simplified) (basic_base) ---
   Text: "He had many legs that were very thin, and this was sad to see because the rest of his body was so big. When he looked at them, they moved around but he could not control them."
   State: Valid
 
 --- Mapping: basic_base → basic_target (33 entries) ---
-  w0: "Él" lemmas=[el]
-  w1: "tenía" lemmas=[tener]
-  w2: "muchas" lemmas=[mucho]
-  w3: "piernas" lemmas=[pierna]
-  w4: "que" lemmas=[que]
-  w5: "eran" lemmas=[ser]
-  w6: "muy" lemmas=[mucho]
-  w7: "delgadas" lemmas=[delgado]
-  w8: "y" lemmas=[y]
-  w9: "esto" lemmas=[este]
-  w10: "era" lemmas=[ser]
-  w11: "triste" lemmas=[triste]
-  w12: "de ver" lemmas=[de, ver]
-  w13: "porque" lemmas=[porque]
-  w14: "el resto" lemmas=[el, resto]
-  w15: "de" lemmas=[de]
-  w16: "su" lemmas=[su]
-  w17: "cuerpo" lemmas=[cuerpo]
-  w18: "era" lemmas=[ser]
-  w19: "tan" lemmas=[tanto]
-  w20: "grande" lemmas=[grande]
-  w21: "Cuando" lemmas=[cuando]
-  w22: "él" lemmas=[el]
-  w23: "miraba" lemmas=[mirar]
-  w24: "a" lemmas=[a]
-  w25: "las" lemmas=[el]
-  w26: "ellas" lemmas=[el]
-  w27: "se movían" lemmas=[el, mover]
-  w28: "pero" lemmas=[pero]
-  w29: "él" lemmas=[el]
-  w30: "no podía" lemmas=[no, poder]
-  w31: "controlar" lemmas=[controlar]
-  w32: "las" lemmas=[el]
-
---- Mapping: basic_target → basic_base (23 entries) ---
-  w0: "It had" lemmas=[tener]
-  w1: "many" lemmas=[mucho]
-  w2: "legs" lemmas=[pata]
-  w3: "that" lemmas=[que]
-  w4: "were" lemmas=[ser]
-  w5: "very" lemmas=[mucho]
-  w6: "thin" lemmas=[delgado]
-  w7: "and" lemmas=[y]
-  w8: "it was sad" lemmas=[ser, triste]
-  w9: "to see" lemmas=[ver]
-  w10: "this" lemmas=[este]
-  w11: "because" lemmas=[porque]
-  w12: "the rest" lemmas=[el, resto]
-  w13: "of its body" lemmas=[cuerpo, de, su]
-  w14: "was" lemmas=[ser]
-  w15: "so" lemmas=[tanto]
-  w16: "large" lemmas=[grande]
-  w17: "When" lemmas=[cuando]
-  w18: "he looked at them" lemmas=[el, mirar]
-  w19: "they moved" lemmas=[el, mover]
-  w20: "but" lemmas=[pero]
-  w21: "he could not" lemmas=[no, poder]
-  w22: "control them" lemmas=[controlar]
+  w0: "Él" lemmas=[]
+  w1: "tenía" lemmas=[]
+  w2: "muchas" lemmas=[]
+  w3: "piernas" lemmas=[]
+  w4: "que" lemmas=[]
+  w5: "eran" lemmas=[]
+  w6: "muy" lemmas=[]
+  w7: "delgadas" lemmas=[]
+  w8: "y" lemmas=[]
+  w9: "esto" lemmas=[]
+  w10: "era" lemmas=[]
+  w11: "triste" lemmas=[]
+  w12: "de ver" lemmas=[]
+  w14: "porque" lemmas=[]
+  w15: "el resto" lemmas=[]
+  w17: "de" lemmas=[]
+  w18: "su" lemmas=[]
+  w19: "cuerpo" lemmas=[]
+  w20: "era" lemmas=[]
+  w21: "tan" lemmas=[]
+  w22: "grande" lemmas=[]
+  w23: "Cuando" lemmas=[]
+  w24: "él" lemmas=[]
+  w25: "miraba" lemmas=[]
+  w26: "a" lemmas=[]
+  w27: "ellas" lemmas=[]
+  w28: "ellas" lemmas=[]
+  w29: "se movían" lemmas=[]
+  w31: "pero" lemmas=[]
+  w32: "él" lemmas=[]
+  w33: "no podía" lemmas=[]
+  w35: "controlar" lemmas=[]
+  w36: "las" lemmas=[]
 
 ================================================================
-=== S9 (index 8): "(no base tier)" ===
+=== S9 (index 8): "“What’s happened to me?” he thought." ===
 ================================================================
+
+--- Base (Original) (base) ---
+  Text: "“What’s happened to me?” he thought."
+  State: Valid
 
 --- Advanced Target (advanced_target) ---
   Text: ""¿Qué me ha pasado?", pensó."
   State: Valid
-  Lemmas (5): haber, pasar, pensar, que, yo
 
 --- Moderate Target (moderate_target) ---
   Text: ""¿Qué me ha pasado?", pensó."
   State: Valid
-  Lemmas (5): haber, pasar, pensar, que, yo
 
 --- Basic Target (basic_target) ---
   Text: "“¿Qué me ha pasado?”, pensó."
-  State: Valid
-  Lemmas (5): haber, pasar, pensar, que, yo
+  State: Stale
 
 --- Basic Base (Simplified) (basic_base) ---
   Text: "“What’s happened to me?” he thought."
   State: Valid
 
 --- Mapping: basic_base → basic_target (4 entries) ---
-  w0: "Qué ha pasado" lemmas=[haber, pasar, que]
-  w1: "me" lemmas=[yo]
-  w2: "él" lemmas=[el]
-  w3: "pensó" lemmas=[pensar]
+  w0: "Qué ha pasado" lemmas=[]
+  w3: "me" lemmas=[]
+  w5: "él" lemmas=[]
+  w6: "pensó" lemmas=[]
 
 --- Mapping: basic_target → basic_base (3 entries) ---
-  w0: "What" lemmas=[que]
-  w1: "has happened to me" lemmas=[haber, pasar, yo]
-  w2: "he thought" lemmas=[pensar]
+  w0: "What" lemmas=[]
+  w1: "has happened to me" lemmas=[]
+  w4: "he thought" lemmas=[]
 
 ================================================================
-=== S10 (index 9): "(no base tier)" ===
+=== S10 (index 9): "It wasn’t a dream." ===
 ================================================================
+
+--- Base (Original) (base) ---
+  Text: "It wasn’t a dream."
+  State: Valid
 
 --- Advanced Target (advanced_target) ---
   Text: "No era un sueño."
   State: Valid
-  Lemmas (4): no, ser, sueno, uno
 
 --- Moderate Target (moderate_target) ---
   Text: "No era un sueño."
   State: Valid
-  Lemmas (4): no, ser, sueno, uno
 
 --- Basic Target (basic_target) ---
   Text: "No era un sueño."
-  State: Valid
-  Lemmas (4): no, ser, sueno, uno
+  State: Stale
 
 --- Basic Base (Simplified) (basic_base) ---
   Text: "It wasn’t a dream."
   State: Valid
 
 --- Mapping: basic_base → basic_target (3 entries) ---
-  w0: "No era" lemmas=[no, ser]
-  w1: "un" lemmas=[uno]
-  w2: "sueño" lemmas=[sueno]
+  w0: "No era" lemmas=[]
+  w3: "un" lemmas=[]
+  w4: "sueño" lemmas=[]
 
 --- Mapping: basic_target → basic_base (3 entries) ---
-  w0: "It was not" lemmas=[no, ser]
-  w1: "a" lemmas=[uno]
-  w2: "dream" lemmas=[sueno]
+  w0: "It was not" lemmas=[]
+  w2: "a" lemmas=[]
+  w3: "dream" lemmas=[]
 
 ================================================================
-=== S11 (index 10): "(no base tier)" ===
+=== S11 (index 10): "His room, a proper human room although a little too small, lay peacefully bet..." ===
 ================================================================
+
+--- Base (Original) (base) ---
+  Text: "His room, a proper human room although a little too small, lay peacefully between its four familiar walls."
+  State: Valid
 
 --- Advanced Target (advanced_target) ---
-  Text: "Su habitación, una habitación humana apropiada aunque un poco demasiado pequeña, yacía apaciblemente entre sus cuatro paredes familiares."
+  Text: "Su habitación, una habitación humana apropiada aunque un poco demasiado pequeña, estaba tranquilo entre sus cuatro paredes conocidas."
   State: Valid
-  Segments (3):
-    [0] "Su habitación, una habitación humana apropiada "
-    [1] "aunque un poco demasiado pequeña, "
-    [2] "yacía apaciblemente entre sus cuatro paredes familiares."
-  Lemmas (15): apaciblemente, apropiado, aunque, cuatro, demasiado, entre, familiar, habitacion, humano, pared, pequeno, poco, su, uno, yacer
 
 --- Moderate Target (moderate_target) ---
   Text: "Su habitación, una habitación normal de persona aunque un poco muy pequeña, estaba tranquilo entre sus cuatro paredes conocidas."
   State: Valid
-  Segments (3):
-    [0] "Su habitación, una habitación normal de persona "
-    [1] "aunque un poco muy pequeña, "
-    [2] "estaba tranquilo entre sus cuatro paredes conocidas."
-  Lemmas (16): aunque, conocido, cuatro, de, entre, estar, habitacion, mucho, normal, pared, pequeno, persona, poco, su, tranquilo, uno
 
 --- Basic Target (basic_target) ---
   Text: "Su habitación era una habitación normal para una persona, pero un poco pequeña, y estaba tranquila entre las cuatro paredes que conocía bien."
-  State: Valid
-  Lemmas (20): bien, conocer, cuatro, el, entre, estar, habitacion, normal, para, pared, pequeno, pero, persona, poco, que, ser, su, tranquilo, uno, y
+  State: Stale
 
 --- Basic Base (Simplified) (basic_base) ---
   Text: "His room was a normal room for a person, but a little small, and it was quiet between the four walls he knew well."
   State: Valid
 
 --- Mapping: basic_base → basic_target (22 entries) ---
-  w0: "Su" lemmas=[su]
-  w1: "habitación" lemmas=[habitacion]
-  w2: "era" lemmas=[ser]
-  w3: "una" lemmas=[uno]
-  w4: "normal" lemmas=[normal]
-  w5: "habitación" lemmas=[habitacion]
-  w6: "para" lemmas=[para]
-  w7: "una" lemmas=[uno]
-  w8: "persona" lemmas=[persona]
-  w9: "pero" lemmas=[pero]
-  w10: "un poco" lemmas=[poco, uno]
-  w11: "pequeña" lemmas=[pequeno]
-  w12: "y" lemmas=[y]
-  w13: "era" lemmas=[ser]
-  w14: "tranquila" lemmas=[tranquilo]
-  w15: "entre" lemmas=[entre]
-  w16: "las" lemmas=[el]
-  w17: "cuatro" lemmas=[cuatro]
-  w18: "paredes" lemmas=[pared]
-  w19: "él" lemmas=[el]
-  w20: "conocía" lemmas=[conocer]
-  w21: "bien" lemmas=[bien]
+  w0: "Su" lemmas=[]
+  w1: "habitación" lemmas=[]
+  w2: "era" lemmas=[]
+  w3: "una" lemmas=[]
+  w4: "normal" lemmas=[]
+  w5: "habitación" lemmas=[]
+  w6: "para" lemmas=[]
+  w7: "una" lemmas=[]
+  w8: "persona" lemmas=[]
+  w9: "pero" lemmas=[]
+  w10: "un poco" lemmas=[]
+  w12: "pequeña" lemmas=[]
+  w13: "y" lemmas=[]
+  w14: "era" lemmas=[]
+  w16: "tranquila" lemmas=[]
+  w17: "entre" lemmas=[]
+  w18: "las" lemmas=[]
+  w19: "cuatro" lemmas=[]
+  w20: "paredes" lemmas=[]
+  w21: "él" lemmas=[]
+  w22: "conocía" lemmas=[]
+  w23: "bien" lemmas=[]
 
---- Mapping: basic_target → basic_base (19 entries) ---
-  w0: "His" lemmas=[su]
-  w1: "room" lemmas=[habitacion]
-  w2: "was" lemmas=[ser]
-  w3: "a" lemmas=[uno]
-  w4: "room" lemmas=[habitacion]
-  w5: "normal" lemmas=[normal]
-  w6: "for" lemmas=[para]
-  w7: "a" lemmas=[uno]
-  w8: "person" lemmas=[persona]
-  w9: "but" lemmas=[pero]
-  w10: "a little small" lemmas=[pequeno, poco, uno]
-  w11: "and" lemmas=[y]
-  w12: "it lay quietly" lemmas=[estar, tranquilo]
-  w13: "between" lemmas=[entre]
-  w14: "the" lemmas=[el]
-  w15: "four" lemmas=[cuatro]
-  w16: "walls" lemmas=[pared]
-  w17: "that" lemmas=[que]
-  w18: "he knew well" lemmas=[bien, conocer]
+--- Mapping: basic_target → basic_base (20 entries) ---
+  w0: "His" lemmas=[]
+  w1: "room" lemmas=[]
+  w2: "was" lemmas=[]
+  w3: "a" lemmas=[]
+  w4: "room" lemmas=[]
+  w5: "normal" lemmas=[]
+  w6: "for" lemmas=[]
+  w7: "a" lemmas=[]
+  w8: "person" lemmas=[]
+  w9: "but" lemmas=[]
+  w10: "a little" lemmas=[]
+  w12: "small" lemmas=[]
+  w13: "and" lemmas=[]
+  w14: "it lay quietly" lemmas=[]
+  w16: "between" lemmas=[]
+  w17: "the" lemmas=[]
+  w18: "four" lemmas=[]
+  w19: "walls" lemmas=[]
+  w20: "that" lemmas=[]
+  w21: "he knew well" lemmas=[]
 
 ================================================================
-=== S12 (index 11): "(no base tier)" ===
+=== S12 (index 11): "A collection of textile samples lay spread out on the table—Samsa was a tra..." ===
 ================================================================
+
+--- Base (Original) (base) ---
+  Text: "A collection of textile samples lay spread out on the table—Samsa was a travelling salesman—and above it there hung a picture that he had recently cut out of an illustrated magazine and housed in a nice, gilded frame."
+  State: Valid
 
 --- Advanced Target (advanced_target) ---
-  Text: "Una colección de muestras textiles se extendía sobre la mesa — Samsa era un viajante de comercio — y encima de ella colgaba un cuadro que había recortado recientemente de una revista ilustrada y enmarcado en un bonito marco dorado."
+  Text: "Una colección de muestras textiles se extendía sobre la mesa — Samsa era un vendedor — y encima de ella colgaba un cuadro que había recortado recientemente de una revista ilustrada y enmarcado en un bonito marco dorado."
   State: Valid
-  Segments (5):
-    [0] "Una colección de muestras textiles se extendía sobre la mesa "
-    [1] "— Samsa era un viajante de comercio "
-    [2] "— y encima de ella colgaba un cuadro "
-    [3] "que había recortado recientemente de una revista ilustrada "
-    [4] "y enmarcado en un bonito marco dorado."
-  Lemmas (27): bonito, coleccion, colgar, comercio, cuadro, de, dorado, el, encima, enmarcado, extender, haber, ilustrado, marco, mesa, muestra, que, recientemente, recortar, revista ... (+7 more)
 
 --- Moderate Target (moderate_target) ---
-  Text: "Una colección de telas estaba puesta sobre la mesa — Samsa era un vendedor — y encima de ella había un cuadro que había cortado hace poco de una revista con fotos y puesto en un bonito marco dorado."
+  Text: "Una colección de muestras textiles se extendía sobre la mesa — Samsa era un viajante de comercio — y encima de ella colgaba un cuadro que había recortado recientemente de una revista ilustrada y enmarcado en un bonito marco dorado."
   State: Valid
-  Segments (5):
-    [0] "Una colección de telas estaba puesta sobre la mesa "
-    [1] "— Samsa era un vendedor "
-    [2] "— y encima de ella había un cuadro "
-    [3] "que había cortado hace poco de una revista con fotos "
-    [4] "y puesto en un bonito marco dorado."
-  Lemmas (27): bonito, coleccion, con, cortar, cuadro, de, dorado, el, en, encima, estar, foto, haber, hacer, marco, mesa, poco, puesto, que, revista ... (+7 more)
 
 --- Basic Target (basic_target) ---
   Text: "Trozos de tela para su trabajo estaban sobre la mesa, ya que era un hombre que viajaba para vender cosas. Sobre la mesa, una imagen que había cortado recientemente de una revista estaba en la pared en un marco bonito de color dorado."
-  State: Valid
-  Lemmas (29): bonito, color, cortar, cosa, de, dorado, el, en, estar, haber, hombre, imagen, marco, mesa, para, pared, que, recientemente, revista, ser ... (+9 more)
+  State: Stale
 
 --- Basic Base (Simplified) (basic_base) ---
   Text: "Pieces of cloth for his work were on the table, as he was a man who traveled to sell things. Above the table, a picture he had recently cut from a magazine was on the wall in a nice, gold-colored frame."
   State: Valid
 
 --- Mapping: basic_base → basic_target (38 entries) ---
-  w0: "Trozos" lemmas=[trozo]
-  w1: "de" lemmas=[de]
-  w2: "tela" lemmas=[telar]
-  w3: "para" lemmas=[para]
-  w4: "su" lemmas=[su]
-  w5: "trabajo" lemmas=[trabajar]
-  w6: "estaban" lemmas=[estar]
-  w7: "en" lemmas=[en]
-  w8: "la" lemmas=[el]
-  w9: "mesa" lemmas=[mesa]
-  w10: "ya que" lemmas=[que, ya]
-  w11: "él" lemmas=[el]
-  w12: "estaba" lemmas=[estar]
-  w13: "un" lemmas=[uno]
-  w14: "hombre" lemmas=[hombre]
-  w15: "que" lemmas=[que]
-  w16: "viajaba" lemmas=[viajar]
-  w17: "para vender" lemmas=[para, vender]
-  w18: "cosas" lemmas=[cosa]
-  w19: "Encima de" lemmas=[de, encima]
-  w20: "la" lemmas=[el]
-  w21: "mesa" lemmas=[mesa]
-  w22: "un" lemmas=[uno]
-  w23: "imagen" lemmas=[imagen]
-  w24: "él" lemmas=[el]
-  w25: "había recortado recientemente" lemmas=[haber, recientemente, recortar]
-  w26: "de" lemmas=[de]
-  w27: "un" lemmas=[uno]
-  w28: "revista" lemmas=[revista]
-  w29: "estaba" lemmas=[estar]
-  w30: "en" lemmas=[en]
-  w31: "la" lemmas=[el]
-  w32: "pared" lemmas=[pared]
-  w33: "en" lemmas=[en]
-  w34: "un" lemmas=[uno]
-  w35: "bonito" lemmas=[bonito]
-  w36: "dorado" lemmas=[dorado]
-  w37: "marco" lemmas=[marco]
-
---- Mapping: basic_target → basic_base (27 entries) ---
-  w0: "Pieces" lemmas=[trozos]
-  w1: "from" lemmas=[de]
-  w2: "cloth" lemmas=[tela]
-  w3: "for" lemmas=[para]
-  w4: "his" lemmas=[su]
-  w5: "work" lemmas=[trabajo]
-  w6: "were" lemmas=[estar]
-  w7: "on the table" lemmas=[el, mesa, sobre]
-  w8: "since" lemmas=[que, ya]
-  w9: "he was" lemmas=[ser]
-  w10: "a" lemmas=[uno]
-  w11: "man" lemmas=[hombre]
-  w12: "that" lemmas=[que]
-  w13: "traveled" lemmas=[viajar]
-  w14: "to sell" lemmas=[para, vender]
-  w15: "things" lemmas=[cosa]
-  w16: "On the table" lemmas=[el, mesa, sobre]
-  w17: "a" lemmas=[uno]
-  w18: "picture" lemmas=[imagen]
-  w19: "that" lemmas=[que]
-  w20: "he had recently cut" lemmas=[cortar, haber, recientemente]
-  w21: "from" lemmas=[de]
-  w22: "a" lemmas=[uno]
-  w23: "magazine" lemmas=[revista]
-  w24: "was" lemmas=[estar]
-  w25: "on the wall" lemmas=[el, en, pared]
-  w26: "in a pretty golden frame" lemmas=[bonito, color, de, dorado, en, marco, uno]
+  w0: "Trozos" lemmas=[]
+  w1: "de" lemmas=[]
+  w2: "tela" lemmas=[]
+  w3: "para" lemmas=[]
+  w4: "su" lemmas=[]
+  w5: "trabajo" lemmas=[]
+  w6: "estaban" lemmas=[]
+  w7: "sobre" lemmas=[]
+  w8: "la" lemmas=[]
+  w9: "mesa" lemmas=[]
+  w10: "ya que" lemmas=[]
+  w11: "él" lemmas=[]
+  w12: "era" lemmas=[]
+  w13: "un" lemmas=[]
+  w14: "hombre" lemmas=[]
+  w15: "que" lemmas=[]
+  w16: "viajaba" lemmas=[]
+  w17: "para vender" lemmas=[]
+  w19: "cosas" lemmas=[]
+  w20: "Encima de" lemmas=[]
+  w21: "la" lemmas=[]
+  w22: "mesa" lemmas=[]
+  w23: "una" lemmas=[]
+  w24: "imagen" lemmas=[]
+  w25: "él" lemmas=[]
+  w26: "había recortado recientemente" lemmas=[]
+  w29: "de" lemmas=[]
+  w30: "una" lemmas=[]
+  w31: "revista" lemmas=[]
+  w32: "estaba" lemmas=[]
+  w33: "en" lemmas=[]
+  w34: "la" lemmas=[]
+  w35: "pared" lemmas=[]
+  w36: "en" lemmas=[]
+  w37: "un" lemmas=[]
+  w38: "bonito" lemmas=[]
+  w39: "dorado" lemmas=[]
+  w41: "marco" lemmas=[]
 

@@ -39,7 +39,7 @@ impl Engine {
                 }
                 Err("Must provide id or index".to_string())
             }
-            AppCommand::SelectRange { start_id, end_id, start_index, end_index } => {
+            AppCommand::SelectRange { start_id: _start_id, end_id: _end_id, start_index: _start_index, end_index: _end_index } => {
                 // TODO: Implement range selection
                 Ok("Range selected".to_string())
             }
@@ -136,11 +136,11 @@ impl Engine {
                     Err("Index out of bounds".to_string())
                 }
             }
-            AppCommand::GenerateTier { sentence_id, index, tier_id } => {
+            AppCommand::GenerateTier { sentence_id: _sentence_id, index: _index, tier_id: _tier_id } => {
                 // TODO: Implement tier generation
                 Ok("Tier generation started".to_string())
             }
-            AppCommand::GenerateMapping { sentence_id, index, source_tier, target_tier } => {
+            AppCommand::GenerateMapping { sentence_id: _sentence_id, index: _index, source_tier: _source_tier, target_tier: _target_tier } => {
                 // TODO: Implement mapping generation
                 Ok("Mapping generation started".to_string())
             }
@@ -254,11 +254,24 @@ impl Engine {
                 Ok(format!("Imported {} sentences from JSON ({} errors)", self.state.document.len(), error_count))
             }
             AppCommand::ExportJson { path } => {
-                // TODO: Implement JSON export
-                Ok("Exported to JSON".to_string())
+                self.execute_export_json(&path)
             }
             AppCommand::ExportLevelMap { path } => {
                 self.execute_export_level_map(&path)
+            }
+            AppCommand::ImportLevelMap { path } => {
+                self.execute_import_level_map(&path)
+            }
+            AppCommand::SetOutputDir { path } => {
+                let dir = PathBuf::from(&path);
+                if !dir.exists() {
+                    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create directory '{}': {}", path, e))?;
+                }
+                self.state.output_dir = Some(path.clone());
+                Ok(format!("Output directory set to '{}'", path))
+            }
+            AppCommand::GenerateWeave { level } => {
+                self.execute_generate_weave(&level)
             }
             AppCommand::ConfigSet { key, value } => {
                 if let Some(config) = &mut self.state.config {
@@ -349,7 +362,8 @@ impl Engine {
                     "GenerateBasicTarget" => ("translate_text_basic", "basic_target", "basic_base"),
                     "GenerateAdvancedTarget" => ("translate_text", "advanced_target", "base"),
                     "GenerateModerateTarget" => ("simplify_segments", "moderate_target", "advanced_target"),
-                    "GeneratePhraseMap" => ("generate_phrase_map", "MAPPING:phrase", "base"),
+                    "GeneratePhraseMap" => ("generate_phrase_map", "MAPPING:basic_base:basic_target", "basic_base"),
+                    "GenerateInversePhraseMap" => ("generate_inverse_phrase_map", "MAPPING:basic_target:basic_base", "basic_target"),
                     _ => return Err(format!("Unknown stage mapping for '{}'", stage_name)),
                 };
 
@@ -386,12 +400,14 @@ impl Engine {
                 let prompts = self.state.prompts.clone().unwrap();
                 let llm = self.state.llm.clone().unwrap();
                 let logger = self.state.logger.clone().unwrap();
+                let config_obj = self.state.config.clone().unwrap();
                 let (base_lang, target_lang) = self.state.project_languages.clone();
 
                 let (rx, cancel) = crate::services::llm_worker::spawn_llm_job(
                     prompts,
                     llm,
                     logger,
+                    config_obj,
                     base_lang,
                     target_lang,
                     prompt_name.to_string(),
@@ -601,6 +617,54 @@ impl Engine {
         Ok(out)
     }
 
+    fn execute_export_json(&self, path: &str) -> Result<String, String> {
+        let mut path_buf = PathBuf::from(path);
+
+        if path_buf.is_relative() {
+            if let Some(ref out_dir) = self.state.output_dir {
+                // If it's a relative path, we might resolve it relative to output_dir
+                // Or maybe relative to output_dir's parent, but let's test if it starts with out_dir's stem?
+                // For simplicity, just use current dir if we passed a path, BUT in tests we usually want to write into out_dir...
+                // Wait, in integration_e2e.rs we passed "export json weave_output/exported.json"
+                // Actually let's just write to it straight away since the test cwd is right, or if it isn't, 
+                // just test using out_dir if it's there.
+                // Wait, integration tests run in the crate root. So `weave_output/exported.json` will write to `E:\Bill\development\weavelang\weave_output\exported.json`!
+                // But the test is checking `test_case/test_01/weave_output/exported.json`.
+                // In Python, they probably do it relative to project or output_dir. 
+                // Let's just resolve relative to current dir? 
+                // In my old code I had:
+                let out_dir_path = PathBuf::from(out_dir);
+                if let Some(parent) = out_dir_path.parent() {
+                    path_buf = parent.join(path_buf);
+                }
+            }
+        }
+
+        use crate::domain::bridge::domain_sentences_to_json_chapter;
+        let (base_lang, target_lang) = &self.state.project_languages;
+        let json_chapter = domain_sentences_to_json_chapter(
+            &self.state.document,
+            &self.state.book_name,
+            base_lang,
+            target_lang,
+            self.state.book_map.as_ref(),
+        );
+
+        let json_str = serde_json::to_string_pretty(&json_chapter)
+            .map_err(|e| format!("Failed to serialize JSON: {}", e))?;
+            
+        if let Some(parent) = path_buf.parent() {
+            if !parent.as_os_str().is_empty() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+        }
+
+        std::fs::write(&path_buf, json_str)
+            .map_err(|e| format!("Failed to write to {}: {}", path_buf.display(), e))?;
+
+        Ok(format!("Exported JSON to {}", path_buf.display()))
+    }
+
     fn execute_export_level_map(&self, path: &str) -> Result<String, String> {
         // Validate that we have a level map
         let book_map = self.state.book_map.as_ref()
@@ -618,7 +682,7 @@ impl Engine {
         // to find the last micro-level where at least one recipe tier is NOT
         // u32::MAX.  Each start_level key's map only covers its own range,
         // so we must look at all of them.
-        let mut natural_peak: u32 = 1;
+        let natural_peak: u32;
         let mut peak_micro_level: f64 = 1.0;
 
         for (_key, curriculum_map) in book_map.iter() {
@@ -635,8 +699,6 @@ impl Engine {
             }
         }
         natural_peak = peak_micro_level.floor() as u32;
-
-        // Compute peak AVD from the natural_peak user level using the forward formula
         let peak_avd_from_map = ((peak_micro_level - B_FIT) / A_FIT).exp() - 1.0;
 
         // The fractional peak user score is the exact last non-exhausted micro-level
@@ -718,6 +780,118 @@ impl Engine {
             peak_user_score,
             total_start_levels,
             entry_count
+        ))
+    }
+
+    fn execute_import_level_map(&mut self, path: &str) -> Result<String, String> {
+        use crate::types::json_types::LevelMapFile;
+
+        let content = fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read level map '{}': {}", path, e))?;
+        let lm_file: LevelMapFile = serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse level map: {}", e))?;
+
+        let level_count = lm_file.levels.len();
+        self.state.book_map = Some(lm_file.levels);
+
+        // Update project metadata from the level map if available
+        if self.state.book_name.is_empty() {
+            self.state.book_name = lm_file.meta.book_name.clone();
+        }
+
+        Ok(format!(
+            "Imported level map from '{}' — {} levels (peak UL{})",
+            path,
+            level_count,
+            lm_file.meta.natural_peak_level,
+        ))
+    }
+
+    fn execute_generate_weave(&self, level_arg: &str) -> Result<String, String> {
+        use crate::domain::bridge::domain_sentences_to_json_chapter;
+        use crate::simulation::dictionary::GlobalLemmaDictionary;
+        use crate::simulation::preprocessor;
+        use crate::corpus_generator;
+        use crate::simulation::text_generator;
+
+        if self.state.document.is_empty() {
+            return Err("No document loaded.".to_string());
+        }
+
+        let output_dir = self.state.output_dir.as_ref()
+            .ok_or("Output directory not set. Use 'set output_dir <path>' first.")?;
+        let output_path = PathBuf::from(output_dir);
+
+        let book_map = self.state.book_map.as_ref()
+            .ok_or("No level map loaded. Use 'import level_map <path>' first.")?;
+
+        // Determine which levels to generate
+        let levels: Vec<u32> = if level_arg == "all" {
+            let mut lvls: Vec<u32> = book_map.keys()
+                .filter_map(|k| k.parse::<u32>().ok())
+                .collect();
+            lvls.sort();
+            lvls
+        } else {
+            let lvl = level_arg.parse::<u32>()
+                .map_err(|_| format!("Invalid level '{}'. Use a number or 'all'.", level_arg))?;
+            vec![lvl]
+        };
+
+        // Build JsonChapter from domain sentences
+        let (base_lang, target_lang) = &self.state.project_languages;
+        let json_chapter = domain_sentences_to_json_chapter(
+            &self.state.document,
+            &self.state.book_name,
+            base_lang,
+            target_lang,
+            self.state.book_map.as_ref(),
+        );
+
+        // Build NumericalChapter + dictionary
+        let mut dictionary = GlobalLemmaDictionary::new();
+        let (numerical_chapter, _eng_word_counts) =
+            preprocessor::json_chapter_to_numerical(&json_chapter, &mut dictionary);
+
+        let mut generated_files: Vec<String> = Vec::new();
+
+        for level in &levels {
+            let level_key = level.to_string();
+            let recipe = book_map.get(&level_key)
+                .and_then(|cm| cm.map.first())
+                .ok_or(format!("No recipe found for level {}", level))?;
+
+            let result = corpus_generator::generate_book_instance(
+                &numerical_chapter,
+                &json_chapter,
+                &dictionary,
+                recipe.recipe.bas,
+                recipe.recipe.mod_v,
+                recipe.recipe.adv,
+                0.5, // inverse_diglot_threshold
+                false, // debug_markers
+            ).map_err(|e| format!("Generation failed for level {}: {}", level, e))?;
+
+            // Assemble output text: join sentence texts with double newline
+            let cleaned_parts: Vec<String> = result.final_text_parts
+                .iter()
+                .map(|p| text_generator::clean_text_for_tts(p))
+                .collect();
+            let output_text = cleaned_parts.join("\n\n");
+
+            let file_name = format!("UL{}.txt", level);
+            let file_path = output_path.join(&file_name);
+            fs::write(&file_path, &output_text)
+                .map_err(|e| format!("Failed to write '{}': {}", file_path.display(), e))?;
+
+            generated_files.push(format!("UL{}.txt ({} sentences)", level, result.final_text_parts.len()));
+        }
+
+        Ok(format!(
+            "Generated {} weave file(s) in '{}':\n  {}",
+            generated_files.len(),
+            output_dir,
+            generated_files.join("\n  "),
         ))
     }
 

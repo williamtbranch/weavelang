@@ -1,9 +1,5 @@
 // src/gui/components/navigator.rs
 
-use crate::domain::segment::Segment;
-use crate::domain::sentence::Sentence;
-use crate::domain::tier::Tier;
-use crate::domain::token_stream::TokenStream;
 use crate::gui::preview;
 use crate::app::state::{AppState, TierView};
 use eframe::egui;
@@ -56,7 +52,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState) {
                             let sentence = &state.document[i];
                             // Consider selected if within selected_range or equals selected_sentence_idx
                             let is_selected = match state.selected_range {
-                                Some((s, e)) => (i >= s && i <= e),
+                                Some((s, e)) => i >= s && i <= e,
                                 None => i == state.selected_sentence_idx,
                             };
 

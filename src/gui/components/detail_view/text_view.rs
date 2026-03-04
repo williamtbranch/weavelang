@@ -1,15 +1,23 @@
 // src/gui/components/detail_view/text_view.rs
 
 use crate::domain::tier::TierState;
-use crate::domain::token_stream::{Token, TokenStream};
 use crate::gui::preview;
 use crate::app::state::{AppState, TierView};
-use crate::services::llm_worker::spawn_llm_job;
 use eframe::egui;
 use regex::Regex;
 
-const DEFAULT_MODEL: &str = "claude-3-haiku-20240307";
+/// Maps a tier ID to the engine stage name used to generate it.
+fn stage_for_tier(tier_id: &str) -> Option<&'static str> {
+    match tier_id {
+        "advanced_target" => Some("GenerateAdvancedTarget"),
+        "moderate_target" => Some("GenerateModerateTarget"),
+        "basic_target"    => Some("GenerateBasicTarget"),
+        "basic_base"      => Some("GenerateBasicBase"),
+        _                 => None,
+    }
+}
 
+#[allow(dead_code)]
 fn extract_translation_from_response(raw_response: &str, target_id: &str) -> String {
     let num_str: String = target_id.chars().filter(|c| c.is_ascii_digit()).collect();
 
@@ -63,7 +71,7 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
     }
 
     // --- Configuration for this View ---
-    let (tier_id, lang_code, parent_tier_id, prompt_name) = match view {
+    let (tier_id, _lang_code, parent_tier_id, prompt_name) = match view {
         // Base is the Root.
         TierView::Base => ("base", "en", None, None),
 
@@ -122,13 +130,7 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
     });
     ui.separator();
 
-    let bridge_handle = state.bridge.clone();
-    let llm_handle = state.llm.clone();
-    let prompts_handle = state.prompts.clone();
-    let logger_handle = state.logger.clone();
-    let (proj_base, proj_target) = state.project_languages.clone();
     let cur_selected_idx = state.selected_sentence_idx;
-    let cur_batch_size = state.llm_batch_settings.simplify;
 
     let mut parent_text_opt = None;
     if let Some(p_id) = parent_tier_id {
@@ -139,27 +141,14 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
         }
     }
 
-    let mut status_update: Option<String> = None;
-
-    // We may need to start an LLM job but avoid mutably borrowing `state` while
-    // holding `sentence_mut`. Collect a pending job to apply after the borrow.
-    let mut after_job: Option<(
-        std::sync::mpsc::Receiver<Result<Vec<(usize, String, String, String)>, String>>,
-        std::sync::Arc<std::sync::atomic::AtomicBool>,
-        Vec<(usize, String, String)>,
-        usize,
-        String,
-    )> = None;
-
     let mut current_tier_text = String::new();
     let mut current_tier_state = TierState::Valid;
     let mut current_tier_exists = false;
-    let mut s_id = String::new();
     let mut pending_action: Option<&str> = None;
     let mut pending_text_update: Option<String> = None;
 
     if let Some(sentence_mut) = state.get_current_sentence_mut() {
-        s_id = sentence_mut.id.clone();
+        let _s_id = sentence_mut.id.clone();
         if let Some(tier) = sentence_mut.get_tier(tier_id) {
             current_tier_text = tier.full_text();
             current_tier_state = tier.state;
@@ -243,102 +232,17 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
         // Handle "Retokenize" immediately
         if let Some("Retokenize") = pending_action {
              state.pending_terminal_command = Some(format!("approve edits {} {}", cur_selected_idx, tier_id));
-             // Clear pending action so we don't double process
-             pending_action = None; 
+             pending_action = None;
         }
     } // End of mutable borrow
 
-    // 2. Process Actions that require broader state access (LLM Job)
+    // 2. Handle Regenerate via command system
     if let Some("Regenerate") = pending_action {
-        if prompts_handle.is_none() || llm_handle.is_none() || logger_handle.is_none() {
-            status_update = Some("LLM services not configured.".to_string());
-        } else if parent_tier_id.is_none() || prompt_name.is_none() {
-            status_update = Some("No parent tier or prompt defined.".to_string());
-        } else {
-            let prompts = prompts_handle.unwrap();
-            let llm = llm_handle.unwrap();
-            let logger = logger_handle.unwrap();
-            let (base_code, target_code) = (proj_base.clone(), proj_target.clone());
-            let prompt_name_str = prompt_name.unwrap().to_string();
-            let p_id = parent_tier_id.unwrap();
-
-            // CONTEXT WINDOW LOGIC:
-            // Use the User's Batch Setting for context size (typically 10).
-            // This ensures we have enough context to prevent "completion mode".
-            // If user sets batch=1, we warn them but obey.
-            let context_window_size = cur_batch_size.max(1);
-            
-            // Check if user is using a very small batch size which risks hallucinations
-            if context_window_size < 3 {
-                 // We can't easily pop a warning here without interrupting the flow, 
-                 // but we can log it or show it in the spinner.
-                 status_update = Some("Warning: Batch size < 3 increases hallucination risk.".to_string());
-            }
-
-            let start_idx = cur_selected_idx;
-            let end_idx = std::cmp::min(cur_selected_idx + context_window_size, state.document.len());
-            
-            let mut items = Vec::new();
-            
-            for i in start_idx..end_idx {
-                if let Some(s) = state.document.get(i) {
-                    if let Some(p_tier) = s.get_tier(p_id) {
-                        items.push((i, s.id.clone(), p_tier.full_text()));
-                    }
-                }
-            }
-
-            if items.is_empty() {
-                 status_update = Some("No source text found in window.".to_string());
-            } else {
-                // Snapshot current target tier text for possible revert (we only care about the *current* sentence for revert)
-                let prior = if current_tier_exists { current_tier_text } else { String::new() };
-                let backup = vec![(cur_selected_idx, tier_id.to_string(), prior)];
-
-                let batch = cur_batch_size; // Pass through to worker
-                let model = DEFAULT_MODEL.to_string();
-
-                // If we grabbed collateral sentences, the worker will return them all.
-                // We'll filter them in the main app loop or handle them via the new collateral confirmation logic.
-
-                let (rx, cancel_flag) = spawn_llm_job(
-                    prompts,
-                    llm,
-                    logger,
-                    base_code,
-                    target_code,
-                    prompt_name_str.clone(),
-                    tier_id.to_string(),
-                    items,
-                    batch,
-                    model,
-                    None,
-                    false, // not segment-level
-                );
-
-                after_job = Some((rx, cancel_flag, backup, end_idx - start_idx, prompt_name_str.clone()));
-                if status_update.is_none() {
-                    status_update = Some(format!("LLM regeneration started (Window: {}).", end_idx - start_idx));
-                }
-            }
+        if let Some(stage) = stage_for_tier(tier_id) {
+            state.pending_terminal_command = Some(format!(
+                "run generate {} {} {}",
+                stage, cur_selected_idx, cur_selected_idx
+            ));
         }
-    }
-
-    // 3. Apply any deferred LLM job into the AppState
-    if let Some((rx, cancel_flag, backup, total, prompt_name_str)) = after_job {
-        state.llm_results_receiver = Some(rx);
-        state.llm_cancel_flag = Some(cancel_flag);
-        state.llm_job_backup = backup;
-        state.llm_job_total = total;
-        state.llm_job_done = 0;
-        state.last_log = format!("LLM job '{}' started.", prompt_name_str);
-    }
-    
-    // 4. Update Status if needed
-    if let Some(msg) = status_update {
-        ui.horizontal(|ui| {
-            ui.spinner();
-            ui.label(msg);
-        });
     }
 }

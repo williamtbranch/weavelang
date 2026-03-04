@@ -1,0 +1,50 @@
+# Test 01: Full 12-sentence pipeline test (Metamorphosis excerpt)
+# ================================================================
+# Raw Gutenberg text — the bridge handles sentence splitting on import.
+# Requires --test-mode pointed at the test_case/test_01 directory.
+
+# 1. Import the raw source text (bridge splits into sentences)
+import source source_input.txt
+
+# 2. GenerateBasicBase: base → basic_base  (prompt: simplify_to_basic_english)
+run generate GenerateBasicBase 0 11
+watch_job
+
+# 3. GenerateAdvancedTarget: base → advanced_target  (prompt: translate_text)
+run generate GenerateAdvancedTarget 0 11
+watch_job
+
+# 4. GenerateBasicTarget: basic_base → basic_target  (prompt: translate_text_basic)
+run generate GenerateBasicTarget 0 11
+watch_job
+
+# 5. GenerateModerateTarget: advanced_target → moderate_target  (prompt: simplify_segments, segment-level Sn_Sn)
+run generate GenerateModerateTarget 0 11
+watch_job
+
+# 6. GeneratePhraseMap: base → MAPPING:base:advanced_target  (prompt: generate_phrase_map)
+run generate GeneratePhraseMap 0 11
+watch_job
+
+# 7. GenerateInversePhraseMap: advanced_target → MAPPING:advanced_target:base
+run generate GenerateInversePhraseMap 0 11
+watch_job
+
+# 8. Import level map and set output directory
+import level_map test_level_map.lm
+set output_dir weave_output
+
+# 9. Generate weave files for test levels
+generate_weave 1
+generate_weave 7
+generate_weave 14
+generate_weave 20
+generate_weave 25
+generate_weave 30
+generate_weave 34
+
+# 10. Dump debug state for comparison against golden file
+debug_dump 0 11 expects/debug_dump_test.txt
+
+export json weave_output/exported.json
+export json weave_output/exported.json

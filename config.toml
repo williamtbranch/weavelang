@@ -76,6 +76,21 @@ thinking_budget_tokens = 1024
     fallback_model = "sonnet"
     batch_size_in_items = 20
     
+    [stages.GenerateBasicTarget]     # Alias used by terminal 'run generate'
+    primary_model = "gemini-pro"
+    fallback_model = "sonnet"
+    batch_size_in_items = 20
+
+    [stages.GenerateAdvancedTarget]
+    primary_model = "gemini-pro"
+    fallback_model = "sonnet"
+    batch_size_in_items = 20
+
+    [stages.GenerateModerateTarget]
+    primary_model = "gemini-pro"
+    fallback_model = "sonnet"
+    batch_size_in_items = 10
+
     [stages.PoolManager_Translation]
     primary_model = "sonnet"
     fallback_model = "sonnet"
@@ -98,5 +113,12 @@ thinking_budget_tokens = 1024
     primary_model = "gemini-pro"
     fallback_model = "opus"
     batch_size_in_items = 3 # You can tune this
+    thinking_budget_tokens = 1024
+    thinking_on_first_attempt = true
+
+    [stages.GenerateInversePhraseMap]
+    primary_model = "gemini-pro"
+    fallback_model = "opus"
+    batch_size_in_items = 1
     thinking_budget_tokens = 1024
     thinking_on_first_attempt = true

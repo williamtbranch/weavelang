@@ -15,3 +15,8 @@ temp
 .llm_cache/
 Metamorphosis.json
 *.exe
+*.lm
+output
+weave_output
+test_temp
+Metamorphosis_12.json

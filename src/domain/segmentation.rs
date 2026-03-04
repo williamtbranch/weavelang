@@ -35,11 +35,13 @@ pub fn merge_short_segments(mut segments: Vec<String>, min_segment_words: usize)
 
             let can_merge_backward = min_idx > 0;
             let can_merge_forward = min_idx < segments.len() - 1;
-            let mut merge_backward = false; // logic sets this
 
             if !can_merge_backward && !can_merge_forward {
                 break;
-            } else if can_merge_backward && !can_merge_forward {
+            }
+
+            let merge_backward;
+            if can_merge_backward && !can_merge_forward {
                 merge_backward = true;
             } else if !can_merge_backward && can_merge_forward {
                 merge_backward = false;

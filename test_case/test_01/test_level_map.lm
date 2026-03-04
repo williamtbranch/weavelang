@@ -1,0 +1,147 @@
+{
+    "meta":  {
+                 "peak_user_score":  34.8,
+                 "schema_version":  "1.0",
+                 "natural_peak_level":  34,
+                 "peak_avd":  4361.16,
+                 "base_language":  "en",
+                 "total_start_levels":  7,
+                 "book_name":  "Metamorphosis_test",
+                 "target_language":  "es"
+             },
+    "levels":  {
+                   "7":  {
+                             "end_level":  11.0,
+                             "map":  [
+                                         {
+                                             "recipe":  {
+                                                            "mod_v":  0,
+                                                            "adv":  0,
+                                                            "bas":  12
+                                                        },
+                                             "level":  7.0,
+                                             "start_sentence_idx":  0,
+                                             "l_level_recipe":  {
+                                                                    "mod_v":  0.0,
+                                                                    "adv":  0.0,
+                                                                    "bas":  6.9
+                                                                }
+                                         }
+                                     ]
+                         },
+                   "20":  {
+                              "end_level":  21.0,
+                              "map":  [
+                                          {
+                                              "recipe":  {
+                                                             "mod_v":  4,
+                                                             "adv":  0,
+                                                             "bas":  261
+                                                         },
+                                              "level":  20.0,
+                                              "start_sentence_idx":  0,
+                                              "l_level_recipe":  {
+                                                                     "mod_v":  2.1946146,
+                                                                     "adv":  0.0,
+                                                                     "bas":  19.8
+                                                                 }
+                                          }
+                                      ]
+                          },
+                   "34":  {
+                              "end_level":  35.0,
+                              "map":  [
+                                          {
+                                              "recipe":  {
+                                                             "mod_v":  4294967295,
+                                                             "adv":  19154,
+                                                             "bas":  4294967295
+                                                         },
+                                              "level":  34.0,
+                                              "start_sentence_idx":  0,
+                                              "l_level_recipe":  {
+                                                                     "mod_v":  31.7,
+                                                                     "adv":  33.8,
+                                                                     "bas":  31.9
+                                                                 }
+                                          }
+                                      ]
+                          },
+                   "30":  {
+                              "end_level":  31.0,
+                              "map":  [
+                                          {
+                                              "recipe":  {
+                                                             "mod_v":  1695,
+                                                             "adv":  541,
+                                                             "bas":  5008
+                                                         },
+                                              "level":  30.0,
+                                              "start_sentence_idx":  0,
+                                              "l_level_recipe":  {
+                                                                     "mod_v":  27.066925,
+                                                                     "adv":  22.52072,
+                                                                     "bas":  30.0
+                                                                 }
+                                          }
+                                      ]
+                          },
+                   "1":  {
+                             "end_level":  7.0,
+                             "map":  [
+                                         {
+                                             "recipe":  {
+                                                            "mod_v":  0,
+                                                            "adv":  0,
+                                                            "bas":  0
+                                                        },
+                                             "level":  1.0,
+                                             "start_sentence_idx":  0,
+                                             "l_level_recipe":  {
+                                                                    "mod_v":  0.0,
+                                                                    "adv":  0.0,
+                                                                    "bas":  0.0
+                                                                }
+                                         }
+                                     ]
+                         },
+                   "14":  {
+                              "end_level":  15.0,
+                              "map":  [
+                                          {
+                                              "recipe":  {
+                                                             "mod_v":  0,
+                                                             "adv":  0,
+                                                             "bas":  49
+                                                         },
+                                              "level":  14.0,
+                                              "start_sentence_idx":  0,
+                                              "l_level_recipe":  {
+                                                                     "mod_v":  0.0,
+                                                                     "adv":  0.0,
+                                                                     "bas":  13.9
+                                                                 }
+                                          }
+                                      ]
+                          },
+                   "25":  {
+                              "end_level":  26.0,
+                              "map":  [
+                                          {
+                                              "recipe":  {
+                                                             "mod_v":  75,
+                                                             "adv":  0,
+                                                             "bas":  911
+                                                         },
+                                              "level":  25.0,
+                                              "start_sentence_idx":  0,
+                                              "l_level_recipe":  {
+                                                                     "mod_v":  14.63077,
+                                                                     "adv":  0.0,
+                                                                     "bas":  24.9
+                                                                 }
+                                          }
+                                      ]
+                          }
+               }
+}

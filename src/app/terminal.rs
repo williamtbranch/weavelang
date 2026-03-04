@@ -68,8 +68,11 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
             } else if parts.len() > 2 && parts[1] == "json" {
                 let path = parts[2..].join(" ");
                 Ok(TerminalCommand::App(AppCommand::ImportJson { path }))
+            } else if parts.len() > 2 && parts[1] == "level_map" {
+                let path = parts[2..].join(" ");
+                Ok(TerminalCommand::App(AppCommand::ImportLevelMap { path }))
             } else {
-                Err("Usage: import source <path> | import json <path>".to_string())
+                Err("Usage: import source <path> | import json <path> | import level_map <path>".to_string())
             }
         },
         "save" => {
@@ -163,8 +166,11 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
                 Ok(TerminalCommand::App(AppCommand::SetRightView { view: parts[2].to_string() }))
             } else if parts.len() > 2 && parts[1] == "left_view" {
                 Ok(TerminalCommand::App(AppCommand::SetLeftView { view: parts[2].to_string() }))
+            } else if parts.len() > 2 && parts[1] == "output_dir" {
+                let path = parts[2..].join(" ");
+                Ok(TerminalCommand::App(AppCommand::SetOutputDir { path }))
             } else {
-                Err("Usage: set right_view <view_name> | set left_view <view_name>".to_string())
+                Err("Usage: set right_view <view_name> | set left_view <view_name> | set output_dir <path>".to_string())
             }
         },
         "show" => {
@@ -203,6 +209,14 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
             }
         },
         "watch_job" => Ok(TerminalCommand::WatchJob),
+        "generate_weave" => {
+            if parts.len() > 1 {
+                let level = parts[1].to_string();
+                Ok(TerminalCommand::App(AppCommand::GenerateWeave { level }))
+            } else {
+                Err("Usage: generate_weave <level|all>".to_string())
+            }
+        },
         _ => Err(format!("Unknown command: {}", parts[0])),
     }
 }
@@ -232,6 +246,9 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  measure_user_score <p> - Measure estimated user level of a plain text file\n");
             out.push_str("  debug_dump <s> <e> [p] - Dump debug state for sentences s..e to file or stdout\n");
             out.push_str("  watch_job              - Block until current LLM job completes\n");
+            out.push_str("  import level_map <p>   - Import a .lm level map file\n");
+            out.push_str("  set output_dir <p>     - Set output directory for weave files\n");
+            out.push_str("  generate_weave <N|all> - Generate weave text file(s) for level N or all\n");
             out.push_str("  exit                   - Exit");
         },
         TerminalCommand::Clear => {
@@ -313,7 +330,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
                                     );
                                     let bridge_ref = engine.state.bridge.as_ref();
                                     if let Some(sent) = engine.state.document.get_mut(idx) {
-                                        apply_llm_result_terminal(sent, &tier_id, &text, bridge_ref, &lang);
+                                        apply_llm_result(sent, &tier_id, &text, bridge_ref, &lang);
                                     }
                                 }
                             }
@@ -364,8 +381,9 @@ pub fn run_terminal_command(engine: &mut Engine, input: &str) -> Result<Option<S
     Ok(execute_command(engine, cmd))
 }
 
-/// Apply an LLM result to a sentence — terminal-side equivalent of the GUI's `apply_llm_result`.
-fn apply_llm_result_terminal(
+/// Apply an LLM result to a sentence.
+/// Shared by both the terminal and GUI front ends — the single source of truth.
+pub fn apply_llm_result(
     sent: &mut Sentence,
     tier_id: &str,
     text: &str,
@@ -395,7 +413,34 @@ fn apply_llm_result_terminal(
             }
         }
     } else {
-        let segments = crate::services::tier_processor::tokenize_only(text, lang_code, bridge);
-        sent.update_tier_with_segments(tier_id, segments);
+        if text.contains('\0') {
+            // Null byte denotes pre-segmented text from the LLM worker.
+            // Mirror Python's `reconstruct_and_separate_segments`: add a
+            // trailing space to every non-final segment that lacks one.
+            let raw_segs: Vec<&str> = text.split('\0').collect();
+            let num_segs = raw_segs.len();
+            let mut all_segments = Vec::new();
+            for (i, raw) in raw_segs.into_iter().enumerate() {
+                let seg_id = format!("S{}", i + 1);
+                // Add separator space for non-final segments (Python parity).
+                let owned: String;
+                let seg_text: &str = if i < num_segs - 1 && !raw.ends_with(' ') {
+                    owned = format!("{} ", raw);
+                    &owned
+                } else {
+                    raw
+                };
+                let stream = crate::services::tier_processor::tokenize_only(seg_text, lang_code, bridge)
+                    .into_iter()
+                    .next()
+                    .unwrap()
+                    .stream; // tokenize_only returns a single Segment; extract its stream
+                all_segments.push(crate::domain::segment::Segment::from_stream(seg_id, stream, vec![]));
+            }
+            sent.update_tier_with_segments(tier_id, all_segments);
+        } else {
+            let segments = crate::services::tier_processor::tokenize_only(text, lang_code, bridge);
+            sent.update_tier_with_segments(tier_id, segments);
+        }
     }
 }

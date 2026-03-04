@@ -3,7 +3,7 @@ use crate::simulation::numerical_types::{LLevelRecipe, VLevelRecipe};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct JsonChapterMarkerBlock {
     pub text: String,
 }
@@ -53,14 +53,14 @@ pub enum TierId {
 }
 // --- MODIFIED SECTION END ---
 
-#[derive(Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct JsonSentenceBlock {
     pub s_id: String,
     pub tiers: Vec<JsonTierV2>,
     pub mappings: JsonMappingsV2,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "block_type")]
 #[serde(rename_all = "snake_case")]
 pub enum JsonContentBlock {
@@ -69,7 +69,7 @@ pub enum JsonContentBlock {
     Sentence(JsonSentenceBlock),
 }
 
-#[derive(Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct JsonBookMetaV2 {
     pub book_name: String,
     pub schema_version: String,
@@ -77,7 +77,7 @@ pub struct JsonBookMetaV2 {
     pub target_language: String,
 }
 
-#[derive(Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct JsonChapter {
     pub book_meta: JsonBookMetaV2,
     pub content_blocks: Vec<JsonContentBlock>,
@@ -91,7 +91,7 @@ pub struct JsonChapterForParsing {
     pub content_blocks: Vec<JsonContentBlock>,
 }
 
-#[derive(Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct JsonTierV2 {
     pub tier_id: String,
     pub full_text: String,
@@ -100,7 +100,7 @@ pub struct JsonTierV2 {
     pub segments: Vec<JsonSegmentV2>,
 }
 
-#[derive(Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct JsonMappingsV2 {
     #[serde(default, rename = "basic_spanish_to_basic_english_diglot")]
     pub basic_diglot: HashMap<String, Vec<(usize, Vec<String>, String, bool, usize, Vec<String>)>>,

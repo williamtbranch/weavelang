@@ -105,6 +105,28 @@ pub struct AppState {
     #[serde(skip)]
     pub show_collateral_confirm: bool,
 
+    // Output directory for generated files
+    #[serde(skip)]
+    pub output_dir: Option<String>,
+
+    // Debug Dump dialog
+    #[serde(skip)]
+    pub show_debug_dump: bool,
+    #[serde(skip)]
+    pub debug_dump_start: usize,
+    #[serde(skip)]
+    pub debug_dump_end: usize,
+    #[serde(skip)]
+    pub debug_dump_path: String,
+
+    // Config Set dialog
+    #[serde(skip)]
+    pub show_config_set: bool,
+    #[serde(skip)]
+    pub config_set_key: String,
+    #[serde(skip)]
+    pub config_set_value: String,
+
     // Command routing
     #[serde(skip)]
     pub pending_terminal_command: Option<String>,
@@ -140,7 +162,7 @@ impl Default for AppState {
             llm_run_start: 0,
             llm_run_end: 0,
             llm_run_batch_size: StageBatchSettings::default().simplify,
-            llm_run_prompt_name: "simplify_to_basic_english".to_string(),
+            llm_run_prompt_name: "GenerateBasicBase".to_string(),
             llm_job_total: 0,
             llm_job_done: 0,
             llm_cancel_flag: None,
@@ -149,6 +171,14 @@ impl Default for AppState {
             last_log: "Ready.".to_string(),
             pending_collateral_updates: Vec::new(),
             show_collateral_confirm: false,
+            output_dir: None,
+            show_debug_dump: false,
+            debug_dump_start: 0,
+            debug_dump_end: 0,
+            debug_dump_path: String::new(),
+            show_config_set: false,
+            config_set_key: String::new(),
+            config_set_value: String::new(),
             pending_terminal_command: None,
         }
     }

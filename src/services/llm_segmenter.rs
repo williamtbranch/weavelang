@@ -144,7 +144,6 @@ fn parse_labeled_segmentation_response(
 ) -> Result<Vec<String>, String> {
     let header_re = Regex::new(r"^\s*([A-Za-z0-9_:-]+)\s*:\s*$").unwrap();
     
-    let mut current_id: Option<String> = None;
     let mut segments_for_id: Vec<String> = Vec::new();
     let mut found = false;
 
@@ -157,9 +156,6 @@ fn parse_labeled_segmentation_response(
             }
             if id == s_id {
                 found = true;
-                current_id = Some(id);
-            } else {
-                current_id = None;
             }
             continue;
         }
@@ -252,7 +248,7 @@ fn align_segments_to_original(
 ) -> Result<Vec<String>, String> {
     let opening_punct: HashSet<char> = OPENING_PUNCT.iter().cloned().collect();
     let word_re = Regex::new(r"[\w']+").unwrap();
-    let chars: Vec<char> = sentence_text.chars().collect();
+    let _chars: Vec<char> = sentence_text.chars().collect();
 
     let mut final_segments: Vec<String> = Vec::new();
     let mut current_offset: usize = 0; // byte offset into sentence_text

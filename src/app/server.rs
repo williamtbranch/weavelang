@@ -5,8 +5,7 @@
 
 use crate::app::commands::AppCommand;
 use crate::app::engine::Engine;
-use serde::{Deserialize, Serialize};
-use std::io::Read;
+use serde::Serialize;
 use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use tiny_http::{Server, Response, Header, Method, StatusCode};
 

@@ -34,6 +34,11 @@ pub enum AppCommand {
     MeasureAvd { path: String },
     MeasureUserScore { path: String },
 
+    // Level Map & Weave Generation
+    ImportLevelMap { path: String },
+    SetOutputDir { path: String },
+    GenerateWeave { level: String },
+
     // Debug / Testing
     DebugDump { start_index: usize, end_index: usize, path: Option<String> },
 
