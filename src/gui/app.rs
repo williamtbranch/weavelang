@@ -491,8 +491,11 @@ impl App for WeaveLangApp {
                         // continue draining
                     }
                     Ok(Err(err_str)) => {
+                        let log_hint = self.state.logger.as_ref()
+                            .map(|l| format!("\nLLM log: {}", l.log_file_path().display()))
+                            .unwrap_or_default();
                         self.status_message = format!("LLM job failed: {}", err_str);
-                        self.state.last_log = format!("LLM job failed: {}", err_str);
+                        self.state.last_log = format!("Error: {}{}", err_str, log_hint);
                         clear_receiver = true;
                         break;
                     }
@@ -618,30 +621,49 @@ impl App for WeaveLangApp {
         // LLM Settings window
         if self.state.show_llm_settings {
             let mut open = true;
-            let mut pending_commands = Vec::new();
+            let mut pending_commands: Vec<String> = Vec::new();
 
-            egui::Window::new("LLM / Stage Settings").open(&mut open).show(ctx, |ui| {
+            egui::Window::new("LLM / Stage Settings")
+                .open(&mut open)
+                .default_width(500.0)
+                .show(ctx, |ui| {
                 if let Some(draft) = &mut self.state.draft_config {
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         ui.heading("Models");
+                        ui.label("Model aliases are referenced by stage configurations below. You can add, rename, or remove them freely.");
+                        ui.add_space(4.0);
+
                         if !draft.models.is_empty() {
                             let mut keys: Vec<String> = draft.models.keys().cloned().collect();
                             keys.sort();
-                            
-                            for k in keys {
+                            let mut remove_key: Option<String> = None;
+
+                            for k in &keys {
                                 ui.group(|ui| {
-                                    ui.label(egui::RichText::new(&k).strong());
-                                    let v = draft.models.get_mut(&k).unwrap();
+                                    ui.horizontal(|ui| {
+                                        ui.label(egui::RichText::new(k).strong().size(14.0));
+                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                            if ui.small_button("Remove").clicked() {
+                                                remove_key = Some(k.clone());
+                                            }
+                                        });
+                                    });
+                                    let v = draft.models.get_mut(k).unwrap();
                                     
                                     ui.horizontal(|ui| {
                                         ui.label("Name:");
                                         ui.text_edit_singleline(&mut v.name);
-                                        ui.label("(?)").on_hover_text(format!("Command: config set models.{}.name <string>", k));
+                                        ui.label("(?)").on_hover_text(format!("The actual API model identifier.\nCommand: config set models.{}.name <string>", k));
                                     });
                                     ui.horizontal(|ui| {
                                         ui.label("Provider:");
-                                        ui.text_edit_singleline(&mut v.provider);
-                                        ui.label("(?)").on_hover_text(format!("Command: config set models.{}.provider <string>", k));
+                                        egui::ComboBox::from_id_source(format!("provider_{}", k))
+                                            .selected_text(&v.provider)
+                                            .show_ui(ui, |ui| {
+                                                ui.selectable_value(&mut v.provider, "gemini".to_string(), "gemini");
+                                                ui.selectable_value(&mut v.provider, "claude".to_string(), "claude");
+                                            });
+                                        ui.label("(?)").on_hover_text(format!("API provider: 'gemini' or 'claude'.\nCommand: config set models.{}.provider <string>", k));
                                     });
                                     ui.horizontal(|ui| {
                                         ui.label("Max Tokens:");
@@ -650,13 +672,40 @@ impl App for WeaveLangApp {
                                     });
                                 });
                             }
+
+                            // Process removal
+                            if let Some(key_to_remove) = remove_key {
+                                pending_commands.push(format!("config remove_model {}", key_to_remove));
+                                draft.models.remove(&key_to_remove);
+                            }
                         } else {
-                            ui.label("No models defined.");
+                            ui.label("No models defined. Add one below.");
                         }
+
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.label("New alias:");
+                            ui.text_edit_singleline(&mut self.state.new_model_alias_input);
+                            let alias_valid = !self.state.new_model_alias_input.trim().is_empty()
+                                && !draft.models.contains_key(self.state.new_model_alias_input.trim());
+                            if ui.add_enabled(alias_valid, egui::Button::new("+ Add Model")).clicked() {
+                                let alias = self.state.new_model_alias_input.trim().to_string();
+                                pending_commands.push(format!("config add_model {}", alias));
+                                draft.models.insert(alias, crate::config::ModelConfig {
+                                    provider: String::new(),
+                                    name: String::new(),
+                                    max_input_tokens: 10000,
+                                });
+                                self.state.new_model_alias_input.clear();
+                            }
+                        });
 
                         ui.separator();
                         ui.heading("Stage Configurations");
+                        ui.label("Each stage uses a model alias from the list above.");
+                        ui.add_space(4.0);
                         
+                        let model_aliases: Vec<String> = draft.models.keys().cloned().collect();
                         let mut stage_keys: Vec<String> = draft.stages.keys().cloned().collect();
                         stage_keys.sort();
 
@@ -667,10 +716,32 @@ impl App for WeaveLangApp {
                                 
                                 ui.horizontal(|ui| {
                                     ui.label("Primary Model:");
-                                    ui.text_edit_singleline(&mut stage.primary_model);
-                                    ui.label("(?)").on_hover_text(format!("Command: config set stages.{}.primary_model <val>", k));
+                                    egui::ComboBox::from_id_source(format!("primary_{}", k))
+                                        .selected_text(&stage.primary_model)
+                                        .show_ui(ui, |ui| {
+                                            for alias in &model_aliases {
+                                                ui.selectable_value(&mut stage.primary_model, alias.clone(), alias);
+                                            }
+                                        });
+                                    ui.label("(?)").on_hover_text(format!("Command: config set stages.{}.primary_model <alias>", k));
                                 });
-                                
+
+                                // Fallback model
+                                let mut fb = stage.fallback_model.clone().unwrap_or_default();
+                                ui.horizontal(|ui| {
+                                    ui.label("Fallback Model:");
+                                    egui::ComboBox::from_id_source(format!("fallback_{}", k))
+                                        .selected_text(if fb.is_empty() { "(none)" } else { &fb })
+                                        .show_ui(ui, |ui| {
+                                            ui.selectable_value(&mut fb, String::new(), "(none)");
+                                            for alias in &model_aliases {
+                                                ui.selectable_value(&mut fb, alias.clone(), alias);
+                                            }
+                                        });
+                                    ui.label("(?)").on_hover_text(format!("Command: config set stages.{}.fallback_model <alias>", k));
+                                });
+                                stage.fallback_model = if fb.is_empty() { None } else { Some(fb) };
+
                                 ui.horizontal(|ui| {
                                     ui.label("Batch Size:");
                                     ui.add(egui::DragValue::new(&mut stage.batch_size_in_items).clamp_range(1..=1000));
@@ -684,8 +755,21 @@ impl App for WeaveLangApp {
                         ui.horizontal(|ui| {
                             if ui.button("Apply").clicked() {
                                 if let Some(real) = &self.state.config {
+                                    // Detect new models (added via UI)
                                     for (k, v) in &draft.models {
-                                        if let Some(real_v) = real.models.get(k) {
+                                        if !real.models.contains_key(k) {
+                                            // New model — emit add + set commands
+                                            pending_commands.push(format!("config add_model {}", k));
+                                            if !v.name.is_empty() {
+                                                pending_commands.push(format!("config set models.{}.name {}", k, v.name));
+                                            }
+                                            if !v.provider.is_empty() {
+                                                pending_commands.push(format!("config set models.{}.provider {}", k, v.provider));
+                                            }
+                                            if v.max_input_tokens != 10000 {
+                                                pending_commands.push(format!("config set models.{}.max_input_tokens {}", k, v.max_input_tokens));
+                                            }
+                                        } else if let Some(real_v) = real.models.get(k) {
                                             if v.name != real_v.name {
                                                 pending_commands.push(format!("config set models.{}.name {}", k, v.name));
                                             }
@@ -697,13 +781,23 @@ impl App for WeaveLangApp {
                                             }
                                         }
                                     }
+                                    // Detect removed models
+                                    for k in real.models.keys() {
+                                        if !draft.models.contains_key(k) {
+                                            pending_commands.push(format!("config remove_model {}", k));
+                                        }
+                                    }
                                     for (k, stage) in &draft.stages {
                                         if let Some(real_stage) = real.stages.get(k) {
                                             if stage.primary_model != real_stage.primary_model {
                                                 pending_commands.push(format!("config set stages.{}.primary_model {}", k, stage.primary_model));
                                             }
+                                            if stage.fallback_model != real_stage.fallback_model {
+                                                let fb_val = stage.fallback_model.as_deref().unwrap_or("none");
+                                                pending_commands.push(format!("config set stages.{}.fallback_model {}", k, fb_val));
+                                            }
                                             if stage.batch_size_in_items != real_stage.batch_size_in_items {
-                                                pending_commands.push(format!("config set stages.{}.batch_size {}", k, stage.batch_size_in_items));
+                                                pending_commands.push(format!("config set stages.{}.batch_size_in_items {}", k, stage.batch_size_in_items));
                                             }
                                         }
                                     }

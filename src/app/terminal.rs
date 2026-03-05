@@ -154,8 +154,18 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
                 Ok(TerminalCommand::App(AppCommand::ConfigSet { key, value }))
             } else if parts.len() > 1 && (parts[1] == "list" || parts[1] == "show") {
                 Ok(TerminalCommand::App(AppCommand::ConfigList))
+            } else if parts.len() > 2 && parts[1] == "add_model" {
+                let alias = parts[2].to_string();
+                Ok(TerminalCommand::App(AppCommand::ConfigAddModel { alias }))
+            } else if parts.len() > 2 && parts[1] == "remove_model" {
+                let alias = parts[2].to_string();
+                Ok(TerminalCommand::App(AppCommand::ConfigRemoveModel { alias }))
+            } else if parts.len() > 3 && parts[1] == "rename_model" {
+                let old_alias = parts[2].to_string();
+                let new_alias = parts[3].to_string();
+                Ok(TerminalCommand::App(AppCommand::ConfigRenameModel { old_alias, new_alias }))
             } else {
-                 Err("Usage: config set <key> <value> | config list".to_string())
+                 Err("Usage: config set <key> <value> | config list | config add_model <alias> | config remove_model <alias> | config rename_model <old> <new>".to_string())
             }
         },
         "status" => {
@@ -373,7 +383,10 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
                             }
                         }
                         Ok(Err(e)) => {
-                            out.push_str(&format!("LLM job failed: {}", e));
+                            let log_hint = engine.state.logger.as_ref()
+                                .map(|l| format!("\nLLM log: {}", l.log_file_path().display()))
+                                .unwrap_or_default();
+                            out.push_str(&format!("Error: {}{}", e, log_hint));
                             break;
                         }
                         Err(_) => {

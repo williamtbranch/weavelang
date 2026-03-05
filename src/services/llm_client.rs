@@ -5,11 +5,15 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
 use sha2::{Sha256, Digest};
 use hex;
 
+use crate::config::ModelConfig;
+
 const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
+
 
 // ---------------------------------------------------------------------------
 // LlmProvider trait — Strategy Pattern for Dependency Injection
@@ -19,6 +23,7 @@ const ANTHROPIC_VERSION: &str = "2023-06-01";
 /// with a mock provider returning canned test responses.
 pub trait LlmProvider: Send + Sync {
     /// Execute a completion request.
+    /// `model` is the model alias key from the config (e.g., "gemini-pro", "sonnet").
     fn complete(
         &self,
         model: &str,
@@ -30,21 +35,78 @@ pub trait LlmProvider: Send + Sync {
     /// to resolve which canned response file to read.  The real provider
     /// ignores it.
     fn set_context(&mut self, _prompt_name: &str) {}
+
+    /// Update the models configuration map at runtime.
+    fn update_models(&mut self, _models: HashMap<String, ModelConfig>) {}
 }
 
 // ---------------------------------------------------------------------------
-// RealLlmProvider — wraps the existing Anthropic API client
+// RoutingLlmProvider — resolves aliases and dispatches to correct API
+// ---------------------------------------------------------------------------
+
+/// Production LLM provider that resolves model aliases from the config,
+/// determines the provider (Anthropic/Gemini), and routes the call accordingly.
+pub struct RoutingLlmProvider {
+    models: HashMap<String, ModelConfig>,
+    anthropic: AnthropicClient,
+    gemini: GeminiClient,
+}
+
+impl RoutingLlmProvider {
+    pub fn new(cache_root: Option<PathBuf>, models: HashMap<String, ModelConfig>) -> Self {
+        Self {
+            models,
+            anthropic: AnthropicClient::new(cache_root.clone()),
+            gemini: GeminiClient::new(cache_root),
+        }
+    }
+}
+
+impl LlmProvider for RoutingLlmProvider {
+    fn complete(
+        &self,
+        model_alias: &str,
+        system_prompt: &str,
+        user_prompt: &str,
+    ) -> Result<String, String> {
+        let model_cfg = self.models.get(model_alias).ok_or_else(|| {
+            format!(
+                "Unknown model alias '{}'. Available models: [{}]. Check [models] section in config.toml",
+                model_alias,
+                self.models.keys().cloned().collect::<Vec<_>>().join(", ")
+            )
+        })?;
+
+        let actual_name = &model_cfg.name;
+        match model_cfg.provider.to_ascii_lowercase().as_str() {
+            "claude" | "anthropic" => self.anthropic.complete(actual_name, system_prompt, user_prompt),
+            "gemini" | "google" => self.gemini.complete(actual_name, system_prompt, user_prompt),
+            other => Err(format!(
+                "Unknown provider '{}' for model alias '{}'. Use 'claude'/'anthropic' or 'gemini'/'google'.",
+                other, model_alias
+            )),
+        }
+    }
+
+    fn update_models(&mut self, models: HashMap<String, ModelConfig>) {
+        self.models = models;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RealLlmProvider — legacy wrapper, kept for backward compatibility
 // ---------------------------------------------------------------------------
 
 /// Production LLM provider that calls the Anthropic API with SHA-256 caching.
+/// DEPRECATED: Use RoutingLlmProvider instead for multi-provider support.
 pub struct RealLlmProvider {
-    client: LlmClient,
+    client: AnthropicClient,
 }
 
 impl RealLlmProvider {
     pub fn new(cache_root: Option<PathBuf>) -> Self {
         Self {
-            client: LlmClient::new(cache_root),
+            client: AnthropicClient::new(cache_root),
         }
     }
 }
@@ -59,6 +121,64 @@ impl LlmProvider for RealLlmProvider {
         self.client.complete(model, system_prompt, user_prompt)
     }
 }
+
+// ---------------------------------------------------------------------------
+// Shared cache helpers
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Deserialize, Debug)]
+struct CachedResponse {
+    model: String,
+    system: String,
+    user: String,
+    response: String,
+}
+
+fn compute_hash(model: &str, system: &str, user: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(model.as_bytes());
+    hasher.update(b"||");
+    hasher.update(system.as_bytes());
+    hasher.update(b"||");
+    hasher.update(user.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+fn check_cache(cache_dir: &Option<PathBuf>, model: &str, system: &str, user: &str) -> Option<String> {
+    let dir = cache_dir.as_ref()?;
+    let hash = compute_hash(model, system, user);
+    let cache_path = dir.join(format!("{}.json", hash));
+    if cache_path.exists() {
+        if let Ok(content) = fs::read_to_string(&cache_path) {
+            if let Ok(cached) = serde_json::from_str::<CachedResponse>(&content) {
+                if cached.model == model && cached.system == system && cached.user == user {
+                    return Some(cached.response);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn write_cache(cache_dir: &Option<PathBuf>, model: &str, system: &str, user: &str, response: &str) {
+    if let Some(dir) = cache_dir.as_ref() {
+        let hash = compute_hash(model, system, user);
+        let cache_path = dir.join(format!("{}.json", hash));
+        let cached = serde_json::json!({
+            "model": model,
+            "system": system,
+            "user": user,
+            "response": response
+        });
+        if let Ok(json) = serde_json::to_string_pretty(&cached) {
+            let _ = std::fs::write(cache_path, json);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AnthropicClient — Anthropic/Claude API
+// ---------------------------------------------------------------------------
 
 #[derive(Serialize)]
 struct AnthropicMessage {
@@ -95,44 +215,20 @@ struct AnthropicErrorDetail {
     message: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-struct CachedResponse {
-    model: String,
-    system: String,
-    user: String,
-    response: String,
-}
-
-pub struct LlmClient {
+pub struct AnthropicClient {
     client: reqwest::blocking::Client,
     cache_dir: Option<PathBuf>,
 }
 
-impl LlmClient {
+impl AnthropicClient {
     pub fn new(cache_root: Option<PathBuf>) -> Self {
         let client = reqwest::blocking::Client::new();
-
         let cache_dir = cache_root.map(|root| {
             let dir = root.join(".llm_cache");
             let _ = fs::create_dir_all(&dir);
             dir
         });
-
         Self { client, cache_dir }
-    }
-
-    fn get_cache_path(&self, hash: &str) -> Option<PathBuf> {
-        self.cache_dir.as_ref().map(|dir| dir.join(format!("{}.json", hash)))
-    }
-
-    fn compute_hash(model: &str, system: &str, user: &str) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(model.as_bytes());
-        hasher.update(b"||");
-        hasher.update(system.as_bytes());
-        hasher.update(b"||");
-        hasher.update(user.as_bytes());
-        hex::encode(hasher.finalize())
     }
 
     pub fn complete(
@@ -141,22 +237,11 @@ impl LlmClient {
         system_prompt: &str,
         user_prompt: &str,
     ) -> Result<String, String> {
-        // Fetch the key at call time so the service can be initialised before the key is stored.
         let api_key = crate::services::secrets::get_anthropic_key()?;
 
-        // 1. Check Cache
-        let hash = Self::compute_hash(model, system_prompt, user_prompt);
-        if let Some(cache_path) = self.get_cache_path(&hash) {
-            if cache_path.exists() {
-                if let Ok(content) = fs::read_to_string(&cache_path) {
-                    if let Ok(cached) = serde_json::from_str::<CachedResponse>(&content) {
-                        // Double check for collisions (unlikely but safe)
-                        if cached.model == model && cached.system == system_prompt && cached.user == user_prompt {
-                            return Ok(cached.response);
-                        }
-                    }
-                }
-            }
+        // Check cache
+        if let Some(cached) = check_cache(&self.cache_dir, model, system_prompt, user_prompt) {
+            return Ok(cached);
         }
 
         let request_body = AnthropicRequest {
@@ -187,48 +272,224 @@ impl LlmClient {
             .headers(headers)
             .json(&request_body)
             .send()
-            .map_err(|e| format!("Request failed: {e}"))?;
+            .map_err(|e| format!("Anthropic request failed (network): {e}"))?;
 
-        if !response.status().is_success() {
+        let status = response.status();
+        if !status.is_success() {
+            let status_code = status.as_u16();
             let error_text = response.text().unwrap_or_default();
-            if let Ok(err_json) = serde_json::from_str::<AnthropicErrorResponse>(&error_text) {
-                return Err(format!("API Error: {}", err_json.error.message));
-            }
-            return Err(format!("API Error (Raw): {error_text}"));
+            let detail = if let Ok(err_json) = serde_json::from_str::<AnthropicErrorResponse>(&error_text) {
+                err_json.error.message
+            } else {
+                error_text
+            };
+            // Provide user-friendly error context based on HTTP status
+            let hint = match status_code {
+                401 => " (invalid API key — check 'set key anthropic <key>')",
+                403 => " (forbidden — check API key permissions)",
+                429 => " (rate limit reached — wait and retry, or reduce batch size)",
+                404 => " (model not found — check the model name in config.toml)",
+                _ => "",
+            };
+            return Err(format!(
+                "Anthropic API Error (HTTP {}): {}{} [model: {}]",
+                status_code, detail, hint, model
+            ));
         }
 
-        // Force UTF-8 decoding of the HTTP response.
         let response_text = response
             .text_with_charset("utf-8")
-            .map_err(|e| format!("Failed to read response text: {e}"))?;
+            .map_err(|e| format!("Failed to read Anthropic response: {e}"))?;
 
         let response_body: AnthropicResponse = serde_json::from_str(&response_text)
-            .map_err(|e| format!("Failed to parse response JSON: {e}"))?;
+            .map_err(|e| format!("Failed to parse Anthropic JSON: {e}"))?;
 
         let result_text = if let Some(first_block) = response_body.content.first() {
             first_block.text.clone()
         } else {
-            return Err("Response contained no content".to_string());
+            return Err("Anthropic response contained no content blocks".to_string());
         };
 
-        // 2. Write Cache
-        if self.cache_dir.is_some() {
-            let hash = Self::compute_hash(model, system_prompt, user_prompt);
-            if let Some(cache_path) = self.get_cache_path(&hash) {
-                let cached = serde_json::json!({
-                    "system": system_prompt,
-                    "user": user_prompt,
-                    "response": result_text
-                });
-                if let Ok(json) = serde_json::to_string_pretty(&cached) {
-                    let _ = std::fs::write(cache_path, json);
-                }
-            }
-        }
-
+        write_cache(&self.cache_dir, model, system_prompt, user_prompt, &result_text);
         Ok(result_text)
     }
 }
+
+// ---------------------------------------------------------------------------
+// GeminiClient — Google Gemini API
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+struct GeminiRequest {
+    contents: Vec<GeminiContent>,
+    #[serde(rename = "systemInstruction", skip_serializing_if = "Option::is_none")]
+    system_instruction: Option<GeminiContent>,
+    #[serde(rename = "generationConfig", skip_serializing_if = "Option::is_none")]
+    generation_config: Option<GeminiGenerationConfig>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct GeminiContent {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    role: Option<String>,
+    parts: Vec<GeminiPart>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct GeminiPart {
+    text: String,
+}
+
+#[derive(Serialize)]
+struct GeminiGenerationConfig {
+    temperature: f32,
+    #[serde(rename = "maxOutputTokens")]
+    max_output_tokens: u32,
+}
+
+#[derive(Deserialize, Debug)]
+struct GeminiResponse {
+    candidates: Option<Vec<GeminiCandidate>>,
+    error: Option<GeminiErrorDetail>,
+}
+
+#[derive(Deserialize, Debug)]
+struct GeminiCandidate {
+    content: Option<GeminiContent>,
+}
+
+#[derive(Deserialize, Debug)]
+struct GeminiErrorDetail {
+    message: String,
+    #[allow(dead_code)]
+    code: Option<u16>,
+}
+
+pub struct GeminiClient {
+    client: reqwest::blocking::Client,
+    cache_dir: Option<PathBuf>,
+}
+
+impl GeminiClient {
+    pub fn new(cache_root: Option<PathBuf>) -> Self {
+        let client = reqwest::blocking::Client::new();
+        let cache_dir = cache_root.map(|root| {
+            let dir = root.join(".llm_cache");
+            let _ = fs::create_dir_all(&dir);
+            dir
+        });
+        Self { client, cache_dir }
+    }
+
+    pub fn complete(
+        &self,
+        model: &str,
+        system_prompt: &str,
+        user_prompt: &str,
+    ) -> Result<String, String> {
+        let api_key = crate::services::secrets::get_google_key()?;
+
+        // Check cache
+        if let Some(cached) = check_cache(&self.cache_dir, model, system_prompt, user_prompt) {
+            return Ok(cached);
+        }
+
+        // Build URL: models/{model}:generateContent?key=...
+        // The model name may or may not have the "models/" prefix
+        let model_path = if model.starts_with("models/") {
+            model.to_string()
+        } else {
+            format!("models/{}", model)
+        };
+
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/{}:generateContent?key={}",
+            model_path, api_key
+        );
+
+        let request_body = GeminiRequest {
+            contents: vec![GeminiContent {
+                role: Some("user".to_string()),
+                parts: vec![GeminiPart {
+                    text: user_prompt.to_string(),
+                }],
+            }],
+            system_instruction: if system_prompt.is_empty() {
+                None
+            } else {
+                Some(GeminiContent {
+                    role: None,
+                    parts: vec![GeminiPart {
+                        text: system_prompt.to_string(),
+                    }],
+                })
+            },
+            generation_config: Some(GeminiGenerationConfig {
+                temperature: 0.0,
+                max_output_tokens: 8192,
+            }),
+        };
+
+        let response = self
+            .client
+            .post(&url)
+            .header(CONTENT_TYPE, "application/json")
+            .json(&request_body)
+            .send()
+            .map_err(|e| format!("Gemini request failed (network): {e}"))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let status_code = status.as_u16();
+            let error_text = response.text().unwrap_or_default();
+            let detail = if let Ok(err_json) = serde_json::from_str::<GeminiResponse>(&error_text) {
+                err_json
+                    .error
+                    .map(|e| e.message)
+                    .unwrap_or(error_text.clone())
+            } else {
+                error_text
+            };
+            let hint = match status_code {
+                400 => " (bad request — check model name in config.toml)",
+                401 | 403 => " (auth error — check 'set key google <key>')",
+                429 => " (rate limit / quota exceeded — wait and retry, or reduce batch size)",
+                404 => " (model not found — check the model name in config.toml)",
+                _ => "",
+            };
+            return Err(format!(
+                "Gemini API Error (HTTP {}): {}{} [model: {}]",
+                status_code, detail, hint, model
+            ));
+        }
+
+        let response_text = response
+            .text()
+            .map_err(|e| format!("Failed to read Gemini response: {e}"))?;
+
+        let response_body: GeminiResponse = serde_json::from_str(&response_text)
+            .map_err(|e| format!("Failed to parse Gemini JSON: {e}"))?;
+
+        if let Some(err) = response_body.error {
+            return Err(format!("Gemini API Error: {} [model: {}]", err.message, model));
+        }
+
+        let result_text = response_body
+            .candidates
+            .and_then(|c| c.into_iter().next())
+            .and_then(|c| c.content)
+            .and_then(|c| c.parts.into_iter().next())
+            .map(|p| p.text)
+            .ok_or_else(|| "Gemini response contained no content".to_string())?;
+
+        write_cache(&self.cache_dir, model, system_prompt, user_prompt, &result_text);
+        Ok(result_text)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// LlmService — thread-safe wrapper around an LlmProvider
+// ---------------------------------------------------------------------------
 
 #[derive(Clone)]
 pub struct LlmService {
@@ -236,7 +497,16 @@ pub struct LlmService {
 }
 
 impl LlmService {
-    /// Create a new LlmService using the production Anthropic API provider.
+    /// Create a new LlmService with the routing provider that supports both
+    /// Anthropic and Gemini APIs.  Model aliases are resolved from the config.
+    pub fn new_routing(project_root: Option<PathBuf>, models: HashMap<String, ModelConfig>) -> Self {
+        let provider = RoutingLlmProvider::new(project_root, models);
+        Self {
+            internal: Arc::new(Mutex::new(Box::new(provider))),
+        }
+    }
+
+    /// Create a new LlmService using only the Anthropic API provider (legacy).
     /// Always succeeds — the API key is fetched lazily at call time, not here.
     pub fn new(project_root: Option<PathBuf>) -> Self {
         let provider = RealLlmProvider::new(project_root);
@@ -266,6 +536,13 @@ impl LlmService {
     pub fn set_context(&self, prompt_name: &str) {
         if let Ok(mut guard) = self.internal.lock() {
             guard.set_context(prompt_name);
+        }
+    }
+
+    /// Update the models configuration at runtime (e.g., after settings change).
+    pub fn update_models(&self, models: HashMap<String, ModelConfig>) {
+        if let Ok(mut guard) = self.internal.lock() {
+            guard.update_models(models);
         }
     }
 }

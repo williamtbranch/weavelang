@@ -181,6 +181,11 @@ impl Engine {
                     std::path::PathBuf::from(&path),
                 ));
 
+                // Sync model definitions to the routing provider
+                if let Some(llm) = &self.state.llm {
+                    llm.update_models(config.models.clone());
+                }
+
                 self.state.config = Some(config);
                 Ok(format!("Workspace opened: {}", path))
             }
@@ -441,7 +446,7 @@ impl Engine {
                         let model_name = parts[1];
                         let field = parts[2];
                         if let Some(model) = config.models.get_mut(model_name) {
-                            match field {
+                            let result = match field {
                                 "provider" => {
                                     model.provider = value.clone();
                                     Ok(format!("Updated {}.provider to {}", model_name, value))
@@ -459,7 +464,14 @@ impl Engine {
                                     }
                                 }
                                 _ => Err(format!("Unknown model field: {}", field)),
+                            };
+                            // Sync updated model definitions to the routing provider
+                            if result.is_ok() {
+                                if let Some(llm) = &self.state.llm {
+                                    llm.update_models(config.models.clone());
+                                }
                             }
+                            result
                         } else {
                             Err(format!("Model '{}' not found", model_name))
                         }
@@ -479,6 +491,68 @@ impl Engine {
                      Err("Config not loaded".to_string())
                  }
             }
+            AppCommand::ConfigAddModel { alias } => {
+                if let Some(config) = &mut self.state.config {
+                    if config.models.contains_key(&alias) {
+                        return Err(format!("Model alias '{}' already exists", alias));
+                    }
+                    config.models.insert(alias.clone(), crate::config::ModelConfig {
+                        provider: String::new(),
+                        name: String::new(),
+                        max_input_tokens: 10000,
+                    });
+                    if let Some(llm) = &self.state.llm {
+                        llm.update_models(config.models.clone());
+                    }
+                    Ok(format!("Added model '{}'", alias))
+                } else {
+                    Err("Config not loaded".to_string())
+                }
+            }
+            AppCommand::ConfigRemoveModel { alias } => {
+                if let Some(config) = &mut self.state.config {
+                    if config.models.remove(&alias).is_some() {
+                        if let Some(llm) = &self.state.llm {
+                            llm.update_models(config.models.clone());
+                        }
+                        Ok(format!("Removed model '{}'", alias))
+                    } else {
+                        Err(format!("Model alias '{}' not found", alias))
+                    }
+                } else {
+                    Err("Config not loaded".to_string())
+                }
+            }
+            AppCommand::ConfigRenameModel { old_alias, new_alias } => {
+                if let Some(config) = &mut self.state.config {
+                    if !config.models.contains_key(&old_alias) {
+                        return Err(format!("Model alias '{}' not found", old_alias));
+                    }
+                    if config.models.contains_key(&new_alias) {
+                        return Err(format!("Model alias '{}' already exists", new_alias));
+                    }
+                    if let Some(model_cfg) = config.models.remove(&old_alias) {
+                        config.models.insert(new_alias.clone(), model_cfg);
+                        // Update any stages that reference the old alias
+                        for stage in config.stages.values_mut() {
+                            if stage.primary_model == old_alias {
+                                stage.primary_model = new_alias.clone();
+                            }
+                            if stage.fallback_model.as_ref() == Some(&old_alias) {
+                                stage.fallback_model = Some(new_alias.clone());
+                            }
+                        }
+                        if let Some(llm) = &self.state.llm {
+                            llm.update_models(config.models.clone());
+                        }
+                        Ok(format!("Renamed model '{}' to '{}'", old_alias, new_alias))
+                    } else {
+                        Err(format!("Model alias '{}' not found", old_alias))
+                    }
+                } else {
+                    Err("Config not loaded".to_string())
+                }
+            }
             AppCommand::CheckStatus => {
                 let bridge_status = if self.state.bridge.is_some() { "OK" } else { "OFF" };
                 let llm_status = if self.state.llm.is_some() { "OK" } else { "OFF" };
@@ -497,8 +571,32 @@ impl Engine {
                 let stage_config = config.get_stage_config(&stage_name).ok_or(format!("Stage '{}' not found in config", stage_name))?;
                 
                 let batch_size = stage_config.batch_size_in_items;
-                let model = stage_config.primary_model.clone();
-                let fallback = stage_config.fallback_model.clone();
+                let model_alias = stage_config.primary_model.clone();
+                let fallback_alias = stage_config.fallback_model.clone();
+
+                // Validate that the model aliases exist in [models] before spawning
+                let model_cfg = config.get_model_config(&model_alias).ok_or_else(|| {
+                    format!(
+                        "Primary model alias '{}' for stage '{}' not found in [models] section of config.toml.\n\
+                         Available models: [{}]",
+                        model_alias,
+                        stage_name,
+                        config.models.keys().cloned().collect::<Vec<_>>().join(", ")
+                    )
+                })?;
+                let model_display = format!("{} (alias '{}', provider: {})", model_cfg.name, model_alias, model_cfg.provider);
+
+                if let Some(ref fb) = fallback_alias {
+                    if config.get_model_config(fb).is_none() {
+                        return Err(format!(
+                            "Fallback model alias '{}' for stage '{}' not found in [models] section of config.toml.\n\
+                             Available models: [{}]",
+                            fb,
+                            stage_name,
+                            config.models.keys().cloned().collect::<Vec<_>>().join(", ")
+                        ));
+                    }
+                }
                 
                 // Map Stage Name to Prompt Name and Target Tier
                 // This logic should ideally be in a domain service, but hardcoding map here for now based on context
@@ -545,6 +643,7 @@ impl Engine {
                 let prompts = self.state.prompts.clone().unwrap();
                 let llm = self.state.llm.clone().unwrap();
                 let logger = self.state.logger.clone().unwrap();
+                let log_file_path = logger.log_file_path().display().to_string();
                 let config_obj = self.state.config.clone().unwrap();
                 let (base_lang, target_lang) = self.state.project_languages.clone();
 
@@ -559,8 +658,8 @@ impl Engine {
                     target_tier.to_string(),
                     items,
                     batch_size,
-                    model,
-                    fallback,
+                    model_alias.clone(),
+                    fallback_alias,
                     segment_level,
                 );
 
@@ -570,10 +669,17 @@ impl Engine {
                 self.state.llm_job_done = 0;
                 self.state.llm_job_stage = stage_name.to_string();
                 self.state.llm_job_target_tier = target_tier.to_string();
-                self.state.llm_job_model = stage_config.primary_model.clone();
+                self.state.llm_job_model = model_alias.clone();
                 self.state.show_llm_run = false; // Hide UI dialog if open
 
-                Ok(format!("Started stage '{}' for {} items using model '{}'", stage_name, self.state.llm_job_total, stage_config.primary_model))
+                Ok(format!(
+                    "Started stage '{}' for {} items\n  Model: {}\n  Batch size: {}\n  LLM log: {}",
+                    stage_name,
+                    self.state.llm_job_total,
+                    model_display,
+                    batch_size,
+                    log_file_path,
+                ))
             }
             AppCommand::MeasureAvd { path } => {
                 self.execute_measure_avd(&path)

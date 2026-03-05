@@ -18,6 +18,11 @@ impl LlmLogger {
         }
     }
 
+    /// Returns the path to the LLM log file.
+    pub fn log_file_path(&self) -> &PathBuf {
+        &self.log_path
+    }
+
     pub fn log_interaction(&self, context: &str, system: &str, user: &str, response: &str) {
         let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S");
 

@@ -140,6 +140,10 @@ pub struct AppState {
     #[serde(skip)]
     pub pending_terminal_command: Option<String>,
 
+    // New model alias input for the LLM Settings dialog
+    #[serde(skip)]
+    pub new_model_alias_input: String,
+
     // Metadata about the currently-running (or most-recently-run) LLM job.
     // Used when recording LlmCallRecords on success/failure.
     #[serde(skip)]
@@ -202,6 +206,7 @@ impl Default for AppState {
             api_key_anthropic_input: String::new(),
             api_key_google_input: String::new(),
             pending_terminal_command: None,
+            new_model_alias_input: String::new(),
             llm_job_stage: String::new(),
             llm_job_target_tier: String::new(),
             llm_job_model: String::new(),

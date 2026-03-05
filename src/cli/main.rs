@@ -358,8 +358,14 @@ fn init_state_with_services_opt(test_mode_dir: Option<&str>) -> AppState {
             eprintln!("[INFO] LLM Service initialized (TEST MODE: {:?})", test_dir);
             state.llm = Some(svc);
         } else {
-            let s = LlmService::new(Some(cwd.clone()));
-            eprintln!("[INFO] LLM Service initialized.");
+            // Load config first so we can use model definitions for routing
+            let config_path = cwd.join("config.toml");
+            let models = match weavelang_rust_gui::config::load_config_from_file(config_path.to_str().unwrap_or("config.toml")) {
+                Ok(ref cfg) => cfg.models.clone(),
+                Err(_) => std::collections::HashMap::new(),
+            };
+            let s = LlmService::new_routing(Some(cwd.clone()), models);
+            eprintln!("[INFO] LLM Service initialized (multi-provider routing).");
             state.llm = Some(s);
         }
 
@@ -371,6 +377,10 @@ fn init_state_with_services_opt(test_mode_dir: Option<&str>) -> AppState {
         match weavelang_rust_gui::config::load_config_from_file(config_path.to_str().unwrap_or("config.toml")) {
             Ok(cfg) => {
                  eprintln!("[INFO] Config loaded.");
+                 // Sync model config to the routing provider
+                 if let Some(llm) = &state.llm {
+                     llm.update_models(cfg.models.clone());
+                 }
                  state.config = Some(cfg);
             }
             Err(e) => eprintln!("[WARN] Config Load Error: {}", e),

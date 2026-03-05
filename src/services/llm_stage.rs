@@ -77,7 +77,17 @@ impl LlmStageService {
                             break;
                         }
                         Err(e) => {
-                            last_err = e;
+                            last_err = format!(
+                                "[model: '{}', attempt {}/3] {}",
+                                m, attempt + 1, e
+                            );
+                            // Log each failure for debugging
+                            let _ = self.logger.log_interaction(
+                                &format!("RETRY {}/3 for model '{}'", attempt + 1, m),
+                                &system_prompt,
+                                &user_prompt,
+                                &format!("ERROR: {}", e),
+                            );
                             // exponential backoff
                             let backoff = Duration::from_secs(1 << attempt);
                             sleep(backoff);
@@ -91,7 +101,10 @@ impl LlmStageService {
 
             let resp = match response_text {
                 Some(r) => r,
-                None => return Err(format!("LLM calls failed for batch: {}", last_err)),
+                None => return Err(format!(
+                    "All LLM attempts failed for batch.\nLast error: {}",
+                    last_err
+                )),
             };
 
             // Parse id-prefixed lines — supports two formats:

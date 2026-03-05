@@ -21,6 +21,9 @@ pub enum AppCommand {
     CheckStatus,
     ConfigSet { key: String, value: String },
     ConfigList,
+    ConfigAddModel { alias: String },
+    ConfigRemoveModel { alias: String },
+    ConfigRenameModel { old_alias: String, new_alias: String },
 
     // Project Management
     OpenWorkspace { path: String },

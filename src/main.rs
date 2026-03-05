@@ -141,8 +141,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             let llm = {
-                let svc = LlmService::new(std::env::current_dir().ok());
-                println!("[INFO] LLM Service initialized.");
+                let models = initial_config.as_ref()
+                    .map(|c| c.models.clone())
+                    .unwrap_or_default();
+                let svc = LlmService::new_routing(std::env::current_dir().ok(), models);
+                println!("[INFO] LLM Service initialized (multi-provider routing).");
                 Some(svc)
             };
 
