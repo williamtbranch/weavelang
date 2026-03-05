@@ -7,7 +7,7 @@ use std::collections::HashMap;
 // Signature changed: No &Sentence argument. state is passed directly.
 pub fn render(ui: &mut egui::Ui, mode: DetailView, state: &mut AppState) {
     // 1. Determine Context
-    let (source_tier_id, target_tier_id, prompt_name) = match mode {
+    let (source_tier_id, target_tier_id, _prompt_name) = match mode {
         DetailView::MappingDiglot => ("basic_base", "basic_target", "generate_diglot_map"),
         DetailView::MappingInverse => ("basic_target", "basic_base", "generate_inverse_phrase_map"),
         _ => return,

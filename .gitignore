@@ -1,4 +1,5 @@
 .env
+.env.local
 __pycache__
 target
 mono.in
@@ -20,3 +21,5 @@ output
 weave_output
 test_temp
 Metamorphosis_12.json
+# Per-machine workspace config (contains personal paths)
+config.toml

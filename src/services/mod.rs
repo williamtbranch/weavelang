@@ -1,5 +1,6 @@
 pub mod llm_client;
 pub mod llm_logger;
+pub mod secrets;
 pub mod llm_overrides;
 pub mod llm_segmenter;
 pub mod mock_llm;
@@ -10,5 +11,4 @@ pub mod token_counter;
 pub mod importer;
 pub mod gutenberg_cleaner;
 pub mod llm_stage;
-pub mod llm_settings;
 pub mod llm_worker;

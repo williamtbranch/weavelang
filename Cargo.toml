@@ -28,6 +28,8 @@ chrono = "0.4"
 rand = "0.8"
 itertools = "0.12"
 csv = "1.3"
+dirs = "5"
+keyring = "2"
 
 # --- NEW DEPENDENCIES FOR PHASE 2 ---
 # We use blocking for simplicity in the first iteration of the Studio

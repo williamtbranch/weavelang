@@ -2,7 +2,6 @@
 
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
-use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -43,10 +42,10 @@ pub struct RealLlmProvider {
 }
 
 impl RealLlmProvider {
-    pub fn new(cache_root: Option<PathBuf>) -> Result<Self, String> {
-        Ok(Self {
-            client: LlmClient::new(cache_root)?,
-        })
+    pub fn new(cache_root: Option<PathBuf>) -> Self {
+        Self {
+            client: LlmClient::new(cache_root),
+        }
     }
 }
 
@@ -105,29 +104,21 @@ struct CachedResponse {
 }
 
 pub struct LlmClient {
-    api_key: String,
     client: reqwest::blocking::Client,
     cache_dir: Option<PathBuf>,
 }
 
 impl LlmClient {
-    pub fn new(cache_root: Option<PathBuf>) -> Result<Self, String> {
-        let api_key = env::var("ANTHROPIC_API_KEY")
-            .map_err(|_| "ANTHROPIC_API_KEY not found in environment (.env)".to_string())?;
-
+    pub fn new(cache_root: Option<PathBuf>) -> Self {
         let client = reqwest::blocking::Client::new();
-        
-        let cache_dir = if let Some(root) = cache_root {
-            let dir = root.join(".llm_cache");
-            if !dir.exists() {
-                fs::create_dir_all(&dir).map_err(|e| format!("Failed to create cache dir: {e}"))?;
-            }
-            Some(dir)
-        } else {
-            None
-        };
 
-        Ok(Self { api_key, client, cache_dir })
+        let cache_dir = cache_root.map(|root| {
+            let dir = root.join(".llm_cache");
+            let _ = fs::create_dir_all(&dir);
+            dir
+        });
+
+        Self { client, cache_dir }
     }
 
     fn get_cache_path(&self, hash: &str) -> Option<PathBuf> {
@@ -150,6 +141,9 @@ impl LlmClient {
         system_prompt: &str,
         user_prompt: &str,
     ) -> Result<String, String> {
+        // Fetch the key at call time so the service can be initialised before the key is stored.
+        let api_key = crate::services::secrets::get_anthropic_key()?;
+
         // 1. Check Cache
         let hash = Self::compute_hash(model, system_prompt, user_prompt);
         if let Some(cache_path) = self.get_cache_path(&hash) {
@@ -179,7 +173,7 @@ impl LlmClient {
         let mut headers = HeaderMap::new();
         headers.insert(
             "x-api-key",
-            HeaderValue::from_str(&self.api_key).map_err(|e| e.to_string())?,
+            HeaderValue::from_str(&api_key).map_err(|e| e.to_string())?,
         );
         headers.insert(
             "anthropic-version",
@@ -243,11 +237,12 @@ pub struct LlmService {
 
 impl LlmService {
     /// Create a new LlmService using the production Anthropic API provider.
-    pub fn new(project_root: Option<PathBuf>) -> Result<Self, String> {
-        let provider = RealLlmProvider::new(project_root)?;
-        Ok(Self {
+    /// Always succeeds — the API key is fetched lazily at call time, not here.
+    pub fn new(project_root: Option<PathBuf>) -> Self {
+        let provider = RealLlmProvider::new(project_root);
+        Self {
             internal: Arc::new(Mutex::new(Box::new(provider))),
-        })
+        }
     }
 
     /// Create a new LlmService from any provider (real or mock).

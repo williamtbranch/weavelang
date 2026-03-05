@@ -1,6 +1,7 @@
 // src/gui/components/detail_view/text_view.rs
 
 use crate::domain::tier::TierState;
+use crate::domain::llm_log::LlmCallRecord;
 use crate::gui::preview;
 use crate::app::state::{AppState, TierView};
 use eframe::egui;
@@ -132,6 +133,14 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
 
     let cur_selected_idx = state.selected_sentence_idx;
 
+    // Snapshot the LLM log before taking a mutable borrow, so we can render
+    // it afterwards without borrow conflicts.
+    let llm_log: Vec<LlmCallRecord> = state
+        .get_current_sentence()
+        .and_then(|s| s.get_tier(tier_id))
+        .map(|t| t.llm_log.clone())
+        .unwrap_or_default();
+
     let mut parent_text_opt = None;
     if let Some(p_id) = parent_tier_id {
         if let Some(sentence) = state.get_current_sentence() {
@@ -153,8 +162,6 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
             current_tier_text = tier.full_text();
             current_tier_state = tier.state;
             current_tier_exists = true;
-        } else {
-            current_tier_exists = false;
         }
 
         if current_tier_exists {
@@ -194,8 +201,11 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
                 ui.separator();
             }
 
+            // Leave vertical room for the LLM history panel.
+            let text_max_h = if llm_log.is_empty() { f32::INFINITY } else { 240.0 };
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
+                .max_height(text_max_h)
                 .show(ui, |ui| {
                     let response = ui.add(
                         egui::TextEdit::multiline(&mut current_tier_text)
@@ -244,5 +254,73 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
                 stage, cur_selected_idx, cur_selected_idx
             ));
         }
+    }
+
+    // ── LLM History panel ────────────────────────────────────────────────────
+    // Shows every LLM call record for this sentence/tier, most-recent first.
+    // Errors appear in red so they are immediately visible; the full generated
+    // text for successful calls is in a monospace scroll area.
+    if !llm_log.is_empty() {
+        ui.separator();
+        let success_count = llm_log.iter().filter(|r| r.is_success()).count();
+        let error_count   = llm_log.len() - success_count;
+        let header_label  = if error_count > 0 {
+            format!("🕐 LLM History ({} ok, {} failed)", success_count, error_count)
+        } else {
+            format!("🕐 LLM History ({} calls)", llm_log.len())
+        };
+
+        egui::CollapsingHeader::new(header_label)
+            .default_open(error_count > 0)   // auto-open when there are errors
+            .id_source(format!("llm_history_{tier_id}_{cur_selected_idx}"))
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_source(format!("llm_hist_scroll_{tier_id}_{cur_selected_idx}"))
+                    .max_height(280.0)
+                    .show(ui, |ui| {
+                        // Most-recent call first.
+                        for record in llm_log.iter().rev() {
+                            let (icon, header_color) = if record.is_success() {
+                                ("✅", egui::Color32::DARK_GREEN)
+                            } else {
+                                ("❌", egui::Color32::RED)
+                            };
+                            let applied_note = if !record.applied { " [not applied]" } else { "" };
+                            ui.colored_label(
+                                header_color,
+                                format!(
+                                    "{} {}  {}  ({}){applied_note}",
+                                    icon, record.timestamp, record.stage, record.model
+                                ),
+                            );
+                            if let Some(err) = &record.error {
+                                ui.colored_label(
+                                    egui::Color32::RED,
+                                    egui::RichText::new(format!("  Error: {err}")).small(),
+                                );
+                            }
+                            if let Some(text) = &record.generated_text {
+                                // Show a compact scrollable preview of the generated text.
+                                let preview = if text.len() > 600 {
+                                    format!("{}…", &text[..600])
+                                } else {
+                                    text.clone()
+                                };
+                                egui::Frame::dark_canvas(ui.style()).show(ui, |ui| {
+                                    ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(&preview)
+                                                .small()
+                                                .monospace()
+                                                .color(egui::Color32::LIGHT_GRAY),
+                                        )
+                                        .wrap(true),
+                                    );
+                                });
+                            }
+                            ui.add_space(4.0);
+                        }
+                    });
+            });
     }
 }

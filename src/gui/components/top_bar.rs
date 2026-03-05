@@ -64,7 +64,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState) {
                     Err(e) => state.last_log = format!("❌ LLM Error: {e}"),
                 }
             } else {
-                state.last_log = "⚠️ LLM Service Not Available (Check .env)".to_string();
+                state.last_log = "⚠️ LLM Service Not Available".to_string();
             }
         }
 

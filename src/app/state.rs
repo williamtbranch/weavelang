@@ -11,7 +11,6 @@ use crate::config::Config;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver};
-use crate::services::llm_settings::StageBatchSettings;
 
 // ... (Enums TierView, DetailView, SimulationMode remain unchanged) ...
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -71,6 +70,10 @@ pub struct AppState {
     #[serde(skip)]
     pub config: Option<Config>,
     #[serde(skip)]
+    pub draft_config: Option<Config>,
+    #[serde(skip)]
+    pub show_project_settings: bool,
+    #[serde(skip)]
     pub llm_results_receiver: Option<Receiver<Result<Vec<(usize, String, String, String)>, String>>>,
     pub last_log: String,
     // LLM job progress
@@ -85,8 +88,6 @@ pub struct AppState {
     #[serde(skip)]
     pub show_cancel_confirm: bool,
     // LLM UI state
-    #[serde(skip)]
-    pub llm_batch_settings: StageBatchSettings,
     #[serde(skip)]
     pub show_llm_settings: bool,
     #[serde(skip)]
@@ -127,9 +128,26 @@ pub struct AppState {
     #[serde(skip)]
     pub config_set_value: String,
 
+    // API Keys dialog
+    #[serde(skip)]
+    pub show_api_keys_dialog: bool,
+    #[serde(skip)]
+    pub api_key_anthropic_input: String,
+    #[serde(skip)]
+    pub api_key_google_input: String,
+
     // Command routing
     #[serde(skip)]
     pub pending_terminal_command: Option<String>,
+
+    // Metadata about the currently-running (or most-recently-run) LLM job.
+    // Used when recording LlmCallRecords on success/failure.
+    #[serde(skip)]
+    pub llm_job_stage: String,
+    #[serde(skip)]
+    pub llm_job_target_tier: String,
+    #[serde(skip)]
+    pub llm_job_model: String,
 }
 
 impl Default for AppState {
@@ -155,13 +173,14 @@ impl Default for AppState {
             prompts: None,
             logger: None,
             config: None,
+            draft_config: None,
             llm_results_receiver: None,
-            llm_batch_settings: StageBatchSettings::default(),
+            show_project_settings: false,
             show_llm_settings: false,
             show_llm_run: false,
             llm_run_start: 0,
             llm_run_end: 0,
-            llm_run_batch_size: StageBatchSettings::default().simplify,
+            llm_run_batch_size: 10,
             llm_run_prompt_name: "GenerateBasicBase".to_string(),
             llm_job_total: 0,
             llm_job_done: 0,
@@ -179,7 +198,13 @@ impl Default for AppState {
             show_config_set: false,
             config_set_key: String::new(),
             config_set_value: String::new(),
+            show_api_keys_dialog: false,
+            api_key_anthropic_input: String::new(),
+            api_key_google_input: String::new(),
             pending_terminal_command: None,
+            llm_job_stage: String::new(),
+            llm_job_target_tier: String::new(),
+            llm_job_model: String::new(),
         }
     }
 }

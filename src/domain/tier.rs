@@ -1,5 +1,6 @@
 // src/domain/tier.rs
 
+use crate::domain::llm_log::LlmCallRecord;
 use crate::domain::segment::Segment;
 use serde::{Deserialize, Serialize};
 
@@ -20,9 +21,12 @@ pub struct Tier {
     #[serde(default)]
     pub lemmas: Vec<String>,
 
-    // --- NEW FIELD ---
     #[serde(default)]
     pub state: TierState,
+
+    /// Full history of every LLM call that targeted this tier for this sentence.
+    #[serde(default)]
+    pub llm_log: Vec<LlmCallRecord>,
 }
 
 impl Tier {
@@ -32,6 +36,7 @@ impl Tier {
             segments: Vec::new(),
             lemmas: Vec::new(),
             state: TierState::Valid,
+            llm_log: Vec::new(),
         }
     }
 

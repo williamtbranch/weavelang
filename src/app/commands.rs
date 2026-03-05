@@ -23,6 +23,7 @@ pub enum AppCommand {
     ConfigList,
 
     // Project Management
+    OpenWorkspace { path: String },
     LoadProject { path: String },
     SaveProject { path: Option<String> },
     ImportSource { path: String },
@@ -38,6 +39,11 @@ pub enum AppCommand {
     ImportLevelMap { path: String },
     SetOutputDir { path: String },
     GenerateWeave { level: String },
+
+    // API Key Management
+    SetKey { provider: String, value: String },
+    DeleteKey { provider: String },
+    KeyStatus,
 
     // Debug / Testing
     DebugDump { start_index: usize, end_index: usize, path: Option<String> },

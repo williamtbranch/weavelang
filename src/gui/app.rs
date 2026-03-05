@@ -20,6 +20,7 @@ pub struct WeaveLangApp {
     status_message: String,
     terminal_history: Vec<String>,
     terminal_input: String,
+    current_title: String,
 }
 
 impl WeaveLangApp {
@@ -29,12 +30,14 @@ impl WeaveLangApp {
         llm: Option<LlmService>,
         prompts: Option<PromptManager>,
         logger: Option<LlmLogger>,
+        initial_config: Option<crate::config::Config>,
     ) -> Self {
         let mut state = AppState::default();
         state.bridge = bridge;
         state.llm = llm;
         state.prompts = prompts;
         state.logger = logger;
+        state.config = initial_config;
 
         let mut status = Vec::new();
         if state.bridge.is_some() {
@@ -48,13 +51,38 @@ impl WeaveLangApp {
             status.push("LLM: OFF");
         }
 
-        Self {
+        let mut app = Self {
             state,
             current_file_path: None,
             status_message: format!("Ready. [{}]", status.join(", ")),
             terminal_history: vec!["WeaveLang Terminal initialized.".to_string()],
             terminal_input: String::new(),
+            current_title: String::new(),
+        };
+
+        let gs = crate::global_settings::GlobalSettings::load();
+        if let Some(ws) = gs.last_workspace {
+            if std::path::Path::new(&ws).exists() {
+                app.execute_terminal_command(&format!("open workspace {}", ws));
+                
+                // Also open last wvl file if preferred
+                let mut should_load_project = None;
+                if let Some(cfg) = &app.state.config {
+                    if cfg.open_last_project.unwrap_or(true) {
+                        if let Some(proj) = &cfg.last_project_file {
+                            if std::path::Path::new(proj).exists() {
+                                should_load_project = Some(proj.clone());
+                            }
+                        }
+                    }
+                }
+                if let Some(proj) = should_load_project {
+                    app.execute_terminal_command(&format!("load project {}", proj));
+                }
+            }
         }
+
+        app
     }
 
     fn execute_terminal_command(&mut self, cmd: &str) {
@@ -171,7 +199,7 @@ impl WeaveLangApp {
                 }
                 ui.separator();
                 if ui.button("Exit").clicked() {
-                    std::process::exit(0);
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             });
 
@@ -190,7 +218,11 @@ impl WeaveLangApp {
                 for (stage_key, label) in PIPELINE_STAGES {
                     if ui.button(*label).clicked() {
                         let start = self.state.selected_sentence_idx;
-                        let end   = min(start + self.state.llm_batch_settings.simplify.saturating_sub(1),
+                        let batch_size = self.state.config.as_ref()
+                            .and_then(|c| c.stages.get(*stage_key))
+                            .map(|s| s.batch_size_in_items)
+                            .unwrap_or(20);
+                        let end   = min(start + batch_size.saturating_sub(1),
                                         self.state.document.len().saturating_sub(1));
                         self.state.llm_run_prompt_name = stage_key.to_string();
                         self.state.llm_run_start = start;
@@ -272,19 +304,14 @@ impl WeaveLangApp {
             });
 
             ui.menu_button("Preferences", |ui| {
+                if ui.button("Project Settings...").clicked() {
+                    self.state.draft_config = self.state.config.clone();
+                    self.state.show_project_settings = true;
+                    ui.close_menu();
+                }
                 if ui.button("LLM Settings...").clicked() {
+                    self.state.draft_config = self.state.config.clone();
                     self.state.show_llm_settings = true;
-                    ui.close_menu();
-                }
-                ui.separator();
-                if ui.button("Config List").clicked() {
-                    self.execute_terminal_command("config list");
-                    ui.close_menu();
-                }
-                if ui.button("Config Set...").clicked() {
-                    self.state.config_set_key   = String::new();
-                    self.state.config_set_value = String::new();
-                    self.state.show_config_set  = true;
                     ui.close_menu();
                 }
             });
@@ -343,6 +370,27 @@ impl WeaveLangApp {
 
 impl App for WeaveLangApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
+        // Update Title dynamically
+        let expected_title = if let Some(cfg) = &self.state.config {
+            let ws_name = if cfg.content_project_dir.is_empty() {
+                "Untitled".to_string()
+            } else {
+                std::path::PathBuf::from(&cfg.content_project_dir)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("Untitled")
+                    .to_string()
+            };
+            format!("WeaveLang Studio ({})", ws_name)
+        } else {
+            "WeaveLang Studio (Untitled)".to_string()
+        };
+
+        if self.current_title != expected_title {
+            self.current_title = expected_title.clone();
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(expected_title));
+        }
+
         // Check for pending terminal commands from UI components
         if let Some(cmd) = self.state.pending_terminal_command.take() {
             self.execute_terminal_command(&cmd);
@@ -382,7 +430,11 @@ impl App for WeaveLangApp {
                         // If `llm_job_total` is small (e.g. <= batch size) it's likely a single-click regen.
                         // If it's large, it's a bulk run where we WANT auto-apply.
                         
-                        let is_bulk_run = self.state.llm_job_total > self.state.llm_batch_settings.simplify.max(self.state.llm_batch_settings.translate).max(10);
+                        let batch_size = self.state.config.as_ref()
+                            .and_then(|c| c.stages.get(&self.state.llm_run_prompt_name))
+                            .map(|s| s.batch_size_in_items)
+                            .unwrap_or(20);
+                        let is_bulk_run = self.state.llm_job_total > batch_size.max(10);
                         let selected_idx = self.state.selected_sentence_idx;
                         let num_results = results.len();
 
@@ -497,49 +549,184 @@ impl App for WeaveLangApp {
              }
         }
         
+        // Project Settings Window
+        if self.state.show_project_settings {
+            let mut open = true;
+            let mut pending_commands = Vec::new();
+
+            egui::Window::new("Project Settings").open(&mut open).show(ctx, |ui| {
+                if let Some(draft) = &mut self.state.draft_config {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        ui.heading("General");
+                        
+                        ui.horizontal(|ui| {
+                            let mut b = draft.open_last_project.unwrap_or(true);
+                            if ui.checkbox(&mut b, "Open Last Project/Workspace on Startup").changed() {
+                                draft.open_last_project = Some(b);
+                            }
+                            ui.label("(?)").on_hover_text("Command: config set open_last_project true/false");
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("Network Retry Delay (ms):");
+                            ui.add(egui::DragValue::new(&mut draft.pipeline.retry_delay).clamp_range(0..=10000));
+                            ui.label("(?)").on_hover_text("Command: config set pipeline.retry_delay <num>");
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("Max API Retries:");
+                            ui.add(egui::DragValue::new(&mut draft.pipeline.max_api_retries).clamp_range(0..=100));
+                            ui.label("(?)").on_hover_text("Command: config set pipeline.max_api_retries <num>");
+                        });
+
+                        ui.separator();
+                        
+                        ui.horizontal(|ui| {
+                            if ui.button("Apply").clicked() {
+                                if let Some(real) = &self.state.config {
+                                    if draft.open_last_project != real.open_last_project {
+                                        pending_commands.push(format!("config set open_last_project {}", draft.open_last_project.unwrap_or(true)));
+                                    }
+                                    if draft.pipeline.retry_delay != real.pipeline.retry_delay {
+                                        pending_commands.push(format!("config set pipeline.retry_delay {}", draft.pipeline.retry_delay));
+                                    }
+                                    if draft.pipeline.max_api_retries != real.pipeline.max_api_retries {
+                                        pending_commands.push(format!("config set pipeline.max_api_retries {}", draft.pipeline.max_api_retries));
+                                    }
+                                }
+                                self.state.show_project_settings = false;
+                            }
+                            if ui.button("Cancel").clicked() {
+                                self.state.show_project_settings = false;
+                            }
+                        });
+                    });
+                } else {
+                    ui.label("No active config to edit. Ensure you've run 'load project'.");
+                }
+            });
+
+            for cmd in pending_commands {
+                self.execute_terminal_command(&cmd);
+            }
+            
+            if !open {
+                self.state.show_project_settings = false;
+            }
+        }
+
         // LLM Settings window
-        if self.state.show_llm_settings {            let mut open = true;
-            egui::Window::new("LLM Settings").open(&mut open).show(ctx, |ui| {
-                ui.label("Batch sizes (per-stage)");
-                ui.horizontal(|ui| {
-                    ui.label("Simplify:");
-                    ui.add(egui::DragValue::new(&mut self.state.llm_batch_settings.simplify).clamp_range(1..=100));
-                    if self.state.llm_batch_settings.simplify == 1 {
-                        ui.label(egui::RichText::new("⚠ Risk of Hallucination").color(egui::Color32::RED).small());
-                    }
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Mapping:");
-                    ui.add(egui::DragValue::new(&mut self.state.llm_batch_settings.mapping).clamp_range(1..=100));
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Translate:");
-                    ui.add(egui::DragValue::new(&mut self.state.llm_batch_settings.translate).clamp_range(1..=100));
-                    if self.state.llm_batch_settings.translate == 1 {
-                        ui.label(egui::RichText::new("⚠ Risk of Hallucination").color(egui::Color32::RED).small());
-                    }
-                });
-                ui.separator();
-                ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() {
-                        if let Some(p) = &self.current_file_path {
-                            let proj_root = p.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
-                            match self.state.llm_batch_settings.save(&proj_root) {
-                                Ok(_) => self.status_message = "LLM settings saved.".to_string(),
-                                Err(e) => self.status_message = format!("Failed to save settings: {}", e),
+        if self.state.show_llm_settings {
+            let mut open = true;
+            let mut pending_commands = Vec::new();
+
+            egui::Window::new("LLM / Stage Settings").open(&mut open).show(ctx, |ui| {
+                if let Some(draft) = &mut self.state.draft_config {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        ui.heading("Models");
+                        if !draft.models.is_empty() {
+                            let mut keys: Vec<String> = draft.models.keys().cloned().collect();
+                            keys.sort();
+                            
+                            for k in keys {
+                                ui.group(|ui| {
+                                    ui.label(egui::RichText::new(&k).strong());
+                                    let v = draft.models.get_mut(&k).unwrap();
+                                    
+                                    ui.horizontal(|ui| {
+                                        ui.label("Name:");
+                                        ui.text_edit_singleline(&mut v.name);
+                                        ui.label("(?)").on_hover_text(format!("Command: config set models.{}.name <string>", k));
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label("Provider:");
+                                        ui.text_edit_singleline(&mut v.provider);
+                                        ui.label("(?)").on_hover_text(format!("Command: config set models.{}.provider <string>", k));
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label("Max Tokens:");
+                                        ui.add(egui::DragValue::new(&mut v.max_input_tokens).clamp_range(1..=10000000));
+                                        ui.label("(?)").on_hover_text(format!("Command: config set models.{}.max_input_tokens <num>", k));
+                                    });
+                                });
                             }
                         } else {
-                            self.status_message = "No project file open to save settings.".to_string();
+                            ui.label("No models defined.");
                         }
-                        self.state.show_llm_settings = false;
-                    }
-                    if ui.button("Close").clicked() {
-                        self.state.show_llm_settings = false;
-                    }
-                });
+
+                        ui.separator();
+                        ui.heading("Stage Configurations");
+                        
+                        let mut stage_keys: Vec<String> = draft.stages.keys().cloned().collect();
+                        stage_keys.sort();
+
+                        for k in stage_keys {
+                            ui.group(|ui| {
+                                ui.label(egui::RichText::new(&k).strong());
+                                let stage = draft.stages.get_mut(&k).unwrap();
+                                
+                                ui.horizontal(|ui| {
+                                    ui.label("Primary Model:");
+                                    ui.text_edit_singleline(&mut stage.primary_model);
+                                    ui.label("(?)").on_hover_text(format!("Command: config set stages.{}.primary_model <val>", k));
+                                });
+                                
+                                ui.horizontal(|ui| {
+                                    ui.label("Batch Size:");
+                                    ui.add(egui::DragValue::new(&mut stage.batch_size_in_items).clamp_range(1..=1000));
+                                    ui.label("(?)").on_hover_text(format!("Command: config set stages.{}.batch_size <num>", k));
+                                });
+                            });
+                        }
+                        
+                        ui.separator();
+                        
+                        ui.horizontal(|ui| {
+                            if ui.button("Apply").clicked() {
+                                if let Some(real) = &self.state.config {
+                                    for (k, v) in &draft.models {
+                                        if let Some(real_v) = real.models.get(k) {
+                                            if v.name != real_v.name {
+                                                pending_commands.push(format!("config set models.{}.name {}", k, v.name));
+                                            }
+                                            if v.provider != real_v.provider {
+                                                pending_commands.push(format!("config set models.{}.provider {}", k, v.provider));
+                                            }
+                                            if v.max_input_tokens != real_v.max_input_tokens {
+                                                pending_commands.push(format!("config set models.{}.max_input_tokens {}", k, v.max_input_tokens));
+                                            }
+                                        }
+                                    }
+                                    for (k, stage) in &draft.stages {
+                                        if let Some(real_stage) = real.stages.get(k) {
+                                            if stage.primary_model != real_stage.primary_model {
+                                                pending_commands.push(format!("config set stages.{}.primary_model {}", k, stage.primary_model));
+                                            }
+                                            if stage.batch_size_in_items != real_stage.batch_size_in_items {
+                                                pending_commands.push(format!("config set stages.{}.batch_size {}", k, stage.batch_size_in_items));
+                                            }
+                                        }
+                                    }
+                                }
+                                self.state.show_llm_settings = false;
+                            }
+                            if ui.button("Cancel").clicked() {
+                                self.state.show_llm_settings = false;
+                            }
+                        });
+                    });
+                } else {
+                    ui.label("No active config to edit. Ensure you've run 'load project'.");
+                }
             });
-            // Keep the flag in sync with window
-            self.state.show_llm_settings = open;
+
+            for cmd in pending_commands {
+                self.execute_terminal_command(&cmd);
+            }
+            
+            if !open {
+                self.state.show_llm_settings = false;
+            }
         }
 
         // LLM Run dialog
@@ -637,7 +824,16 @@ impl App for WeaveLangApp {
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            components::detail_view::render(ui, &mut self.state);
+            if self.state.document.is_empty() {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(ui.available_height() * 0.25);
+                    ui.heading("No Document Open");
+                    ui.add_space(8.0);
+                    ui.label("Use File › Open .wvl... or File › Import Source Text...");
+                });
+            } else {
+                components::detail_view::render(ui, &mut self.state);
+            }
         });
 
         // Cancel confirmation dialog

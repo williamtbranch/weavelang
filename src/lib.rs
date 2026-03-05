@@ -3,6 +3,7 @@
 pub mod app; // <--- NEW
 // pub mod cli; // Removed because cli is a binary, not part of the library
 pub mod config;
+pub mod global_settings;
 pub mod corpus_generator;
 pub mod domain; // <--- NEW
 pub mod gui; // <--- NEW

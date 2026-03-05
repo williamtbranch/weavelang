@@ -169,8 +169,12 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
             } else if parts.len() > 2 && parts[1] == "output_dir" {
                 let path = parts[2..].join(" ");
                 Ok(TerminalCommand::App(AppCommand::SetOutputDir { path }))
+            } else if parts.len() > 3 && parts[1] == "key" {
+                let provider = parts[2].to_string();
+                let value = parts[3..].join(" ");
+                Ok(TerminalCommand::App(AppCommand::SetKey { provider, value }))
             } else {
-                Err("Usage: set right_view <view_name> | set left_view <view_name> | set output_dir <path>".to_string())
+                Err("Usage: set right_view <v> | set left_view <v> | set output_dir <p> | set key <anthropic|google> <value>".to_string())
             }
         },
         "show" => {
@@ -217,6 +221,28 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
                 Err("Usage: generate_weave <level|all>".to_string())
             }
         },
+        "open" => {
+            if parts.len() > 2 && parts[1] == "workspace" {
+                let path = parts[2..].join(" ");
+                Ok(TerminalCommand::App(AppCommand::OpenWorkspace { path }))
+            } else {
+                Err("Usage: open workspace <path>".to_string())
+            }
+        },
+        "delete" => {
+            if parts.len() > 2 && parts[1] == "key" {
+                Ok(TerminalCommand::App(AppCommand::DeleteKey { provider: parts[2].to_string() }))
+            } else {
+                Err("Usage: delete key <anthropic|google>".to_string())
+            }
+        },
+        "key" => {
+            if parts.len() > 1 && parts[1] == "status" {
+                Ok(TerminalCommand::App(AppCommand::KeyStatus))
+            } else {
+                Err("Usage: key status".to_string())
+            }
+        },
         _ => Err(format!("Unknown command: {}", parts[0])),
     }
 }
@@ -233,6 +259,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  list nav [index]       - List navigator sentences\n");
             out.push_str("  select sentence <id>   - Select a sentence\n");
             out.push_str("  import source <path>   - Import source text file\n");
+            out.push_str("  open workspace <path>  - Open (or create) a workspace directory\n");
             out.push_str("  load project <path>    - Load a .wvl file\n");
             out.push_str("  save project [path]    - Save project\n");
             out.push_str("  config set <k> <v>     - Set config value\n");
@@ -245,6 +272,9 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  measure_avd <path>     - Measure AVD score of a plain text file\n");
             out.push_str("  measure_user_score <p> - Measure estimated user level of a plain text file\n");
             out.push_str("  debug_dump <s> <e> [p] - Dump debug state for sentences s..e to file or stdout\n");
+            out.push_str("  set key <p> <value>    - Store API key in OS keychain (anthropic|google)\n");
+            out.push_str("  delete key <p>         - Remove key from OS keychain\n");
+            out.push_str("  key status             - Show which API keys are configured\n");
             out.push_str("  watch_job              - Block until current LLM job completes\n");
             out.push_str("  import level_map <p>   - Import a .lm level map file\n");
             out.push_str("  set output_dir <p>     - Set output directory for weave files\n");

@@ -358,13 +358,9 @@ fn init_state_with_services_opt(test_mode_dir: Option<&str>) -> AppState {
             eprintln!("[INFO] LLM Service initialized (TEST MODE: {:?})", test_dir);
             state.llm = Some(svc);
         } else {
-            match LlmService::new(Some(cwd.clone())) {
-                Ok(s) => {
-                    eprintln!("[INFO] LLM Service initialized.");
-                    state.llm = Some(s);
-                }
-                Err(e) => eprintln!("[WARN] LLM Service Error: {}", e),
-            }
+            let s = LlmService::new(Some(cwd.clone()));
+            eprintln!("[INFO] LLM Service initialized.");
+            state.llm = Some(s);
         }
 
         state.prompts = Some(PromptManager::new(cwd.clone()));

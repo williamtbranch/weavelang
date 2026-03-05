@@ -7,6 +7,7 @@ use eframe::NativeOptions;
 use std::path::PathBuf;
 use weavelang_rust_gui::{
     config, corpus_generator,
+    global_settings::GlobalSettings,
     gui::app::WeaveLangApp,
     services::llm_client::LlmService,
     services::llm_logger::LlmLogger,
@@ -82,23 +83,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Gui => {
             println!("[INFO] Launching GUI...");
 
-            // 1. Load Config FIRST to get the content directory
-            let config_path = "config.toml";
-            let project_config = config::load_config_from_file(config_path)
-                .map_err(|e| format!("Could not load config.toml: {e}"))?;
+            // 1. Try to load config — non-fatal so the GUI starts even without config.toml.
+            //    Priority: CWD/config.toml → last workspace from global settings → None.
+            let initial_config = {
+                let cwd_config = config::load_config_from_file("config.toml").ok();
+                if cwd_config.is_some() {
+                    println!("[INFO] Loaded config.toml from current directory.");
+                    cwd_config
+                } else {
+                    let gs = GlobalSettings::load();
+                    if let Some(ws) = &gs.last_workspace {
+                        let ws_config_path = std::path::Path::new(ws).join("config.toml");
+                        match config::load_config_from_file(ws_config_path.to_str().unwrap_or("")) {
+                            Ok(cfg) => {
+                                println!("[INFO] Loaded config from last workspace: {ws}");
+                                Some(cfg)
+                            }
+                            Err(e) => {
+                                eprintln!("[WARN] Could not load last workspace config: {e}");
+                                None
+                            }
+                        }
+                    } else {
+                        eprintln!("[INFO] No config.toml found — open a workspace to begin.");
+                        None
+                    }
+                }
+            };
 
-            let content_dir = project_config.content_project_dir_path();
-            println!("[INFO] Content Directory: {content_dir:?}");
+            // 2. Logger — only if we have a content directory
+            let logger = initial_config.as_ref().map(|cfg| {
+                let content_dir = cfg.content_project_dir_path();
+                println!("[INFO] Content directory: {content_dir:?}");
+                LlmLogger::new(content_dir)
+            });
 
-            // 2. Load Assets (Frequency List)
-            // Note: In GUI mode, we try to load relative to CWD, or fallback.
+            // 3. Load Assets (Frequency List)
             let freq_list_path = std::env::current_dir()?
                 .join("assets/frequency_lists/es_master_frequency_list.txt");
             if freq_list_path.exists() {
                 let _ = frequency_manager::load_master_frequency_list(&freq_list_path);
             }
 
-            // 3. Initialize Services
+            // 4. Initialize Services
             let bridge = match std::env::current_dir() {
                 Ok(cwd) => match BridgeService::new(cwd) {
                     Ok(b) => {
@@ -113,24 +140,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Err(_) => None,
             };
 
-            let llm = match LlmService::new(std::env::current_dir().ok()) {
-                Ok(s) => {
-                    println!("[INFO] LLM Service initialized.");
-                    Some(s)
-                }
-                Err(e) => {
-                    eprintln!("[WARN] LLM Service Error: {e}");
-                    None
-                }
+            let llm = {
+                let svc = LlmService::new(std::env::current_dir().ok());
+                println!("[INFO] LLM Service initialized.");
+                Some(svc)
             };
 
             let prompts = match std::env::current_dir() {
                 Ok(cwd) => Some(PromptManager::new(cwd)),
                 Err(_) => None,
             };
-
-            // Pass content_dir to Logger
-            let logger = Some(LlmLogger::new(content_dir));
 
             let options = NativeOptions {
                 viewport: eframe::egui::ViewportBuilder::default()
@@ -143,7 +162,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eframe::run_native(
                 "WeaveLang Studio",
                 options,
-                Box::new(move |cc| Box::new(WeaveLangApp::new(cc, bridge, llm, prompts, logger))),
+                Box::new(move |cc| Box::new(WeaveLangApp::new(cc, bridge, llm, prompts, logger, initial_config))),
             )?;
         }
 

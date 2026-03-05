@@ -1,0 +1,107 @@
+# WeaveLang workspace configuration template.
+# Copy to config.toml (in your workspace directory) and edit as needed.
+# config.toml is gitignored — it contains machine-specific paths.
+# API keys are NEVER stored here; they live in .env only.
+
+# --- Core Path Configuration ---
+# Absolute path to your content project directory.
+content_project_dir = "/path/to/your/content/project"
+
+# Optional: override the frequency list for a specific corpus language.
+# Leave blank to use the built-in default.
+custom_frequency_list_path = ""
+
+# --- Central Model Definitions ---
+[models]
+    [models.gemini-flash-lite]
+    provider = "gemini"
+    name = "gemini-2.5-flash-lite-preview-06-17"
+    max_input_tokens = 10000
+
+    [models.gemini-pro]
+    provider = "gemini"
+    name = "models/gemini-2.5-pro"
+    max_input_tokens = 20000
+
+    [models.gemini-flash]
+    provider = "gemini"
+    name = "gemini-2.5-flash"
+    max_input_tokens = 10000
+
+    [models.haiku]
+    provider = "claude"
+    name = "claude-3-5-haiku-20241022"
+    max_input_tokens = 4000
+
+    [models.sonnet]
+    provider = "claude"
+    name = "claude-sonnet-4-20250514"
+    max_input_tokens = 20000
+
+    [models.opus]
+    provider = "claude"
+    name = "claude-opus-4-1-20250805"
+    max_input_tokens = 20000
+
+# --- Global Pipeline Execution Settings ---
+[pipeline]
+max_api_retries = 3
+max_validation_retries = 3
+retry_delay = 7
+thinking_budget_tokens = 1024
+
+# --- Per-Stage Configuration ---
+[stages]
+    [stages.Segmenter]
+    primary_model = "gemini-pro"
+    fallback_model = "gemini-pro"
+    batch_size_in_items = 1
+
+    [stages.GenerateBasicBase]
+    primary_model = "gemini-pro"
+    fallback_model = "sonnet"
+    batch_size_in_items = 10
+
+    [stages.GenerateAdvancedTarget]
+    primary_model = "gemini-pro"
+    fallback_model = "sonnet"
+    batch_size_in_items = 20
+
+    [stages.GenerateModerateTarget]
+    primary_model = "gemini-pro"
+    fallback_model = "sonnet"
+    batch_size_in_items = 10
+
+    [stages.GenerateBasicTarget]
+    primary_model = "gemini-pro"
+    fallback_model = "sonnet"
+    batch_size_in_items = 20
+
+    [stages.TranslateBasicTarget]
+    primary_model = "gemini-pro"
+    fallback_model = "sonnet"
+    batch_size_in_items = 20
+
+    [stages.GeneratePhraseMap]
+    primary_model = "gemini-pro"
+    fallback_model = "opus"
+    batch_size_in_items = 1
+    thinking_budget_tokens = 1024
+    thinking_on_first_attempt = true
+
+    [stages.GenerateInversePhraseMap]
+    primary_model = "gemini-pro"
+    fallback_model = "opus"
+    batch_size_in_items = 1
+    thinking_budget_tokens = 1024
+    thinking_on_first_attempt = true
+
+    [stages.PoolManager_Translation]
+    primary_model = "sonnet"
+    fallback_model = "sonnet"
+    batch_size_in_items = 20
+
+    [stages.PoolManager_Simplification]
+    primary_model = "sonnet"
+    fallback_model = "opus"
+    batch_size_in_items = 10

@@ -144,6 +144,46 @@ impl Engine {
                 // TODO: Implement mapping generation
                 Ok("Mapping generation started".to_string())
             }
+            AppCommand::OpenWorkspace { path } => {
+                let workspace_path = std::path::PathBuf::from(&path);
+
+                // Create directory if it doesn't exist (allows bootstrapping a new workspace)
+                if !workspace_path.exists() {
+                    std::fs::create_dir_all(&workspace_path)
+                        .map_err(|e| format!("Cannot create workspace directory: {e}"))?;
+                }
+
+                if !workspace_path.is_dir() {
+                    return Err(format!("'{}' is not a directory", path));
+                }
+
+                let config_path = workspace_path.join("config.toml");
+                let config = if config_path.exists() {
+                    crate::config::load_config_from_file(config_path.to_str().unwrap_or(""))?
+                } else {
+                    // Scaffold a default config.toml for the new workspace
+                    let mut cfg = crate::config::Config::default();
+                    cfg.content_project_dir = path.clone();
+                    let toml_content = toml::to_string_pretty(&cfg)
+                        .map_err(|e| format!("Cannot serialise default config: {e}"))?;
+                    std::fs::write(&config_path, &toml_content)
+                        .map_err(|e| format!("Cannot write config.toml: {e}"))?;
+                    cfg
+                };
+
+                // Persist last-used workspace for auto-load on next launch
+                let mut gs = crate::global_settings::GlobalSettings::load();
+                gs.set_workspace(&path);
+                let _ = gs.save();
+
+                // Point the LLM logger to the workspace directory
+                self.state.logger = Some(crate::services::llm_logger::LlmLogger::new(
+                    std::path::PathBuf::from(&path),
+                ));
+
+                self.state.config = Some(config);
+                Ok(format!("Workspace opened: {}", path))
+            }
             AppCommand::LoadProject { path } => {
                 let path_buf = PathBuf::from(&path);
                 if let Ok(bytes) = fs::read(&path_buf) {
@@ -154,13 +194,25 @@ impl Engine {
                         loaded_state.prompts = self.state.prompts.clone();
                         loaded_state.logger = self.state.logger.clone();
                         
-                        // Load per-project LLM batch settings if available
-                        let proj_root = path_buf.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
-                        loaded_state.llm_batch_settings = crate::services::llm_settings::StageBatchSettings::load(&proj_root);
-                        loaded_state.llm_run_batch_size = loaded_state.llm_batch_settings.simplify;
+                        // Workspace config should NOT be overwritten by the .wvl file
+                        loaded_state.config = self.state.config.clone();
+
+                        // Default batch size from stage
+                        if let Some(cfg) = &self.state.config {
+                            if let Some(stage) = cfg.stages.get("GenerateBasicBase") {
+                                loaded_state.llm_run_batch_size = stage.batch_size_in_items;
+                            }
+                        }
 
                         self.state = loaded_state;
                         self.current_file_path = Some(path_buf);
+
+                        if let Some(cfg) = &mut self.state.config {
+                            cfg.last_project_file = Some(path.clone());
+                            let config_path = PathBuf::from(&cfg.content_project_dir).join("config.toml");
+                            let _ = crate::config::save_config_to_file(cfg, &config_path);
+                        }
+
                         return Ok(format!("Loaded project from {}", path));
                     }
                     return Err("Failed to deserialize project".to_string());
@@ -179,6 +231,13 @@ impl Engine {
                 if let Ok(bytes) = bincode::serialize(&self.state) {
                     if fs::write(&save_path, bytes).is_ok() {
                         self.current_file_path = Some(save_path.clone());
+
+                        if let Some(cfg) = &mut self.state.config {
+                            cfg.last_project_file = Some(save_path.to_string_lossy().to_string());
+                            let config_path = PathBuf::from(&cfg.content_project_dir).join("config.toml");
+                            let _ = crate::config::save_config_to_file(cfg, &config_path);
+                        }
+
                         return Ok(format!("Saved project to {:?}", save_path));
                     }
                     return Err("Failed to write file".to_string());
@@ -275,10 +334,61 @@ impl Engine {
             }
             AppCommand::ConfigSet { key, value } => {
                 if let Some(config) = &mut self.state.config {
-                    // Simple manual reflection for now
-                    // Key format: stages.<StageName>.<Field> or models.<ModelName>.<Field>
                     let parts: Vec<&str> = key.split('.').collect();
-                    if parts.len() == 3 && parts[0] == "stages" {
+                    if parts.len() == 1 {
+                        match parts[0] {
+                            "open_last_project" => {
+                                if let Ok(v) = value.parse::<bool>() {
+                                    config.open_last_project = Some(v);
+                                    Ok(format!("Updated open_last_project to {}", v))
+                                } else {
+                                    Err("Invalid boolean".to_string())
+                                }
+                            }
+                            "custom_frequency_list_path" => {
+                                if value.trim().is_empty() || value == "none" {
+                                    config.custom_frequency_list_path = None;
+                                    Ok("Clear custom_frequency_list_path".to_string())
+                                } else {
+                                    config.custom_frequency_list_path = Some(value.clone());
+                                    Ok(format!("Updated custom_frequency_list_path to {}", value))
+                                }
+                            }
+                            _ => Err(format!("Unknown root field: {}", parts[0]))
+                        }
+                    } else if parts.len() == 2 && parts[0] == "pipeline" {
+                        let field = parts[1];
+                        match field {
+                            "max_api_retries" => {
+                                if let Ok(v) = value.parse::<u32>() {
+                                    config.pipeline.max_api_retries = v;
+                                    Ok(format!("Updated pipeline.max_api_retries to {}", v))
+                                } else { Err("Invalid u32".to_string()) }
+                            }
+                            "max_validation_retries" => {
+                                if let Ok(v) = value.parse::<u32>() {
+                                    config.pipeline.max_validation_retries = v;
+                                    Ok(format!("Updated pipeline.max_validation_retries to {}", v))
+                                } else { Err("Invalid u32".to_string()) }
+                            }
+                            "retry_delay" => {
+                                if let Ok(v) = value.parse::<u32>() {
+                                    config.pipeline.retry_delay = v;
+                                    Ok(format!("Updated pipeline.retry_delay to {}", v))
+                                } else { Err("Invalid u32".to_string()) }
+                            }
+                            "thinking_budget_tokens" => {
+                                if value.trim().is_empty() || value == "none" {
+                                    config.pipeline.thinking_budget_tokens = None;
+                                    Ok("Cleared pipeline.thinking_budget_tokens".to_string())
+                                } else if let Ok(v) = value.parse::<u32>() {
+                                    config.pipeline.thinking_budget_tokens = Some(v);
+                                    Ok(format!("Updated pipeline.thinking_budget_tokens to {}", v))
+                                } else { Err("Invalid u32".to_string()) }
+                            }
+                            _ => Err(format!("Unknown pipeline field: {}", field)),
+                        }
+                    } else if parts.len() == 3 && parts[0] == "stages" {
                         let stage_name = parts[1];
                         let field = parts[2];
                         if let Some(stage) = config.stages.get_mut(stage_name) {
@@ -286,6 +396,15 @@ impl Engine {
                                 "primary_model" => {
                                     stage.primary_model = value.clone();
                                     Ok(format!("Updated {}.primary_model to {}", stage_name, value))
+                                }
+                                "fallback_model" => {
+                                    if value.trim().is_empty() || value == "none" {
+                                        stage.fallback_model = None;
+                                        Ok(format!("Cleared {}.fallback_model", stage_name))
+                                    } else {
+                                        stage.fallback_model = Some(value.clone());
+                                        Ok(format!("Updated {}.fallback_model to {}", stage_name, value))
+                                    }
                                 }
                                 "batch_size_in_items" => {
                                     if let Ok(v) = value.parse::<usize>() {
@@ -295,31 +414,57 @@ impl Engine {
                                         Err("Invalid number".to_string())
                                     }
                                 }
+                                "thinking_budget_tokens" => {
+                                    if value.trim().is_empty() || value == "none" {
+                                        stage.thinking_budget_tokens = None;
+                                        Ok(format!("Cleared {}.thinking_budget_tokens", stage_name))
+                                    } else if let Ok(v) = value.parse::<u32>() {
+                                        stage.thinking_budget_tokens = Some(v);
+                                        Ok(format!("Updated {}.thinking_budget_tokens to {}", stage_name, v))
+                                    } else { Err("Invalid u32".to_string()) }
+                                }
+                                "thinking_on_first_attempt" => {
+                                    if value.trim().is_empty() || value == "none" {
+                                        stage.thinking_on_first_attempt = None;
+                                        Ok(format!("Cleared {}.thinking_on_first_attempt", stage_name))
+                                    } else if let Ok(v) = value.parse::<bool>() {
+                                        stage.thinking_on_first_attempt = Some(v);
+                                        Ok(format!("Updated {}.thinking_on_first_attempt to {}", stage_name, v))
+                                    } else { Err("Invalid boolean".to_string()) }
+                                }
                                 _ => Err(format!("Unknown stage field: {}", field)),
                             }
                         } else {
                             Err(format!("Stage '{}' not found", stage_name))
                         }
                     } else if parts.len() == 3 && parts[0] == "models" {
-                         let model_name = parts[1];
-                         let field = parts[2];
-                         if let Some(model) = config.models.get_mut(model_name) {
-                             match field {
-                                 "max_input_tokens" => {
-                                     if let Ok(v) = value.parse::<usize>() {
-                                         model.max_input_tokens = v;
-                                         Ok(format!("Updated {}.max_input_tokens to {}", model_name, v))
-                                     } else {
-                                         Err("Invalid number".to_string())
-                                     }
-                                 }
-                                 _ => Err(format!("Unknown model field: {}", field)),
-                             }
-                         } else {
-                             Err(format!("Model '{}' not found", model_name))
-                         }
+                        let model_name = parts[1];
+                        let field = parts[2];
+                        if let Some(model) = config.models.get_mut(model_name) {
+                            match field {
+                                "provider" => {
+                                    model.provider = value.clone();
+                                    Ok(format!("Updated {}.provider to {}", model_name, value))
+                                }
+                                "name" => {
+                                    model.name = value.clone();
+                                    Ok(format!("Updated {}.name to {}", model_name, value))
+                                }
+                                "max_input_tokens" => {
+                                    if let Ok(v) = value.parse::<usize>() {
+                                        model.max_input_tokens = v;
+                                        Ok(format!("Updated {}.max_input_tokens to {}", model_name, v))
+                                    } else {
+                                        Err("Invalid number".to_string())
+                                    }
+                                }
+                                _ => Err(format!("Unknown model field: {}", field)),
+                            }
+                        } else {
+                            Err(format!("Model '{}' not found", model_name))
+                        }
                     } else {
-                        Err("Invalid key format. Use stages.<name>.<field> or models.<name>.<field>".to_string())
+                        Err("Invalid key format.".to_string())
                     }
                 } else {
                     Err("Config not loaded".to_string())
@@ -342,7 +487,7 @@ impl Engine {
             }
             AppCommand::GenerateStage { stage_name, start_index, end_index } => {
                 if self.state.llm.is_none() || self.state.prompts.is_none() || self.state.logger.is_none() {
-                    return Err("LLM services not initialized".to_string());
+                    return Err("LLM pipeline services not ready (prompts or logger missing)".to_string());
                 }
                 if self.state.config.is_none() {
                     return Err("Config not loaded".to_string());
@@ -423,6 +568,9 @@ impl Engine {
                 self.state.llm_cancel_flag = Some(cancel);
                 self.state.llm_job_total = (e - s) + 1;
                 self.state.llm_job_done = 0;
+                self.state.llm_job_stage = stage_name.to_string();
+                self.state.llm_job_target_tier = target_tier.to_string();
+                self.state.llm_job_model = stage_config.primary_model.clone();
                 self.state.show_llm_run = false; // Hide UI dialog if open
 
                 Ok(format!("Started stage '{}' for {} items using model '{}'", stage_name, self.state.llm_job_total, stage_config.primary_model))
@@ -432,6 +580,17 @@ impl Engine {
             }
             AppCommand::MeasureUserScore { path } => {
                 self.execute_measure_user_score(&path)
+            }
+            AppCommand::SetKey { provider, value } => {
+                crate::services::secrets::set_key(&provider, &value)
+                    .map(|_| format!("API key for '{}' stored in OS keychain.", provider))
+            }
+            AppCommand::DeleteKey { provider } => {
+                crate::services::secrets::delete_key(&provider)
+                    .map(|_| format!("API key for '{}' removed from OS keychain.", provider))
+            }
+            AppCommand::KeyStatus => {
+                Ok(crate::services::secrets::status_report())
             }
             AppCommand::DebugDump { start_index, end_index, path } => {
                 self.execute_debug_dump(start_index, end_index, path.as_deref())
