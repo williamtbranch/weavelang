@@ -3,6 +3,7 @@ use crate::app::state::{AppState, DetailView, TierView};
 use eframe::egui; // Import to check state
 
 pub mod mapping_view;
+pub mod proper_noun_view;
 pub mod text_view;
 pub mod token_view;
 
@@ -117,6 +118,19 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState) {
             {
                 state.pending_terminal_command = Some("set right_view mapping_inverse".to_string());
             }
+
+            ui.separator();
+
+            // Proper Noun Lemmas tab
+            if ui
+                .selectable_label(
+                    matches!(state.right_view, DetailView::ProperNounLemmas),
+                    "PN Lemmas",
+                )
+                .clicked()
+            {
+                state.pending_terminal_command = Some("set right_view proper_noun_lemmas".to_string());
+            }
         });
 
         ui.separator();
@@ -135,6 +149,9 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState) {
             }
             DetailView::MappingDiglot | DetailView::MappingInverse => {
                 mapping_view::render(ui, state.right_view, state);
+            }
+            DetailView::ProperNounLemmas => {
+                proper_noun_view::render(ui, state);
             }
         }
     });

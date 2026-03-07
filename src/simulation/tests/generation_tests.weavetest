@@ -271,6 +271,45 @@
     )
 )
 
+// Negative test: same data but WITHOUT the 'p' flag on the forward diglot.
+// The lemma "pn" is NOT in proper_noun_lemmas, so it's treated as unknown.
+(test-case "PN lemma NOT ignored when flag absent (negative test)"
+    (sentence
+        (L0
+            (S "DUMMY-ADV" (lem900))
+            (S "DUMMY-MOD" (lem800))
+        )
+        (L1
+            (BS "[[s-que]] [[s-Alicia]] [[s-estaba]] [[s-allí]]." (lem100 pn lem150 lem200))
+            (ID
+                (s-que lem100 e-that)
+                (s-Alicia pn e-Alice)
+                (s-estaba lem150 e-was)
+                (s-allí lem200 e-there)
+            )
+            (BE "[[that]] [[Alice]] [[was]] [[there]].")
+            (D
+                (that lem3 que t)
+                (Alice pn Alicia t) // NO 'p' flag → not marked as a proper noun
+                (was lem5 estaba t)
+                (there lem80 allí t)
+            )
+        )
+    )
+
+    (sub-test "ID: Without PN flag, unknown lemma causes ID to fail"
+        // Without the PN flag, "pn" is NOT in proper_noun_lemmas.
+        // "pn" is not in the frequency list → unknown.
+        // Known: s-que (lem100 ≤ 120). Unknown: s-Alicia (pn), s-estaba (lem150), s-allí (lem200).
+        // Ratio = 1/4 = 25% < 50% → ID fails, falls to BasicBaseDiglot.
+        // In BE diglot: lem3, lem5, lem80 all ≤ 120 → substitute to Spanish.
+        // But "Alice" (lemma "pn") is unknown AND not a PN → stays English.
+        (level (adv 0) (mod 0) (bas 120))
+        (assert-level BasicBaseDiglot)
+        (assert-text "que Alice estaba allí.")
+    )
+)
+
 (test-case "Punctuation Integrity During Diglot Substitution"
     (sentence
         (L0

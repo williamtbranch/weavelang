@@ -217,6 +217,92 @@ pub fn run_unified_calibration(
     Ok(())
 }
 
+/// In-memory calibration: takes a pre-built `JsonChapter` and a master AVD
+/// scale (Vec of V-level boundaries, one per user level, parsed from CSV),
+/// runs the full calibration pipeline, and returns the curriculum maps ready
+/// to be stored in `AppState::book_map`.
+///
+/// This is the entry point used by the GUI / terminal `calibrate` command.
+pub fn calibrate_from_chapter(
+    json_chapter: &JsonChapter,
+    master_scale: &[u32],
+    max_level: u32,
+) -> Result<HashMap<String, JsonCurriculumMap>, Box<dyn Error>> {
+    println!("[INFO] Starting in-memory calibration...");
+
+    let mut dictionary = GlobalLemmaDictionary::new();
+    dictionary.populate_from_json_chapter(json_chapter);
+    let (numerical_chapter, _) =
+        preprocessor::json_chapter_to_numerical(json_chapter, &mut dictionary);
+
+    println!("  -> Phase A: Pre-computing AVD cache...");
+    let ladder = generate_vocabulary_ladder();
+    let mut avd_cache: HashMap<TierId, Vec<(u32, f64)>> = HashMap::new();
+
+    for tier_id in [TierId::Basic, TierId::Moderate, TierId::Advanced] {
+        let mut tier_results = Vec::new();
+        for (i, &v_level) in ladder.iter().enumerate() {
+            let avd = generate_and_measure(
+                &numerical_chapter,
+                json_chapter,
+                &dictionary,
+                tier_id,
+                v_level,
+            )?;
+            tier_results.push((v_level, avd));
+            if (i + 1) % 50 == 0 || (i + 1) == ladder.len() {
+                print!(
+                    "\r     ...pre-computing for {:?}: {:.1}%",
+                    tier_id,
+                    (i + 1) as f32 / ladder.len() as f32 * 100.0
+                );
+                std::io::stdout().flush()?;
+            }
+        }
+        println!();
+        avd_cache.insert(tier_id, tier_results);
+    }
+
+    println!("  -> Phase B: Synthesizing L-Level tables and running U-Level state machine...");
+    let l_tables = synthesize_l_level_tables(&avd_cache, max_level)?;
+    let u_level_analysis = run_u_level_state_machine(
+        max_level,
+        &l_tables,
+        &numerical_chapter,
+        json_chapter,
+        &dictionary,
+    )?;
+
+    println!("  -> Phase C: Generating final curriculum maps...");
+    let curriculum_maps = generate_curriculum_maps_from_scale(
+        max_level,
+        &u_level_analysis,
+        json_chapter,
+        master_scale,
+    )?;
+
+    let level_count = curriculum_maps.len();
+    println!("[SUCCESS] In-memory calibration complete. {} start-level maps generated.", level_count);
+    Ok(curriculum_maps)
+}
+
+/// Parse a master AVD scale CSV file and return the V-level boundaries (one per user level).
+pub fn parse_master_avd_scale(path: &Path) -> Result<Vec<u32>, Box<dyn Error>> {
+    let content = fs::read_to_string(path)?;
+    let scale: Vec<u32> = content
+        .lines()
+        .skip(1) // header row
+        .map(|line| {
+            let parts: Vec<_> = line.split(',').collect();
+            parts[1].parse::<u32>().unwrap_or(0)
+        })
+        .collect();
+    if scale.is_empty() {
+        return Err("Master AVD scale file is empty or malformed.".into());
+    }
+    Ok(scale)
+}
+
 fn synthesize_l_level_tables(
     avd_cache: &HashMap<TierId, Vec<(u32, f64)>>,
     max_level: u32,
@@ -373,15 +459,17 @@ fn generate_curriculum_maps(
     json_chapter: &JsonChapter,
     master_avd_scale_path: &Path,
 ) -> Result<HashMap<String, JsonCurriculumMap>, Box<dyn Error>> {
+    let master_scale = parse_master_avd_scale(master_avd_scale_path)?;
+    generate_curriculum_maps_from_scale(max_level, u_level_analysis, json_chapter, &master_scale)
+}
+
+fn generate_curriculum_maps_from_scale(
+    max_level: u32,
+    u_level_analysis: &ULevelAnalysisData,
+    json_chapter: &JsonChapter,
+    master_scale: &[u32],
+) -> Result<HashMap<String, JsonCurriculumMap>, Box<dyn Error>> {
     let mut curriculum_maps = HashMap::new();
-    let master_scale: Vec<_> = fs::read_to_string(master_avd_scale_path)?
-        .lines()
-        .skip(1)
-        .map(|line| {
-            let parts: Vec<_> = line.split(',').collect();
-            parts[1].parse::<u32>().unwrap_or(0)
-        })
-        .collect();
 
     // Detect the natural peak: the last whole u-level where at least one
     // recipe tier is NOT exhausted (i.e. not u32::MAX).  We use floor()

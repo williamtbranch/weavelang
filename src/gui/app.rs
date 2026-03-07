@@ -271,14 +271,21 @@ impl WeaveLangApp {
                     ui.close_menu();
                 }
                 ui.separator();
-                if ui.button("Generate Weave (All)").clicked() {
+                let weave_ready = !self.state.document.is_empty()
+                    && self.state.document.iter().all(|s| s.is_weave_ready())
+                    && self.state.book_map.as_ref().map_or(false, |m| !m.is_empty());
+                if ui.add_enabled(weave_ready, egui::Button::new("Generate Weave (All)")).clicked() {
                     self.execute_terminal_command("generate_weave all");
                     ui.close_menu();
                 }
-                if ui.button("Generate Weave (Level)...").clicked() {
+                if ui.add_enabled(weave_ready, egui::Button::new("Generate Weave (Level)...")).clicked() {
                     // Emit as terminal command; user can type the level in the terminal
                     self.execute_terminal_command("generate_weave all");
                     ui.close_menu();
+                }
+                if !weave_ready && !self.state.document.is_empty() {
+                    let complete = self.state.document.iter().filter(|s| s.is_weave_ready()).count();
+                    ui.label(format!("⚠ {}/{} sentences ready", complete, self.state.document.len()));
                 }
                 ui.separator();
                 if ui.button("Import Level Map...").clicked() {
@@ -447,7 +454,7 @@ impl App for WeaveLangApp {
                                 if is_bulk_run || idx == selected_idx {
                                     let lang = lang_for_tier(&tier_id, &base_lang, &target_lang);
                                     if let Some(sent) = self.state.document.get_mut(idx) {
-                                        apply_llm_result(sent, &tier_id, &text, bridge_ref, &lang);
+                                        apply_llm_result(sent, &tier_id, &text, bridge_ref, &lang, &target_lang);
                                         if idx == selected_idx {
                                              if tier_id.starts_with("MAPPING:") {
                                                  last_applied_text = Some("Mapping Generated".to_string());
@@ -494,8 +501,21 @@ impl App for WeaveLangApp {
                         let log_hint = self.state.logger.as_ref()
                             .map(|l| format!("\nLLM log: {}", l.log_file_path().display()))
                             .unwrap_or_default();
-                        self.status_message = format!("LLM job failed: {}", err_str);
-                        self.state.last_log = format!("Error: {}{}", err_str, log_hint);
+                        let done = self.state.llm_job_done;
+                        let total = self.state.llm_job_total;
+                        if done > 0 {
+                            self.status_message = format!(
+                                "LLM job failed after {}/{} items applied: {}",
+                                done, total, err_str
+                            );
+                            self.state.last_log = format!(
+                                "Error (partial: {}/{} applied): {}{}",
+                                done, total, err_str, log_hint
+                            );
+                        } else {
+                            self.status_message = format!("LLM job failed: {}", err_str);
+                            self.state.last_log = format!("Error: {}{}", err_str, log_hint);
+                        }
                         clear_receiver = true;
                         break;
                     }
@@ -827,11 +847,18 @@ impl App for WeaveLangApp {
         if self.state.show_llm_run {
             let mut open = true;
             egui::Window::new("Run Pipeline Stage").open(&mut open).show(ctx, |ui| {
+                let max_num = self.state.document.len().max(1);
                 ui.horizontal(|ui| {
-                    ui.label("Start index:");
-                    ui.add(egui::DragValue::new(&mut self.state.llm_run_start).clamp_range(0..=999999usize));
-                    ui.label("End index:");
-                    ui.add(egui::DragValue::new(&mut self.state.llm_run_end).clamp_range(0..=999999usize));
+                    ui.label("Start:");
+                    let mut start_num = self.state.llm_run_start + 1;
+                    if ui.add(egui::DragValue::new(&mut start_num).clamp_range(1..=max_num)).changed() {
+                        self.state.llm_run_start = start_num.saturating_sub(1);
+                    }
+                    ui.label("End:");
+                    let mut end_num = self.state.llm_run_end + 1;
+                    if ui.add(egui::DragValue::new(&mut end_num).clamp_range(1..=max_num)).changed() {
+                        self.state.llm_run_end = end_num.saturating_sub(1);
+                    }
                 });
                 ui.horizontal(|ui| {
                     ui.label("Stage:");
@@ -863,7 +890,8 @@ impl App for WeaveLangApp {
                         let start = min(self.state.llm_run_start, doc_len.saturating_sub(1));
                         let end   = min(self.state.llm_run_end,   doc_len.saturating_sub(1));
                         let (s, e) = if start <= end { (start, end) } else { (end, start) };
-                        let cmd = format!("run generate {} {} {}", self.state.llm_run_prompt_name, s, e);
+                        // Terminal now expects 1-based sentence numbers
+                        let cmd = format!("run generate {} {} {}", self.state.llm_run_prompt_name, s + 1, e + 1);
                         self.state.pending_terminal_command = Some(cmd);
                         self.state.show_llm_run = false;
                     }

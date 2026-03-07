@@ -17,6 +17,7 @@ use std::error::Error;
 
 pub fn json_to_domain_sentence(json_block: &JsonSentenceBlock) -> Result<Sentence, Box<dyn Error>> {
     let mut sentence = Sentence::new(json_block.s_id.clone());
+    sentence.proper_noun_lemmas = json_block.proper_noun_lemmas.clone();
 
     // 1. Convert Tiers (Preserving Segments)
     for json_tier in &json_block.tiers {
@@ -308,6 +309,7 @@ pub fn domain_sentence_to_json(sent: &Sentence) -> JsonSentenceBlock {
             basic_diglot,
             basic_inverse_diglot,
         },
+        proper_noun_lemmas: sent.proper_noun_lemmas.clone(),
     }
 }
 
@@ -325,7 +327,7 @@ pub fn domain_sentences_to_json_chapter(
         .map(|s| JsonContentBlock::Sentence(domain_sentence_to_json(s)))
         .collect();
 
-    JsonChapter {
+    let chapter = JsonChapter {
         book_meta: JsonBookMetaV2 {
             book_name: book_name.to_string(),
             schema_version: "3.2".to_string(),
@@ -334,5 +336,7 @@ pub fn domain_sentences_to_json_chapter(
         },
         content_blocks,
         u_level_maps: level_maps.cloned().unwrap_or_default(),
-    }
+    };
+
+    chapter
 }

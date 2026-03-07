@@ -6,7 +6,7 @@ DEFAULT_OUTPUT_FILE = "mono.out"
 DEFAULT_EXTENSIONS = ['.zig', '.py', '.md', '.txt', '.rs', '.ps1', '.toml', '.pest', '.weavetest'] # Added .rs and .toml
 #DEFAULT_EXTENSIONS = ['.py','.txt','.ps1', '.toml'] # Added .rs and .toml
 DEFAULT_IGNORE_PATHS_OR_NAMES = [
-    '.git', '__pycache__', 'es_master_frequency_list.txt', 'old_frequency_list_bad.txt' 'zig-cache', 'zig-out', 'stage', 'data', 'output_audio', '.venv', '.ven', '.ven.old', 'assets', 'requirements.txt', 'Project_Documentation_V3.md', 'Project_Documentation_V4.md', 'Project_Documentation_V5.md', 'Project_Documentation_V6.md', 'Project_Documentation_V7.md', 
+    '.git', '__pycache__', 'es_master_frequency_list.txt', 'old_frequency_list_bad.txt' 'zig-cache', 'zig-out', 'stage', 'data', 'output_audio', '.venv', '.ven', '.ven.old', 'assets', 'requirements.txt', 'Project_Documentation_V3.md', 'Project_Documentation_V4.md', 'Project_Documentation_V5.md', 'Project_Documentation_V6.md', 'test_out', 'test_case', 'test_temp', 'Project_Documentation_V7.md', 
 
 
 

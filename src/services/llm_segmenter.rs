@@ -186,13 +186,15 @@ fn resolve_segmenter_model(config: &crate::config::Config) -> Result<String, Str
 
     let model_key = &stage_cfg.primary_model;
 
-    let model_cfg = config
+    // Validate the alias exists in [models], but return the alias itself —
+    // RoutingLlmProvider::complete() expects the alias, not the provider name.
+    let _model_cfg = config
         .get_model_config(model_key)
         .ok_or(format!(
             "Model key '{model_key}' (from stages.Segmenter.primary_model) not found in [models]"
         ))?;
 
-    Ok(model_cfg.name.clone())
+    Ok(model_key.clone())
 }
 
 // ─── Validation ───────────────────────────────────────────────────────────────

@@ -58,6 +58,11 @@ pub struct JsonSentenceBlock {
     pub s_id: String,
     pub tiers: Vec<JsonTierV2>,
     pub mappings: JsonMappingsV2,
+    /// Lemmas flagged as proper nouns (from `{{…}}` markers in the forward
+    /// diglot map).  Persisted so the weave algorithm can always treat
+    /// these lemmas as known, regardless of frequency rank.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub proper_noun_lemmas: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

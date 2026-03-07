@@ -55,8 +55,7 @@ where
             content_blocks.push(JsonContentBlock::Sentence(JsonSentenceBlock {
                 s_id,
                 tiers: vec![tier],
-                mappings: JsonMappingsV2::default(),
-            }));
+                mappings: JsonMappingsV2::default(),                proper_noun_lemmas: vec![],            }));
             continue;
         }
 
@@ -87,8 +86,7 @@ where
             content_blocks.push(JsonContentBlock::Sentence(JsonSentenceBlock {
                 s_id,
                 tiers: vec![tier],
-                mappings: JsonMappingsV2::default(),
-            }));
+                mappings: JsonMappingsV2::default(),                proper_noun_lemmas: vec![],            }));
         }
     }
 
@@ -192,8 +190,7 @@ impl BookImporter {
                 content_blocks.push(JsonContentBlock::Sentence(JsonSentenceBlock {
                     s_id,
                     tiers: vec![tier],
-                    mappings: JsonMappingsV2::default(),
-                }));
+                    mappings: JsonMappingsV2::default(),                    proper_noun_lemmas: vec![],                }));
                 continue;
             }
 
@@ -227,6 +224,7 @@ impl BookImporter {
                     s_id,
                     tiers: vec![tier],
                     mappings: JsonMappingsV2::default(),
+                    proper_noun_lemmas: vec![],
                 }));
             }
         }
@@ -331,8 +329,7 @@ where
             content_blocks.push(JsonContentBlock::Sentence(JsonSentenceBlock {
                 s_id,
                 tiers: vec![tier],
-                mappings: JsonMappingsV2::default(),
-            }));
+                mappings: JsonMappingsV2::default(),                proper_noun_lemmas: vec![],            }));
             continue;
         }
 
@@ -363,8 +360,7 @@ where
             content_blocks.push(JsonContentBlock::Sentence(JsonSentenceBlock {
                 s_id,
                 tiers: vec![tier],
-                mappings: JsonMappingsV2::default(),
-            }));
+                mappings: JsonMappingsV2::default(),                proper_noun_lemmas: vec![],            }));
         }
     }
 

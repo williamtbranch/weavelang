@@ -19,6 +19,20 @@ impl Engine {
         }
     }
 
+    /// Resolve a user-supplied path against the workspace directory.
+    /// Absolute paths are returned as-is; relative paths are resolved
+    /// relative to `content_project_dir` (the open workspace).
+    fn resolve_path(&self, path: &str) -> PathBuf {
+        let p = PathBuf::from(path);
+        if p.is_absolute() {
+            p
+        } else if let Some(cfg) = &self.state.config {
+            cfg.content_project_dir_path().join(path)
+        } else {
+            p
+        }
+    }
+
     pub fn execute(&mut self, command: AppCommand) -> Result<String, String> {
         match command {
             AppCommand::SelectSentence { id, index } => {
@@ -26,9 +40,9 @@ impl Engine {
                     if idx < self.state.document.len() {
                         self.state.selected_sentence_idx = idx;
                         self.state.selected_range = None;
-                        return Ok(format!("Selected sentence index {}", idx));
+                        return Ok(format!("Selected sentence {}", idx + 1));
                     }
-                    return Err("Index out of bounds".to_string());
+                    return Err(format!("Sentence {} out of range (1-{})", idx + 1, self.state.document.len()));
                 } else if let Some(sid) = id {
                     if let Some(idx) = self.state.document.iter().position(|s| s.id == sid) {
                         self.state.selected_sentence_idx = idx;
@@ -60,6 +74,7 @@ impl Engine {
                     "token_simulation" => self.state.right_view = DetailView::Token(TierView::Simulation),
                     "mapping_diglot" => self.state.right_view = DetailView::MappingDiglot,
                     "mapping_inverse" => self.state.right_view = DetailView::MappingInverse,
+                    "proper_noun_lemmas" => self.state.right_view = DetailView::ProperNounLemmas,
                     _ => return Err(format!("Unknown view: {}", view)),
                 }
                 Ok(format!("Right view set to {}", view))
@@ -144,6 +159,44 @@ impl Engine {
                 // TODO: Implement mapping generation
                 Ok("Mapping generation started".to_string())
             }
+            AppCommand::ListPnLemmas { index } => {
+                if let Some(sent) = self.state.document.get(index) {
+                    let lemmas = &sent.proper_noun_lemmas;
+                    if lemmas.is_empty() {
+                        Ok(format!("Sentence {} has no proper noun lemmas.", index + 1))
+                    } else {
+                        let list = lemmas.join(", ");
+                        Ok(format!("Sentence {} PN lemmas: {}", index + 1, list))
+                    }
+                } else {
+                    Err("Index out of bounds".to_string())
+                }
+            }
+            AppCommand::AddPnLemma { index, lemma } => {
+                if let Some(sent) = self.state.document.get_mut(index) {
+                    if sent.proper_noun_lemmas.contains(&lemma) {
+                        Ok(format!("'{}' already in PN lemmas for sentence {}.", lemma, index + 1))
+                    } else {
+                        sent.proper_noun_lemmas.push(lemma.clone());
+                        sent.proper_noun_lemmas.sort();
+                        Ok(format!("Added '{}' to PN lemmas for sentence {}.", lemma, index + 1))
+                    }
+                } else {
+                    Err("Index out of bounds".to_string())
+                }
+            }
+            AppCommand::RemovePnLemma { index, lemma } => {
+                if let Some(sent) = self.state.document.get_mut(index) {
+                    if let Some(pos) = sent.proper_noun_lemmas.iter().position(|l| l == &lemma) {
+                        sent.proper_noun_lemmas.remove(pos);
+                        Ok(format!("Removed '{}' from PN lemmas for sentence {}.", lemma, index + 1))
+                    } else {
+                        Err(format!("'{}' not found in PN lemmas for sentence {}.", lemma, index + 1))
+                    }
+                } else {
+                    Err("Index out of bounds".to_string())
+                }
+            }
             AppCommand::OpenWorkspace { path } => {
                 let workspace_path = std::path::PathBuf::from(&path);
 
@@ -186,13 +239,26 @@ impl Engine {
                     llm.update_models(config.models.clone());
                 }
 
+                // Hydrate output_dir from config
+                if let Some(ref out_dir) = config.output_dir {
+                    let resolved = if PathBuf::from(out_dir).is_absolute() {
+                        PathBuf::from(out_dir)
+                    } else {
+                        workspace_path.join(out_dir)
+                    };
+                    self.state.output_dir = Some(resolved.to_string_lossy().to_string());
+                }
+
                 self.state.config = Some(config);
                 Ok(format!("Workspace opened: {}", path))
             }
             AppCommand::LoadProject { path } => {
-                let path_buf = PathBuf::from(&path);
+                let path_buf = self.resolve_path(&path);
                 if let Ok(bytes) = fs::read(&path_buf) {
-                    if let Ok(mut loaded_state) = bincode::deserialize::<AppState>(&bytes) {
+                    // Try JSON first (new format), fall back to bincode (legacy)
+                    let deser_result = serde_json::from_slice::<AppState>(&bytes)
+                        .or_else(|_| bincode::deserialize::<AppState>(&bytes));
+                    if let Ok(mut loaded_state) = deser_result {
                         // Restore runtime services
                         loaded_state.bridge = self.state.bridge.clone();
                         loaded_state.llm = self.state.llm.clone();
@@ -225,15 +291,15 @@ impl Engine {
                 Err(format!("Failed to read file {}", path))
             }
             AppCommand::SaveProject { path } => {
-                let save_path = if let Some(p) = path {
-                    PathBuf::from(p)
+                let save_path = if let Some(ref p) = path {
+                    self.resolve_path(p)
                 } else if let Some(p) = &self.current_file_path {
                     p.clone()
                 } else {
                     return Err("No path provided and no current file path".to_string());
                 };
 
-                if let Ok(bytes) = bincode::serialize(&self.state) {
+                if let Ok(bytes) = serde_json::to_vec_pretty(&self.state) {
                     if fs::write(&save_path, bytes).is_ok() {
                         self.current_file_path = Some(save_path.clone());
 
@@ -250,13 +316,14 @@ impl Engine {
                 Err("Failed to serialize project".to_string())
             }
             AppCommand::ImportSource { path } => {
-                let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+                let resolved_path = self.resolve_path(&path);
+                let content = fs::read_to_string(&resolved_path).map_err(|e| e.to_string())?;
                 let sentences = source_parser::parse_source_file(&content).map_err(|e| e.to_string())?;
                 
                 if !sentences.is_empty() {
                     self.state.document = sentences;
                 } else if let Some(bridge) = &self.state.bridge {
-                    let path_buf = PathBuf::from(&path);
+                    let path_buf = resolved_path.clone();
                     let book_name = path_buf.file_name().and_then(|s| s.to_str()).unwrap_or("Unnamed");
                     
                     let chap = crate::services::importer::BookImporter::import_from_text_with_service(
@@ -279,7 +346,7 @@ impl Engine {
                 }
                 
                 self.state.book_map = None;
-                self.state.book_name = PathBuf::from(&path)
+                self.state.book_name = resolved_path
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("Unnamed")
@@ -289,7 +356,8 @@ impl Engine {
                 Ok(format!("Imported {} sentences from source", self.state.document.len()))
             }
             AppCommand::ImportJson { path } => {
-                let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+                let resolved_path = self.resolve_path(&path);
+                let content = fs::read_to_string(&resolved_path).map_err(|e| e.to_string())?;
                 let chapter: JsonChapter = serde_json::from_str(&content).map_err(|e| e.to_string())?;
                 
                 self.state.document.clear();
@@ -327,15 +395,155 @@ impl Engine {
                 self.execute_import_level_map(&path)
             }
             AppCommand::SetOutputDir { path } => {
-                let dir = PathBuf::from(&path);
+                let dir = self.resolve_path(&path);
                 if !dir.exists() {
-                    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create directory '{}': {}", path, e))?;
+                    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create directory '{}': {}", dir.display(), e))?;
                 }
-                self.state.output_dir = Some(path.clone());
-                Ok(format!("Output directory set to '{}'", path))
+                let resolved = dir.to_string_lossy().to_string();
+                self.state.output_dir = Some(resolved.clone());
+
+                // Persist to workspace config
+                if let Some(cfg) = &mut self.state.config {
+                    cfg.output_dir = Some(path.clone());
+                    let config_path = PathBuf::from(&cfg.content_project_dir).join("config.toml");
+                    let _ = crate::config::save_config_to_file(cfg, &config_path);
+                }
+
+                Ok(format!("Output directory set to '{}'", resolved))
             }
             AppCommand::GenerateWeave { level } => {
+                // Guard: all sentences must be weave-ready
+                if self.state.document.is_empty() {
+                    return Err("No document loaded.".to_string());
+                }
+                let not_ready: Vec<usize> = self.state.document.iter().enumerate()
+                    .filter(|(_, s)| !s.is_weave_ready())
+                    .map(|(i, _)| i + 1) // 1-based for display
+                    .collect();
+                if !not_ready.is_empty() {
+                    let preview: String = if not_ready.len() <= 10 {
+                        not_ready.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", ")
+                    } else {
+                        let first: Vec<String> = not_ready[..10].iter().map(|n| n.to_string()).collect();
+                        format!("{} ... and {} more", first.join(", "), not_ready.len() - 10)
+                    };
+                    return Err(format!(
+                        "Document is not ready for weave output. {}/{} sentences incomplete.\nIncomplete: [{}]\nUse 'weave status' or 'report sentences incomplete' for details.",
+                        not_ready.len(), self.state.document.len(), preview
+                    ));
+                }
                 self.execute_generate_weave(&level)
+            }
+            AppCommand::Calibrate { max_level } => {
+                self.execute_calibrate(max_level)
+            }
+            AppCommand::WeaveStatus => {
+                if self.state.document.is_empty() {
+                    return Ok("No document loaded.".to_string());
+                }
+                let total = self.state.document.len();
+                let complete = self.state.document.iter().filter(|s| s.is_weave_ready()).count();
+                let has_level_map = self.state.book_map.as_ref().map_or(false, |m| !m.is_empty());
+
+                let mut parts = Vec::new();
+                if complete < total {
+                    parts.push(format!("{}/{} sentences complete, {} remaining", complete, total, total - complete));
+                }
+                if !has_level_map {
+                    parts.push("no level map (run 'calibrate' to generate)".to_string());
+                }
+
+                if parts.is_empty() {
+                    Ok(format!("Ready — all {} sentences are weave-complete and level map is loaded.", total))
+                } else {
+                    Ok(format!("Not Ready — {}", parts.join("; ")))
+                }
+            }
+            AppCommand::ReportSentencesIncomplete => {
+                if self.state.document.is_empty() {
+                    return Ok("No document loaded.".to_string());
+                }
+                let incomplete: Vec<String> = self.state.document.iter().enumerate()
+                    .filter(|(_, s)| !s.is_weave_ready())
+                    .map(|(i, s)| {
+                        let status = match s.weave_completeness() {
+                            crate::domain::sentence::Completeness::Empty => "empty",
+                            crate::domain::sentence::Completeness::Incomplete => "incomplete",
+                            crate::domain::sentence::Completeness::Complete => "complete",
+                        };
+                        format!("  {} (sentence {}) — {}", s.id, i + 1, status)
+                    })
+                    .collect();
+                if incomplete.is_empty() {
+                    Ok("All sentences are weave-complete!".to_string())
+                } else {
+                    Ok(format!("{} incomplete sentence(s):\n{}", incomplete.len(), incomplete.join("\n")))
+                }
+            }
+            AppCommand::ReportSentencesComplete => {
+                if self.state.document.is_empty() {
+                    return Ok("No document loaded.".to_string());
+                }
+                let complete: Vec<String> = self.state.document.iter().enumerate()
+                    .filter(|(_, s)| s.is_weave_ready())
+                    .map(|(i, s)| format!("  {} (sentence {})", s.id, i + 1))
+                    .collect();
+                if complete.is_empty() {
+                    Ok("No sentences are weave-complete yet.".to_string())
+                } else {
+                    Ok(format!("{} complete sentence(s):\n{}", complete.len(), complete.join("\n")))
+                }
+            }
+            AppCommand::ReportSentence { start_index, end_index } => {
+                if self.state.document.is_empty() {
+                    return Err("No document loaded.".to_string());
+                }
+                let max_idx = self.state.document.len().saturating_sub(1);
+                let s = start_index.min(max_idx);
+                let e = end_index.min(max_idx);
+                let (s, e) = if s <= e { (s, e) } else { (e, s) };
+
+                let tier_labels: &[(&str, &str)] = &[
+                    ("base",             "Base (Source)"),
+                    ("basic_base",       "Basic Base"),
+                    ("advanced_target",  "Advanced Target"),
+                    ("moderate_target",  "Moderate Target"),
+                    ("basic_target",     "Basic Target"),
+                ];
+
+                let mut out = String::new();
+                for idx in s..=e {
+                    let sent = &self.state.document[idx];
+                    let wc = sent.weave_completeness();
+                    let wc_label = match wc {
+                        crate::domain::sentence::Completeness::Complete => "READY",
+                        crate::domain::sentence::Completeness::Incomplete => "INCOMPLETE",
+                        crate::domain::sentence::Completeness::Empty => "EMPTY",
+                    };
+                    out.push_str(&format!("=== {} (sentence {}) — Weave: {} ===\n", sent.id, idx + 1, wc_label));
+
+                    for &(tid, label) in tier_labels {
+                        let status = sent.tier_status_display(tid);
+                        let preview = sent.get_tier(tid)
+                            .map(|t| {
+                                let ft = t.full_text();
+                                if ft.len() > 60 { format!("\"{}...\"", &ft[..57]) } else { format!("\"{}\"", ft) }
+                            })
+                            .unwrap_or_else(|| "—".to_string());
+                        out.push_str(&format!("  {:<20} {:<12} {}\n", label, status, preview));
+                    }
+
+                    // Mappings
+                    let diglot_status = if sent.has_diglot_mapping() { "valid" } else { "empty" };
+                    let inv_diglot_status = if sent.has_inverse_diglot_mapping() { "valid" } else { "empty" };
+                    out.push_str(&format!("  {:<20} {}\n", "Diglot Mapping", diglot_status));
+                    out.push_str(&format!("  {:<20} {}\n", "Inverse Diglot", inv_diglot_status));
+
+                    if idx < e {
+                        out.push('\n');
+                    }
+                }
+                Ok(out)
             }
             AppCommand::ConfigSet { key, value } => {
                 if let Some(config) = &mut self.state.config {
@@ -605,7 +813,7 @@ impl Engine {
                     "GenerateBasicTarget" => ("translate_text_basic", "basic_target", "basic_base"),
                     "GenerateAdvancedTarget" => ("translate_text", "advanced_target", "base"),
                     "GenerateModerateTarget" => ("simplify_segments", "moderate_target", "advanced_target"),
-                    "GeneratePhraseMap" => ("generate_phrase_map", "MAPPING:basic_base:basic_target", "basic_base"),
+                    "GeneratePhraseMap" => ("generate_diglot_map", "MAPPING:basic_base:basic_target", "basic_base"),
                     "GenerateInversePhraseMap" => ("generate_inverse_phrase_map", "MAPPING:basic_target:basic_base", "basic_target"),
                     _ => return Err(format!("Unknown stage mapping for '{}'", stage_name)),
                 };
@@ -883,27 +1091,7 @@ impl Engine {
     }
 
     fn execute_export_json(&self, path: &str) -> Result<String, String> {
-        let mut path_buf = PathBuf::from(path);
-
-        if path_buf.is_relative() {
-            if let Some(ref out_dir) = self.state.output_dir {
-                // If it's a relative path, we might resolve it relative to output_dir
-                // Or maybe relative to output_dir's parent, but let's test if it starts with out_dir's stem?
-                // For simplicity, just use current dir if we passed a path, BUT in tests we usually want to write into out_dir...
-                // Wait, in integration_e2e.rs we passed "export json weave_output/exported.json"
-                // Actually let's just write to it straight away since the test cwd is right, or if it isn't, 
-                // just test using out_dir if it's there.
-                // Wait, integration tests run in the crate root. So `weave_output/exported.json` will write to `E:\Bill\development\weavelang\weave_output\exported.json`!
-                // But the test is checking `test_case/test_01/weave_output/exported.json`.
-                // In Python, they probably do it relative to project or output_dir. 
-                // Let's just resolve relative to current dir? 
-                // In my old code I had:
-                let out_dir_path = PathBuf::from(out_dir);
-                if let Some(parent) = out_dir_path.parent() {
-                    path_buf = parent.join(path_buf);
-                }
-            }
-        }
+        let path_buf = self.resolve_path(path);
 
         use crate::domain::bridge::domain_sentences_to_json_chapter;
         let (base_lang, target_lang) = &self.state.project_languages;
@@ -1012,19 +1200,14 @@ impl Engine {
         };
 
         // Resolve output path
-        let path_buf = PathBuf::from(path);
+        let path_buf = self.resolve_path(path);
         let output_path = if path_buf.extension().map_or(false, |ext| ext == "lm") {
             // User provided a full filename
             path_buf
         } else {
-            // User provided a directory (or ".") — generate default name
-            let dir = if path == "." {
-                std::env::current_dir().map_err(|e| e.to_string())?
-            } else {
-                PathBuf::from(path)
-            };
+            // User provided a directory — generate default name
             let default_name = format!("{}_UL{}p{}.lm", book_name, score_int, score_frac);
-            dir.join(default_name)
+            path_buf.join(default_name)
         };
 
         // Serialize the level map file
@@ -1051,8 +1234,9 @@ impl Engine {
     fn execute_import_level_map(&mut self, path: &str) -> Result<String, String> {
         use crate::types::json_types::LevelMapFile;
 
-        let content = fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read level map '{}': {}", path, e))?;
+        let resolved = self.resolve_path(path);
+        let content = fs::read_to_string(&resolved)
+            .map_err(|e| format!("Failed to read level map '{}': {}", resolved.display(), e))?;
         let lm_file: LevelMapFile = serde_json::from_str(&content)
             .map_err(|e| format!("Failed to parse level map: {}", e))?;
 
@@ -1075,6 +1259,7 @@ impl Engine {
     fn execute_generate_weave(&self, level_arg: &str) -> Result<String, String> {
         use crate::domain::bridge::domain_sentences_to_json_chapter;
         use crate::simulation::dictionary::GlobalLemmaDictionary;
+        use crate::simulation::metrics::TextMetrics;
         use crate::simulation::preprocessor;
         use crate::corpus_generator;
         use crate::simulation::text_generator;
@@ -1119,20 +1304,22 @@ impl Engine {
             preprocessor::json_chapter_to_numerical(&json_chapter, &mut dictionary);
 
         let mut generated_files: Vec<String> = Vec::new();
+        let analysis_path = output_path.join("analysis.txt");
 
         for level in &levels {
             let level_key = level.to_string();
-            let recipe = book_map.get(&level_key)
-                .and_then(|cm| cm.map.first())
+            let cm = book_map.get(&level_key)
                 .ok_or(format!("No recipe found for level {}", level))?;
+            let first_entry = cm.map.first()
+                .ok_or(format!("Empty curriculum map for level {}", level))?;
 
             let result = corpus_generator::generate_book_instance(
                 &numerical_chapter,
                 &json_chapter,
                 &dictionary,
-                recipe.recipe.bas,
-                recipe.recipe.mod_v,
-                recipe.recipe.adv,
+                first_entry.recipe.bas,
+                first_entry.recipe.mod_v,
+                first_entry.recipe.adv,
                 0.5, // inverse_diglot_threshold
                 false, // debug_markers
             ).map_err(|e| format!("Generation failed for level {}: {}", level, e))?;
@@ -1149,6 +1336,25 @@ impl Engine {
             fs::write(&file_path, &output_text)
                 .map_err(|e| format!("Failed to write '{}': {}", file_path.display(), e))?;
 
+            // Compute AVD and log analysis profile
+            let metrics = TextMetrics::new(
+                &result.all_output_lemma_instances,
+                result.total_base_words,
+            );
+            let avd_score = metrics.calculate_avd_score();
+
+            let last_entry = cm.map.last();
+            corpus_generator::log_analysis_to_file(
+                &analysis_path,
+                &file_name,
+                &result,
+                avd_score,
+                Some(first_entry.recipe.clone()),
+                last_entry.map(|e| e.recipe.clone()),
+                Some(first_entry.l_level_recipe.clone()),
+                last_entry.map(|e| e.l_level_recipe.clone()),
+            ).map_err(|e| format!("Failed to write analysis: {}", e))?;
+
             generated_files.push(format!("UL{}.txt ({} sentences)", level, result.final_text_parts.len()));
         }
 
@@ -1157,6 +1363,62 @@ impl Engine {
             generated_files.len(),
             output_dir,
             generated_files.join("\n  "),
+        ))
+    }
+
+    fn execute_calibrate(&mut self, max_level: Option<u32>) -> Result<String, String> {
+        use crate::domain::bridge::domain_sentences_to_json_chapter;
+        use crate::simulation::calibrator;
+        use crate::simulation::frequency_manager;
+
+        if self.state.document.is_empty() {
+            return Err("No document loaded.".to_string());
+        }
+
+        // Ensure frequency list is loaded
+        if frequency_manager::get_max_rank() == 0 {
+            return Err("Frequency list not loaded. Cannot calibrate.".to_string());
+        }
+
+        // Resolve master AVD scale path from config
+        let content_dir = self.state.config.as_ref()
+            .map(|c| c.content_project_dir_path())
+            .ok_or("No config loaded — cannot locate master AVD scale file.")?;
+        let scale_path = content_dir.join("generated_profiles").join("master_avd_scale.csv");
+        if !scale_path.exists() {
+            return Err(format!(
+                "Master AVD scale not found at '{}'. Run the AVD hunter first.",
+                scale_path.display()
+            ));
+        }
+
+        let master_scale = calibrator::parse_master_avd_scale(&scale_path)
+            .map_err(|e| format!("Failed to read master AVD scale: {}", e))?;
+
+        let max_level = max_level.unwrap_or(45);
+
+        // Build JsonChapter from the currently-loaded domain sentences
+        let (base_lang, target_lang) = &self.state.project_languages;
+        let json_chapter = domain_sentences_to_json_chapter(
+            &self.state.document,
+            &self.state.book_name,
+            base_lang,
+            target_lang,
+            None, // no existing level maps
+        );
+
+        let curriculum_maps = calibrator::calibrate_from_chapter(
+            &json_chapter,
+            &master_scale,
+            max_level,
+        ).map_err(|e| format!("Calibration failed: {}", e))?;
+
+        let level_count = curriculum_maps.len();
+        self.state.book_map = Some(curriculum_maps);
+
+        Ok(format!(
+            "Calibration complete — {} start-level maps generated and loaded.",
+            level_count
         ))
     }
 
@@ -1180,7 +1442,7 @@ impl Engine {
         ];
 
         let mut out = String::new();
-        out.push_str(&format!("=== Debug Dump: sentences {} to {} ===\n", s, e));
+        out.push_str(&format!("=== Debug Dump: sentences {} to {} ===\n", s + 1, e + 1));
         out.push_str(&format!("=== Book: {} | Languages: {}/{} ===\n\n",
             if self.state.book_name.is_empty() { "Unknown" } else { &self.state.book_name },
             self.state.project_languages.0,
@@ -1194,9 +1456,9 @@ impl Engine {
                 .unwrap_or_else(|| "(no base tier)".to_string());
 
             out.push_str(&format!(
-                "================================================================\n=== {} (index {}): \"{}\" ===\n================================================================\n\n",
+                "================================================================\n=== {} (sentence {}): \"{}\" ===\n================================================================\n\n",
                 sent.id,
-                idx,
+                idx + 1,
                 if base_text.len() > 80 { format!("{}...", &base_text[..77]) } else { base_text }
             ));
 

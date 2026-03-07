@@ -149,6 +149,7 @@ pub fn json_sentence_to_numerical(
         basic_target_lemma_ids: string_lemmas_to_ids(&basic_target_tier.lemmas, dictionary),
         basic_diglot_map_numerical,
         basic_inverse_diglot_map_numerical,
+        proper_noun_lemma_ids: string_lemmas_to_ids(&s_sentence.proper_noun_lemmas, dictionary),
         eng_text_original: basic_base_tier.full_text.clone(), // <-- USE THE CORRECT TIER HERE
         eng_text_word_count: 0,
         adv_s_text_original: adv_target_tier.full_text.clone(),

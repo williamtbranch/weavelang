@@ -166,6 +166,18 @@ fn run_dsl_generation_test_suite() {
             basic_spanish_tier,
             basic_english_tier,
         ];
+
+        // Build the proper_noun_lemmas list from forward diglot entries that
+        // have the PN flag, mirroring Sentence::rebuild_proper_noun_lemmas.
+        let pn_lemmas: Vec<String> = test_case
+            .sentence_def
+            .l1_diglot_tuples
+            .iter()
+            .filter(|t| t.is_proper_noun)
+            .flat_map(|t| t.replacement_lemmas.iter().cloned())
+            .collect();
+        json_sentence.proper_noun_lemmas = pn_lemmas;
+
         let mock_chapter = JsonChapter {
             book_meta: JsonBookMetaV2 {
                 book_name: test_case.name.clone(),
@@ -174,6 +186,7 @@ fn run_dsl_generation_test_suite() {
             content_blocks: vec![JsonContentBlock::Sentence(json_sentence.clone())],
             ..Default::default()
         };
+
         let (numerical_chapter, _) =
             preprocessor::json_chapter_to_numerical(&mock_chapter, dictionary);
         (

@@ -29,33 +29,46 @@ pub enum DetailView {
     Token(TierView),
     MappingDiglot,
     MappingInverse,
+    ProperNounLemmas,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SimulationMode {
     Calibrated,
+    #[default]
     Manual,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct AppState {
+    #[serde(default)]
     pub document: Vec<Sentence>,
+    #[serde(default)]
     pub book_map: Option<HashMap<String, JsonCurriculumMap>>,
+    #[serde(default)]
     pub book_name: String,
 
     // --- NEW FIELD: Project Languages (Base, Target) ---
+    #[serde(default = "default_languages")]
     pub project_languages: (String, String),
 
+    #[serde(default)]
     pub selected_sentence_idx: usize,
     // Optional contiguous selection range in the navigator (inclusive start,end).
     // If None, only `selected_sentence_idx` is selected.
+    #[serde(default)]
     pub selected_range: Option<(usize, usize)>,
+    #[serde(default = "default_left_view")]
     pub left_view: TierView,
+    #[serde(default = "default_right_view")]
     pub right_view: DetailView,
 
     // Simulation Settings
+    #[serde(default)]
     pub sim_mode: SimulationMode,
+    #[serde(default = "default_sim_user_level")]
     pub sim_user_level: u32,
+    #[serde(default = "default_sim_manual_recipe")]
     pub sim_manual_recipe: VLevelRecipe,
 
     // Services
@@ -152,6 +165,26 @@ pub struct AppState {
     pub llm_job_target_tier: String,
     #[serde(skip)]
     pub llm_job_model: String,
+
+    // Input buffer for the Proper Noun Lemmas editor tab
+    #[serde(skip)]
+    pub pn_lemma_input: String,
+}
+
+fn default_languages() -> (String, String) {
+    ("en".to_string(), "es".to_string())
+}
+fn default_left_view() -> TierView {
+    TierView::AdvancedTarget
+}
+fn default_right_view() -> DetailView {
+    DetailView::Tier(TierView::BasicBase)
+}
+fn default_sim_user_level() -> u32 {
+    1
+}
+fn default_sim_manual_recipe() -> VLevelRecipe {
+    VLevelRecipe { bas: 500, mod_v: 0, adv: 0 }
 }
 
 impl Default for AppState {
@@ -210,6 +243,7 @@ impl Default for AppState {
             llm_job_stage: String::new(),
             llm_job_target_tier: String::new(),
             llm_job_model: String::new(),
+            pn_lemma_input: String::new(),
         }
     }
 }

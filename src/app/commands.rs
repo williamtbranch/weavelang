@@ -42,14 +42,26 @@ pub enum AppCommand {
     ImportLevelMap { path: String },
     SetOutputDir { path: String },
     GenerateWeave { level: String },
+    Calibrate { max_level: Option<u32> },
 
     // API Key Management
     SetKey { provider: String, value: String },
     DeleteKey { provider: String },
     KeyStatus,
 
+    // Proper Noun Lemma Editing
+    ListPnLemmas { index: usize },
+    AddPnLemma { index: usize, lemma: String },
+    RemovePnLemma { index: usize, lemma: String },
+
     // Debug / Testing
     DebugDump { start_index: usize, end_index: usize, path: Option<String> },
+
+    // Weave readiness & reporting (indices are 0-based internally)
+    WeaveStatus,
+    ReportSentencesIncomplete,
+    ReportSentencesComplete,
+    ReportSentence { start_index: usize, end_index: usize },
 
     // Terminal Specific (handled by CLI layer, but defined here for parsing convenience or separate enum)
     // Actually, terminal specific commands shouldn't be in AppCommand if they don't affect AppState.

@@ -6,13 +6,107 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc};
 use std::sync::atomic::AtomicBool;
 
-/// Spawn a background worker to run `LlmStageService::generate_for_items` and
-/// return a Receiver that will yield the Vec of results when ready.
+/// Prefix prepended to LLM result text when segmentation failed gracefully.
+/// `apply_llm_result` detects this, strips it, and marks the tier Stale
+/// instead of Valid so the UI signals the partial failure.
+pub const SEG_FAIL_PREFIX: &str = "\x01SEGFAIL\x01";
+
+/// Split `items` into balanced chunks.
+///
+/// If the naïve last chunk would be smaller than half `batch_size`, merge the
+/// last two chunks and redistribute them as evenly as possible.
+///
+/// Example: 22 items with batch 10 → naïve [10, 10, 2].
+///   Last chunk (2) < ceil(10/2) = 5, so merge last two → 12 items,
+///   split into [6, 6].  Final result: [10, 6, 6].
+pub fn compute_balanced_chunks<T: Clone>(items: Vec<T>, batch_size: usize) -> Vec<Vec<T>> {
+    if items.is_empty() || batch_size == 0 {
+        return if items.is_empty() { vec![] } else { vec![items] };
+    }
+
+    let mut chunks: Vec<Vec<T>> = items.chunks(batch_size).map(|c| c.to_vec()).collect();
+
+    if chunks.len() >= 2 {
+        let last_len = chunks.last().map(|c| c.len()).unwrap_or(0);
+        let threshold = (batch_size + 1) / 2; // ceil(batch_size / 2)
+        if last_len < threshold {
+            // Merge last two chunks and split evenly
+            let last = chunks.pop().unwrap();
+            let second_last = chunks.pop().unwrap();
+            let mut merged: Vec<T> = second_last;
+            merged.extend(last);
+            let total = merged.len();
+            let half = total / 2;
+            let second_half = merged.split_off(half);
+            chunks.push(merged);
+            chunks.push(second_half);
+        }
+    }
+
+    chunks
+}
+
+/// Split segment-level items into chunks that never break sentence boundaries.
+///
+/// Mirrors the Python pipeline's `generate_phrase_map.py` logic: group items by
+/// their sentence index, then greedily pack whole sentences into batches up to
+/// `batch_size` items.  A sentence that would overflow the current batch starts
+/// a new batch (even if the sentence itself exceeds `batch_size` — we never
+/// split a single sentence).
+///
+/// This is critical for `GenerateModerateTarget` where each item is a segment
+/// (e.g. "S5_S3") and the LLM needs full sentence context to produce coherent
+/// simplifications.
+pub fn compute_sentence_aligned_chunks(
+    items: Vec<(usize, String, String)>,
+    batch_size: usize,
+) -> Vec<Vec<(usize, String, String)>> {
+    use std::collections::BTreeMap;
+
+    if items.is_empty() {
+        return vec![];
+    }
+    if batch_size == 0 {
+        return vec![items];
+    }
+
+    // Group items by sentence index, preserving insertion order within each group.
+    let mut groups: BTreeMap<usize, Vec<(usize, String, String)>> = BTreeMap::new();
+    for item in items {
+        groups.entry(item.0).or_default().push(item);
+    }
+
+    let mut chunks: Vec<Vec<(usize, String, String)>> = Vec::new();
+    let mut current_batch: Vec<(usize, String, String)> = Vec::new();
+
+    for (_sent_idx, sentence_items) in groups {
+        // If adding this sentence would exceed the batch size, flush current batch.
+        if !current_batch.is_empty()
+            && current_batch.len() + sentence_items.len() > batch_size
+        {
+            chunks.push(std::mem::take(&mut current_batch));
+        }
+        current_batch.extend(sentence_items);
+    }
+    if !current_batch.is_empty() {
+        chunks.push(current_batch);
+    }
+
+    chunks
+}
+
+/// Spawn a background worker that runs LLM generation **per-batch**, sending
+/// each batch's results through the channel as soon as they arrive.
+///
+/// This ensures that if batch N fails, batches 1..N-1 have already been sent
+/// and applied by the receiver, so no data is lost.
+///
+/// Batch sizes are tail-balanced: if the last batch would be a runt, the final
+/// two batches are redistributed evenly (see `compute_balanced_chunks`).
 ///
 /// When `segment_level` is true, items are expected to have segment-level IDs
 /// (e.g. "S5_S1", "S5_S2") and results will be reassembled back into
-/// sentence-level results before being sent through the channel.  This prevents
-/// LLM segment-boundary drift while keeping the result protocol unchanged.
+/// sentence-level results before being sent through the channel.
 pub fn spawn_llm_job(
     prompts: PromptManager,
     llm: LlmService,
@@ -34,46 +128,72 @@ pub fn spawn_llm_job(
 
     std::thread::spawn(move || {
         let svc = LlmStageService::new(prompts.clone(), llm.clone(), logger.clone());
-
         let fb_ref = fallback_model.as_deref();
 
-        let res = svc.generate_for_items(
+        // When segment_level is true, items are segments (e.g. S5_S1, S5_S2).
+        // Use sentence-aligned batching so a sentence's segments are never split
+        // across LLM calls — Python parity and critical for coherent simplification.
+        let chunks = if segment_level {
+            compute_sentence_aligned_chunks(items, batch_size)
+        } else {
+            compute_balanced_chunks(items, batch_size)
+        };
+
+        let result = svc.generate_for_items_streaming(
             &base_code,
             &target_code,
             &prompt_name,
-            items,
-            batch_size,
+            chunks,
             &model,
             fb_ref,
             Some(cancel_thread_flag.as_ref()),
+            |batch_results| {
+                // Post-process each batch and send immediately
+                let mapped: Vec<(usize, String, String, String)> = if segment_level {
+                    reassemble_segment_results(batch_results, &target_tier_id)
+                } else if target_tier_id == "advanced_target" {
+                    batch_results
+                        .into_iter()
+                        .map(|(idx, sid, gen)| {
+                            let seg_result = crate::services::llm_segmenter::segment_sentence(
+                                &gen, &sid, &llm, &prompts, &logger, &config,
+                                &base_code, &target_code,
+                            );
+                            let (segs, failed) = match seg_result {
+                                Ok(s) => (s, false),
+                                Err(e) => {
+                                    eprintln!("[Segmenter] {} failed: {}", sid, e);
+                                    let _ = logger.log_interaction(
+                                        &format!("LLMSegmenter FAILED S_ID={}", sid),
+                                        "",
+                                        "",
+                                        &format!("ERROR: {}", e),
+                                    );
+                                    (vec![gen], true)
+                                }
+                            };
+                            let mut text = segs.join("\0");
+                            if failed {
+                                text = format!("{}{}", SEG_FAIL_PREFIX, text);
+                            }
+                            (idx, sid, target_tier_id.clone(), text)
+                        })
+                        .collect()
+                } else {
+                    batch_results
+                        .into_iter()
+                        .map(|(idx, sid, gen)| (idx, sid, target_tier_id.clone(), gen))
+                        .collect()
+                };
+
+                let _ = tx.send(Ok(mapped));
+            },
         );
 
-        let mapped: Result<Vec<(usize, String, String, String)>, String> = match res {
-            Ok(v) if segment_level => {
-                let reassembled = reassemble_segment_results(v, &target_tier_id);
-                Ok(reassembled)
-            }
-            Ok(v) => {
-                if target_tier_id == "advanced_target" {
-                    let mut segmented_results = Vec::new();
-                    for (idx, sid, gen) in v.into_iter() {
-                        let segs = crate::services::llm_segmenter::segment_sentence(
-                            &gen, &sid, &llm, &prompts, &logger, &config, &base_code, &target_code
-                        ).unwrap_or_else(|_| vec![gen]);
-                        segmented_results.push((idx, sid, target_tier_id.clone(), segs.join("\0")));
-                    }
-                    Ok(segmented_results)
-                } else {
-                    Ok(v.into_iter()
-                        .map(|(idx, sid, gen)| (idx, sid, target_tier_id.clone(), gen))
-                        .collect())
-                }
-            }
-            Err(e) => Err(e),
-        };
-
-        // Ignore send errors (receiver dropped) for now
-        let _ = tx.send(mapped);
+        // If the streaming method returned an error, forward it
+        if let Err(e) = result {
+            let _ = tx.send(Err(e));
+        }
     });
 
     (rx, cancel_flag)
@@ -310,5 +430,157 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].1, "S9");
         assert_eq!(result[0].3, "No era un sueño.");
+    }
+
+    #[test]
+    fn test_balanced_chunks_exact_multiple() {
+        // 20 items batch 10 → [10, 10] — no rebalancing needed
+        let items: Vec<i32> = (0..20).collect();
+        let chunks = compute_balanced_chunks(items, 10);
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].len(), 10);
+        assert_eq!(chunks[1].len(), 10);
+    }
+
+    #[test]
+    fn test_balanced_chunks_runt_rebalanced() {
+        // 22 items batch 10 → naïve [10, 10, 2] → balanced [10, 6, 6]
+        let items: Vec<i32> = (0..22).collect();
+        let chunks = compute_balanced_chunks(items, 10);
+        assert_eq!(chunks.len(), 3);
+        assert_eq!(chunks[0].len(), 10);
+        assert_eq!(chunks[1].len(), 6);
+        assert_eq!(chunks[2].len(), 6);
+    }
+
+    #[test]
+    fn test_balanced_chunks_no_runt() {
+        // 27 items batch 10 → naïve [10, 10, 7] — 7 >= 5 (ceil(10/2)) → keep as is
+        let items: Vec<i32> = (0..27).collect();
+        let chunks = compute_balanced_chunks(items, 10);
+        assert_eq!(chunks.len(), 3);
+        assert_eq!(chunks[0].len(), 10);
+        assert_eq!(chunks[1].len(), 10);
+        assert_eq!(chunks[2].len(), 7);
+    }
+
+    #[test]
+    fn test_balanced_chunks_single_batch() {
+        // 8 items batch 10 → [8]
+        let items: Vec<i32> = (0..8).collect();
+        let chunks = compute_balanced_chunks(items, 10);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].len(), 8);
+    }
+
+    #[test]
+    fn test_balanced_chunks_empty() {
+        let items: Vec<i32> = vec![];
+        let chunks = compute_balanced_chunks(items, 10);
+        assert_eq!(chunks.len(), 0);
+    }
+
+    #[test]
+    fn test_balanced_chunks_preserves_order() {
+        // Verify that the actual items are preserved in order
+        let items: Vec<i32> = (0..22).collect();
+        let chunks = compute_balanced_chunks(items, 10);
+        let flat: Vec<i32> = chunks.into_iter().flatten().collect();
+        let expected: Vec<i32> = (0..22).collect();
+        assert_eq!(flat, expected);
+    }
+
+    // ── Tests for sentence-aligned chunking ────────────────────────────────
+
+    #[test]
+    fn test_sentence_aligned_chunks_never_splits_sentences() {
+        // S1 has 3 segments, S2 has 4, S3 has 2.  Batch size 5.
+        // S1 (3 items) fits in batch 1.
+        // S2 (4 items) would make batch 1 = 7 items > 5 → flush, S2 starts batch 2.
+        // S3 (2 items) fits in batch 2 (4+2=6 > 5) → flush, S3 starts batch 3.
+        let items = vec![
+            (0, "S1_S1".into(), "a".into()),
+            (0, "S1_S2".into(), "b".into()),
+            (0, "S1_S3".into(), "c".into()),
+            (1, "S2_S1".into(), "d".into()),
+            (1, "S2_S2".into(), "e".into()),
+            (1, "S2_S3".into(), "f".into()),
+            (1, "S2_S4".into(), "g".into()),
+            (2, "S3_S1".into(), "h".into()),
+            (2, "S3_S2".into(), "i".into()),
+        ];
+
+        let chunks = compute_sentence_aligned_chunks(items, 5);
+        assert_eq!(chunks.len(), 3);
+        // Batch 1: S1 (3 items)
+        assert_eq!(chunks[0].len(), 3);
+        assert!(chunks[0].iter().all(|(idx, _, _)| *idx == 0));
+        // Batch 2: S2 (4 items)
+        assert_eq!(chunks[1].len(), 4);
+        assert!(chunks[1].iter().all(|(idx, _, _)| *idx == 1));
+        // Batch 3: S3 (2 items)
+        assert_eq!(chunks[2].len(), 2);
+        assert!(chunks[2].iter().all(|(idx, _, _)| *idx == 2));
+    }
+
+    #[test]
+    fn test_sentence_aligned_chunks_packs_small_sentences() {
+        // S1 has 2 segments, S2 has 2, S3 has 2. Batch size 5.
+        // S1 (2) in batch → S2 (2+2=4 ≤ 5) in batch → S3 (4+2=6 > 5) → flush.
+        let items = vec![
+            (0, "S1_S1".into(), "a".into()),
+            (0, "S1_S2".into(), "b".into()),
+            (1, "S2_S1".into(), "c".into()),
+            (1, "S2_S2".into(), "d".into()),
+            (2, "S3_S1".into(), "e".into()),
+            (2, "S3_S2".into(), "f".into()),
+        ];
+
+        let chunks = compute_sentence_aligned_chunks(items, 5);
+        assert_eq!(chunks.len(), 2);
+        // Batch 1: S1 + S2 (4 items)
+        assert_eq!(chunks[0].len(), 4);
+        // Batch 2: S3 (2 items)
+        assert_eq!(chunks[1].len(), 2);
+    }
+
+    #[test]
+    fn test_sentence_aligned_chunks_large_sentence_exceeds_batch() {
+        // A single sentence has 8 segments, batch_size = 5.
+        // We never split a sentence, so it becomes its own batch.
+        let items = vec![
+            (0, "S1_S1".into(), "a".into()),
+            (0, "S1_S2".into(), "b".into()),
+            (0, "S1_S3".into(), "c".into()),
+            (0, "S1_S4".into(), "d".into()),
+            (0, "S1_S5".into(), "e".into()),
+            (0, "S1_S6".into(), "f".into()),
+            (0, "S1_S7".into(), "g".into()),
+            (0, "S1_S8".into(), "h".into()),
+        ];
+
+        let chunks = compute_sentence_aligned_chunks(items, 5);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].len(), 8);
+    }
+
+    #[test]
+    fn test_sentence_aligned_chunks_empty() {
+        let items: Vec<(usize, String, String)> = vec![];
+        let chunks = compute_sentence_aligned_chunks(items, 10);
+        assert_eq!(chunks.len(), 0);
+    }
+
+    #[test]
+    fn test_sentence_aligned_chunks_single_segment_per_sentence() {
+        // Falls back to simple batching when every sentence has 1 segment.
+        let items: Vec<(usize, String, String)> = (0..5)
+            .map(|i| (i, format!("S{}_S1", i + 1), "text".into()))
+            .collect();
+
+        let chunks = compute_sentence_aligned_chunks(items, 3);
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].len(), 3); // S1, S2, S3
+        assert_eq!(chunks[1].len(), 2); // S4, S5
     }
 }

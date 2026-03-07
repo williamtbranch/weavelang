@@ -98,6 +98,10 @@ pub struct NumericalProcessedSentence {
     pub basic_diglot_map_numerical: Vec<NumericalDiglotSegmentMap>,
     pub basic_inverse_diglot_map_numerical: Vec<(String, Vec<u32>, String, usize, usize)>,
 
+    /// Lemma IDs that were flagged as proper nouns.  The weave algorithm
+    /// treats these as always-known (skips the frequency rank check).
+    pub proper_noun_lemma_ids: Vec<u32>,
+
     pub eng_text_original: String,
     pub eng_text_word_count: usize,
     pub adv_s_text_original: String,

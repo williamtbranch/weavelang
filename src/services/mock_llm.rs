@@ -39,7 +39,7 @@
 //   La metamorfosis
 //   ...
 //
-// **Multi-line phrase maps** (generate_phrase_map, generate_inverse_phrase_map):
+// **Multi-line phrase maps** (generate_diglot_map, generate_inverse_phrase_map):
 //   S1:
 //   MAPPINGS:
 //   Chapter -> Capítulo

@@ -11,6 +11,7 @@ pub struct Config {
     pub last_project_file: Option<String>,
     pub content_project_dir: String,
     pub custom_frequency_list_path: Option<String>,
+    pub output_dir: Option<String>,
     pub models: HashMap<String, ModelConfig>,
     pub pipeline: PipelineConfig,
     pub stages: HashMap<String, StageConfig>,
@@ -100,6 +101,7 @@ impl Default for Config {
             last_project_file: None,
             content_project_dir: String::new(),
             custom_frequency_list_path: None,
+            output_dir: None,
             models,
             pipeline: PipelineConfig {
                 max_api_retries: 3,

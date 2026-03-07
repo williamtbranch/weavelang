@@ -156,6 +156,18 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
     let mut pending_action: Option<&str> = None;
     let mut pending_text_update: Option<String> = None;
 
+    // Snapshot segment details for the segment breakdown display.
+    let segment_details: Vec<(String, String)> = state
+        .get_current_sentence()
+        .and_then(|s| s.get_tier(tier_id))
+        .map(|t| {
+            t.segments
+                .iter()
+                .map(|seg| (seg.id.clone(), seg.full_text()))
+                .collect()
+        })
+        .unwrap_or_default();
+
     if let Some(sentence_mut) = state.get_current_sentence_mut() {
         let _s_id = sentence_mut.id.clone();
         if let Some(tier) = sentence_mut.get_tier(tier_id) {
@@ -217,6 +229,26 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
                         pending_text_update = Some(current_tier_text.clone());
                     }
                 });
+
+            // ── Segment breakdown ────────────────────────────────────────────
+            if segment_details.len() > 1 {
+                ui.separator();
+                ui.label(
+                    egui::RichText::new(format!("Segments ({})", segment_details.len()))
+                        .small()
+                        .strong(),
+                );
+                for (seg_id, seg_text) in &segment_details {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("{seg_id}:"))
+                                .monospace()
+                                .color(egui::Color32::GRAY),
+                        );
+                        ui.label(seg_text.as_str());
+                    });
+                }
+            }
         } else {
             ui.centered_and_justified(|ui| {
                 ui.vertical_centered(|ui| {
@@ -249,9 +281,11 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
     // 2. Handle Regenerate via command system
     if let Some("Regenerate") = pending_action {
         if let Some(stage) = stage_for_tier(tier_id) {
+            // run generate expects 1-based indices; cur_selected_idx is 0-based
+            let one_based = cur_selected_idx + 1;
             state.pending_terminal_command = Some(format!(
                 "run generate {} {} {}",
-                stage, cur_selected_idx, cur_selected_idx
+                stage, one_based, one_based
             ));
         }
     }

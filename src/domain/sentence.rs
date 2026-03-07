@@ -1,18 +1,39 @@
 // src/domain/sentence.rs
 
 use crate::domain::mapping::TierMapping;
+use crate::domain::normalization::normalize_spanish_lemma;
 use crate::domain::primitives::WordId;
 use crate::domain::segment::Segment;
 use crate::domain::tier::{Tier, TierState};
-use crate::domain::token_stream::TokenStream;
+use crate::domain::token_stream::{Token, TokenStream};
+use crate::services::python_bridge::BridgeService;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+/// Completeness status for a sentence (or a single tier within it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Completeness {
+    /// All required data present and valid.
+    Complete,
+    /// Some data present but not everything needed for weave.
+    Incomplete,
+    /// No data present (tier missing or empty).
+    Empty,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sentence {
     pub id: String,
+    #[serde(default)]
     pub tiers: HashMap<String, Tier>,
+    #[serde(default)]
     pub mappings: Vec<TierMapping>,
+    /// Lemma strings that the forward diglot map flagged as proper nouns
+    /// (via `{{…}}` braces).  These are persisted per-sentence so that
+    /// the weave algorithm can treat them as always-known, even after
+    /// tier re-generation reintroduces the lemmas.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub proper_noun_lemmas: Vec<String>,
 }
 
 impl Sentence {
@@ -21,6 +42,7 @@ impl Sentence {
             id,
             tiers: HashMap::new(),
             mappings: Vec::new(),
+            proper_noun_lemmas: Vec::new(),
         }
     }
 
@@ -29,7 +51,146 @@ impl Sentence {
     }
 
     pub fn add_mapping(&mut self, mapping: TierMapping) {
+        // When a forward diglot mapping (basic_base → basic_target) is added,
+        // extract proper-noun lemmas so the weave algorithm can ignore them.
+        let is_forward_diglot =
+            mapping.from_tier_id == "basic_base" && mapping.to_tier_id == "basic_target";
+
         self.mappings.push(mapping);
+
+        if is_forward_diglot {
+            self.rebuild_proper_noun_lemmas();
+        }
+    }
+
+    /// Rebuild the `proper_noun_lemmas` list from the current forward diglot
+    /// mapping entries.  Called automatically when a forward diglot mapping
+    /// is added, or can be invoked manually after editing mapping entries.
+    pub fn rebuild_proper_noun_lemmas(&mut self) {
+        let mut pn_lemmas: Vec<String> = Vec::new();
+
+        for mapping in &self.mappings {
+            if mapping.from_tier_id == "basic_base" && mapping.to_tier_id == "basic_target" {
+                for entry in &mapping.entries {
+                    if entry.is_proper_noun {
+                        // Use the target lemmas if available, otherwise
+                        // fall back to the lowercased target text.
+                        if entry.target_lemmas.is_empty() {
+                            let lemma = entry.target_text.to_lowercase();
+                            if !pn_lemmas.contains(&lemma) {
+                                pn_lemmas.push(lemma);
+                            }
+                        } else {
+                            for l in &entry.target_lemmas {
+                                let lc = l.to_lowercase();
+                                if !pn_lemmas.contains(&lc) {
+                                    pn_lemmas.push(lc);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        self.proper_noun_lemmas = pn_lemmas;
+    }
+
+    /// Populate the `target_lemmas` field on all mapping entries, mirroring
+    /// the Python pipeline's `FinalizeMappings` stage.
+    ///
+    /// **Forward diglot** (basic_base → basic_target): each entry's
+    /// `target_text` (the Spanish phrase) is sent to SpaCy for
+    /// lemmatization.  The resulting lemmas are normalized with
+    /// `normalize_spanish_lemma` and stored.
+    ///
+    /// **Inverse diglot** (basic_target → basic_base): each entry's
+    /// lemmas are looked up from the `basic_target` tier's token stream
+    /// by matching on `source_word_id`.
+    pub fn finalize_mapping_lemmas(
+        &mut self,
+        bridge: Option<&BridgeService>,
+        target_lang_code: &str,
+    ) {
+        // --- 1. Forward diglot: lemmatize target_text via SpaCy ---
+        for mapping in &mut self.mappings {
+            if mapping.from_tier_id == "basic_base" && mapping.to_tier_id == "basic_target" {
+                for entry in &mut mapping.entries {
+                    if !entry.is_viable || entry.target_text.is_empty() {
+                        entry.target_lemmas = Vec::new();
+                        continue;
+                    }
+                    if let Some(br) = bridge {
+                        match br.tokenize(&entry.target_text, target_lang_code) {
+                            Ok(raw_tokens) => {
+                                let mut lemmas: Vec<String> = raw_tokens
+                                    .iter()
+                                    .filter(|t| !t.is_punct && !t.is_space)
+                                    .filter_map(|t| {
+                                        let norm = normalize_spanish_lemma(&t.lemma);
+                                        if norm.is_empty() { None } else { Some(norm) }
+                                    })
+                                    .collect();
+                                lemmas.sort();
+                                entry.target_lemmas = lemmas;
+                            }
+                            Err(e) => {
+                                eprintln!(
+                                    "[FinalizeMappings] SpaCy lemmatization failed for {:?}: {}",
+                                    entry.target_text, e
+                                );
+                                // Fallback: normalized lowercase of target_text
+                                let fallback = normalize_spanish_lemma(&entry.target_text);
+                                entry.target_lemmas = if fallback.is_empty() {
+                                    Vec::new()
+                                } else {
+                                    vec![fallback]
+                                };
+                            }
+                        }
+                    } else {
+                        // No bridge available — best-effort fallback
+                        let fallback = normalize_spanish_lemma(&entry.target_text);
+                        entry.target_lemmas = if fallback.is_empty() {
+                            Vec::new()
+                        } else {
+                            vec![fallback]
+                        };
+                    }
+                }
+            }
+        }
+
+        // --- 2. Inverse diglot: pull lemmas from basic_target token stream ---
+        // Pre-build a WordId → lemmas lookup from the basic_target tier.
+        let target_lemma_by_id: HashMap<WordId, Vec<String>> = self
+            .get_tier("basic_target")
+            .map(|tier| {
+                let mut map = HashMap::new();
+                for seg in &tier.segments {
+                    for token in seg.stream.tokens() {
+                        if let Token::Word(wd) = token {
+                            map.insert(wd.id, wd.lemmas.clone());
+                        }
+                    }
+                }
+                map
+            })
+            .unwrap_or_default();
+
+        for mapping in &mut self.mappings {
+            if mapping.from_tier_id == "basic_target" && mapping.to_tier_id == "basic_base" {
+                for entry in &mut mapping.entries {
+                    entry.target_lemmas = target_lemma_by_id
+                        .get(&entry.source_word_id)
+                        .cloned()
+                        .unwrap_or_default();
+                }
+            }
+        }
+
+        // Proper-noun lemmas may have changed — rebuild.
+        self.rebuild_proper_noun_lemmas();
     }
 
     pub fn get_tier(&self, tier_id: &str) -> Option<&Tier> {
@@ -125,6 +286,114 @@ impl Sentence {
         }
     }
 
+    // ----------------------------------------------------------------
+    // Completeness / Weave-readiness queries
+    // ----------------------------------------------------------------
+
+    /// The five content tiers required for a complete weave sentence.
+    pub const WEAVE_TIERS: &'static [&'static str] = &[
+        "base",
+        "advanced_target",
+        "moderate_target",
+        "basic_target",
+        "basic_base",
+    ];
+
+    /// Check completeness of a single tier.
+    pub fn tier_completeness(&self, tier_id: &str) -> Completeness {
+        match self.tiers.get(tier_id) {
+            None => Completeness::Empty,
+            Some(tier) => {
+                let text = tier.full_text();
+                if text.trim().is_empty() {
+                    Completeness::Empty
+                } else if tier.state == TierState::Valid {
+                    Completeness::Complete
+                } else {
+                    // Dirty, Stale, or Broken — data exists but isn't clean
+                    Completeness::Incomplete
+                }
+            }
+        }
+    }
+
+    /// Check whether the forward diglot mapping (basic_base → basic_target) exists.
+    pub fn has_diglot_mapping(&self) -> bool {
+        self.mappings.iter().any(|m| {
+            m.from_tier_id == "basic_base"
+                && m.to_tier_id == "basic_target"
+                && !m.entries.is_empty()
+        })
+    }
+
+    /// Check whether the inverse diglot mapping (basic_target → basic_base) exists.
+    pub fn has_inverse_diglot_mapping(&self) -> bool {
+        self.mappings.iter().any(|m| {
+            m.from_tier_id == "basic_target"
+                && m.to_tier_id == "basic_base"
+                && !m.entries.is_empty()
+        })
+    }
+
+    /// Overall weave-readiness of this sentence.
+    ///
+    /// `Complete` = all 5 tiers valid + both diglot mappings present.
+    /// `Incomplete` = some tiers present but not all requirements met.
+    /// `Empty` = only base (or nothing) populated.
+    pub fn weave_completeness(&self) -> Completeness {
+        let mut has_any_non_base = false;
+        let mut all_tiers_complete = true;
+
+        for &tid in Self::WEAVE_TIERS {
+            match self.tier_completeness(tid) {
+                Completeness::Complete => {
+                    if tid != "base" {
+                        has_any_non_base = true;
+                    }
+                }
+                Completeness::Incomplete => {
+                    has_any_non_base = true;
+                    all_tiers_complete = false;
+                }
+                Completeness::Empty => {
+                    all_tiers_complete = false;
+                }
+            }
+        }
+
+        if !all_tiers_complete {
+            return if has_any_non_base {
+                Completeness::Incomplete
+            } else {
+                Completeness::Empty
+            };
+        }
+
+        // All tiers complete — now check mappings
+        if self.has_diglot_mapping() && self.has_inverse_diglot_mapping() {
+            Completeness::Complete
+        } else if self.has_diglot_mapping() || self.has_inverse_diglot_mapping() {
+            Completeness::Incomplete
+        } else {
+            // All tiers filled but no mappings yet
+            Completeness::Incomplete
+        }
+    }
+
+    /// Returns true if this sentence is ready for weave output.
+    pub fn is_weave_ready(&self) -> bool {
+        self.weave_completeness() == Completeness::Complete
+    }
+
+    /// Human-readable status string for a given tier, including mappings.
+    pub fn tier_status_display(&self, tier_id: &str) -> &'static str {
+        match self.tier_completeness(tier_id) {
+            Completeness::Complete => "valid",
+            Completeness::Incomplete => "incomplete",
+            Completeness::Empty => "empty",
+        }
+    }
+
     pub fn modify_word_text(
         &mut self,
         tier_id: &str,
@@ -195,5 +464,78 @@ mod tests {
             .collect();
 
         assert_eq!(ids, vec![0, 1, 2], "IDs must be sequential starting at 0");
+    }
+
+    #[test]
+    fn test_weave_completeness_empty() {
+        let mut s = Sentence::new("S1".into());
+        s.update_tier_text_as_clean("base", "Hello world.".into());
+        assert_eq!(s.weave_completeness(), Completeness::Empty);
+        assert!(!s.is_weave_ready());
+    }
+
+    #[test]
+    fn test_weave_completeness_incomplete() {
+        let mut s = Sentence::new("S1".into());
+        s.update_tier_text_as_clean("base", "Hello world.".into());
+        s.update_tier_text_as_clean("basic_base", "Hello simple.".into());
+        assert_eq!(s.weave_completeness(), Completeness::Incomplete);
+    }
+
+    #[test]
+    fn test_weave_completeness_all_tiers_no_mappings() {
+        let mut s = Sentence::new("S1".into());
+        for tid in Sentence::WEAVE_TIERS {
+            s.update_tier_text_as_clean(tid, format!("text for {}", tid));
+        }
+        // All tiers valid but no mappings — still incomplete
+        assert_eq!(s.weave_completeness(), Completeness::Incomplete);
+    }
+
+    #[test]
+    fn test_weave_completeness_complete() {
+        use crate::domain::mapping::{TierMapping, MappingEntry};
+        use crate::domain::primitives::WordId;
+
+        let mut s = Sentence::new("S1".into());
+        for tid in Sentence::WEAVE_TIERS {
+            s.update_tier_text_as_clean(tid, format!("text for {}", tid));
+        }
+
+        // Add both diglot mappings
+        let mut fwd = TierMapping::new("basic_base".into(), "basic_target".into());
+        fwd.add_entry(MappingEntry {
+            source_word_id: WordId(0),
+            target_text: "texto".into(),
+            is_viable: true,
+            is_proper_noun: false,
+            target_lemmas: vec!["texto".into()],
+        });
+        s.add_mapping(fwd);
+
+        let mut inv = TierMapping::new("basic_target".into(), "basic_base".into());
+        inv.add_entry(MappingEntry {
+            source_word_id: WordId(0),
+            target_text: "text".into(),
+            is_viable: true,
+            is_proper_noun: false,
+            target_lemmas: vec!["text".into()],
+        });
+        s.add_mapping(inv);
+
+        assert_eq!(s.weave_completeness(), Completeness::Complete);
+        assert!(s.is_weave_ready());
+    }
+
+    #[test]
+    fn test_tier_completeness() {
+        let mut s = Sentence::new("S1".into());
+        assert_eq!(s.tier_completeness("base"), Completeness::Empty);
+
+        s.update_tier_text_as_clean("base", "Hello.".into());
+        assert_eq!(s.tier_completeness("base"), Completeness::Complete);
+
+        s.update_tier_text("base", "Edited.".into()); // Dirty state
+        assert_eq!(s.tier_completeness("base"), Completeness::Incomplete);
     }
 }

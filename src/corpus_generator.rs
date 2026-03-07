@@ -140,7 +140,7 @@ pub fn generate_book_instance(
     Ok(result)
 }
 
-fn log_analysis_to_file(
+pub fn log_analysis_to_file(
     log_file_path: &Path,
     book_instance_unique_id: &str,
     result: &BookGenerationResult,

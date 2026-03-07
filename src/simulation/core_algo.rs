@@ -9,6 +9,7 @@ fn are_lemmas_known(
     lemma_ids: &[u32],
     tier_v_level: u32,
     dictionary: &GlobalLemmaDictionary,
+    pn_lemma_ids: &[u32],
 ) -> bool {
     if lemma_ids.is_empty() {
         return true;
@@ -17,6 +18,10 @@ fn are_lemmas_known(
         return true;
     }
     lemma_ids.iter().all(|&id| {
+        // Proper-noun lemmas are always treated as known.
+        if pn_lemma_ids.contains(&id) {
+            return true;
+        }
         dictionary
             .get_str(id)
             .and_then(|lemma_str| frequency_manager::get_rank_for_lemma(lemma_str))
@@ -55,6 +60,7 @@ fn try_build_advanced_weave(
     n_sentence: &NumericalProcessedSentence,
     dictionary: &GlobalLemmaDictionary,
     v_levels: &VLevelRecipe,
+    pn_ids: &[u32],
 ) -> Option<ChosenLevelOutput> {
     if n_sentence.adv_segment_bundles_numerical.is_empty() {
         return None;
@@ -63,11 +69,11 @@ fn try_build_advanced_weave(
     let mut l0_collected_lemma_ids: Vec<u32> = Vec::new();
     let mut spanish_words = 0;
     for bundle in &n_sentence.adv_segment_bundles_numerical {
-        if are_lemmas_known(&bundle.adv_lemma_ids, v_levels.adv, dictionary) {
+        if are_lemmas_known(&bundle.adv_lemma_ids, v_levels.adv, dictionary, pn_ids) {
             l0_candidate_choices.push(L0SegmentChoice::Adv(bundle.adv_text_original.clone()));
             l0_collected_lemma_ids.extend(&bundle.adv_lemma_ids);
             spanish_words += bundle.adv_text_original.split_whitespace().count();
-        } else if are_lemmas_known(&bundle.mod_lemma_ids, v_levels.mod_v, dictionary) {
+        } else if are_lemmas_known(&bundle.mod_lemma_ids, v_levels.mod_v, dictionary, pn_ids) {
             l0_candidate_choices.push(L0SegmentChoice::Mod(bundle.mod_text_original.clone()));
             l0_collected_lemma_ids.extend(&bundle.mod_lemma_ids);
             spanish_words += bundle.mod_text_original.split_whitespace().count();
@@ -91,13 +97,15 @@ pub fn determine_and_annotate_sentence_expression(
     v_levels: &VLevelRecipe,
     _inverse_diglot_threshold: f32,
 ) -> ChosenLevelOutput {
+    let pn_ids = &n_sentence.proper_noun_lemma_ids;
+
     // --- 1. Try to build the L0 Weave ---
-    if let Some(l0_output) = try_build_advanced_weave(n_sentence, dictionary, v_levels) {
+    if let Some(l0_output) = try_build_advanced_weave(n_sentence, dictionary, v_levels, pn_ids) {
         return l0_output;
     }
 
     // --- 2. If L0 fails, try the full L1 BasicTarget tier ---
-    if are_lemmas_known(&n_sentence.basic_target_lemma_ids, v_levels.bas, dictionary) {
+    if are_lemmas_known(&n_sentence.basic_target_lemma_ids, v_levels.bas, dictionary, pn_ids) {
         let full_text = n_sentence
             .basic_target_tier_tokenized
             .iter()
@@ -133,9 +141,9 @@ pub fn determine_and_annotate_sentence_expression(
 
     if can_render_inverse_diglot {
         for (_, lemmas, sub, _, _spa_wc) in inv_diglot_map.iter() {
-            // --- THIS IS THE FIX ---
-            // The check MUST use the V-Level, not the profile.
-            if *sub == "PROPER_NOUN" || are_lemmas_known(lemmas, v_levels.bas, dictionary) {
+            // Proper-noun lemmas are skipped by are_lemmas_known via the
+            // pn_ids set, so they automatically count as known.
+            if are_lemmas_known(lemmas, v_levels.bas, dictionary, pn_ids) {
                 // We need to calculate how many words this group represents to add to our known tally
                 let corresponding_entry = inv_diglot_map.iter().find(|(_, l, _, _, _)| l == lemmas);
                 if let Some((_, _, _, _, spa_wc_val)) = corresponding_entry {
@@ -173,7 +181,7 @@ pub fn determine_and_annotate_sentence_expression(
                     continue;
                 }
                 if let Some((_, lemmas, sub, eng_wc, spa_wc)) = inv_diglot_map.get(map_idx) {
-                    if *sub == "PROPER_NOUN" || are_lemmas_known(lemmas, v_levels.bas, dictionary) {
+                    if are_lemmas_known(lemmas, v_levels.bas, dictionary, pn_ids) {
                         final_parts.push(token.value.clone());
                         collected_lemmas.extend(lemmas.iter().cloned());
                         spanish_words += spa_wc;
@@ -223,22 +231,26 @@ pub fn determine_and_annotate_sentence_expression(
             continue;
         }
         let di = token.diglot_index.unwrap_or(usize::MAX);
-        let mut substituted = false;
         if let Some(entry) = diglot_lookup.get(&di) {
-            // --- THIS IS THE FIX ---
-            // This check must ALSO use the V-Level, not the profile.
             if entry.viable
                 && entry.exact_spa_form_original != "NO_SUB"
                 && (entry.is_base_token_pn
-                    || are_lemmas_known(&entry.spa_lemma_ids, v_levels.bas, dictionary))
+                    || are_lemmas_known(&entry.spa_lemma_ids, v_levels.bas, dictionary, pn_ids))
             {
+                // Substitution: completely replace the English token with
+                // the Spanish form.  token.value is intentionally discarded.
                 final_parts.push(entry.exact_spa_form_original.clone());
                 l1_collected_lemma_ids.extend(&entry.spa_lemma_ids);
                 spanish_words += entry.eng_word_count;
-                substituted = true;
+            } else {
+                // Diglot entry exists but substitution conditions not met.
+                // Use the stored English form from the entry rather than
+                // token.value, which may have been corrupted by fusion.
+                final_parts.push(entry.eng_word_original.clone());
+                english_words += entry.eng_word_count;
             }
-        }
-        if !substituted {
+        } else {
+            // No diglot entry for this token — keep original English.
             final_parts.push(token.value.clone());
             english_words += token.value.split_whitespace().count();
         }
