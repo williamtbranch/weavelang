@@ -6,6 +6,176 @@ use std::path::PathBuf;
 use crate::parsing::source_parser;
 use crate::types::json_types::JsonChapter;
 
+/// Run tier-level DRC for a specific tier on a sentence.
+/// Returns a Vec of violation strings. Empty means pass.
+fn drc_tier(sent: &crate::domain::sentence::Sentence, tier_id: &str, sn: usize) -> Vec<String> {
+    let mut violations = Vec::new();
+    let sid = &sent.id;
+
+    if tier_id == "basic_base" {
+        let fwd = sent.mappings.iter()
+            .find(|m| m.from_tier_id == "basic_base" && m.to_tier_id == "basic_target");
+        match fwd {
+            None => violations.push(format!("S{} ({}): forward mapping (basic_base→basic_target) is missing", sn, sid)),
+            Some(mapping) if mapping.entries.is_empty() => {
+                violations.push(format!("S{} ({}): forward mapping has 0 entries", sn, sid));
+            }
+            Some(mapping) => {
+                if let Some(tier) = sent.tiers.get("basic_base") {
+                    if let Some(seg) = tier.segments.first() {
+                        let wc = seg.stream.words_enumerated().len();
+                        if mapping.entries.len() < wc {
+                            violations.push(format!("S{} ({}): forward mapping covers {}/{} words", sn, sid, mapping.entries.len(), wc));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if tier_id == "basic_target" {
+        let inv = sent.mappings.iter()
+            .find(|m| m.from_tier_id == "basic_target" && m.to_tier_id == "basic_base");
+        match inv {
+            None => violations.push(format!("S{} ({}): inverse mapping (basic_target→basic_base) is missing", sn, sid)),
+            Some(mapping) if mapping.entries.is_empty() => {
+                violations.push(format!("S{} ({}): inverse mapping has 0 entries", sn, sid));
+            }
+            Some(mapping) => {
+                if let Some(tier) = sent.tiers.get("basic_target") {
+                    if let Some(seg) = tier.segments.first() {
+                        let wc = seg.stream.words_enumerated().len();
+                        if mapping.entries.len() < wc {
+                            violations.push(format!("S{} ({}): inverse mapping covers {}/{} words", sn, sid, mapping.entries.len(), wc));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    violations
+}
+
+/// Run sentence-level DRC rules that apply only when all tiers are Valid.
+/// Returns a Vec of violation strings. Empty means pass.
+fn drc_sentence(sent: &crate::domain::sentence::Sentence, sn: usize) -> Vec<String> {
+    let mut violations = Vec::new();
+    let sid = &sent.id;
+
+    let adv_seg_count = sent.tiers.get("advanced_target").map(|t| t.segments.len());
+    let mod_seg_count = sent.tiers.get("moderate_target").map(|t| t.segments.len());
+    if let (Some(a), Some(m)) = (adv_seg_count, mod_seg_count) {
+        if a != m {
+            violations.push(format!(
+                "S{} ({}): advanced_target has {} segments but moderate_target has {} (must match)",
+                sn, sid, a, m
+            ));
+        }
+    }
+
+    violations
+}
+
+/// Lemmatize all segments within a tier using SpaCy, updating word lemmas
+/// and collecting segment/tier-level lemma lists.
+/// Skips base-language tiers (base, basic_base) — no need for English lemmas.
+pub(crate) fn lemmatize_tier_segments(
+    sent: &mut crate::domain::sentence::Sentence,
+    tier_id: &str,
+    bridge: &crate::services::python_bridge::BridgeService,
+    tier_lang: &str,
+) -> Result<(), String> {
+    if tier_id == "base" || tier_id == "basic_base" {
+        return Ok(());
+    }
+    let tier = sent.tiers.get_mut(tier_id)
+        .ok_or_else(|| format!("Tier '{}' not found.", tier_id))?;
+    for seg in tier.segments.iter_mut() {
+        let text = seg.full_text();
+        let raw_tokens = bridge.tokenize(&text, tier_lang)
+            .map_err(|e| format!("Tokenize failed for segment {}: {}", seg.id, e))?;
+        seg.stream.update_lemmas_from_spacy(raw_tokens)
+            .map_err(|e| format!("Lemma update failed for segment {}: {}", seg.id, e))?;
+        seg.lemmas = seg.stream.tokens().iter()
+            .filter_map(|t| match t {
+                crate::domain::token_stream::Token::Word(wd) => Some(wd.lemmas.clone()),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+    }
+    tier.lemmas = tier.segments.iter()
+        .flat_map(|s| s.lemmas.clone())
+        .collect();
+    tier.lemmas.sort();
+    tier.lemmas.dedup();
+    Ok(())
+}
+
+/// Populate target_lemmas on mapping entries for L1 tiers (basic_base, basic_target).
+/// Lemmas are ALWAYS target-language (Spanish for en-es) because the core algorithm
+/// checks them against the student's known vocabulary.
+///
+/// - basic_base → basic_target: target_text IS Spanish, so tokenize it with target_lang.
+/// - basic_target → basic_base: target_text is English (no use for English lemmas).
+///   Instead, copy the Spanish lemmas from the SOURCE word in the basic_target stream.
+pub(crate) fn lemmatize_mapping_targets(
+    sent: &mut crate::domain::sentence::Sentence,
+    tier_id: &str,
+    bridge: &crate::services::python_bridge::BridgeService,
+    _source_lang: &str,
+    target_lang: &str,
+) -> Result<(), String> {
+    if tier_id == "basic_base" {
+        // Forward mapping: target_text is Spanish → tokenize to get Spanish lemmas
+        if let Some(mapping) = sent.mappings.iter_mut()
+            .find(|m| m.from_tier_id == "basic_base" && m.to_tier_id == "basic_target")
+        {
+            for entry in mapping.entries.iter_mut() {
+                if entry.target_text.trim().is_empty() {
+                    continue;
+                }
+                let raw_tokens = bridge.tokenize(&entry.target_text, target_lang)
+                    .map_err(|e| format!("Mapping lemmatize failed for '{}': {}", entry.target_text, e))?;
+                let lemmas: Vec<String> = raw_tokens.iter()
+                    .filter(|t| !t.is_punct && !t.is_space)
+                    .map(|t| if t.lemma.is_empty() { t.text.clone() } else { t.lemma.clone() })
+                    .collect();
+                entry.target_lemmas = lemmas;
+            }
+        }
+    } else if tier_id == "basic_target" {
+        // Inverse mapping: target_text is English — we don't want English lemmas.
+        // Copy Spanish lemmas from the source word in the basic_target token stream.
+        let word_lemma_map: std::collections::HashMap<crate::domain::primitives::WordId, Vec<String>> =
+            if let Some(tier) = sent.tiers.get("basic_target") {
+                tier.segments.iter()
+                    .flat_map(|seg| seg.stream.tokens().iter().filter_map(|t| {
+                        if let crate::domain::token_stream::Token::Word(wd) = t {
+                            Some((wd.id, wd.lemmas.clone()))
+                        } else {
+                            None
+                        }
+                    }).collect::<Vec<_>>())
+                    .collect()
+            } else {
+                std::collections::HashMap::new()
+            };
+
+        if let Some(mapping) = sent.mappings.iter_mut()
+            .find(|m| m.from_tier_id == "basic_target" && m.to_tier_id == "basic_base")
+        {
+            for entry in mapping.entries.iter_mut() {
+                if let Some(lemmas) = word_lemma_map.get(&entry.source_word_id) {
+                    entry.target_lemmas = lemmas.clone();
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub struct Engine {
     pub state: AppState,
     pub current_file_path: Option<PathBuf>,
@@ -77,6 +247,21 @@ impl Engine {
                     "proper_noun_lemmas" => self.state.right_view = DetailView::ProperNounLemmas,
                     _ => return Err(format!("Unknown view: {}", view)),
                 }
+                // Keep selected_tier_id in sync when switching to a tier-based view
+                match self.state.right_view {
+                    DetailView::Tier(tv) | DetailView::Token(tv) => {
+                        let tid = match tv {
+                            TierView::Base => "base",
+                            TierView::AdvancedTarget => "advanced_target",
+                            TierView::ModerateTarget => "moderate_target",
+                            TierView::BasicTarget => "basic_target",
+                            TierView::BasicBase => "basic_base",
+                            TierView::Simulation => "simulation",
+                        };
+                        self.state.selected_tier_id = tid.to_string();
+                    }
+                    _ => {} // mapping/pn views don't map to a single tier
+                }
                 Ok(format!("Right view set to {}", view))
             }
             AppCommand::SetLeftView { view } => {
@@ -114,6 +299,82 @@ impl Engine {
                 self.state.selected_range = None;
                 Ok(format!("Added new sentence {}", new_id))
             }
+            AppCommand::AddSentenceWithText { text } => {
+                use crate::domain::sentence::Sentence;
+                use crate::domain::tier::Tier;
+                use crate::domain::segment::Segment;
+                use crate::domain::token_stream::TokenStream;
+
+                let new_id = format!("S{}", self.state.document.len() + 1);
+                let mut sentence = Sentence::new(new_id.clone());
+
+                let mut tier = Tier::new("base".to_string());
+                tier.add_segment(Segment::from_stream(
+                    "S1".to_string(),
+                    TokenStream::new(&text),
+                    vec![],
+                ));
+                sentence.add_tier(tier);
+
+                self.state.document.push(sentence);
+                self.state.selected_sentence_idx = self.state.document.len() - 1;
+                self.state.selected_range = None;
+                Ok(format!("Added sentence {} with base text: {}", new_id, text))
+            }
+            AppCommand::RemoveSentence { index } => {
+                if index >= self.state.document.len() {
+                    return Err(format!("Sentence index {} out of range (have {})", index + 1, self.state.document.len()));
+                }
+                let removed_id = self.state.document[index].id.clone();
+                self.state.document.remove(index);
+                // Fix selection
+                if self.state.document.is_empty() {
+                    self.state.selected_sentence_idx = 0;
+                } else if self.state.selected_sentence_idx >= self.state.document.len() {
+                    self.state.selected_sentence_idx = self.state.document.len() - 1;
+                }
+                self.state.selected_range = None;
+                Ok(format!("Removed sentence {} (was index {})", removed_id, index + 1))
+            }
+            AppCommand::NewProject { name } => {
+                self.state.document.clear();
+                self.state.book_name = name.clone();
+                self.state.book_map = None;
+                self.state.selected_sentence_idx = 0;
+                self.state.selected_range = None;
+                self.state.last_log = format!("New project: {}", name);
+                self.state.output_dir = None;
+                self.current_file_path = None;
+                self.state.pending_collateral_updates.clear();
+                self.state.llm_followup_queue.clear();
+                Ok(format!("Created new project '{}'", name))
+            }
+            AppCommand::CloseProject => {
+                let old_name = if self.state.book_name.is_empty() {
+                    "(unnamed)".to_string()
+                } else {
+                    self.state.book_name.clone()
+                };
+                self.state.document.clear();
+                self.state.book_name = String::new();
+                self.state.book_map = None;
+                self.state.selected_sentence_idx = 0;
+                self.state.selected_range = None;
+                self.state.output_dir = None;
+                self.current_file_path = None;
+                self.state.pending_collateral_updates.clear();
+                self.state.llm_followup_queue.clear();
+                self.state.last_log = "Project closed.".to_string();
+                Ok(format!("Closed project '{}'", old_name))
+            }
+            AppCommand::SetLanguages { source, target } => {
+                self.state.project_languages = (source.clone(), target.clone());
+                Ok(format!("Languages set to {} → {}", source, target))
+            }
+            AppCommand::SetBookName { name } => {
+                self.state.book_name = name.clone();
+                Ok(format!("Book name set to '{}'", name))
+            }
             AppCommand::UpdateText { sentence_id, index, tier_id, new_text } => {
                 let idx = if let Some(i) = index {
                     i
@@ -139,17 +400,60 @@ impl Engine {
                     return Err("Must provide id or index".to_string());
                 };
 
-                if let Some(sent) = self.state.document.get_mut(idx) {
-                    if let Some(tier) = sent.get_tier(&tier_id) {
-                        let text = tier.full_text();
-                        sent.update_tier_text_as_clean(&tier_id, text);
-                        Ok(format!("Approved edits for sentence index {}, tier {}", idx, tier_id))
-                    } else {
-                        Err("Tier not found".to_string())
-                    }
-                } else {
-                    Err("Index out of bounds".to_string())
+                // Delegate to ApproveTier so lemmatization always runs
+                self.execute(AppCommand::ApproveTier { index: idx, tier_id })
+            }
+            AppCommand::ApproveTier { index, tier_id } => {
+                // Resolve sentinel: usize::MAX + empty tier_id means "use current selection"
+                let index = if index == usize::MAX { self.state.selected_sentence_idx } else { index };
+                let tier_id = if tier_id.is_empty() { self.state.selected_tier_id.clone() } else { tier_id };
+                if tier_id.is_empty() {
+                    return Err("No tier selected. Use 'select tier <name>' first, or 'approve tier <N> <tier>'.".to_string());
                 }
+                // Lemmatization is MANDATORY for the Valid state.
+                // Uses non-destructive in-place lemma update to preserve
+                // phrasal segments (Adv/Mod) and mapping-aligned tokens (Bas B/T).
+                let bridge = self.state.bridge.as_ref()
+                    .ok_or_else(|| "Python bridge not available. Cannot approve tier without lemmatization.".to_string())?;
+                let source_lang = self.state.project_languages.0.clone();
+                let target_lang = self.state.project_languages.1.clone();
+                // Tier text language: base/basic_base are source, all others are target
+                let tier_lang = if tier_id == "base" || tier_id == "basic_base" {
+                    &source_lang
+                } else {
+                    &target_lang
+                };
+
+                let sent = self.state.document.get_mut(index)
+                    .ok_or_else(|| "Index out of bounds".to_string())?;
+
+                // Phase 1: Lemmatize tier segments (skip for base-language tiers — no need for English lemmas)
+                lemmatize_tier_segments(sent, &tier_id, bridge, tier_lang)?;
+
+                // Phase 1b: Lemmatize mapping target texts for L1 tiers
+                lemmatize_mapping_targets(sent, &tier_id, bridge, &source_lang, &target_lang)?;
+
+                // Phase 2: DRC checks (immutable access to sent)
+                let tier_violations = drc_tier(sent, &tier_id, index + 1);
+                if !tier_violations.is_empty() {
+                    return Err(format!("DRC failed for tier '{}' on sentence {}:\n  {}", tier_id, index + 1, tier_violations.join("\n  ")));
+                }
+                let other_tiers_valid = crate::domain::sentence::Sentence::WEAVE_TIERS.iter()
+                    .filter(|&&t| t != tier_id)
+                    .all(|&t| sent.tiers.get(t).map_or(false, |tier| tier.state == crate::domain::tier::TierState::Valid));
+                if other_tiers_valid {
+                    let sent_violations = drc_sentence(sent, index + 1);
+                    if !sent_violations.is_empty() {
+                        return Err(format!("Sentence-level DRC failed for sentence {}:\n  {}", index + 1, sent_violations.join("\n  ")));
+                    }
+                }
+
+                // Phase 3: Mark Valid
+                let tier = sent.tiers.get_mut(&tier_id).unwrap();
+                tier.state = crate::domain::tier::TierState::Valid;
+                sent.propagate_stale_from(&tier_id);
+
+                Ok(format!("Tier '{}' on sentence {} lemmatized and approved as Valid.", tier_id, index + 1))
             }
             AppCommand::GenerateTier { sentence_id: _sentence_id, index: _index, tier_id: _tier_id } => {
                 // TODO: Implement tier generation
@@ -197,6 +501,627 @@ impl Engine {
                     Err("Index out of bounds".to_string())
                 }
             }
+
+            // ── Segment-level editing commands ──────────────────────────
+
+            AppCommand::EditSegment { index, tier_id, seg_id, new_text } => {
+                if let Some(sent) = self.state.document.get_mut(index) {
+                    if let Some(tier) = sent.tiers.get_mut(&tier_id) {
+                        if let Some(seg) = tier.segments.iter_mut().find(|s| s.id == seg_id) {
+                            seg.stream = crate::domain::token_stream::TokenStream::new(&new_text);
+                            seg.lemmas.clear(); // will be repopulated on lemmatize/validate
+                        } else {
+                            return Err(format!("Segment '{}' not found in tier '{}'.", seg_id, tier_id));
+                        }
+                        tier.ensure_inter_segment_spacing();
+                        tier.state = crate::domain::tier::TierState::Dirty;
+                    } else {
+                        return Err(format!("Tier '{}' not found.", tier_id));
+                    }
+                    sent.propagate_stale_from(&tier_id);
+                    Ok(format!("Updated segment {} in tier {} for sentence {}.", seg_id, tier_id, index + 1))
+                } else {
+                    Err("Index out of bounds".to_string())
+                }
+            }
+
+            AppCommand::AddSegment { index, tier_id, after_seg_id, new_text } => {
+                if let Some(sent) = self.state.document.get_mut(index) {
+                    if let Some(tier) = sent.tiers.get_mut(&tier_id) {
+                        let insert_pos = tier.segments.iter().position(|s| s.id == after_seg_id)
+                            .map(|p| p + 1)
+                            .unwrap_or(tier.segments.len());
+                        // Generate next segment id
+                        let max_num: usize = tier.segments.iter()
+                            .filter_map(|s| s.id.trim_start_matches(char::is_alphabetic).parse::<usize>().ok())
+                            .max()
+                            .unwrap_or(0);
+                        let new_id = format!("S{}", max_num + 1);
+                        let seg = crate::domain::segment::Segment::new(new_id.clone(), &new_text, vec![]);
+                        tier.segments.insert(insert_pos, seg);
+                        tier.ensure_inter_segment_spacing();
+                        tier.state = crate::domain::tier::TierState::Dirty;
+                        sent.propagate_stale_from(&tier_id);
+                        Ok(format!("Added segment {} after {} in tier {} for sentence {}.", new_id, after_seg_id, tier_id, index + 1))
+                    } else {
+                        Err(format!("Tier '{}' not found.", tier_id))
+                    }
+                } else {
+                    Err("Index out of bounds".to_string())
+                }
+            }
+
+            AppCommand::RemoveSegment { index, tier_id, seg_id } => {
+                if let Some(sent) = self.state.document.get_mut(index) {
+                    if let Some(tier) = sent.tiers.get_mut(&tier_id) {
+                        if tier.segments.len() <= 1 {
+                            return Err("Cannot remove the last segment.".to_string());
+                        }
+                        if let Some(pos) = tier.segments.iter().position(|s| s.id == seg_id) {
+                            tier.segments.remove(pos);
+                            tier.state = crate::domain::tier::TierState::Dirty;
+                            sent.propagate_stale_from(&tier_id);
+                            Ok(format!("Removed segment {} from tier {} for sentence {}.", seg_id, tier_id, index + 1))
+                        } else {
+                            Err(format!("Segment '{}' not found in tier '{}'.", seg_id, tier_id))
+                        }
+                    } else {
+                        Err(format!("Tier '{}' not found.", tier_id))
+                    }
+                } else {
+                    Err("Index out of bounds".to_string())
+                }
+            }
+
+            AppCommand::LemmatizeTier { index, tier_id } => {
+                let bridge = self.state.bridge.as_ref()
+                    .ok_or_else(|| "Python bridge not available.".to_string())?;
+                let target_lang = self.state.project_languages.1.clone();
+
+                let sent = self.state.document.get_mut(index)
+                    .ok_or_else(|| "Index out of bounds".to_string())?;
+                let tier = sent.tiers.get_mut(&tier_id)
+                    .ok_or_else(|| format!("Tier '{}' not found.", tier_id))?;
+
+                let mut output_lines: Vec<String> = Vec::new();
+
+                for seg in tier.segments.iter_mut() {
+                    let text = seg.full_text();
+                    let raw_tokens = bridge.tokenize(&text, &target_lang)
+                        .map_err(|e| format!("Tokenize failed for segment {}: {}", seg.id, e))?;
+
+                    // Update existing TokenStream in-place (preserves phrasal segments)
+                    seg.stream.update_lemmas_from_spacy(raw_tokens)
+                        .map_err(|e| format!("Lemma update failed for segment {}: {}", seg.id, e))?;
+
+                    // Extract lemmas list for ranking
+                    seg.lemmas = seg.stream.tokens().iter()
+                        .filter_map(|t| match t {
+                            crate::domain::token_stream::Token::Word(wd) => Some(wd.lemmas.clone()),
+                            _ => None,
+                        })
+                        .flatten()
+                        .collect();
+
+                    // Build display string with ranks
+                    let display: Vec<String> = seg.lemmas.iter().map(|l| {
+                        match crate::simulation::frequency_manager::get_rank_for_lemma(l) {
+                            Some(r) => format!("{} <{}>", l, r),
+                            None => format!("{} <?>", l),
+                        }
+                    }).collect();
+
+                    output_lines.push(format!("[{}] {}", seg.id, display.join(", ")));
+                }
+
+                // Also rebuild tier-level lemmas from all segments
+                tier.lemmas = tier.segments.iter()
+                    .flat_map(|s| s.lemmas.clone())
+                    .collect();
+                tier.lemmas.sort();
+                tier.lemmas.dedup();
+
+                Ok(format!("Lemmatized tier {} for sentence {}:\n{}", tier_id, index + 1, output_lines.join("\n")))
+            }
+
+            AppCommand::ValidateTier { index, tier_id } => {
+                // Lemmatize in-place (preserves token boundaries), then mark Valid.
+                let bridge = self.state.bridge.as_ref()
+                    .ok_or_else(|| "Python bridge not available.".to_string())?;
+                let source_lang = self.state.project_languages.0.clone();
+                let target_lang = self.state.project_languages.1.clone();
+                let tier_lang = if tier_id == "base" || tier_id == "basic_base" {
+                    &source_lang
+                } else {
+                    &target_lang
+                };
+
+                let sent = self.state.document.get_mut(index)
+                    .ok_or_else(|| "Index out of bounds".to_string())?;
+
+                // Phase 1: Lemmatize tier segments (skip for base-language tiers — no need for English lemmas)
+                lemmatize_tier_segments(sent, &tier_id, bridge, tier_lang)?;
+
+                // Phase 1b: Lemmatize mapping target texts for L1 tiers
+                lemmatize_mapping_targets(sent, &tier_id, bridge, &source_lang, &target_lang)?;
+
+                // Phase 2: DRC checks (immutable access to sent)
+                let tier_violations = drc_tier(sent, &tier_id, index + 1);
+                if !tier_violations.is_empty() {
+                    return Err(format!("DRC failed for tier '{}' on sentence {}:\n  {}", tier_id, index + 1, tier_violations.join("\n  ")));
+                }
+                let other_tiers_valid = crate::domain::sentence::Sentence::WEAVE_TIERS.iter()
+                    .filter(|&&t| t != tier_id)
+                    .all(|&t| sent.tiers.get(t).map_or(false, |tier| tier.state == crate::domain::tier::TierState::Valid));
+                if other_tiers_valid {
+                    let sent_violations = drc_sentence(sent, index + 1);
+                    if !sent_violations.is_empty() {
+                        return Err(format!("Sentence-level DRC failed for sentence {}:\n  {}", index + 1, sent_violations.join("\n  ")));
+                    }
+                }
+
+                // Phase 3: Mark Valid
+                let tier = sent.tiers.get_mut(&tier_id).unwrap();
+                tier.state = crate::domain::tier::TierState::Valid;
+                sent.propagate_stale_from(&tier_id);
+
+                Ok(format!("Validated tier {} for sentence {}. Tier marked Valid.", tier_id, index + 1))
+            }
+
+            // ── Edit full tier text using selected sentence + tier ───────
+
+            AppCommand::EditText { new_text } => {
+                let sent_idx = self.state.selected_sentence_idx;
+                let tier_id = self.state.selected_tier_id.clone();
+                let sent = self.state.document.get_mut(sent_idx)
+                    .ok_or_else(|| "No sentence selected".to_string())?;
+                // Use update_tier_text which marks Dirty and propagates stale
+                sent.update_tier_text(&tier_id, new_text.clone());
+                Ok(format!(
+                    "Updated sentence {} tier '{}': {}",
+                    sent_idx + 1,
+                    tier_id,
+                    if new_text.len() > 80 { format!("{}...", &new_text[..80]) } else { new_text }
+                ))
+            }
+
+            // ── Token-level mapping commands (Bas B / Bas T) ────────────
+
+            AppCommand::SelectTier { tier_id } => {
+                use crate::app::state::{DetailView, TierView};
+                const VALID_TIERS: &[&str] = &["base", "advanced_target", "moderate_target", "basic_target", "basic_base"];
+                if !VALID_TIERS.contains(&tier_id.as_str()) {
+                    return Err(format!(
+                        "'{}' is not a valid tier. Options: base, adv, mod, bas_t, bas_b",
+                        tier_id
+                    ));
+                }
+                self.state.selected_tier_id = tier_id.clone();
+                // Sync the GUI detail panel to show this tier
+                match tier_id.as_str() {
+                    "base" => self.state.right_view = DetailView::Tier(TierView::Base),
+                    "advanced_target" => self.state.right_view = DetailView::Tier(TierView::AdvancedTarget),
+                    "moderate_target" => self.state.right_view = DetailView::Tier(TierView::ModerateTarget),
+                    "basic_target" => self.state.right_view = DetailView::Tier(TierView::BasicTarget),
+                    "basic_base" => self.state.right_view = DetailView::Tier(TierView::BasicBase),
+                    _ => {}
+                }
+                Ok(format!("Selected tier: {}", tier_id))
+            }
+
+            AppCommand::SplitToken { word_index } => {
+                let sent_idx = self.state.selected_sentence_idx;
+                let tier_id = self.state.selected_tier_id.clone();
+                let sent = self.state.document.get_mut(sent_idx)
+                    .ok_or_else(|| "No sentence selected".to_string())?;
+                let tier = sent.tiers.get_mut(&tier_id)
+                    .ok_or_else(|| format!("Tier '{}' not found.", tier_id))?;
+
+                // Operate on the tier's concatenated token stream across all segments.
+                // For simplicity, operate on the first segment (basic tiers typically have one).
+                let seg = tier.segments.first_mut()
+                    .ok_or_else(|| "Tier has no segments".to_string())?;
+
+                // Before splitting, find the WordId so we can relocate the mapping.
+                let old_word_id = seg.stream.word_at_one_based(word_index)
+                    .map(|(_, w)| w.id)
+                    .ok_or_else(|| format!("Word index {} not found", word_index))?;
+
+                let new_ids = seg.stream.split_word_at(word_index)?;
+                if new_ids.is_empty() {
+                    return Ok(format!("Word {} is already atomic — nothing to split.", word_index));
+                }
+
+                // Remap: assign the old mapping entry to the first new word.
+                let first_new_id = new_ids[0];
+                for mapping in sent.mappings.iter_mut() {
+                    if (mapping.from_tier_id == tier_id) || (mapping.to_tier_id == tier_id && mapping.from_tier_id == tier_id) {
+                        for entry in mapping.entries.iter_mut() {
+                            if entry.source_word_id == old_word_id {
+                                entry.source_word_id = first_new_id;
+                            }
+                        }
+                    }
+                }
+
+                // Also remap if the tier is the source
+                for mapping in sent.mappings.iter_mut() {
+                    if mapping.from_tier_id == tier_id {
+                        for entry in mapping.entries.iter_mut() {
+                            if entry.source_word_id == old_word_id {
+                                entry.source_word_id = first_new_id;
+                            }
+                        }
+                    }
+                }
+
+                // Mark tier dirty after split
+                if let Some(tier) = sent.tiers.get_mut(&tier_id) {
+                    tier.state = crate::domain::tier::TierState::Dirty;
+                }
+                sent.propagate_stale_from(&tier_id);
+
+                Ok(format!("Split word {} into {} sub-tokens.", word_index, new_ids.len()))
+            }
+
+            AppCommand::MergeTokens { word_start, word_end } => {
+                let sent_idx = self.state.selected_sentence_idx;
+                let tier_id = self.state.selected_tier_id.clone();
+                let sent = self.state.document.get_mut(sent_idx)
+                    .ok_or_else(|| "No sentence selected".to_string())?;
+                let tier = sent.tiers.get_mut(&tier_id)
+                    .ok_or_else(|| format!("Tier '{}' not found.", tier_id))?;
+                let seg = tier.segments.first_mut()
+                    .ok_or_else(|| "Tier has no segments".to_string())?;
+
+                // Collect WordIds that will be merged (so we can consolidate mappings)
+                let merging_ids: Vec<crate::domain::primitives::WordId> = seg.stream.words_enumerated()
+                    .iter()
+                    .filter(|(one_idx, _, _)| *one_idx >= word_start && *one_idx <= word_end)
+                    .map(|(_, _, w)| w.id)
+                    .collect();
+
+                let merged_id = seg.stream.merge_words(word_start, word_end)?;
+
+                // Consolidate mapping entries: merge target texts of merged words
+                for mapping in sent.mappings.iter_mut() {
+                    if mapping.from_tier_id == tier_id {
+                        let mut merged_target = String::new();
+                        let mut merged_lemmas: Vec<String> = Vec::new();
+                        let mut found_any = false;
+                        for entry in mapping.entries.iter() {
+                            if merging_ids.contains(&entry.source_word_id) {
+                                if !merged_target.is_empty() && !entry.target_text.is_empty() {
+                                    merged_target.push(' ');
+                                }
+                                merged_target.push_str(&entry.target_text);
+                                merged_lemmas.extend(entry.target_lemmas.clone());
+                                found_any = true;
+                            }
+                        }
+                        // Remove all old entries for merged ids
+                        mapping.entries.retain(|e| !merging_ids.contains(&e.source_word_id));
+                        // Add consolidated entry
+                        if found_any {
+                            let mut new_entry = crate::domain::mapping::MappingEntry::new(
+                                merged_id, merged_target, merged_lemmas,
+                            );
+                            new_entry.is_viable = true;
+                            mapping.entries.push(new_entry);
+                        }
+                    }
+                }
+
+                // Mark tier dirty after merge
+                if let Some(tier) = sent.tiers.get_mut(&tier_id) {
+                    tier.state = crate::domain::tier::TierState::Dirty;
+                }
+                sent.propagate_stale_from(&tier_id);
+
+                Ok(format!("Merged words {}-{} into one token.", word_start, word_end))
+            }
+
+            AppCommand::InsertToken { word_index } => {
+                let sent_idx = self.state.selected_sentence_idx;
+                let tier_id = self.state.selected_tier_id.clone();
+                let sent = self.state.document.get_mut(sent_idx)
+                    .ok_or_else(|| "No sentence selected".to_string())?;
+                let tier = sent.tiers.get_mut(&tier_id)
+                    .ok_or_else(|| format!("Tier '{}' not found.", tier_id))?;
+                let seg = tier.segments.first_mut()
+                    .ok_or_else(|| "Tier has no segments".to_string())?;
+
+                let new_id = seg.stream.insert_word_at(word_index)?;
+                // Set placeholder text so the word is visible and editable
+                seg.stream.modify_word_text(new_id, "x".to_string()).ok();
+
+                // Auto-create a mapping entry with target "x"
+                let (source_tier, target_tier) = if tier_id == "basic_base" {
+                    ("basic_base", "basic_target")
+                } else if tier_id == "basic_target" {
+                    ("basic_target", "basic_base")
+                } else {
+                    (&*tier_id, &*tier_id) // fallback — no mapping created
+                };
+                if source_tier != target_tier {
+                    if let Some(mapping) = sent.mappings.iter_mut()
+                        .find(|m| m.from_tier_id == source_tier && m.to_tier_id == target_tier)
+                    {
+                        mapping.entries.push(crate::domain::mapping::MappingEntry::new(
+                            new_id, "x".to_string(), vec![],
+                        ));
+                    }
+                }
+
+                // Mark tier dirty after insert
+                if let Some(tier) = sent.tiers.get_mut(&tier_id) {
+                    tier.state = crate::domain::tier::TierState::Dirty;
+                }
+                sent.propagate_stale_from(&tier_id);
+
+                Ok(format!("Inserted word 'x' at position {} with target 'x'.", word_index))
+            }
+
+            AppCommand::DeleteToken { word_index } => {
+                let sent_idx = self.state.selected_sentence_idx;
+                let tier_id = self.state.selected_tier_id.clone();
+                let sent = self.state.document.get_mut(sent_idx)
+                    .ok_or_else(|| "No sentence selected".to_string())?;
+                let tier = sent.tiers.get_mut(&tier_id)
+                    .ok_or_else(|| format!("Tier '{}' not found.", tier_id))?;
+                let seg = tier.segments.first_mut()
+                    .ok_or_else(|| "Tier has no segments".to_string())?;
+
+                let word_id = seg.stream.word_at_one_based(word_index)
+                    .map(|(_, w)| w.id)
+                    .ok_or_else(|| format!("Word index {} not found", word_index))?;
+
+                seg.stream.delete_word(word_id)?;
+
+                // Remove mapping entries for the deleted word
+                for mapping in sent.mappings.iter_mut() {
+                    if mapping.from_tier_id == tier_id {
+                        mapping.remove_entries_for_word(word_id);
+                    }
+                }
+
+                // Mark tier dirty after delete
+                if let Some(tier) = sent.tiers.get_mut(&tier_id) {
+                    tier.state = crate::domain::tier::TierState::Dirty;
+                }
+                sent.propagate_stale_from(&tier_id);
+
+                Ok(format!("Deleted word at position {}.", word_index))
+            }
+
+            AppCommand::EditBackground { word_index, new_text } => {
+                let sent_idx = self.state.selected_sentence_idx;
+                let tier_id = self.state.selected_tier_id.clone();
+                let sent = self.state.document.get_mut(sent_idx)
+                    .ok_or_else(|| "No sentence selected".to_string())?;
+                let tier = sent.tiers.get_mut(&tier_id)
+                    .ok_or_else(|| format!("Tier '{}' not found.", tier_id))?;
+                let seg = tier.segments.first_mut()
+                    .ok_or_else(|| "Tier has no segments".to_string())?;
+
+                seg.stream.set_background_before_word(word_index, new_text.clone())?;
+
+                // Mark tier dirty after background edit
+                let _ = seg;
+                tier.state = crate::domain::tier::TierState::Dirty;
+                sent.propagate_stale_from(&tier_id);
+
+                Ok(format!("Set background before word {} to {:?}.", word_index, new_text))
+            }
+
+            AppCommand::EditWord { word_index, new_text } => {
+                let sent_idx = self.state.selected_sentence_idx;
+                let tier_id = self.state.selected_tier_id.clone();
+                let sent = self.state.document.get_mut(sent_idx)
+                    .ok_or_else(|| "No sentence selected".to_string())?;
+                let tier = sent.tiers.get_mut(&tier_id)
+                    .ok_or_else(|| format!("Tier '{}' not found.", tier_id))?;
+                let seg = tier.segments.first_mut()
+                    .ok_or_else(|| "Tier has no segments".to_string())?;
+
+                let word_id = seg.stream.word_at_one_based(word_index)
+                    .map(|(_, w)| w.id)
+                    .ok_or_else(|| format!("Word index {} not found", word_index))?;
+
+                seg.stream.modify_word_text(word_id, new_text.clone())?;
+
+                let _ = seg;
+                tier.state = crate::domain::tier::TierState::Dirty;
+                sent.propagate_stale_from(&tier_id);
+
+                Ok(format!("Set word {} text to {:?}.", word_index, new_text))
+            }
+
+            AppCommand::EditTarget { word_index, new_text } => {
+                let sent_idx = self.state.selected_sentence_idx;
+                let tier_id = self.state.selected_tier_id.clone();
+                let sent = self.state.document.get_mut(sent_idx)
+                    .ok_or_else(|| "No sentence selected".to_string())?;
+                let tier = sent.tiers.get(&tier_id)
+                    .ok_or_else(|| format!("Tier '{}' not found.", tier_id))?;
+                let seg = tier.segments.first()
+                    .ok_or_else(|| "Tier has no segments".to_string())?;
+
+                let word_id = seg.stream.word_at_one_based(word_index)
+                    .map(|(_, w)| w.id)
+                    .ok_or_else(|| format!("Word index {} not found", word_index))?;
+
+                // Auto-init mapping if none exists
+                let (source_tier, target_tier) = if tier_id == "basic_base" {
+                    ("basic_base".to_string(), "basic_target".to_string())
+                } else if tier_id == "basic_target" {
+                    ("basic_target".to_string(), "basic_base".to_string())
+                } else {
+                    return Err(format!("edit_target only applies to basic_base or basic_target, not '{}'", tier_id));
+                };
+                if !sent.mappings.iter().any(|m| m.from_tier_id == source_tier && m.to_tier_id == target_tier) {
+                    sent.add_mapping(crate::domain::mapping::TierMapping::new(source_tier.clone(), target_tier.clone()));
+                }
+
+                // Find the mapping where this tier is the source
+                let mapping = sent.mappings.iter_mut()
+                    .find(|m| m.from_tier_id == source_tier && m.to_tier_id == target_tier)
+                    .ok_or_else(|| format!("No mapping found with source tier '{}'.", tier_id))?;
+
+                if let Some(entry) = mapping.entries.iter_mut().find(|e| e.source_word_id == word_id) {
+                    entry.target_text = new_text.clone();
+                    entry.target_lemmas.clear(); // will need re-lemmatization
+                } else {
+                    // Create a new entry
+                    mapping.entries.push(crate::domain::mapping::MappingEntry::new(
+                        word_id, new_text.clone(), vec![],
+                    ));
+                }
+
+                // Mark tier dirty after target edit
+                if let Some(tier) = sent.tiers.get_mut(&tier_id) {
+                    tier.state = crate::domain::tier::TierState::Dirty;
+                }
+                sent.propagate_stale_from(&tier_id);
+
+                Ok(format!("Set target for word {} to {:?}.", word_index, new_text))
+            }
+
+            AppCommand::EditTargets { pairs } => {
+                let sent_idx = self.state.selected_sentence_idx;
+                let tier_id = self.state.selected_tier_id.clone();
+                let sent = self.state.document.get_mut(sent_idx)
+                    .ok_or_else(|| "No sentence selected".to_string())?;
+                let tier = sent.tiers.get(&tier_id)
+                    .ok_or_else(|| format!("Tier '{}' not found.", tier_id))?;
+                let seg = tier.segments.first()
+                    .ok_or_else(|| "Tier has no segments".to_string())?;
+
+                // Resolve all word indices first
+                let mut resolved: Vec<(crate::domain::primitives::WordId, usize, String)> = Vec::new();
+                for (word_index, text) in &pairs {
+                    let word_id = seg.stream.word_at_one_based(*word_index)
+                        .map(|(_, w)| w.id)
+                        .ok_or_else(|| format!("Word index {} not found", word_index))?;
+                    resolved.push((word_id, *word_index, text.clone()));
+                }
+
+                // Auto-init mapping if none exists
+                let (source_tier, target_tier) = if tier_id == "basic_base" {
+                    ("basic_base".to_string(), "basic_target".to_string())
+                } else if tier_id == "basic_target" {
+                    ("basic_target".to_string(), "basic_base".to_string())
+                } else {
+                    return Err(format!("edit_targets only applies to basic_base or basic_target, not '{}'", tier_id));
+                };
+                if !sent.mappings.iter().any(|m| m.from_tier_id == source_tier && m.to_tier_id == target_tier) {
+                    sent.add_mapping(crate::domain::mapping::TierMapping::new(source_tier.clone(), target_tier.clone()));
+                }
+
+                let mapping = sent.mappings.iter_mut()
+                    .find(|m| m.from_tier_id == source_tier && m.to_tier_id == target_tier)
+                    .ok_or_else(|| format!("No mapping found with source tier '{}'.", tier_id))?;
+
+                let mut count = 0;
+                for (word_id, _word_index, text) in &resolved {
+                    if let Some(entry) = mapping.entries.iter_mut().find(|e| e.source_word_id == *word_id) {
+                        entry.target_text = text.clone();
+                        entry.target_lemmas.clear();
+                    } else {
+                        mapping.entries.push(crate::domain::mapping::MappingEntry::new(
+                            *word_id, text.clone(), vec![],
+                        ));
+                    }
+                    count += 1;
+                }
+
+                // Mark tier dirty after targets edit
+                if let Some(tier) = sent.tiers.get_mut(&tier_id) {
+                    tier.state = crate::domain::tier::TierState::Dirty;
+                }
+                sent.propagate_stale_from(&tier_id);
+
+                Ok(format!("Set {} mapping target(s).", count))
+            }
+
+            AppCommand::AcceptMap => {
+                let sent_idx = self.state.selected_sentence_idx;
+                let tier_id = self.state.selected_tier_id.clone();
+
+                // Determine the mapping direction based on the selected tier
+                let (source_tier, target_tier) = if tier_id == "basic_base" {
+                    ("basic_base", "basic_target")
+                } else if tier_id == "basic_target" {
+                    ("basic_target", "basic_base")
+                } else {
+                    return Err(format!("accept map only applies to basic_base or basic_target, not '{}'", tier_id));
+                };
+
+                let sent = self.state.document.get_mut(sent_idx)
+                    .ok_or_else(|| "No sentence selected".to_string())?;
+
+                // Check that all word tokens have a mapping entry
+                let seg = sent.tiers.get(&tier_id)
+                    .and_then(|t| t.segments.first())
+                    .ok_or_else(|| "Tier/segment not found".to_string())?;
+
+                let word_ids: Vec<crate::domain::primitives::WordId> = seg.stream.words_enumerated()
+                    .iter()
+                    .map(|(_, _, w)| w.id)
+                    .collect();
+
+                let mapping = sent.mappings.iter()
+                    .find(|m| m.from_tier_id == source_tier && m.to_tier_id == target_tier);
+
+                let mapped_ids: std::collections::HashSet<crate::domain::primitives::WordId> = mapping
+                    .map(|m| m.entries.iter().map(|e| e.source_word_id).collect())
+                    .unwrap_or_default();
+
+                let unmapped: Vec<usize> = word_ids.iter().enumerate()
+                    .filter(|(_, wid)| !mapped_ids.contains(wid))
+                    .map(|(i, _)| i + 1)
+                    .collect();
+
+                if !unmapped.is_empty() {
+                    return Err(format!("Cannot accept: words at indices {:?} have no mapping target.", unmapped));
+                }
+
+                // Mark the tier as Valid
+                if let Some(tier) = sent.tiers.get_mut(&tier_id) {
+                    tier.state = crate::domain::tier::TierState::Valid;
+                }
+
+                Ok(format!("Mapping for {} accepted. Tier marked Valid.", tier_id))
+            }
+
+            AppCommand::InitMapping => {
+                use crate::domain::mapping::TierMapping;
+
+                let sent_idx = self.state.selected_sentence_idx;
+                let tier_id = self.state.selected_tier_id.clone();
+
+                let (source_tier, target_tier) = if tier_id == "basic_base" {
+                    ("basic_base".to_string(), "basic_target".to_string())
+                } else if tier_id == "basic_target" {
+                    ("basic_target".to_string(), "basic_base".to_string())
+                } else {
+                    return Err(format!("init mapping only applies to basic_base or basic_target, not '{}'", tier_id));
+                };
+
+                let sent = self.state.document.get_mut(sent_idx)
+                    .ok_or_else(|| "No sentence selected".to_string())?;
+
+                // Check if mapping already exists
+                let exists = sent.mappings.iter().any(|m| m.from_tier_id == source_tier && m.to_tier_id == target_tier);
+                if exists {
+                    return Ok(format!("Mapping {} → {} already exists.", source_tier, target_tier));
+                }
+
+                let mapping = TierMapping::new(source_tier.clone(), target_tier.clone());
+                sent.add_mapping(mapping);
+                Ok(format!("Initialized empty mapping {} → {}.", source_tier, target_tier))
+            }
+
             AppCommand::OpenWorkspace { path } => {
                 let workspace_path = std::path::PathBuf::from(&path);
 
@@ -372,7 +1297,26 @@ impl Engine {
                 for block in chapter.content_blocks {
                     if let crate::types::json_types::JsonContentBlock::Sentence(json_sentence) = block {
                         match crate::domain::bridge::json_to_domain_sentence(&json_sentence) {
-                            Ok(domain_sentence) => self.state.document.push(domain_sentence),
+                            Ok(mut domain_sentence) => {
+                                // Old-format JSON files lack a "base" (source) tier.
+                                // Synthesize one from the basic_base tier's text.
+                                if !domain_sentence.tiers.contains_key("base") {
+                                    if let Some(basic_base) = domain_sentence.tiers.get("basic_base") {
+                                        let source_text = basic_base.full_text();
+                                        if !source_text.is_empty() {
+                                            let mut source_tier = crate::domain::tier::Tier::new("base".to_string());
+                                            let segment = crate::domain::segment::Segment::new(
+                                                "S1".to_string(),
+                                                &source_text,
+                                                vec![],
+                                            );
+                                            source_tier.add_segment(segment);
+                                            domain_sentence.add_tier(source_tier);
+                                        }
+                                    }
+                                }
+                                self.state.document.push(domain_sentence);
+                            }
                             Err(e) => {
                                 eprintln!("Skipping invalid sentence: {e}");
                                 error_count += 1;
@@ -411,7 +1355,7 @@ impl Engine {
 
                 Ok(format!("Output directory set to '{}'", resolved))
             }
-            AppCommand::GenerateWeave { level } => {
+            AppCommand::GenerateWeave { level, force } => {
                 // Guard: all sentences must be weave-ready
                 if self.state.document.is_empty() {
                     return Err("No document loaded.".to_string());
@@ -432,10 +1376,37 @@ impl Engine {
                         not_ready.len(), self.state.document.len(), preview
                     ));
                 }
+
+                // Run DRC before generating (unless --force)
+                if !force {
+                    let drc_violations = self.run_drc();
+                    if !drc_violations.is_empty() {
+                        let count = drc_violations.len();
+                        let report = drc_violations.join("\n");
+                        return Err(format!(
+                            "DRC FAILED — {} violation(s) found. Fix these or use 'generate_weave {} --force' to override.\n{}",
+                            count, level, report
+                        ));
+                    }
+                }
+
                 self.execute_generate_weave(&level)
             }
             AppCommand::Calibrate { max_level } => {
                 self.execute_calibrate(max_level)
+            }
+            AppCommand::Drc => {
+                if self.state.document.is_empty() {
+                    return Err("No document loaded.".to_string());
+                }
+                let violations = self.run_drc();
+                if violations.is_empty() {
+                    Ok(format!("DRC PASSED — all {} sentence(s) clean.", self.state.document.len()))
+                } else {
+                    let count = violations.len();
+                    let report = violations.join("\n");
+                    Ok(format!("DRC FAILED — {} violation(s):\n{}", count, report))
+                }
             }
             AppCommand::WeaveStatus => {
                 if self.state.document.is_empty() {
@@ -524,13 +1495,17 @@ impl Engine {
 
                     for &(tid, label) in tier_labels {
                         let status = sent.tier_status_display(tid);
-                        let preview = sent.get_tier(tid)
+                        let (preview, wc_str) = sent.get_tier(tid)
                             .map(|t| {
                                 let ft = t.full_text();
-                                if ft.len() > 60 { format!("\"{}...\"", &ft[..57]) } else { format!("\"{}\"", ft) }
+                                let word_count: usize = t.segments.iter()
+                                    .map(|s| s.stream.word_count())
+                                    .sum();
+                                let p = if ft.len() > 60 { format!("\"{}...\"", &ft[..57]) } else { format!("\"{}\"", ft) };
+                                (p, format!("({} words)", word_count))
                             })
-                            .unwrap_or_else(|| "—".to_string());
-                        out.push_str(&format!("  {:<20} {:<12} {}\n", label, status, preview));
+                            .unwrap_or_else(|| ("—".to_string(), String::new()));
+                        out.push_str(&format!("  {:<20} {:<12} {:<12} {}\n", label, status, wc_str, preview));
                     }
 
                     // Mappings
@@ -847,6 +1822,55 @@ impl Engine {
                     return Ok("No items to process in range".to_string());
                 }
 
+                // ── Auto-mapping interleave for basic tier stages ────────────────
+                // When generating BasicBase or BasicTarget, split the work into
+                // translation sub-batches and interleave mapping generation after
+                // each sub-batch.  This prevents an error at sentence N from leaving
+                // sentences 1..N-1 without mappings.
+                let needs_auto_mapping = matches!(
+                    stage_name.as_str(),
+                    "GenerateBasicBase" | "GenerateBasicTarget"
+                );
+
+                if needs_auto_mapping {
+                    // Split items into sub-batches of batch_size
+                    let sub_batches: Vec<Vec<(usize, String, String)>> =
+                        items.chunks(batch_size).map(|c| c.to_vec()).collect();
+
+                    // Queue mapping follow-ups for the first sub-batch,
+                    // then subsequent (translate + mapping) pairs for the rest.
+                    for (batch_idx, batch) in sub_batches.iter().enumerate() {
+                        let batch_start = batch.first().unwrap().0;
+                        let batch_end = batch.last().unwrap().0;
+
+                        // Queue the translation step for all batches AFTER the first
+                        // (the first batch is spawned directly below)
+                        if batch_idx > 0 {
+                            self.state.llm_followup_queue.push_back(format!(
+                                "run generate {} {} {}",
+                                stage_name,
+                                batch_start + 1,
+                                batch_end + 1,
+                            ));
+                        }
+
+                        // Queue both mapping stages after each translation batch
+                        self.state.llm_followup_queue.push_back(format!(
+                            "run generate GeneratePhraseMap {} {}",
+                            batch_start + 1,
+                            batch_end + 1,
+                        ));
+                        self.state.llm_followup_queue.push_back(format!(
+                            "run generate GenerateInversePhraseMap {} {}",
+                            batch_start + 1,
+                            batch_end + 1,
+                        ));
+                    }
+
+                    // Use only the first sub-batch for the immediate spawn
+                    items = sub_batches.into_iter().next().unwrap();
+                }
+
                 // Spawn Job
                 let prompts = self.state.prompts.clone().unwrap();
                 let llm = self.state.llm.clone().unwrap();
@@ -855,6 +1879,7 @@ impl Engine {
                 let config_obj = self.state.config.clone().unwrap();
                 let (base_lang, target_lang) = self.state.project_languages.clone();
 
+                let item_count = items.len();
                 let (rx, cancel) = crate::services::llm_worker::spawn_llm_job(
                     prompts,
                     llm,
@@ -873,20 +1898,28 @@ impl Engine {
 
                 self.state.llm_results_receiver = Some(rx);
                 self.state.llm_cancel_flag = Some(cancel);
-                self.state.llm_job_total = (e - s) + 1;
+                self.state.llm_job_total = item_count;
                 self.state.llm_job_done = 0;
                 self.state.llm_job_stage = stage_name.to_string();
                 self.state.llm_job_target_tier = target_tier.to_string();
                 self.state.llm_job_model = model_alias.clone();
                 self.state.show_llm_run = false; // Hide UI dialog if open
 
+                let queue_len = self.state.llm_followup_queue.len();
+                let queue_info = if queue_len > 0 {
+                    format!("\n  Follow-up steps queued: {}", queue_len)
+                } else {
+                    String::new()
+                };
+
                 Ok(format!(
-                    "Started stage '{}' for {} items\n  Model: {}\n  Batch size: {}\n  LLM log: {}",
+                    "Started stage '{}' for {} items\n  Model: {}\n  Batch size: {}\n  LLM log: {}{}",
                     stage_name,
                     self.state.llm_job_total,
                     model_display,
                     batch_size,
                     log_file_path,
+                    queue_info,
                 ))
             }
             AppCommand::MeasureAvd { path } => {
@@ -1272,6 +2305,19 @@ impl Engine {
             .ok_or("Output directory not set. Use 'set output_dir <path>' first.")?;
         let output_path = PathBuf::from(output_dir);
 
+        // Create a book subdirectory to keep each book's files fenced
+        let book_dir = if self.state.book_name.is_empty() {
+            output_path.clone()
+        } else {
+            let sanitized = self.state.book_name.replace(|c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != ' ', "");
+            let dir_name = sanitized.trim().replace(' ', "_");
+            output_path.join(&dir_name)
+        };
+        if !book_dir.exists() {
+            fs::create_dir_all(&book_dir)
+                .map_err(|e| format!("Failed to create book directory '{}': {}", book_dir.display(), e))?;
+        }
+
         let book_map = self.state.book_map.as_ref()
             .ok_or("No level map loaded. Use 'import level_map <path>' first.")?;
 
@@ -1304,7 +2350,7 @@ impl Engine {
             preprocessor::json_chapter_to_numerical(&json_chapter, &mut dictionary);
 
         let mut generated_files: Vec<String> = Vec::new();
-        let analysis_path = output_path.join("analysis.txt");
+        let analysis_path = book_dir.join("analysis.txt");
 
         for level in &levels {
             let level_key = level.to_string();
@@ -1331,8 +2377,14 @@ impl Engine {
                 .collect();
             let output_text = cleaned_parts.join("\n\n");
 
-            let file_name = format!("UL{}.txt", level);
-            let file_path = output_path.join(&file_name);
+            let file_name = if self.state.book_name.is_empty() {
+                format!("UL{}.txt", level)
+            } else {
+                let sanitized = self.state.book_name.replace(|c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != ' ', "");
+                let prefix = sanitized.trim().replace(' ', "_");
+                format!("{}_UL{}.txt", prefix, level)
+            };
+            let file_path = book_dir.join(&file_name);
             fs::write(&file_path, &output_text)
                 .map_err(|e| format!("Failed to write '{}': {}", file_path.display(), e))?;
 
@@ -1361,9 +2413,136 @@ impl Engine {
         Ok(format!(
             "Generated {} weave file(s) in '{}':\n  {}",
             generated_files.len(),
-            output_dir,
+            book_dir.display(),
             generated_files.join("\n  "),
         ))
+    }
+
+    /// Design Rule Check — returns a Vec of violation strings.
+    /// Empty vec means PASS.
+    fn run_drc(&self) -> Vec<String> {
+        use crate::domain::sentence::Sentence;
+        use crate::domain::tier::TierState;
+
+        let mut violations: Vec<String> = Vec::new();
+
+        // Rule 8: Both project languages must be set
+        let (base_lang, target_lang) = &self.state.project_languages;
+        if base_lang.is_empty() || target_lang.is_empty() {
+            violations.push("GLOBAL: project languages not set (use 'set languages <source> <target>')".to_string());
+        }
+
+        // Rule 9: Level map must be loaded
+        let has_level_map = self.state.book_map.as_ref().map_or(false, |m| !m.is_empty());
+        if !has_level_map {
+            violations.push("GLOBAL: no level map loaded (use 'import level_map' or 'calibrate')".to_string());
+        }
+
+        for (i, sent) in self.state.document.iter().enumerate() {
+            let sn = i + 1; // 1-based for display
+            let sid = &sent.id;
+
+            // Rules 1-3: Check each WEAVE_TIER
+            for &tid in Sentence::WEAVE_TIERS {
+                match sent.tiers.get(tid) {
+                    None => {
+                        violations.push(format!("S{} ({}): tier '{}' is missing", sn, sid, tid));
+                    }
+                    Some(tier) => {
+                        if tier.state != TierState::Valid {
+                            violations.push(format!(
+                                "S{} ({}): tier '{}' state is {:?}, expected Valid",
+                                sn, sid, tid, tier.state
+                            ));
+                        }
+                    }
+                }
+            }
+
+            // Rules 4-5: Check mapping existence and completeness
+            let fwd = sent.mappings.iter()
+                .find(|m| m.from_tier_id == "basic_base" && m.to_tier_id == "basic_target");
+            let inv = sent.mappings.iter()
+                .find(|m| m.from_tier_id == "basic_target" && m.to_tier_id == "basic_base");
+
+            // Rule 4: Forward mapping
+            match fwd {
+                None => {
+                    violations.push(format!(
+                        "S{} ({}): forward mapping (basic_base→basic_target) is missing",
+                        sn, sid
+                    ));
+                }
+                Some(mapping) => {
+                    if mapping.entries.is_empty() {
+                        violations.push(format!(
+                            "S{} ({}): forward mapping has 0 entries",
+                            sn, sid
+                        ));
+                    } else {
+                        // Check word coverage
+                        if let Some(tier) = sent.tiers.get("basic_base") {
+                            if let Some(seg) = tier.segments.first() {
+                                let word_count = seg.stream.words_enumerated().len();
+                                let mapped_count = mapping.entries.len();
+                                if mapped_count < word_count {
+                                    violations.push(format!(
+                                        "S{} ({}): forward mapping covers {}/{} words",
+                                        sn, sid, mapped_count, word_count
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Rule 5: Inverse mapping
+            match inv {
+                None => {
+                    violations.push(format!(
+                        "S{} ({}): inverse mapping (basic_target→basic_base) is missing",
+                        sn, sid
+                    ));
+                }
+                Some(mapping) => {
+                    if mapping.entries.is_empty() {
+                        violations.push(format!(
+                            "S{} ({}): inverse mapping has 0 entries",
+                            sn, sid
+                        ));
+                    } else {
+                        // Check word coverage
+                        if let Some(tier) = sent.tiers.get("basic_target") {
+                            if let Some(seg) = tier.segments.first() {
+                                let word_count = seg.stream.words_enumerated().len();
+                                let mapped_count = mapping.entries.len();
+                                if mapped_count < word_count {
+                                    violations.push(format!(
+                                        "S{} ({}): inverse mapping covers {}/{} words",
+                                        sn, sid, mapped_count, word_count
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Rule 6: Sentence-level — Advanced and Moderate segment counts must match
+            let adv_seg_count = sent.tiers.get("advanced_target").map(|t| t.segments.len());
+            let mod_seg_count = sent.tiers.get("moderate_target").map(|t| t.segments.len());
+            if let (Some(a), Some(m)) = (adv_seg_count, mod_seg_count) {
+                if a != m {
+                    violations.push(format!(
+                        "S{} ({}): advanced_target has {} segments but moderate_target has {} (must match)",
+                        sn, sid, a, m
+                    ));
+                }
+            }
+        }
+
+        violations
     }
 
     fn execute_calibrate(&mut self, max_level: Option<u32>) -> Result<String, String> {
@@ -1480,8 +2659,13 @@ impl Engine {
                     // Show lemmas if present
                     if !tier.lemmas.is_empty() {
                         let display_count = tier.lemmas.len().min(20);
+                        let ranked: Vec<String> = tier.lemmas[..display_count].iter()
+                            .map(|l| match crate::simulation::frequency_manager::get_rank_for_lemma(l) {
+                                Some(r) => format!("{}<{}>", l, r),
+                                None => format!("{}<->", l),
+                            }).collect();
                         out.push_str(&format!("  Lemmas ({}): {}", tier.lemmas.len(),
-                            tier.lemmas[..display_count].join(", ")));
+                            ranked.join(", ")));
                         if tier.lemmas.len() > 20 {
                             out.push_str(&format!(" ... (+{} more)", tier.lemmas.len() - 20));
                         }
@@ -1499,10 +2683,15 @@ impl Engine {
                     for entry in &mapping.entries {
                         let viable_marker = if !entry.is_viable { " [NOT VIABLE]" } else { "" };
                         let proper_marker = if entry.is_proper_noun { " [PROPER]" } else { "" };
+                        let ranked_lemmas: Vec<String> = entry.target_lemmas.iter()
+                            .map(|l| match crate::simulation::frequency_manager::get_rank_for_lemma(l) {
+                                Some(r) => format!("{}<{}>", l, r),
+                                None => format!("{}<->", l),
+                            }).collect();
                         out.push_str(&format!("  w{}: \"{}\" lemmas=[{}]{}{}\n",
                             entry.source_word_id.0,
                             entry.target_text,
-                            entry.target_lemmas.join(", "),
+                            ranked_lemmas.join(", "),
                             viable_marker,
                             proper_marker,
                         ));

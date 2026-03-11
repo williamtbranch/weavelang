@@ -1,119 +1,49 @@
-================================================================================
-Project Plan: WeaveLang V11 - Human-in-the-Loop Architecture
-Last Updated: (Date of this session)
-================================================================================
+────────────────────────────────────────────
+  WeaveLang Rust GUI — ToDo / Open Items
+  Last updated: Session 2025-06
+────────────────────────────────────────────
 
-### Primary Objectives & Guiding Principles
+COMPLETED (this session)
+═══════════════════════
+✔ Remove use_json_di conditional from bridge.rs — always trust JSON diglot_index
+✔ show tokens — prints 1-based word indices, text, and lemmas for selected tier
+✔ edit_targets N:text N:text ... — batch mapping in a single command
+✔ Auto-init mapping on edit_target / edit_targets — no separate init step needed
+✔ PowerShell batch action — copilot.ps1 batch "cmd1" "cmd2" "cmd3"
+✔ set book_name — title bar display, BookName/ output subdirectory, BookName_UL34.txt naming
+✔ report sentence word count — shows (N words) per tier
+✔ Human-readable show mapping — table format: # | source | → target | lemmas
+✔ DRC tier-level rules — mapping completeness checked on approve/validate
+✔ DRC sentence-level rules — Adv/Mod segment count match checked when last tier validated
+✔ approve tier / validate tier — lemmatization is mandatory, bridge-down = fatal error
+✔ Gate weave generation behind DRC — generate_weave refuses if DRC fails
 
-- **Goal:** To dramatically increase the quality and stylistic consistency of the L1 learning tiers by integrating a mandatory human review and editing process into the pipeline.
-- **Architecture:** The Python pipeline will be refactored into a state machine with explicit "pause" points. It will generate human-readable files with a commented-out "approval marker." The pipeline will only proceed once the user has edited the file and uncommented the marker.
-- **Golden Rule:** The human-edited "golden pair" of `basic_english` and `basic_spanish` will be the sole source of truth for all L1 content, ensuring maximum quality and consistency.
+DRC RULES (current)
+═══════════════════
+  Rule 1-3: Every WEAVE_TIER must exist and be in Valid state
+  Rule 4:   Forward mapping (basic_base→basic_target) must exist and be complete
+  Rule 5:   Inverse mapping (basic_target→basic_base) must exist and be complete
+  Rule 6:   Advanced and Moderate segment counts must match (sentence-level)
+  Rule 7:   Tier-level mapping completeness (checked on approve/validate)
+  Rule 8:   Both project languages must be set
+  Rule 9:   Level map must be loaded
 
----
-### Master Checklist
----
+COMPLETED (co-pilot testing session 2026-03)
+═══════════════════════════════════════════
+✔ print command — context-aware: mapped tiers show Source|Target|Lemmas table, segment tiers show segments
+✔ show detail — now shows all tiers with states (Valid/Dirty/Stale), > marker on selected tier
+✔ GUI sync: SelectTier (terminal) now also sets right_view so GUI tab follows
+✔ GUI sync: SetRightView (GUI tab click) now also sets selected_tier_id so terminal follows
+✔ Duplicate output in copilot.ps1 — Send-Cmd had both Write-Host and bare $result (pipeline output)
+✔ GUI mapping panel stale data — mapping edit buffer keys lacked sentence index, showed old sentence data
+✔ `print` truncation fix — removed 80-char cap, now shows full sentence text
+✔ `print` default tier fix — `print` now correctly defaults to the selected tier (adv, mod, etc.)
+✔ GUI segment cache fix — GUI now always refreshes segment text from engine state on every frame
+✔ Internal terminal output fix — set UTF-8 and use `Out-String` for full output parity
 
-#### Phase 1: Stateful Orchestrator and New Pipeline Stages (Python)
-
-- [ ] **Task 1.1: Refactor the Main Orchestrator (`orchestrate_pipeline.py`)**
-    - [ ] **Implement State Machine Logic:** The orchestrator must check for files in a dedicated `human_review` directory and parse their first line to determine the pipeline's state.
-    - [ ] **State 1 (Start):** No `*.basic_en.txt` exists -> Run `GenerateBasicEnglish`.
-    - [ ] **State 2 (Awaiting English Review):** `*.basic_en.txt` exists, but `%%HUMAN_REVIEW_APPROVED%%` is commented out or missing -> Halt with instructions.
-    - [ ] **State 3 (Awaiting Mapping Review):** `*.basic_en.txt` is approved, but `*.dig.txt` or `*.invdig.txt` are not approved -> Run translation and mapping stages.
-    - [ ] **State 4 (Awaiting Finalization):** All review files are approved -> Run the final consumption and finalization stages.
-
-- [ ] **Task 1.2: Create New Stage - `GenerateBasicEnglish` (Stage 2)**
-    - [ ] This stage takes the original `base` tier as input.
-    - [ ] It uses a new `simplify_to_basic_english.txt` prompt to generate simplified English.
-    - [ ] **Output:** It will create a single text file (e.g., `Metamorphosis.basic_en.txt`) in the `human_review` directory.
-    - [ ] **Crucially, the first line of this file MUST be `# %%HUMAN_REVIEW_APPROVED%%`.**
-
-- [ ] **Task 1.3: Create New Stage - `TranslateBasicSpanish` (Stage 3)**
-    - [ ] On resume, this stage's input logic must first validate that `Metamorphosis.basic_en.txt` exists and its approval marker is uncommented.
-    - [ ] It will then read this human-approved file as its source of truth, translate it to create the `basic_spanish` tier, and populate the main JSON object.
-
-- [ ] **Task 1.4: Refactor Mapping Stages to Generate Review Files**
-    - [ ] Modify `GeneratePhraseMap` (now Stage 4) to generate `book.dig.txt`. The first line must be `# %%HUMAN_REVIEW_APPROVED%%`.
-    - [ ] Modify `GenerateInverseDiglotMap` (now Stage 5) to generate `book.invdig.txt`. The first line must be `# %%HUMAN_REVIEW_APPROVED%%`.
-    - [ ] Both stages must still run their internal validation logic *before* writing the review files to ensure the template you edit is valid.
-
-#### Phase 2: Validation and Override Consumption (Python)
-
-- [ ] **Task 2.1: Implement Pre-Consumption Validator for Approved Files**
-    - [ ] Create a dedicated validation step at the start of the final pipeline phase.
-    - [ ] This step will read `*.dig.txt` and `*.invdig.txt` only after confirming their approval markers are uncommented.
-    - [ ] It will perform a full structural validation on the *entire file content* (e.g., by running `refactor_token_stream` on every sentence's mappings).
-    - [ ] If any error is found, the pipeline must HALT with clear, actionable error messages.
-
-- [ ] **Task 2.2: Refactor `Apply...Mappings` Stages to Consume Approved Files**
-    - [ ] Modify `ApplyPhraseMappings` (now Stage 6) to read the validated and approved `book.dig.txt` file as the *sole source of truth* for building the final JSON mapping structures.
-    - [ ] Modify `ApplyInversePhraseMappings` (now Stage 7) to do the same with the `book.invdig.txt` file.
-
-#### Phase 3: Rust Engine Refactor
-
-- [ ] **Task 3.1: Update JSON Parsing and Numerical Types (`json_types.rs`, `preprocessor.rs`)**
-    - [ ] Remove the `simple_target` tier from the structs.
-    - [ ] Add the new `basic_english` tier.
-    - [ ] The L0 `NumericalAdvSegmentBundle` will now only contain `adv` and `mod` tiers.
-    - [ ] The `NumericalProcessedSentence` struct must be updated to reference the `basic_english` and `basic_target` tiers for L1 fallback logic.
-
-- [ ] **Task 3.2: Implement the New L0/L1 Weaving Logic (`core_algo.rs`)**
-    - [ ] Modify `try_build_advanced_weave`. The fallback cascade is now only: `Advanced -> Moderate`. If both fail, the L0 weave fails.
-    - [ ] Modify `determine_and_annotate_sentence_expression`. If `try_build_advanced_weave` returns `None`, implement the new L1 logic:
-        1. Check if the learner's profile knows >= 50% of the lemmas in the `basic_target` sentence.
-        2. If yes, construct the output from the full `basic_target` text.
-        3. If no, construct the output using the `basic_base` (i.e., `basic_english`) text and its corresponding diglot map.
-
-- [ ] **Task 3.3: Update the WeaveLang Test Suite (`.weavetest`)**
-    - [ ] Modify the `.pest` grammar to remove the `Simple` and `Basic` tiers from the L0 definition. The L1 definition will now be based on the new `Basic` pair.
-    - [ ] Create new test cases that specifically assert the correct fallback behavior: a test for `Mod -> L1` failure, a test for the L1 50% check *passing*, and a test for the 50% check *failing*.
-
-#### Phase 4: Finalization and Cleanup
-
-- [ ] **Task 4.1: Update `FinalizeBook` Stage (Stage 9)**
-    - [ ] The logic for stripping `tokenized_text` is still valid, but the list of tiers to strip is now just `advanced_target` and `moderate_target`. `basic_target` and `basic_english` must be preserved.
-    - [ ] Update the final schema version number.
-
-- [ ] **Task 4.2: Update Project Documentation**
-    - [ ] Update all relevant documentation to reflect the new two-tier L0 weave, the human-in-the-loop "approval marker" process, and the new 50% check in the L1 fallback logic.
-
-- [ ] **Task 5.1 (V12 Optimization): Implement LLM Caching**
-    - [ ] Refactor `llm_utils.py` to support prompt caching for both Anthropic and Gemini providers.
-    - [ ] Update `LLMStage` to manage the lifecycle of a cached system prompt for the duration of its run.
-    - [ ] Measure cost savings on a full book run.
-
-
-Proposal for V12 Enhancement: The "Body Measurement" Score
-1. The Problem: The Limits of AVD
-The current primary difficulty metric, the AVD (Average Vocabulary Density) Score, is a "frontier" measurement. It is expertly designed to quantify the lexical challenge of a text's rarest words (the "tail"), which is critical for measuring the i+1 learning load.
-However, AVD is intentionally insensitive to the overall vocabulary composition. As seen with the Metamorphosis calibration, two texts can have counter-intuitive AVD scores if one text uses a very simple core vocabulary but is forced to use a few rare words (giving it a high AVD), while another uses a more consistently intermediate vocabulary (giving it a lower AVD). This can make it difficult to analytically confirm the "feel" or foundational complexity of a tier.
-2. The Solution: A "Body Measurement" for Foundational Complexity
-To complement the AVD score, we will introduce a new analytical metric: the Log-Weighted Mean Rank (LMR) Score. The LMR score is not intended for use in the generation algorithms themselves but will serve as a crucial diagnostic and analytical tool in all logs and reports. Its purpose is to provide an intuitive measure of the vocabulary's "center of gravity."
-3. How the LMR Score Works
-The LMR score is a weighted average of the logarithmic ranks of all lemma instances in a generated text.
-Step 1: Logarithmic Transformation: For every unique lemma in the text, its master frequency rank is transformed using the natural logarithm (ln(rank)). This step is critical as it tames the exponential skew of word frequencies, ensuring that a few extremely rare words do not disproportionately dominate the score.
-Step 2: Weighted Averaging: The final score is the average of these log-ranks, weighted by the number of times each lemma appeared in the text.
-Formula:
-LMR Score = Σ [ ln(rank_i) * occurrences_i ] / Σ [ occurrences_i ]
-(Where i is each unique lemma in the text)
-4. Benefits and Interpretation
-Measures the "Center of Gravity": By weighting by occurrences, the LMR score reflects the vocabulary the reader actually spends their time on, providing a true measure of the text's overall feel.
-Tames Outliers: The logarithmic scale ensures stability and prevents rare words from skewing the metric.
-Intuitive Scale: A lower LMR score indicates that the bulk of the text is composed of very high-frequency words. A higher LMR score indicates a shift towards more intermediate or advanced vocabulary.
-Resolves Ambiguity: The LMR score will provide a clear, analytical confirmation of our intuitive understanding of tier difficulty. For example, it would have shown LMR(Basic) < LMR(Moderate) for Metamorphosis, even when the AVD scores were inverted, immediately confirming that our prompts were working as intended at a foundational level.
-5. Implementation Plan
-src/simulation/metrics.rs: Add a calculate_lmr_score() method to the TextMetrics struct. This method will iterate over the existing ranked_tallies to compute the score.
-src/simulation/calibrator.rs: In the pre-computation phase, calculate and store the LMR score alongside the AVD score in the l_level_tables and the final debug analysis file.
-src/simulation/corpus_generator.rs: In the log_analysis_to_file function, calculate and print the LMR score for every generated book instance, adding a new line to the profiler output (e.g., Body Measurement (LMR Score): 7.82).
-
-Task 6: Unified Token Indexing Architecture (Cleanup)
-
-Context: Currently, the Forward Map (basic_base -> basic_target) relies on explicit di (Diglot Index) keys found on the English tokens. However, the Inverse Map (basic_target -> basic_base) relies on implicit array positioning (0, 1, 2...) of the Spanish tokens, often ignoring the di values present in the JSON (which are sometimes non-sequential).
-
-The Fix: We must standardize on Explicit, Persistent IDs for all mapped tiers.
-
-Update Python Pipeline (ApplyInversePhraseMappings.py): Ensure that when the basic_target tier is reconstructed, every word token is assigned a strict, sequential, and unique di value, just like the basic_base tier.
-
-Update Python Validator: Enforce that any tier involved in a mapping (Forward or Inverse) must have valid di keys on all word tokens.
-
-Update Rust bridge.rs: Remove the if use_json_di conditional logic. The bridge should always trust and use the di provided by the JSON for WordId generation. This unifies the logic and allows for future features like word reordering without breaking mappings.
+REMAINING / OPEN
+════════════════
+- No undo — edit_target mistakes require manual re-edit. Low priority.
+- Command parity: API-only queries (state dump, sentence JSON) have no terminal equivalents.
+  Regular workflow should use focused terminal commands. API dumps are for export/analysis only.
+- Always document UTF-8 requirement in copilot.ps1 header and future test scripts.

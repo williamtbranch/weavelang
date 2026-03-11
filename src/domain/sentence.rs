@@ -251,9 +251,14 @@ impl Sentence {
         self.propagate_stale(tier_id);
     }
 
+    /// Public entry point for propagating staleness from a given tier.
+    pub fn propagate_stale_from(&mut self, tier_id: &str) {
+        self.propagate_stale(tier_id);
+    }
+
     /// Propagate "Stale" state to dependents based on the tier graph:
-    /// Path A: Base -> Advanced -> Moderate -> Basic Target
-    /// Path B: Base -> Basic Base
+    /// Path A: Base -> Advanced -> Moderate
+    /// Path B: Base -> Basic Base -> Basic Target
     fn propagate_stale(&mut self, tier_id: &str) {
         match tier_id {
             "base" => {
@@ -263,7 +268,7 @@ impl Sentence {
             "advanced_target" => {
                 self.mark_tier_stale("moderate_target");
             }
-            "moderate_target" => {
+            "basic_base" => {
                 self.mark_tier_stale("basic_target");
             }
             _ => {}
@@ -279,7 +284,7 @@ impl Sentence {
                 // Recurse: if this tier becomes stale, its children also become stale
                 match tier_id {
                     "advanced_target" => self.mark_tier_stale("moderate_target"),
-                    "moderate_target" => self.mark_tier_stale("basic_target"),
+                    "basic_base" => self.mark_tier_stale("basic_target"),
                     _ => {}
                 }
             }
@@ -498,7 +503,11 @@ mod tests {
         use crate::domain::primitives::WordId;
 
         let mut s = Sentence::new("S1".into());
-        for tid in Sentence::WEAVE_TIERS {
+        // Set tiers in parent-first order so that propagate_stale finds
+        // no existing children to mark Stale.
+        // Graph: base → advanced_target → moderate_target
+        //        base → basic_base      → basic_target
+        for tid in &["base", "advanced_target", "moderate_target", "basic_base", "basic_target"] {
             s.update_tier_text_as_clean(tid, format!("text for {}", tid));
         }
 

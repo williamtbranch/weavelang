@@ -23,3 +23,5 @@ test_temp
 Metamorphosis_12.json
 # Per-machine workspace config (contains personal paths)
 config.toml
+*.wvl
+

@@ -43,6 +43,14 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState) {
 
         ui.separator();
 
+        // Co-pilot server indicator
+        if let Some((name, port)) = &state.copilot_server_info {
+            ui.colored_label(
+                egui::Color32::from_rgb(80, 200, 80),
+                format!("🤖 {}:{}", name, port),
+            ).on_hover_text("Co-pilot server is running. External agents can connect via HTTP.");
+        }
+
         if let Some(sentence) = state.get_current_sentence() {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(format!("ID: {}", sentence.id));

@@ -11,37 +11,37 @@ use tiny_http::{Server, Response, Header, Method, StatusCode};
 
 /// Response envelope for all API calls.
 #[derive(Serialize)]
-struct ApiResponse<T: Serialize> {
-    success: bool,
-    message: String,
+pub struct ApiResponse<T: Serialize> {
+    pub success: bool,
+    pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    data: Option<T>,
+    pub data: Option<T>,
 }
 
 /// Summary of a sentence for the state listing (avoids serializing full token streams).
 #[derive(Serialize)]
-struct SentenceSummary {
-    index: usize,
-    id: String,
-    tier_count: usize,
-    tiers: std::collections::HashMap<String, TierSummary>,
-    mapping_count: usize,
+pub struct SentenceSummary {
+    pub index: usize,
+    pub id: String,
+    pub tier_count: usize,
+    pub tiers: std::collections::HashMap<String, TierSummary>,
+    pub mapping_count: usize,
 }
 
 #[derive(Serialize)]
-struct TierSummary {
-    state: String,
-    full_text: String,
+pub struct TierSummary {
+    pub state: String,
+    pub full_text: String,
 }
 
 /// Top-level state summary returned by GET /api/v1/state.
 #[derive(Serialize)]
-struct StateSummary {
-    sentence_count: usize,
-    selected_sentence_idx: usize,
-    selected_range: Option<(usize, usize)>,
-    project_languages: (String, String),
-    sentences: Vec<SentenceSummary>,
+pub struct StateSummary {
+    pub sentence_count: usize,
+    pub selected_sentence_idx: usize,
+    pub selected_range: Option<(usize, usize)>,
+    pub project_languages: (String, String),
+    pub sentences: Vec<SentenceSummary>,
 }
 
 /// Configuration for starting the server.
@@ -231,20 +231,25 @@ fn handle_get_sentence(
 // --- Helpers ---
 
 fn build_state_summary(eng: &Engine) -> StateSummary {
-    let sentences: Vec<SentenceSummary> = eng.state.document.iter().enumerate()
+    build_state_summary_from_state(&eng.state)
+}
+
+/// Build a state summary from AppState directly (used by relay server from GUI).
+pub fn build_state_summary_from_state(state: &crate::app::state::AppState) -> StateSummary {
+    let sentences: Vec<SentenceSummary> = state.document.iter().enumerate()
         .map(|(i, s)| build_sentence_summary(i, s))
         .collect();
 
     StateSummary {
-        sentence_count: eng.state.document.len(),
-        selected_sentence_idx: eng.state.selected_sentence_idx,
-        selected_range: eng.state.selected_range,
-        project_languages: eng.state.project_languages.clone(),
+        sentence_count: state.document.len(),
+        selected_sentence_idx: state.selected_sentence_idx,
+        selected_range: state.selected_range,
+        project_languages: state.project_languages.clone(),
         sentences,
     }
 }
 
-fn build_sentence_summary(index: usize, sentence: &crate::domain::sentence::Sentence) -> SentenceSummary {
+pub fn build_sentence_summary(index: usize, sentence: &crate::domain::sentence::Sentence) -> SentenceSummary {
     let mut tiers = std::collections::HashMap::new();
     for (tier_id, tier) in &sentence.tiers {
         tiers.insert(tier_id.clone(), TierSummary {
@@ -262,7 +267,7 @@ fn build_sentence_summary(index: usize, sentence: &crate::domain::sentence::Sent
     }
 }
 
-fn json_response<T: Serialize>(status: u16, body: &T) -> Response<std::io::Cursor<Vec<u8>>> {
+pub fn json_response<T: Serialize>(status: u16, body: &T) -> Response<std::io::Cursor<Vec<u8>>> {
     let json = serde_json::to_string_pretty(body).unwrap_or_else(|_| r#"{"error":"serialization failed"}"#.to_string());
     let data = json.into_bytes();
     let header = Header::from_bytes("Content-Type", "application/json").unwrap();
@@ -275,7 +280,7 @@ fn json_response<T: Serialize>(status: u16, body: &T) -> Response<std::io::Curso
     )
 }
 
-fn text_response(status: u16, body: &str) -> Response<std::io::Cursor<Vec<u8>>> {
+pub fn text_response(status: u16, body: &str) -> Response<std::io::Cursor<Vec<u8>>> {
     let data = body.as_bytes().to_vec();
     let header = Header::from_bytes("Content-Type", "text/plain; charset=utf-8").unwrap();
     Response::new(

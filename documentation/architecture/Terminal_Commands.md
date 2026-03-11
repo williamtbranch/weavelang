@@ -1,28 +1,234 @@
 # Terminal Interface Commands
 
-These commands are specific to the Terminal/CLI front-end. They control how the data is displayed in the terminal window but do not affect the underlying document state.
+> **Related docs:**
+> - [App_Overview.md](App_Overview.md) — What the app does, tier structure, and dependencies
+> - [agent.md](agent.md) — AI co-pilot quick-start guide
 
-## View Control
+Commands are split into two categories: **Terminal-only** commands that control the CLI display, and **App commands** that modify the underlying document/project state (shared with the GUI via the Engine).
+
+All sentence numbers (`<N>`) are **1-based** in user input. Tier aliases `adv`, `mod`, `bas_t` / `basic_t`, `bas_b` / `basic_b`, and `source` are resolved to their canonical IDs automatically.
+
+---
+
+## Terminal-Only (View / Interaction)
+
 *   `list nav`
-    *   *Effect:* Lists sentences in the navigator view.
-*   `list nav <Index>`
-    *   *Effect:* Sets the viewport to start at `<Index>` and lists sentences.
-    *   *Example:* `list nav 24` (Starts listing from sentence 24)
+    *   *Effect:* Lists sentences in the navigator view, starting at the currently selected sentence.
+*   `list nav <N>`
+    *   *Effect:* Sets the viewport to start at sentence `<N>` (1-based) and lists sentences.
+    *   *Example:* `list nav 24`
 *   `show detail`
-    *   *Effect:* Prints the details (tiers, mappings) of the currently selected sentence.
+    *   *Effect:* Prints the tiers of the currently selected sentence.
 *   `show mapping`
-    *   *Effect:* Prints the mapping table for the current selection.
-*   `set displaysize <Size>`
-    *   *Effect:* Sets how much data is printed to the screen at once in terms of lines. `<Size>` specifies the maximum number of lines to display. This should persist across sessions via a settings file.
-    *   *Example:* `set displaysize 10` (Sets the display to show 10 lines at a time)
-
-
-## Interaction
-*   `watch job`
-    *   *Effect:* Enters a mode that continuously prints progress of a running background job.
+    *   *Effect:* Prints all mappings for the currently selected sentence.
+*   `watch_job`
+    *   *Effect:* Blocks until the current LLM background job completes, printing progress. Automatically runs any queued follow-up stages (e.g. mapping generation after tier generation).
 *   `clear`
     *   *Effect:* Clears the terminal screen.
-*   `history`
-    *   *Effect:* Shows command history.
 *   `help`
     *   *Effect:* Lists available commands.
+*   `exit` / `quit`
+    *   *Effect:* Exits the terminal session.
+
+---
+
+## Project Management
+
+*   `new project <name>`
+    *   *Effect:* Creates a new empty project with the given name. Clears the document, resets file path and output dir.
+*   `close project`
+    *   *Effect:* Closes the current project. Clears the document and resets state.
+*   `set languages <source> <target>`
+    *   *Effect:* Sets the project source and target languages (e.g., `set languages en es`).
+*   `open workspace <path>`
+    *   *Effect:* Opens (or creates) a workspace directory.
+*   `load project <path>`
+    *   *Effect:* Loads a `.wvl` project file.
+*   `save project [path]`
+    *   *Effect:* Saves the current project. If `<path>` is omitted, saves to the current file.
+*   `import source <path>`
+    *   *Effect:* Imports a plain-text source file into the project.
+*   `import json <path>`
+    *   *Effect:* Imports a JSON data file.
+*   `import level_map <path>`
+    *   *Effect:* Imports a `.lm` level-map file.
+*   `export json <path>`
+    *   *Effect:* Exports the project data as JSON.
+*   `export level_map [path]`
+    *   *Effect:* Exports the level map. Defaults to the current directory if path is omitted.
+
+---
+
+## Navigation & Selection
+
+*   `select sentence <N|ID>`
+    *   *Effect:* Selects a sentence by 1-based number or by its `S`-prefixed ID.
+    *   *Example:* `select sentence 5` or `select sentence S0042`
+*   `select tier <tier>`
+    *   *Effect:* Selects the active tier for subsequent token/mapping commands.
+    *   *Example:* `select tier bas_b`
+*   `set right_view <view>`
+    *   *Effect:* Sets the right panel view.
+*   `set left_view <view>`
+    *   *Effect:* Sets the left panel view.
+
+---
+
+## Editing — Tier / Sentence Text
+
+*   `add sentence [text]`
+    *   *Effect:* Appends a new sentence to the document. If text is provided, it becomes the initial base tier content. If omitted, an empty sentence is created.
+    *   *Example:* `add sentence The cat sat on the mat.`
+*   `remove sentence <N>`
+    *   *Effect:* Removes sentence `<N>` (1-based) from the document.
+*   `update text <N|ID> <tier_id> <new_text>`
+    *   *Effect:* Replaces the full text of a tier on the specified sentence.
+    *   *Example:* `update text 3 moderate_target The cat sat on the mat.`
+*   `edit <text>`
+    *   *Effect:* Replaces the text of the currently selected sentence + tier.
+*   `approve edits <N|ID> <tier_id>`
+    *   *Effect:* Approves pending edits on a tier.
+*   `approve tier <N> <tier_id>`
+    *   *Effect:* Approves a tier as Valid. **Automatically lemmatizes** via the Python bridge if available. If the bridge is not connected, sets Valid but warns that lemmas are empty (DRC will catch this).
+    *   *Example:* `approve tier 3 advanced_target`
+*   `approve collateral`
+    *   *Effect:* Accepts all collateral updates generated by the last LLM job.
+*   `discard collateral`
+    *   *Effect:* Discards collateral updates.
+
+---
+
+## Editing — Segments (Advanced / Moderate tiers)
+
+*   `edit seg <N> <tier> <seg_id> <text>`
+    *   *Effect:* Edits the text of segment `<seg_id>` on sentence `<N>`, tier `<tier>`.
+*   `add seg <N> <tier> <after_seg_id> <text>`
+    *   *Effect:* Adds a new segment after `<after_seg_id>`.
+*   `rm seg <N> <tier> <seg_id>`
+    *   *Effect:* Removes the specified segment.
+*   `lemmatize <N> <tier>`
+    *   *Effect:* Re-lemmatizes the tier's segments via SpaCy.
+*   `validate <N> <tier>`
+    *   *Effect:* Lemmatizes the tier and marks it as Valid.
+
+---
+
+## Editing — Token / Mapping (Basic Base / Basic Target)
+
+These operate on the currently selected sentence + selected tier.
+
+*   `split <N>`
+    *   *Effect:* Splits the word token at 1-based word index `<N>` into sub-tokens.
+*   `merge <N>-<M>`
+    *   *Effect:* Merges word tokens from index `<N>` through `<M>` (1-based, inclusive) into one.
+    *   *Example:* `merge 2-4`
+*   `insert <N>`
+    *   *Effect:* Inserts an empty word token at 1-based position `<N>`.
+*   `delete <N>`
+    *   *Effect:* Deletes word token at 1-based index `<N>`.
+*   `edit_b <N> "<text>"`
+    *   *Effect:* Edits the background (whitespace/punctuation) token immediately before word `<N>`. Use `N+1` to address the trailing background.
+*   `edit_target <N> <text>`
+    *   *Effect:* Edits the mapping target text for the word at index `<N>`.
+*   `init mapping`
+    *   *Effect:* Initializes an empty diglot mapping for the selected sentence + tier direction (basic_base→basic_target or basic_target→basic_base). Required before using `edit_target` when no mapping exists yet.
+*   `accept map`
+    *   *Effect:* Validates/accepts the mapping for the selected tier, marking it Valid.
+
+---
+
+## Proper-Noun Lemma Editing
+
+*   `list pn_lemmas <N>`
+    *   *Effect:* Lists proper-noun lemmas for sentence `<N>`.
+*   `add pn_lemma <N> <lemma>`
+    *   *Effect:* Adds `<lemma>` to sentence `<N>`'s proper-noun list.
+*   `rm pn_lemma <N> <lemma>`
+    *   *Effect:* Removes `<lemma>` from sentence `<N>`'s proper-noun list.
+
+---
+
+## Generation (LLM)
+
+*   `run generate <StageName> <start> <end>`
+    *   *Effect:* Runs the named generation stage on sentences `<start>` through `<end>` (1-based inclusive). Launches background LLM work; use `watch_job` to wait for completion.
+    *   *Example:* `run generate AdvancedTarget 1 50`
+*   `status`
+    *   *Effect:* Checks the status of the current LLM job.
+
+---
+
+## Configuration
+
+*   `config set <key> <value>`
+    *   *Effect:* Sets a configuration value.
+*   `config list` / `config show`
+    *   *Effect:* Lists all current configuration values.
+*   `config add_model <alias>`
+    *   *Effect:* Adds a model alias to the configuration.
+*   `config remove_model <alias>`
+    *   *Effect:* Removes a model alias.
+*   `config rename_model <old> <new>`
+    *   *Effect:* Renames a model alias.
+
+---
+
+## API Key Management
+
+*   `set key <provider> <value>`
+    *   *Effect:* Stores an API key in the OS keychain. Provider is `anthropic` or `google`.
+*   `delete key <provider>`
+    *   *Effect:* Removes an API key from the OS keychain.
+*   `key status`
+    *   *Effect:* Shows which API keys are currently configured.
+
+---
+
+## Level Map, Calibration & Weave
+
+*   `set output_dir <path>`
+    *   *Effect:* Sets the output directory for generated weave files.
+*   `calibrate [max_level]`
+    *   *Effect:* Runs calibration on the loaded document. Defaults to max level 45 if omitted.
+*   `generate_weave <level|all>`
+    *   *Effect:* Generates weave text file(s) for the specified level or all levels. Runs a **Design Rule Check (DRC)** first and refuses to proceed if violations are found.
+*   `generate_weave <level|all> --force`
+    *   *Effect:* Same as above, but skips the DRC gate.
+*   `drc`
+    *   *Effect:* Runs a Design Rule Check on all sentences. Reports every violation found (empty lemmas, missing mappings, incomplete tiers, etc.). Returns overall PASS or FAIL with violation count.
+*   `weave status`
+    *   *Effect:* Checks whether the document is ready for weave generation.
+*   `report sentences incomplete`
+    *   *Effect:* Lists sentences that are not yet ready for weave.
+*   `report sentences complete`
+    *   *Effect:* Lists sentences that are weave-ready.
+*   `report sentence <N>`
+    *   *Effect:* Shows detailed readiness status for sentence `<N>`.
+*   `report sentence <N>-<M>`
+    *   *Effect:* Shows detailed status for a range of sentences.
+
+---
+
+## Measurement
+
+*   `measure_avd <path>`
+    *   *Effect:* Measures the AVD score of a plain-text file.
+*   `measure_user_score <path>`
+    *   *Effect:* Measures the estimated user level of a plain-text file.
+
+---
+
+## Debug
+
+*   `debug_dump <start> <end> [filepath]`
+    *   *Effect:* Dumps debug state for sentences `<start>` through `<end>` (1-based). Outputs to file if path is given, otherwise to stdout.
+*   `add sentence [text]`
+    *   *Effect:* (Also listed under Editing.) Appends a new sentence to the document.
+
+---
+
+## Co-Pilot
+
+*   `server info`
+    *   *Effect:* Shows the copilot server name and port (GUI mode only). In the CLI REPL, reports that no copilot server is running.
+    *   *Notes:* The copilot server starts automatically when the GUI launches. The name and port can be configured in `config.toml` via `copilot_server_name` and `copilot_server_port` (defaults: `"weavelang"`, `3030`). External agents can send commands via `POST /api/v1/terminal` with the command text as the request body, and query state via `GET /api/v1/state`.

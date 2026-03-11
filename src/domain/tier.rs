@@ -51,4 +51,23 @@ impl Tier {
             .collect::<Vec<_>>()
             .join("")
     }
+
+    /// Ensures that between adjacent segments, there is a space separator.
+    /// Checks trailing B of segment[i] and leading B of segment[i+1];
+    /// if neither contains whitespace, prepends a space to segment[i+1]'s leading B.
+    pub fn ensure_inter_segment_spacing(&mut self) {
+        for i in 0..self.segments.len().saturating_sub(1) {
+            let trailing = self.segments[i].stream.trailing_background().to_string();
+            let leading = self.segments[i + 1].stream.leading_background().to_string();
+
+            let trailing_has_ws = trailing.chars().any(|c| c.is_whitespace());
+            let leading_has_ws = leading.chars().any(|c| c.is_whitespace());
+
+            if !trailing_has_ws && !leading_has_ws {
+                // Prepend a space to the next segment's leading background
+                let new_leading = format!(" {}", leading);
+                self.segments[i + 1].stream.set_leading_background(new_leading);
+            }
+        }
+    }
 }

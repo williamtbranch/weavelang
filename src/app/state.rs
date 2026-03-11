@@ -10,6 +10,7 @@ use crate::types::json_types::JsonCurriculumMap;
 use crate::config::Config;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::sync::mpsc::{Receiver};
 
 // ... (Enums TierView, DetailView, SimulationMode remain unchanged) ...
@@ -169,6 +170,31 @@ pub struct AppState {
     // Input buffer for the Proper Noun Lemmas editor tab
     #[serde(skip)]
     pub pn_lemma_input: String,
+
+    // Per-segment edit buffers for the segment editor (key: "seg_id", value: current text)
+    // Cleared whenever the selected sentence or tier view changes.
+    #[serde(skip)]
+    pub seg_edit_buffers: HashMap<String, String>,
+
+    // Selected word indices (1-based) in the mapping table for merge/split/delete operations.
+    #[serde(skip)]
+    pub mapping_selected_rows: std::collections::BTreeSet<usize>,
+
+    // Active tier for token-level commands (split/merge/insert/delete/edit_b).
+    // Set via `select tier <tier>` command. Used by Bas B / Bas T editing.
+    #[serde(skip)]
+    pub selected_tier_id: String,
+
+    // Follow-up command queue: when a basic tier is generated, mapping
+    // generation commands are interleaved after each translation batch.
+    // The GUI auto-advances through this queue as each sub-job completes.
+    #[serde(skip)]
+    pub llm_followup_queue: VecDeque<String>,
+
+    // Co-pilot server info (set by the GUI when the relay server starts).
+    // Format: (name, port). None if the server is not running.
+    #[serde(skip)]
+    pub copilot_server_info: Option<(String, u16)>,
 }
 
 fn default_languages() -> (String, String) {
@@ -244,6 +270,11 @@ impl Default for AppState {
             llm_job_target_tier: String::new(),
             llm_job_model: String::new(),
             pn_lemma_input: String::new(),
+            seg_edit_buffers: HashMap::new(),
+            mapping_selected_rows: std::collections::BTreeSet::new(),
+            selected_tier_id: "basic_target".to_string(),
+            llm_followup_queue: VecDeque::new(),
+            copilot_server_info: None,
         }
     }
 }

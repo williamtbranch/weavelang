@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use crate::gui::components;
 use crate::app::state::AppState;
 use crate::app::terminal::apply_llm_result;
+use crate::app::server_relay::{self, RelayReceiver, RelayRequest, RelayResponse, ContentType};
+use crate::app::server::{build_state_summary_from_state, build_sentence_summary, ApiResponse};
 use crate::services::llm_client::LlmService;
 use crate::services::llm_logger::LlmLogger;
 use crate::services::prompt_manager::PromptManager;
@@ -21,6 +23,10 @@ pub struct WeaveLangApp {
     terminal_history: Vec<String>,
     terminal_input: String,
     current_title: String,
+    // Co-pilot relay server
+    relay_rx: Option<RelayReceiver>,
+    copilot_server_name: String,
+    copilot_server_port: u16,
 }
 
 impl WeaveLangApp {
@@ -51,6 +57,29 @@ impl WeaveLangApp {
             status.push("LLM: OFF");
         }
 
+        // --- Co-pilot server ---
+        let copilot_name = state.config.as_ref()
+            .and_then(|c| c.copilot_server_name.clone())
+            .unwrap_or_else(|| "weavelang".to_string());
+        let copilot_port = state.config.as_ref()
+            .and_then(|c| c.copilot_server_port)
+            .unwrap_or(3030);
+
+        let relay_rx = match server_relay::start_relay_server(server_relay::RelayConfig {
+            port: copilot_port,
+            name: copilot_name.clone(),
+        }) {
+            Ok((rx, _handle)) => {
+                status.push("Copilot: OK");
+                state.copilot_server_info = Some((copilot_name.clone(), copilot_port));
+                Some(rx)
+            }
+            Err(e) => {
+                eprintln!("[WARN] Copilot server failed to start: {}", e);
+                None
+            }
+        };
+
         let mut app = Self {
             state,
             current_file_path: None,
@@ -58,6 +87,9 @@ impl WeaveLangApp {
             terminal_history: vec!["WeaveLang Terminal initialized.".to_string()],
             terminal_input: String::new(),
             current_title: String::new(),
+            relay_rx,
+            copilot_server_name: copilot_name,
+            copilot_server_port: copilot_port,
         };
 
         let gs = crate::global_settings::GlobalSettings::load();
@@ -85,29 +117,173 @@ impl WeaveLangApp {
         app
     }
 
-    fn execute_terminal_command(&mut self, cmd: &str) {
-        self.terminal_history.push(format!("> {}", cmd));
+    fn execute_terminal_command(&mut self, cmd: &str) -> String {
+        self.execute_terminal_command_from(cmd, ">")
+    }
+
+    fn execute_terminal_command_from(&mut self, cmd: &str, prompt: &str) -> String {
+        self.terminal_history.push(format!("{} {}", prompt, cmd));
+
+        // Intercept `$` prefix — copilot message from the user.
+        let trimmed = cmd.trim();
+        if trimmed.starts_with('$') {
+            let msg = trimmed[1..].trim();
+            let reply = format!("[copilot] Received: \"{}\" — AI agent routing is not yet connected. This will be forwarded to an LLM in a future release.", msg);
+            self.terminal_history.push(reply.clone());
+            return reply;
+        }
+
+        // Intercept `server info` — the relay server details are only known here.
+        if trimmed == "server info" {
+            let info = if self.relay_rx.is_some() {
+                format!(
+                    "Copilot server '{}' running on http://127.0.0.1:{}",
+                    self.copilot_server_name, self.copilot_server_port
+                )
+            } else {
+                "Copilot server is not running.".to_string()
+            };
+            self.terminal_history.push(info.clone());
+            return info;
+        }
         
         // Temporarily take state to run engine
         let mut engine = crate::app::engine::Engine::new(std::mem::take(&mut self.state));
         engine.current_file_path = self.current_file_path.clone();
         
-        match crate::app::terminal::run_terminal_command(&mut engine, cmd) {
+        let result = match crate::app::terminal::run_terminal_command(&mut engine, cmd) {
             Ok(Some(output)) => {
                 for line in output.lines() {
                     self.terminal_history.push(line.to_string());
                 }
+                output
             }
             Ok(None) => {
                 self.terminal_history.push("Exit command ignored in GUI.".to_string());
+                "Exit command ignored in GUI.".to_string()
             }
             Err(e) => {
-                self.terminal_history.push(format!("Error: {}", e));
+                let msg = format!("Error: {}", e);
+                self.terminal_history.push(msg.clone());
+                msg
             }
-        }
+        };
         
         self.state = engine.state;
         self.current_file_path = engine.current_file_path;
+        result
+    }
+
+    /// Handle a single relay request from the co-pilot server.
+    fn handle_relay_request(&mut self, request: RelayRequest) -> RelayResponse {
+        match request {
+            RelayRequest::Terminal(cmd) => {
+                let output = self.execute_terminal_command_from(&cmd, "[copilot]>");
+                RelayResponse {
+                    status: 200,
+                    content_type: ContentType::Text,
+                    body: output,
+                }
+            }
+            RelayRequest::GetState => {
+                let summary = build_state_summary_from_state(&self.state);
+                self.terminal_history.push(format!(
+                    "[copilot] query state → {} sentences loaded",
+                    summary.sentence_count
+                ));
+                let envelope = ApiResponse {
+                    success: true,
+                    message: format!("{} sentences loaded", summary.sentence_count),
+                    data: Some(summary),
+                };
+                RelayResponse {
+                    status: 200,
+                    content_type: ContentType::Json,
+                    body: serde_json::to_string_pretty(&envelope).unwrap_or_default(),
+                }
+            }
+            RelayRequest::GetSentence(num) => {
+                // API is 1-based to match the terminal `select sentence N`
+                if num == 0 {
+                    self.terminal_history.push("[copilot] query sentence 0 → error: use 1-based numbering".to_string());
+                    let envelope = ApiResponse::<()> {
+                        success: false,
+                        message: "Sentence numbers are 1-based. Use 1 for the first sentence.".to_string(),
+                        data: None,
+                    };
+                    return RelayResponse {
+                        status: 400,
+                        content_type: ContentType::Json,
+                        body: serde_json::to_string_pretty(&envelope).unwrap_or_default(),
+                    };
+                }
+                let idx = num - 1;
+                if let Some(sentence) = self.state.document.get(idx) {
+                    let base_text = sentence.tiers.get("base")
+                        .map(|t| t.full_text())
+                        .unwrap_or_else(|| "<empty>".to_string());
+                    let preview: String = base_text.chars().take(60).collect();
+                    self.terminal_history.push(format!(
+                        "[copilot] query sentence {} → {} \"{}\"",
+                        num, sentence.id, preview
+                    ));
+                    let summary = build_sentence_summary(idx, sentence);
+                    let envelope = ApiResponse {
+                        success: true,
+                        message: format!("Sentence {} (index {})", sentence.id, idx),
+                        data: Some(summary),
+                    };
+                    RelayResponse {
+                        status: 200,
+                        content_type: ContentType::Json,
+                        body: serde_json::to_string_pretty(&envelope).unwrap_or_default(),
+                    }
+                } else {
+                    self.terminal_history.push(format!(
+                        "[copilot] query sentence {} → out of range ({} sentences)",
+                        num, self.state.document.len()
+                    ));
+                    let envelope = ApiResponse::<()> {
+                        success: false,
+                        message: format!(
+                            "Sentence {} out of range (document has {} sentences)",
+                            num,
+                            self.state.document.len()
+                        ),
+                        data: None,
+                    };
+                    RelayResponse {
+                        status: 404,
+                        content_type: ContentType::Json,
+                        body: serde_json::to_string_pretty(&envelope).unwrap_or_default(),
+                    }
+                }
+            }
+            RelayRequest::Ping => {
+                self.terminal_history.push("[copilot] ping".to_string());
+                RelayResponse {
+                    status: 200,
+                    content_type: ContentType::Json,
+                    body: serde_json::to_string_pretty(&ApiResponse::<()> {
+                        success: true,
+                        message: format!(
+                            "Co-pilot server '{}' is alive (GUI mode)",
+                            self.copilot_server_name
+                        ),
+                        data: None,
+                    })
+                    .unwrap_or_default(),
+                }
+            }
+            RelayRequest::Shutdown => {
+                self.terminal_history.push("[copilot] shutdown requested".to_string());
+                RelayResponse {
+                    status: 200,
+                    content_type: ContentType::Text,
+                    body: "Shutdown acknowledged".to_string(),
+                }
+            }
+        }
     }
 
     fn render_terminal(&mut self, ui: &mut egui::Ui) {
@@ -122,7 +298,14 @@ impl WeaveLangApp {
                 .max_height(ui.available_height() - 30.0)
                 .show(ui, |ui| {
                     for line in &self.terminal_history {
-                        ui.label(egui::RichText::new(line).family(egui::FontFamily::Monospace));
+                        let rich = egui::RichText::new(line).family(egui::FontFamily::Monospace);
+                        if line.starts_with("[copilot]>") {
+                            ui.label(rich.color(egui::Color32::from_rgb(100, 180, 255)));
+                        } else if line.starts_with("[copilot]") {
+                            ui.label(rich.color(egui::Color32::from_rgb(140, 200, 140)));
+                        } else {
+                            ui.label(rich);
+                        }
                     }
                 });
                 
@@ -176,6 +359,10 @@ impl WeaveLangApp {
                 }
                 if ui.button("Save .wvl").clicked() {
                     self.save_binary();
+                    ui.close_menu();
+                }
+                if ui.button("Save .wvl As...").clicked() {
+                    self.save_binary_as();
                     ui.close_menu();
                 }
                 ui.separator();
@@ -363,7 +550,16 @@ impl WeaveLangApp {
         }
     }
 
-    // --- FIX IS HERE ---
+    fn save_binary_as(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("WeaveLang Binary", &["wvl"])
+            .save_file()
+        {
+            let cmd = format!("save project {}", path.to_string_lossy());
+            self.execute_terminal_command(&cmd);
+        }
+    }
+
     fn open_binary(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
             .add_filter("WeaveLang Binary", &["wvl"])
@@ -377,6 +573,24 @@ impl WeaveLangApp {
 
 impl App for WeaveLangApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
+        // ── Drain co-pilot relay requests ──────────────────────────────
+        {
+            let mut pending_requests = Vec::new();
+            if let Some(rx) = &self.relay_rx {
+                while let Ok(pending) = rx.try_recv() {
+                    pending_requests.push(pending);
+                }
+            }
+            for pending in pending_requests {
+                let response = self.handle_relay_request(pending.request);
+                let _ = pending.response_tx.send(response);
+            }
+            if self.relay_rx.is_some() {
+                // Request continuous repaint so relay requests are served promptly
+                ctx.request_repaint();
+            }
+        }
+
         // Update Title dynamically
         let expected_title = if let Some(cfg) = &self.state.config {
             let ws_name = if cfg.content_project_dir.is_empty() {
@@ -388,7 +602,11 @@ impl App for WeaveLangApp {
                     .unwrap_or("Untitled")
                     .to_string()
             };
-            format!("WeaveLang Studio ({})", ws_name)
+            if self.state.book_name.is_empty() {
+                format!("WeaveLang Studio ({})", ws_name)
+            } else {
+                format!("WeaveLang Studio ({}) — {}", ws_name, self.state.book_name)
+            }
         } else {
             "WeaveLang Studio (Untitled)".to_string()
         };
@@ -486,6 +704,13 @@ impl App for WeaveLangApp {
                             self.state.last_log = format!("LLM applied {} items.", applied);
                         }
 
+                        // Clear edit buffers so mapping/segment panes re-sync
+                        // with the freshly-updated model data on the next frame.
+                        if applied > 0 {
+                            self.state.seg_edit_buffers.clear();
+                            self.state.mapping_selected_rows.clear();
+                        }
+
                         if self.state.llm_job_total > 0 && self.state.llm_job_done >= self.state.llm_job_total {
                             self.status_message = "LLM job completed.".to_string();
                             // also reflect in last_log
@@ -530,7 +755,32 @@ impl App for WeaveLangApp {
             }
 
             if clear_receiver {
+                // Check if this was a normal completion (not an error)
+                let had_error = self.status_message.contains("failed") || self.status_message.contains("disconnected");
                 self.state.llm_results_receiver = None;
+
+                // Auto-advance from follow-up queue on successful completion
+                if !had_error {
+                    if let Some(next_cmd) = self.state.llm_followup_queue.pop_front() {
+                        let remaining = self.state.llm_followup_queue.len();
+                        self.status_message = format!(
+                            "Starting follow-up: {} ({} remaining)",
+                            next_cmd.split_whitespace().take(3).collect::<Vec<_>>().join(" "),
+                            remaining,
+                        );
+                        self.state.pending_terminal_command = Some(next_cmd);
+                    }
+                } else {
+                    // On error, clear the follow-up queue to prevent cascading failures
+                    let cleared = self.state.llm_followup_queue.len();
+                    self.state.llm_followup_queue.clear();
+                    if cleared > 0 {
+                        self.state.last_log.push_str(&format!(
+                            " ({} queued follow-up steps cancelled.)",
+                            cleared
+                        ));
+                    }
+                }
             }
         }
         
@@ -913,7 +1163,16 @@ impl App for WeaveLangApp {
             egui::TopBottomPanel::top("llm_progress_panel").show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.label("LLM job running — results will apply when ready.");
+                    let queue_len = self.state.llm_followup_queue.len();
+                    if queue_len > 0 {
+                        ui.label(format!(
+                            "LLM job running — {} follow-up step{} queued.",
+                            queue_len,
+                            if queue_len == 1 { "" } else { "s" },
+                        ));
+                    } else {
+                        ui.label("LLM job running — results will apply when ready.");
+                    }
                     if ui.button("Cancel Job").clicked() {
                         // Show confirmation dialog offering to keep or revert current progress
                         self.state.show_cancel_confirm = true;
@@ -972,6 +1231,7 @@ impl App for WeaveLangApp {
                             flag.store(true, std::sync::atomic::Ordering::SeqCst);
                         }
                         self.state.show_cancel_confirm = false;
+                        self.state.llm_followup_queue.clear();
                         self.status_message = "LLM job cancelling; keeping applied progress.".to_string();
                     }
                     if ui.button("Revert progress and stop").clicked() {
@@ -989,6 +1249,7 @@ impl App for WeaveLangApp {
                         self.state.llm_job_backup.clear();
                         self.state.llm_results_receiver = None;
                         self.state.llm_cancel_flag = None;
+                        self.state.llm_followup_queue.clear();
                         self.state.show_cancel_confirm = false;
                         self.status_message = "LLM job cancelled and progress reverted.".to_string();
                     }

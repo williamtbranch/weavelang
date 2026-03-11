@@ -26,7 +26,6 @@ pub fn json_to_domain_sentence(json_block: &JsonSentenceBlock) -> Result<Sentenc
         domain_tier.lemmas = json_tier.lemmas.clone();
 
         let mut auto_word_id_counter: u64 = 0;
-        let use_json_di = json_tier.tier_id == "basic_base";
 
         for json_segment in &json_tier.segments {
             let mut domain_tokens = Vec::new();
@@ -35,14 +34,8 @@ pub fn json_to_domain_sentence(json_block: &JsonSentenceBlock) -> Result<Sentenc
                 let token = match json_token.token_type {
                     JsonTokenType::Background => Token::Background(json_token.value.clone()),
                     JsonTokenType::Word => {
-                        let id_val = if use_json_di {
-                            if let Some(di) = json_token.diglot_index {
-                                di as u64
-                            } else {
-                                let id = auto_word_id_counter;
-                                auto_word_id_counter += 1;
-                                id
-                            }
+                        let id_val = if let Some(di) = json_token.diglot_index {
+                            di as u64
                         } else {
                             let id = auto_word_id_counter;
                             auto_word_id_counter += 1;
@@ -100,15 +93,29 @@ pub fn json_to_domain_sentence(json_block: &JsonSentenceBlock) -> Result<Sentenc
         }
     }
 
-    if sentence.get_tier("basic_target").is_some() {
+    if let Some(basic_target_tier) = sentence.get_tier("basic_target") {
+        // The old Python pipeline's inverse mapping uses a sequential word-token
+        // index (0, 1, 2, …) as entry.0, but the basic_target tier's tokens
+        // keep their original non-sequential `di` values.  Build a lookup so we
+        // can translate the sequential position into the real WordId.
+        let target_word_ids: Vec<WordId> = basic_target_tier
+            .segments
+            .iter()
+            .flat_map(|seg| seg.stream.words_enumerated().into_iter().map(|(_, _, wd)| wd.id))
+            .collect();
+
         let mut inverse_mapping =
             TierMapping::new("basic_target".to_string(), "basic_base".to_string());
         for entries in json_block.mappings.basic_inverse_diglot.values() {
             for entry in entries {
-                let word_idx = entry.0;
+                let seq_idx = entry.0;
                 let target_lemmas = &entry.1;
                 let target_text = &entry.2;
-                let source_id = WordId(word_idx as u64);
+                // Map sequential index to the actual WordId on the token.
+                let source_id = target_word_ids
+                    .get(seq_idx)
+                    .copied()
+                    .unwrap_or(WordId(seq_idx as u64));
                 let map_entry =
                     MappingEntry::new(source_id, target_text.clone(), target_lemmas.clone());
                 inverse_mapping.add_entry(map_entry);

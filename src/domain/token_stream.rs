@@ -202,6 +202,368 @@ impl TokenStream {
             .filter(|t| matches!(t, Token::Word(_)))
             .count()
     }
+
+    /// Returns the (token_vec_index, WordData) for the nth word (1-based).
+    pub fn word_at_one_based(&self, one_based: usize) -> Option<(usize, &WordData)> {
+        let mut count = 0usize;
+        for (i, tok) in self.tokens.iter().enumerate() {
+            if let Token::Word(w) = tok {
+                count += 1;
+                if count == one_based {
+                    return Some((i, w));
+                }
+            }
+        }
+        None
+    }
+
+    /// Returns all (1-based word index, token_vec_index, WordData ref) tuples.
+    pub fn words_enumerated(&self) -> Vec<(usize, usize, &WordData)> {
+        let mut result = Vec::new();
+        let mut count = 0usize;
+        for (i, tok) in self.tokens.iter().enumerate() {
+            if let Token::Word(w) = tok {
+                count += 1;
+                result.push((count, i, w));
+            }
+        }
+        result
+    }
+
+    /// Get the background text immediately before word at 1-based index.
+    /// If word_index == word_count + 1, returns the trailing background.
+    pub fn background_before_word(&self, word_one_based: usize) -> Result<&str, String> {
+        let wc = self.word_count();
+        if word_one_based == 0 || word_one_based > wc + 1 {
+            return Err(format!("Word index {} out of range (1..={})", word_one_based, wc + 1));
+        }
+        if word_one_based <= wc {
+            if let Some((tok_idx, _)) = self.word_at_one_based(word_one_based) {
+                if tok_idx > 0 {
+                    if let Token::Background(s) = &self.tokens[tok_idx - 1] {
+                        return Ok(s.as_str());
+                    }
+                }
+            }
+            Err("Invariant failure: no background before word".to_string())
+        } else {
+            // Trailing background
+            if let Some(Token::Background(s)) = self.tokens.last() {
+                Ok(s.as_str())
+            } else {
+                Err("No trailing background".to_string())
+            }
+        }
+    }
+
+    /// Set the background text immediately before word at 1-based index.
+    /// If word_index == word_count + 1, sets the trailing background.
+    pub fn set_background_before_word(&mut self, word_one_based: usize, new_text: String) -> Result<(), String> {
+        let wc = self.word_count();
+        if word_one_based == 0 || word_one_based > wc + 1 {
+            return Err(format!("Word index {} out of range (1..={})", word_one_based, wc + 1));
+        }
+        if word_one_based <= wc {
+            if let Some((tok_idx, _)) = self.word_at_one_based(word_one_based) {
+                if tok_idx > 0 {
+                    if let Token::Background(s) = &mut self.tokens[tok_idx - 1] {
+                        *s = new_text;
+                        return Ok(());
+                    }
+                }
+            }
+            Err("Invariant failure".to_string())
+        } else {
+            if let Some(Token::Background(s)) = self.tokens.last_mut() {
+                *s = new_text;
+                Ok(())
+            } else {
+                Err("No trailing background".to_string())
+            }
+        }
+    }
+
+    /// Split word at 1-based index into sub-tokens using the simple regex tokenizer.
+    /// Returns the WordIds of the newly created words.
+    /// If the word just becomes a single token, nothing changes.
+    /// Mapping target stays with the FIRST resulting word (handled by caller).
+    pub fn split_word_at(&mut self, word_one_based: usize) -> Result<Vec<WordId>, String> {
+        let (tok_idx, word_data) = self.word_at_one_based(word_one_based)
+            .ok_or_else(|| format!("Word index {} not found", word_one_based))?;
+        let text = word_data.text.clone();
+
+        // Re-tokenize the word text
+        let sub_stream = TokenStream::new(&text);
+        if sub_stream.word_count() <= 1 {
+            return Ok(vec![]); // Already atomic, nothing to split
+        }
+
+        // Build replacement tokens with new WordIds, keeping BWBWB pattern
+        let mut replacements: Vec<Token> = Vec::new();
+        let mut new_ids = Vec::new();
+        for tok in sub_stream.tokens.iter() {
+            match tok {
+                Token::Background(b) => {
+                    replacements.push(Token::Background(b.clone()));
+                }
+                Token::Word(w) => {
+                    let new_id = WordId(self.next_word_id_counter);
+                    self.next_word_id_counter += 1;
+                    new_ids.push(new_id);
+                    replacements.push(Token::Word(WordData::new(
+                        new_id,
+                        w.text.clone(),
+                        vec![],
+                    )));
+                }
+            }
+        }
+
+        // Replace the old word token with the sub-stream tokens.
+        // The old token is at tok_idx. Before it is a Background, after it is a Background.
+        // We need to merge the leading bg of sub_stream with the preceding bg,
+        // and the trailing bg with the following bg.
+        let preceding_bg_idx = tok_idx - 1; // guaranteed by BWBWB invariant
+        let _following_bg_idx = tok_idx + 1;
+
+        // Get the sub-stream's leading and trailing backgrounds
+        let sub_leading = match replacements.first() {
+            Some(Token::Background(s)) => s.clone(),
+            _ => String::new(),
+        };
+        let sub_trailing = match replacements.last() {
+            Some(Token::Background(s)) => s.clone(),
+            _ => String::new(),
+        };
+
+        // Merge into surrounding backgrounds
+        if let Token::Background(s) = &mut self.tokens[preceding_bg_idx] {
+            s.push_str(&sub_leading);
+        }
+        // We'll handle the following bg after splicing
+
+        // Remove the old word token
+        self.tokens.remove(tok_idx);
+
+        // Insert the middle portion (skip first and last bg of sub_stream)
+        let middle = if replacements.len() > 2 {
+            &replacements[1..replacements.len() - 1]
+        } else {
+            &[]
+        };
+        for (offset, tok) in middle.iter().enumerate() {
+            self.tokens.insert(tok_idx + offset, tok.clone());
+        }
+
+        // Merge trailing bg
+        let new_following_idx = tok_idx + middle.len();
+        if new_following_idx < self.tokens.len() {
+            if let Token::Background(s) = &mut self.tokens[new_following_idx] {
+                let merged = format!("{}{}", sub_trailing, s);
+                *s = merged;
+            }
+        }
+
+        Ok(new_ids)
+    }
+
+    /// Merge words from word_start..=word_end (1-based) into a single word.
+    /// The merged word gets the WordId of the first word. Intermediate backgrounds
+    /// are absorbed into the merged text.
+    /// Returns the WordId of the merged word.
+    pub fn merge_words(&mut self, word_start: usize, word_end: usize) -> Result<WordId, String> {
+        if word_start == 0 || word_end == 0 || word_start > word_end {
+            return Err("Invalid range".to_string());
+        }
+        let wc = self.word_count();
+        if word_end > wc {
+            return Err(format!("Word index {} exceeds word count {}", word_end, wc));
+        }
+        if word_start == word_end {
+            // Nothing to merge
+            if let Some((_, w)) = self.word_at_one_based(word_start) {
+                return Ok(w.id);
+            }
+            return Err("Word not found".to_string());
+        }
+
+        // Collect the token indices for all words in the range
+        let words: Vec<(usize, usize, WordId, String)> = self.words_enumerated()
+            .iter()
+            .filter(|(one_idx, _, _)| *one_idx >= word_start && *one_idx <= word_end)
+            .map(|(one_idx, tok_idx, w)| (*one_idx, *tok_idx, w.id, w.text.clone()))
+            .collect();
+
+        if words.len() != (word_end - word_start + 1) {
+            return Err("Could not find all words in range".to_string());
+        }
+
+        let first_tok_idx = words[0].1;
+        let last_tok_idx = words.last().unwrap().1;
+        let merged_id = words[0].2;
+
+        // Build merged text: word1 + bg + word2 + bg + word3 ...
+        let mut merged_text = String::new();
+        for i in first_tok_idx..=last_tok_idx {
+            match &self.tokens[i] {
+                Token::Word(w) => merged_text.push_str(&w.text),
+                Token::Background(b) => merged_text.push_str(b),
+            }
+        }
+
+        // Replace tokens[first_tok_idx..=last_tok_idx] with a single Word token
+        let new_word = Token::Word(WordData::new(merged_id, merged_text, vec![]));
+        self.tokens.drain(first_tok_idx..=last_tok_idx);
+        self.tokens.insert(first_tok_idx, new_word);
+
+        // Ensure BWBWB invariant: check if we now have adjacent words or a missing bg
+        // After drain+insert, first_tok_idx has the new word. Check before and after.
+        if first_tok_idx > 0 {
+            if matches!(self.tokens[first_tok_idx - 1], Token::Word(_)) {
+                self.tokens.insert(first_tok_idx, Token::Background(String::new()));
+            }
+        } else {
+            self.tokens.insert(0, Token::Background(String::new()));
+        }
+        // Re-find our word's position (might have shifted by 1)
+        let our_idx = self.tokens.iter().position(|t| matches!(t, Token::Word(w) if w.id == merged_id)).unwrap();
+        if our_idx + 1 >= self.tokens.len() {
+            self.tokens.push(Token::Background(String::new()));
+        } else if matches!(self.tokens[our_idx + 1], Token::Word(_)) {
+            self.tokens.insert(our_idx + 1, Token::Background(String::new()));
+        }
+
+        Ok(merged_id)
+    }
+
+    /// Insert a new empty word token at 1-based word position.
+    /// Existing word N and above shift to N+1, N+2, etc.
+    /// Returns the new WordId.
+    pub fn insert_word_at(&mut self, word_one_based: usize) -> Result<WordId, String> {
+        let wc = self.word_count();
+        if word_one_based == 0 || word_one_based > wc + 1 {
+            return Err(format!("Insert position {} out of range (1..={})", word_one_based, wc + 1));
+        }
+
+        let new_id = WordId(self.next_word_id_counter);
+        self.next_word_id_counter += 1;
+
+        if word_one_based <= wc {
+            // Insert before the existing word at word_one_based
+            let (tok_idx, _) = self.word_at_one_based(word_one_based)
+                .ok_or_else(|| "Word not found".to_string())?;
+            // Insert new Word at tok_idx, then a Background separator after it
+            // Result: ...B_prev, W_new, B_new(" "), W_old... preserving B-W-B-W-B
+            self.tokens.insert(tok_idx, Token::Word(WordData::new(new_id, String::new(), vec![])));
+            self.tokens.insert(tok_idx + 1, Token::Background(" ".to_string()));
+        } else {
+            // Append after the last word (before the trailing background)
+            let last_bg_idx = self.tokens.len() - 1;
+            self.tokens.insert(last_bg_idx, Token::Background(" ".to_string()));
+            self.tokens.insert(last_bg_idx + 1, Token::Word(WordData::new(new_id, String::new(), vec![])));
+        }
+
+        Ok(new_id)
+    }
+
+    /// Returns the leading (first) background token text.
+    pub fn leading_background(&self) -> &str {
+        match self.tokens.first() {
+            Some(Token::Background(s)) => s.as_str(),
+            _ => "",
+        }
+    }
+
+    /// Sets the leading (first) background token text.
+    pub fn set_leading_background(&mut self, text: String) {
+        if let Some(Token::Background(s)) = self.tokens.first_mut() {
+            *s = text;
+        }
+    }
+
+    /// Returns the trailing (last) background token text.
+    pub fn trailing_background(&self) -> &str {
+        match self.tokens.last() {
+            Some(Token::Background(s)) => s.as_str(),
+            _ => "",
+        }
+    }
+
+    /// Sets the trailing (last) background token text.
+    pub fn set_trailing_background(&mut self, text: String) {
+        if let Some(Token::Background(s)) = self.tokens.last_mut() {
+            *s = text;
+        }
+    }
+
+    /// Mutable access to the tokens vec for direct manipulation.
+    pub fn tokens_mut(&mut self) -> &mut Vec<Token> {
+        &mut self.tokens
+    }
+
+    /// Update lemmas in-place from a list of SpaCy tokens.
+    /// Does NOT change token boundaries or word IDs.
+    /// This is the "safe" way to refresh lemmas without destroying
+    /// authoring structural metadata (phrasal segments).
+    pub fn update_lemmas_from_spacy(&mut self, spacy_tokens: Vec<RawSpacyToken>) -> Result<(), String> {
+        let mut spacy_ptr = 0;
+        let mut spacy_text_consumed = 0; // characters within the current spacy_token's full text (text + whitespace)
+
+        for token in &mut self.tokens {
+            match token {
+                Token::Background(bg_text) => {
+                    // Consume characters from SpaCy tokens to match bg_text length
+                    let mut remaining = bg_text.len();
+                    while remaining > 0 && spacy_ptr < spacy_tokens.len() {
+                        let st = &spacy_tokens[spacy_ptr];
+                        let st_full = format!("{}{}", st.text, st.whitespace);
+                        let st_avail = st_full.len() - spacy_text_consumed;
+                        
+                        let consume = std::cmp::min(remaining, st_avail);
+                        remaining -= consume;
+                        spacy_text_consumed += consume;
+
+                        if spacy_text_consumed >= st_full.len() {
+                            spacy_ptr += 1;
+                            spacy_text_consumed = 0;
+                        }
+                    }
+                }
+                Token::Word(wd) => {
+                    wd.lemmas.clear();
+                    let mut remaining = wd.text.len();
+                    while remaining > 0 && spacy_ptr < spacy_tokens.len() {
+                        let st = &spacy_tokens[spacy_ptr];
+                        let st_full = format!("{}{}", st.text, st.whitespace);
+                        let st_avail = st_full.len() - spacy_text_consumed;
+
+                        // If the SpaCy token represents a real word (not punct/space),
+                        // and we haven't already moved past its text portion,
+                        // grab its lemma.
+                        if !st.is_punct && !st.is_space && spacy_text_consumed < st.text.len() {
+                            if !st.lemma.is_empty() {
+                                // De-duplicate lemmas if multiple SpaCy tokens map to one segment
+                                let normalized = crate::domain::normalization::normalize_spanish_lemma(&st.lemma);
+                                if !normalized.is_empty() && !wd.lemmas.contains(&normalized) {
+                                    wd.lemmas.push(normalized);
+                                }
+                            }
+                        }
+
+                        let consume = std::cmp::min(remaining, st_avail);
+                        remaining -= consume;
+                        spacy_text_consumed += consume;
+
+                        if spacy_text_consumed >= st_full.len() {
+                            spacy_ptr += 1;
+                            spacy_text_consumed = 0;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

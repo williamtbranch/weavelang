@@ -15,6 +15,8 @@ pub struct Config {
     pub models: HashMap<String, ModelConfig>,
     pub pipeline: PipelineConfig,
     pub stages: HashMap<String, StageConfig>,
+    pub copilot_server_name: Option<String>,
+    pub copilot_server_port: Option<u16>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
@@ -110,6 +112,8 @@ impl Default for Config {
                 thinking_budget_tokens: Some(1024),
             },
             stages,
+            copilot_server_name: None,
+            copilot_server_port: None,
         }
     }
 }
