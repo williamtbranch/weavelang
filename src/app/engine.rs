@@ -1278,6 +1278,10 @@ impl Engine {
                     .to_string();
                 self.state.selected_sentence_idx = 0;
                 self.state.selected_range = None;
+                // Import is not a saved project — clear file path
+                self.current_file_path = None;
+                self.state.pending_collateral_updates.clear();
+                self.state.llm_followup_queue.clear();
                 Ok(format!("Imported {} sentences from source", self.state.document.len()))
             }
             AppCommand::ImportJson { path } => {
@@ -1292,6 +1296,11 @@ impl Engine {
                     chapter.book_meta.base_language.clone(),
                     chapter.book_meta.target_language.clone(),
                 );
+
+                // Import is not a saved project — clear file path
+                self.current_file_path = None;
+                self.state.pending_collateral_updates.clear();
+                self.state.llm_followup_queue.clear();
 
                 let mut error_count = 0;
                 for block in chapter.content_blocks {
@@ -2356,33 +2365,92 @@ impl Engine {
             let level_key = level.to_string();
             let cm = book_map.get(&level_key)
                 .ok_or(format!("No recipe found for level {}", level))?;
-            let first_entry = cm.map.first()
-                .ok_or(format!("Empty curriculum map for level {}", level))?;
+            if cm.map.is_empty() {
+                return Err(format!("Empty curriculum map for level {}", level));
+            }
+            let first_entry = &cm.map[0];
 
-            let result = corpus_generator::generate_book_instance(
-                &numerical_chapter,
-                &json_chapter,
-                &dictionary,
-                first_entry.recipe.bas,
-                first_entry.recipe.mod_v,
-                first_entry.recipe.adv,
-                0.5, // inverse_diglot_threshold
-                false, // debug_markers
-            ).map_err(|e| format!("Generation failed for level {}: {}", level, e))?;
+            // --- Progressive recipe stepping: iterate map entries, slicing by sentence range ---
+            let mut full_result = corpus_generator::BookGenerationResult::default();
+
+            for (i, entry) in cm.map.iter().enumerate() {
+                let start_idx = entry.start_sentence_idx;
+                let end_idx = if i + 1 < cm.map.len() {
+                    cm.map[i + 1].start_sentence_idx
+                } else {
+                    numerical_chapter.sentences_numerical.len()
+                };
+                if start_idx >= end_idx {
+                    continue;
+                }
+
+                let mut numerical_slice = numerical_chapter.clone();
+                numerical_slice.sentences_numerical =
+                    numerical_chapter.sentences_numerical[start_idx..end_idx].to_vec();
+
+                let mut json_slice = json_chapter.clone();
+                json_slice.content_blocks = json_chapter
+                    .content_blocks
+                    .iter()
+                    .filter_map(|cb| match cb {
+                        crate::JsonContentBlock::Sentence(s) => {
+                            if numerical_slice
+                                .sentences_numerical
+                                .iter()
+                                .any(|ns| ns.sentence_id_str == s.s_id)
+                            {
+                                Some(crate::JsonContentBlock::Sentence(s.clone()))
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    })
+                    .collect();
+
+                let slice_result = corpus_generator::generate_book_instance(
+                    &numerical_slice,
+                    &json_slice,
+                    &dictionary,
+                    entry.recipe.bas,
+                    entry.recipe.mod_v,
+                    entry.recipe.adv,
+                    0.5, // inverse_diglot_threshold
+                    false, // debug_markers
+                ).map_err(|e| format!("Generation failed for level {}: {}", level, e))?;
+
+                full_result.final_text_parts.extend(slice_result.final_text_parts);
+                full_result.all_output_lemma_instances.extend(slice_result.all_output_lemma_instances);
+                full_result.total_target_words += slice_result.total_target_words;
+                full_result.total_base_words += slice_result.total_base_words;
+                for (lvl, count) in slice_result.level_stats {
+                    *full_result.level_stats.entry(lvl).or_insert(0) += count;
+                }
+                for (seg_type, count) in slice_result.segment_stats {
+                    *full_result.segment_stats.entry(seg_type).or_insert(0) += count;
+                }
+            }
 
             // Assemble output text: join sentence texts with double newline
-            let cleaned_parts: Vec<String> = result.final_text_parts
+            let cleaned_parts: Vec<String> = full_result.final_text_parts
                 .iter()
                 .map(|p| text_generator::clean_text_for_tts(p))
                 .collect();
             let output_text = cleaned_parts.join("\n\n");
 
+            // Determine filename, combining levels when end_level spans multiple
+            let end_level_for_range = (cm.end_level - 1.0).floor() as u32;
+            let level_suffix = if end_level_for_range > *level {
+                format!("UL{}-{}", level, end_level_for_range)
+            } else {
+                format!("UL{}", level)
+            };
             let file_name = if self.state.book_name.is_empty() {
-                format!("UL{}.txt", level)
+                format!("{}.txt", level_suffix)
             } else {
                 let sanitized = self.state.book_name.replace(|c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != ' ', "");
                 let prefix = sanitized.trim().replace(' ', "_");
-                format!("{}_UL{}.txt", prefix, level)
+                format!("{}_{}.txt", prefix, level_suffix)
             };
             let file_path = book_dir.join(&file_name);
             fs::write(&file_path, &output_text)
@@ -2390,8 +2458,8 @@ impl Engine {
 
             // Compute AVD and log analysis profile
             let metrics = TextMetrics::new(
-                &result.all_output_lemma_instances,
-                result.total_base_words,
+                &full_result.all_output_lemma_instances,
+                full_result.total_base_words,
             );
             let avd_score = metrics.calculate_avd_score();
 
@@ -2399,7 +2467,7 @@ impl Engine {
             corpus_generator::log_analysis_to_file(
                 &analysis_path,
                 &file_name,
-                &result,
+                &full_result,
                 avd_score,
                 Some(first_entry.recipe.clone()),
                 last_entry.map(|e| e.recipe.clone()),
@@ -2407,7 +2475,7 @@ impl Engine {
                 last_entry.map(|e| e.l_level_recipe.clone()),
             ).map_err(|e| format!("Failed to write analysis: {}", e))?;
 
-            generated_files.push(format!("UL{}.txt ({} sentences)", level, result.final_text_parts.len()));
+            generated_files.push(format!("{} ({} sentences)", level_suffix, full_result.final_text_parts.len()));
         }
 
         Ok(format!(

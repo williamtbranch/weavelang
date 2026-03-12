@@ -19,6 +19,7 @@ use std::cmp::min;
 pub struct WeaveLangApp {
     state: AppState,
     current_file_path: Option<PathBuf>,
+    dirty: bool,
     status_message: String,
     terminal_history: Vec<String>,
     terminal_input: String,
@@ -27,6 +28,10 @@ pub struct WeaveLangApp {
     relay_rx: Option<RelayReceiver>,
     copilot_server_name: String,
     copilot_server_port: u16,
+    // Save prompt dialogs
+    show_exit_save_prompt: bool,
+    show_close_save_prompt: bool,
+    pending_action_after_save: Option<String>,
 }
 
 impl WeaveLangApp {
@@ -83,6 +88,7 @@ impl WeaveLangApp {
         let mut app = Self {
             state,
             current_file_path: None,
+            dirty: false,
             status_message: format!("Ready. [{}]", status.join(", ")),
             terminal_history: vec!["WeaveLang Terminal initialized.".to_string()],
             terminal_input: String::new(),
@@ -90,6 +96,9 @@ impl WeaveLangApp {
             relay_rx,
             copilot_server_name: copilot_name,
             copilot_server_port: copilot_port,
+            show_exit_save_prompt: false,
+            show_close_save_prompt: false,
+            pending_action_after_save: None,
         };
 
         let gs = crate::global_settings::GlobalSettings::load();
@@ -151,18 +160,22 @@ impl WeaveLangApp {
         let mut engine = crate::app::engine::Engine::new(std::mem::take(&mut self.state));
         engine.current_file_path = self.current_file_path.clone();
         
+        let was_err;
         let result = match crate::app::terminal::run_terminal_command(&mut engine, cmd) {
             Ok(Some(output)) => {
+                was_err = false;
                 for line in output.lines() {
                     self.terminal_history.push(line.to_string());
                 }
                 output
             }
             Ok(None) => {
+                was_err = true;
                 self.terminal_history.push("Exit command ignored in GUI.".to_string());
                 "Exit command ignored in GUI.".to_string()
             }
             Err(e) => {
+                was_err = true;
                 let msg = format!("Error: {}", e);
                 self.terminal_history.push(msg.clone());
                 msg
@@ -171,7 +184,82 @@ impl WeaveLangApp {
         
         self.state = engine.state;
         self.current_file_path = engine.current_file_path;
+
+        // Track dirty state based on command type
+        if !was_err {
+            let cmd_lower = trimmed.to_lowercase();
+            if cmd_lower.starts_with("save project") {
+                self.dirty = false;
+            } else if cmd_lower.starts_with("load project") {
+                self.dirty = false;
+            } else if cmd_lower.starts_with("new project") || cmd_lower.starts_with("close project") {
+                self.dirty = false;
+            } else if cmd_lower.starts_with("import json") || cmd_lower.starts_with("import source") {
+                // Imports are treated as unsaved new data
+                self.dirty = true;
+                self.current_file_path = None;
+            } else if Self::is_state_changing_command(&cmd_lower) {
+                self.dirty = true;
+            }
+        }
+
         result
+    }
+
+    /// Returns true if a terminal command modifies project data (for dirty tracking).
+    fn is_state_changing_command(cmd: &str) -> bool {
+        cmd.starts_with("update text")
+            || cmd.starts_with("add sentence")
+            || cmd.starts_with("remove sentence")
+            || cmd.starts_with("edit ")
+            || cmd.starts_with("approve")
+            || cmd.starts_with("discard")
+            || cmd.starts_with("run generate")
+            || cmd.starts_with("set languages")
+            || cmd.starts_with("set book_name")
+            || cmd.starts_with("add pn_lemma")
+            || cmd.starts_with("rm pn_lemma")
+            || cmd.starts_with("add seg")
+            || cmd.starts_with("rm seg")
+            || cmd.starts_with("edit seg")
+            || cmd.starts_with("edit_b")
+            || cmd.starts_with("edit_word")
+            || cmd.starts_with("edit_target")
+            || cmd.starts_with("edit_targets")
+            || cmd.starts_with("split")
+            || cmd.starts_with("merge")
+            || cmd.starts_with("insert")
+            || cmd.starts_with("delete")
+            || cmd.starts_with("accept map")
+            || cmd.starts_with("init mapping")
+            || cmd.starts_with("lemmatize")
+            || cmd.starts_with("validate")
+            || cmd.starts_with("calibrate")
+            || cmd.starts_with("import level_map")
+    }
+
+    /// Execute a deferred action after the user responds to a save prompt.
+    fn execute_pending_action(&mut self) {
+        if let Some(action) = self.pending_action_after_save.take() {
+            match action.as_str() {
+                "__new_project__" => {
+                    self.execute_terminal_command("new project Untitled");
+                }
+                "__import_json__" => {
+                    self.import_json();
+                }
+                "__import_source__" => {
+                    self.import_source_text();
+                }
+                "__open_binary__" => {
+                    self.open_binary();
+                }
+                other => {
+                    let cmd = other.to_string();
+                    self.execute_terminal_command(&cmd);
+                }
+            }
+        }
     }
 
     /// Handle a single relay request from the co-pilot server.
@@ -344,20 +432,56 @@ impl WeaveLangApp {
     fn render_menu_bar(&mut self, ui: &mut egui::Ui) {
         egui::menu::bar(ui, |ui| {
             ui.menu_button("File", |ui| {
+                if ui.button("New Project...").clicked() {
+                    if self.dirty {
+                        self.pending_action_after_save = Some("__new_project__".to_string());
+                        self.show_close_save_prompt = true;
+                    } else {
+                        self.execute_terminal_command("new project Untitled");
+                    }
+                    ui.close_menu();
+                }
+                ui.separator();
                 if ui.button("Import JSON...").clicked() {
-                    self.import_json();
+                    if self.dirty {
+                        self.pending_action_after_save = Some("__import_json__".to_string());
+                        self.show_close_save_prompt = true;
+                    } else {
+                        self.import_json();
+                    }
                     ui.close_menu();
                 }
                 if ui.button("Import Source Text...").clicked() {
-                    self.import_source_text();
+                    if self.dirty {
+                        self.pending_action_after_save = Some("__import_source__".to_string());
+                        self.show_close_save_prompt = true;
+                    } else {
+                        self.import_source_text();
+                    }
                     ui.close_menu();
                 }
                 ui.separator();
                 if ui.button("Open .wvl...").clicked() {
-                    self.open_binary();
+                    if self.dirty {
+                        self.pending_action_after_save = Some("__open_binary__".to_string());
+                        self.show_close_save_prompt = true;
+                    } else {
+                        self.open_binary();
+                    }
                     ui.close_menu();
                 }
-                if ui.button("Save .wvl").clicked() {
+                if ui.button("Close Project").clicked() {
+                    if self.dirty {
+                        self.pending_action_after_save = Some("close project".to_string());
+                        self.show_close_save_prompt = true;
+                    } else {
+                        self.execute_terminal_command("close project");
+                    }
+                    ui.close_menu();
+                }
+                ui.separator();
+                let can_save = self.current_file_path.is_some();
+                if ui.add_enabled(can_save, egui::Button::new("Save .wvl")).clicked() {
                     self.save_binary();
                     ui.close_menu();
                 }
@@ -386,7 +510,12 @@ impl WeaveLangApp {
                 }
                 ui.separator();
                 if ui.button("Exit").clicked() {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    if self.dirty {
+                        self.show_exit_save_prompt = true;
+                    } else {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                    ui.close_menu();
                 }
             });
 
@@ -591,7 +720,14 @@ impl App for WeaveLangApp {
             }
         }
 
+        // Intercept window close (X button) when dirty
+        if ctx.input(|i| i.viewport().close_requested()) && self.dirty && !self.show_exit_save_prompt {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.show_exit_save_prompt = true;
+        }
+
         // Update Title dynamically
+        let dirty_marker = if self.dirty { " *" } else { "" };
         let expected_title = if let Some(cfg) = &self.state.config {
             let ws_name = if cfg.content_project_dir.is_empty() {
                 "Untitled".to_string()
@@ -603,12 +739,12 @@ impl App for WeaveLangApp {
                     .to_string()
             };
             if self.state.book_name.is_empty() {
-                format!("WeaveLang Studio ({})", ws_name)
+                format!("WeaveLang Studio ({}){}", ws_name, dirty_marker)
             } else {
-                format!("WeaveLang Studio ({}) — {}", ws_name, self.state.book_name)
+                format!("WeaveLang Studio ({}) — {}{}", ws_name, self.state.book_name, dirty_marker)
             }
         } else {
-            "WeaveLang Studio (Untitled)".to_string()
+            format!("WeaveLang Studio (Untitled){}", dirty_marker)
         };
 
         if self.current_title != expected_title {
@@ -691,6 +827,10 @@ impl App for WeaveLangApp {
                         // FIX: Progress should count ALL items processed by the LLM, 
                         // whether applied immediately or parked for confirmation.
                         self.state.llm_job_done = self.state.llm_job_done.saturating_add(num_results);
+
+                        if applied > 0 {
+                            self.dirty = true;
+                        }
 
                         // If we have collateral updates, show the confirmation dialog
                         if !self.state.pending_collateral_updates.is_empty() {
@@ -784,6 +924,81 @@ impl App for WeaveLangApp {
             }
         }
         
+        // --- Exit Save Prompt Dialog ---
+        if self.show_exit_save_prompt {
+            let mut open = true;
+            egui::Window::new("Save Changes?")
+                .collapsible(false)
+                .resizable(false)
+                .open(&mut open)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.label("You have unsaved changes. Save before exiting?");
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if ui.button("Save").clicked() {
+                            if self.current_file_path.is_some() {
+                                self.save_binary();
+                            } else {
+                                self.save_binary_as();
+                            }
+                            self.show_exit_save_prompt = false;
+                            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                        if ui.button("Don't Save").clicked() {
+                            self.show_exit_save_prompt = false;
+                            self.dirty = false;
+                            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.show_exit_save_prompt = false;
+                        }
+                    });
+                });
+            if !open {
+                self.show_exit_save_prompt = false;
+            }
+        }
+        
+        // --- Close/New/Open Save Prompt Dialog ---
+        if self.show_close_save_prompt {
+            let mut open = true;
+            egui::Window::new("Save Changes?")
+                .collapsible(false)
+                .resizable(false)
+                .open(&mut open)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .id(egui::Id::new("close_save_prompt"))
+                .show(ctx, |ui| {
+                    ui.label("You have unsaved changes. Save before continuing?");
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if ui.button("Save").clicked() {
+                            if self.current_file_path.is_some() {
+                                self.save_binary();
+                            } else {
+                                self.save_binary_as();
+                            }
+                            self.show_close_save_prompt = false;
+                            self.execute_pending_action();
+                        }
+                        if ui.button("Don't Save").clicked() {
+                            self.dirty = false;
+                            self.show_close_save_prompt = false;
+                            self.execute_pending_action();
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.show_close_save_prompt = false;
+                            self.pending_action_after_save = None;
+                        }
+                    });
+                });
+            if !open {
+                self.show_close_save_prompt = false;
+                self.pending_action_after_save = None;
+            }
+        }
+
         // --- Collateral Update Confirmation Dialog ---
         if self.state.show_collateral_confirm && !self.state.pending_collateral_updates.is_empty() {
              let mut open = true;
