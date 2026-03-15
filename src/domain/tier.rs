@@ -10,6 +10,7 @@ pub enum TierState {
     Valid, // Synced and clean (Green)
     Dirty,  // Manually edited, text does not match tokens (Yellow)
     Stale,  // Upstream dependency changed (Orange)
+    Pending, // Content valid, secondary processing pending (mapping/segmentation) (Blue)
     Broken, // Token indices invalid for mapping (Red)
 }
 
@@ -24,6 +25,12 @@ pub struct Tier {
     #[serde(default)]
     pub state: TierState,
 
+    /// The intended/input sentence text (from LLM or human editor).
+    /// For basic tiers this is the translation before mapping;
+    /// for advanced_target it is the translation before segmentation.
+    #[serde(default)]
+    pub input_text: Option<String>,
+
     /// Full history of every LLM call that targeted this tier for this sentence.
     #[serde(default)]
     pub llm_log: Vec<LlmCallRecord>,
@@ -36,6 +43,7 @@ impl Tier {
             segments: Vec::new(),
             lemmas: Vec::new(),
             state: TierState::Valid,
+            input_text: None,
             llm_log: Vec::new(),
         }
     }

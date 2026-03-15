@@ -71,6 +71,12 @@ impl LlmStageService {
 
             for m in try_models.iter() {
                 for attempt in 0..3 {
+                    // Check cancel flag before each retry attempt
+                    if let Some(cf) = cancel_flag {
+                        if cf.load(Ordering::SeqCst) {
+                            return Ok(results);
+                        }
+                    }
                     match self.llm.complete(m, &system_prompt, &user_prompt) {
                         Ok(resp) => {
                             response_text = Some(resp);
@@ -211,9 +217,11 @@ impl LlmStageService {
 
         self.llm.set_context(prompt_name);
 
-        for chunk in &chunks {
+        for (ci, chunk) in chunks.iter().enumerate() {
+            eprintln!("[LLM-THREAD] Starting batch {}/{} ({} items)", ci + 1, chunks.len(), chunk.len());
             if let Some(cf) = cancel_flag {
                 if cf.load(Ordering::SeqCst) {
+                    eprintln!("[LLM-THREAD] Cancel detected between batches — stopping");
                     break;
                 }
             }
@@ -238,6 +246,14 @@ impl LlmStageService {
 
             for m in try_models.iter() {
                 for attempt in 0..3 {
+                    // Check cancel flag before each retry attempt
+                    if let Some(cf) = cancel_flag {
+                        if cf.load(Ordering::SeqCst) {
+                            eprintln!("[LLM-THREAD] Cancel detected before retry — returning early");
+                            return Ok(());
+                        }
+                    }
+                    eprintln!("[LLM-THREAD] Calling LLM (model: {}, attempt {}/3)...", m, attempt + 1);
                     match self.llm.complete(m, &system_prompt, &user_prompt) {
                         Ok(resp) => {
                             response_text = Some(resp);

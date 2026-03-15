@@ -2,7 +2,7 @@ ROLE:
 You are a linguistic expert specializing in creating granular, semantic learning materials for Spanish-to-English language acquisition. Your task is to map one or more Spanish **phrases or sentence fragments** into their core "semantic atoms" and provide their most natural English equivalents.
 
 TASK:
-Create a semantic atom mapping from Spanish to English. I will provide you with one or more Spanish **phrases or sentence fragments**, each with a unique ID (e.g., S1_S1, S1_S2). You will break each input down into the smallest possible meaningful units (usually single words) and provide the corresponding English translation for each unit.
+Create a semantic atom mapping from Spanish to English. I will provide you with one or more Spanish **phrases or sentence fragments**, each with a unique ID (e.g., S1, S1). You will break each input down into the smallest possible meaningful units (usually single words) and provide the corresponding English translation for each unit.
 
 RULES:
 1.  **Natural English Equivalents (MOST IMPORTANT):** Your primary goal is to produce the most natural and idiomatic English equivalent for each Spanish atom.
@@ -62,9 +62,10 @@ This section shows how to correctly group for natural English.
 
 --- EXAMPLE 1: `de manera muy sola` ---
 USER INPUT:
-S_ID_X_S1: y vivía de manera muy sola
+S_201: y vivía de manera muy sola
 
 BAD MAPPING (Too literal):
+S_201:
 y -> and
 vivía -> he lived
 de -> of
@@ -73,15 +74,17 @@ muy -> very
 sola -> alone
 
 GOOD MAPPING (Natural and grouped):
+S_201:
 y -> and
 vivía -> he lived
 de manera muy sola -> very solitarily
 
 --- EXAMPLE 2: The "Personal A" with an Adverb ---
 USER INPUT:
-S_ID_Y_S1: Ella quería mucho a esta persona
+S_55: Ella quería mucho a esta persona
 
 BAD MAPPING (Causes errors by leaving 'a' stranded):
+S_55:
 Ella -> She
 quería mucho -> loved dearly
 a -> 
@@ -89,6 +92,7 @@ esta -> this
 persona -> person
 
 GOOD MAPPING (Correctly absorbs the 'a' with the verb phrase):
+S_55:
 Ella -> She
 quería mucho a -> loved dearly
 esta -> this
@@ -96,9 +100,10 @@ persona -> person
 
 --- EXAMPLE 3: Using NO_SUB as an escape valve ---
 USER INPUT:
-S_ID_Z_S1: El hombre vio a la mujer
+S_973: El hombre vio a la mujer
 
 ACCEPTABLE MAPPING (Grouping is preferred, but this is valid):
+S_973:
 El -> The
 hombre -> man
 vio -> saw
@@ -107,6 +112,7 @@ la -> the
 mujer -> woman
 
 GOOD MAPPING (The best approach is to group):
+S_973:
 El -> The
 hombre -> man
 vio a -> saw
@@ -119,11 +125,11 @@ FULL PHRASE EXAMPLE 1:
 I will provide an input like this under the "USER INPUT:" section.
 
 USER INPUT:
-S1_S1:
+S1:
 Entonces el segundo hijo Pedro recibió la orden de vigilar
 
 YOUR REQUIRED RESPONSE:
-S1_S1:
+S1:
 MAPPINGS:
 Entonces -> Then
 el -> the
@@ -139,11 +145,11 @@ FULL PHRASE EXAMPLE 2:
 This example shows how to handle reflexive verbs and idiomatic phrases within a phrase.
 
 USER INPUT:
-S2_S1:
+S2:
 Y olvidó el pájaro y su país de la misma manera
 
 YOUR REQUIRED RESPONSE:
-S2_S1:
+S2:
 MAPPINGS:
 Y -> and
 olvidó -> he forgot

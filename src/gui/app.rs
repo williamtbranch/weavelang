@@ -32,6 +32,8 @@ pub struct WeaveLangApp {
     show_exit_save_prompt: bool,
     show_close_save_prompt: bool,
     pending_action_after_save: Option<String>,
+    // AV job output tracking
+    av_job_lines_seen: usize,
 }
 
 impl WeaveLangApp {
@@ -99,6 +101,7 @@ impl WeaveLangApp {
             show_exit_save_prompt: false,
             show_close_save_prompt: false,
             pending_action_after_save: None,
+            av_job_lines_seen: 0,
         };
 
         let gs = crate::global_settings::GlobalSettings::load();
@@ -513,6 +516,7 @@ impl WeaveLangApp {
                     if self.dirty {
                         self.show_exit_save_prompt = true;
                     } else {
+                        self.cancel_running_llm_job();
                         ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                     ui.close_menu();
@@ -587,21 +591,44 @@ impl WeaveLangApp {
                     ui.close_menu();
                 }
                 ui.separator();
-                let weave_ready = !self.state.document.is_empty()
-                    && self.state.document.iter().all(|s| s.is_weave_ready())
-                    && self.state.book_map.as_ref().map_or(false, |m| !m.is_empty());
+                let has_level_map = self.state.book_map.as_ref().map_or(false, |m| !m.is_empty());
+                let weave_ready = if self.state.chapter_mode {
+                    // In chapter mode: check only the selected chapter
+                    has_level_map && self.state.selected_chapter_idx
+                        .and_then(|ci| self.state.chapters.get(ci))
+                        .map_or(false, |ch| {
+                            let s0 = ch.start.saturating_sub(1);
+                            let e0 = ch.end.saturating_sub(1);
+                            (s0..=e0).all(|i| self.state.document.get(i).map_or(false, |s| s.is_weave_ready()))
+                        })
+                } else {
+                    !self.state.document.is_empty()
+                        && self.state.document.iter().all(|s| s.is_weave_ready())
+                        && has_level_map
+                };
                 if ui.add_enabled(weave_ready, egui::Button::new("Generate Weave (All)")).clicked() {
                     self.execute_terminal_command("generate_weave all");
                     ui.close_menu();
                 }
                 if ui.add_enabled(weave_ready, egui::Button::new("Generate Weave (Level)...")).clicked() {
-                    // Emit as terminal command; user can type the level in the terminal
                     self.execute_terminal_command("generate_weave all");
                     ui.close_menu();
                 }
                 if !weave_ready && !self.state.document.is_empty() {
-                    let complete = self.state.document.iter().filter(|s| s.is_weave_ready()).count();
-                    ui.label(format!("⚠ {}/{} sentences ready", complete, self.state.document.len()));
+                    if self.state.chapter_mode {
+                        if let Some(ch) = self.state.selected_chapter_idx.and_then(|ci| self.state.chapters.get(ci)) {
+                            let s0 = ch.start.saturating_sub(1);
+                            let e0 = ch.end.saturating_sub(1);
+                            let ch_complete = (s0..=e0).filter(|&i| self.state.document.get(i).map_or(false, |s| s.is_weave_ready())).count();
+                            let ch_total = e0 - s0 + 1;
+                            ui.label(format!("⚠ Chapter: {}/{} ready", ch_complete, ch_total));
+                        } else {
+                            ui.label("⚠ No chapter selected");
+                        }
+                    } else {
+                        let complete = self.state.document.iter().filter(|s| s.is_weave_ready()).count();
+                        ui.label(format!("⚠ {}/{} sentences ready", complete, self.state.document.len()));
+                    }
                 }
                 ui.separator();
                 if ui.button("Import Level Map...").clicked() {
@@ -635,6 +662,63 @@ impl WeaveLangApp {
                 if ui.button("LLM Settings...").clicked() {
                     self.state.draft_config = self.state.config.clone();
                     self.state.show_llm_settings = true;
+                    ui.close_menu();
+                }
+                ui.separator();
+                let is_book_mode = !self.state.chapter_mode;
+                let is_chapter_mode = self.state.chapter_mode;
+                if ui.selectable_label(is_book_mode, "Book Mode").clicked() {
+                    self.execute_terminal_command("set chapter_mode false");
+                    ui.close_menu();
+                }
+                if ui.selectable_label(is_chapter_mode, "Chapter Mode").clicked() {
+                    self.execute_terminal_command("set chapter_mode true");
+                    ui.close_menu();
+                }
+            });
+
+            // --- Chapters menu ---
+            ui.menu_button("Chapters", |ui| {
+                let has_chapters = !self.state.chapters.is_empty();
+
+                // Select Chapter submenu
+                let mut pending_select_cmd: Option<String> = None;
+                if has_chapters {
+                    ui.menu_button("Select Chapter", |ui| {
+                        for (i, ch) in self.state.chapters.iter().enumerate() {
+                            let is_selected = self.state.selected_chapter_idx == Some(i);
+                            let label = format!("{} ({}-{})", ch.name, ch.start, ch.end);
+                            if ui.selectable_label(is_selected, &label).clicked() {
+                                pending_select_cmd = Some(format!("select chapter \"{}\"", ch.name));
+                                ui.close_menu();
+                            }
+                        }
+                    });
+                    ui.separator();
+                }
+                if let Some(cmd) = pending_select_cmd {
+                    self.execute_terminal_command(&cmd);
+                }
+
+                if ui.button("New Chapter...").clicked() {
+                    // For now emit a hint; a dialog could be added later
+                    self.status_message = "Use terminal: new chapter \"Name\" <start> <end>".to_string();
+                    ui.close_menu();
+                }
+                if has_chapters {
+                    if ui.button("Delete Chapter...").clicked() {
+                        self.status_message = "Use terminal: delete chapter \"Name\"".to_string();
+                        ui.close_menu();
+                    }
+                }
+                ui.separator();
+                if ui.button("List Chapters").clicked() {
+                    self.execute_terminal_command("list chapters");
+                    ui.close_menu();
+                }
+                ui.separator();
+                if ui.button("Init Media Workspace").clicked() {
+                    self.execute_terminal_command("init media");
                     ui.close_menu();
                 }
             });
@@ -698,6 +782,22 @@ impl WeaveLangApp {
             self.execute_terminal_command(&cmd);
         }
     }
+
+    /// Cancel any in-flight LLM job and clear the follow-up queue.
+    fn cancel_running_llm_job(&mut self) {
+        eprintln!("[APP] cancel_running_llm_job called — setting cancel flag");
+        if let Some(flag) = &self.state.llm_cancel_flag {
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        self.state.llm_followup_queue.clear();
+    }
+}
+
+impl Drop for WeaveLangApp {
+    fn drop(&mut self) {
+        eprintln!("[APP] Drop impl fired — cleaning up LLM threads");
+        self.cancel_running_llm_job();
+    }
 }
 
 impl App for WeaveLangApp {
@@ -724,6 +824,10 @@ impl App for WeaveLangApp {
         if ctx.input(|i| i.viewport().close_requested()) && self.dirty && !self.show_exit_save_prompt {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.show_exit_save_prompt = true;
+        }
+        // If close was NOT intercepted (not dirty), cancel any running LLM job
+        if ctx.input(|i| i.viewport().close_requested()) && !self.dirty {
+            self.cancel_running_llm_job();
         }
 
         // Update Title dynamically
@@ -757,6 +861,27 @@ impl App for WeaveLangApp {
             self.execute_terminal_command(&cmd);
         }
 
+        // Poll background AV job for new output lines
+        if let Some(ref job) = self.state.av_job {
+            let j = job.lock().unwrap();
+            // Drain any new lines since the last poll
+            while self.av_job_lines_seen < j.output_lines.len() {
+                self.terminal_history.push(j.output_lines[self.av_job_lines_seen].clone());
+                self.av_job_lines_seen += 1;
+            }
+            if j.finished {
+                if let Some(ref msg) = j.result_message {
+                    self.state.last_log = msg.clone();
+                }
+            }
+            let finished = j.finished;
+            drop(j);
+            if finished {
+                self.state.av_job = None;
+                self.av_job_lines_seen = 0;
+            }
+        }
+
         // Check for LLM results and apply them before rendering UI
         // Drain receiver messages without holding a borrow across potential assignment
         if self.state.llm_results_receiver.is_some() {
@@ -775,66 +900,33 @@ impl App for WeaveLangApp {
                     Ok(Ok(results)) => {
                         let mut applied = 0usize;
                         let mut last_applied_text: Option<String> = None;
-                        
-                        // NEW: Check if this is a "Regeneration" job (single-click) vs a "Bulk" job.
-                        // Currently, we don't distinguish explicitly in the receiver, but "Regeneration" 
-                        // jobs have total=batch_size (or small N) and start at a specific index.
-                        // However, simpler heuristic:
-                        // If we are getting results for indices OTHER than the currently selected one, 
-                        // and we are NOT in a bulk run (llm_run_end > llm_run_start + batch), treat as collateral?
-                        
-                        // Actually, let's just use the `pending_collateral_updates` mechanism for ANY update 
-                        // that isn't the primary selected sentence IF we are not in "Run All" mode.
-                        // "Run All" mode is indicated by `state.show_llm_run` active? No, that's just the dialog.
-                        // We can check `state.llm_job_total`.
-                        
-                        // If `llm_job_total` is small (e.g. <= batch size) it's likely a single-click regen.
-                        // If it's large, it's a bulk run where we WANT auto-apply.
-                        
-                        let batch_size = self.state.config.as_ref()
-                            .and_then(|c| c.stages.get(&self.state.llm_run_prompt_name))
-                            .map(|s| s.batch_size_in_items)
-                            .unwrap_or(20);
-                        let is_bulk_run = self.state.llm_job_total > batch_size.max(10);
                         let selected_idx = self.state.selected_sentence_idx;
                         let num_results = results.len();
 
                         let (base_lang, target_lang) = self.state.project_languages.clone();
                         let bridge_ref = self.state.bridge.as_ref();
 
-                        for (idx, s_id, tier_id, text) in results {
+                        for (idx, _s_id, tier_id, text) in results {
                             if idx < self.state.document.len() {
-                                // Always apply if it's the selected sentence OR if it's a bulk run
-                                if is_bulk_run || idx == selected_idx {
-                                    let lang = lang_for_tier(&tier_id, &base_lang, &target_lang);
-                                    if let Some(sent) = self.state.document.get_mut(idx) {
-                                        apply_llm_result(sent, &tier_id, &text, bridge_ref, &lang, &target_lang);
-                                        if idx == selected_idx {
-                                             if tier_id.starts_with("MAPPING:") {
-                                                 last_applied_text = Some("Mapping Generated".to_string());
-                                             } else {
-                                                 last_applied_text = Some(sent.get_tier(&tier_id).map(|t| t.full_text()).unwrap_or_default());
-                                             }
-                                        }
-                                        applied += 1;
+                                let lang = lang_for_tier(&tier_id, &base_lang, &target_lang);
+                                if let Some(sent) = self.state.document.get_mut(idx) {
+                                    apply_llm_result(sent, &tier_id, &text, bridge_ref, &lang, &target_lang);
+                                    if idx == selected_idx {
+                                         if tier_id.starts_with("MAPPING:") {
+                                             last_applied_text = Some("Mapping Generated".to_string());
+                                         } else {
+                                             last_applied_text = Some(sent.get_tier(&tier_id).map(|t| t.full_text()).unwrap_or_default());
+                                         }
                                     }
-                                } else {
-                                    // It's a collateral update (neighbor) in a non-bulk run
-                                    self.state.pending_collateral_updates.push((idx, s_id, tier_id, text));
+                                    applied += 1;
                                 }
                             }
                         }
-                        // FIX: Progress should count ALL items processed by the LLM, 
-                        // whether applied immediately or parked for confirmation.
                         self.state.llm_job_done = self.state.llm_job_done.saturating_add(num_results);
 
                         if applied > 0 {
                             self.dirty = true;
-                        }
-
-                        // If we have collateral updates, show the confirmation dialog
-                        if !self.state.pending_collateral_updates.is_empty() {
-                            self.state.show_collateral_confirm = true;
+                            self.state.audit_passed = false;
                         }
 
                         // Update visible logs
@@ -999,44 +1091,6 @@ impl App for WeaveLangApp {
             }
         }
 
-        // --- Collateral Update Confirmation Dialog ---
-        if self.state.show_collateral_confirm && !self.state.pending_collateral_updates.is_empty() {
-             let mut open = true;
-             
-             let num_updates = self.state.pending_collateral_updates.len();
-             let first_idx = self.state.pending_collateral_updates.first().map(|(i,_,_,_)| *i).unwrap_or(0);
-             let last_idx = self.state.pending_collateral_updates.last().map(|(i,_,_,_)| *i).unwrap_or(0);
-             
-             egui::Window::new("Collateral Updates Detected")
-                .collapsible(false)
-                .resizable(false)
-                .open(&mut open)
-                .show(ctx, |ui| {
-                    ui.label(format!("The LLM returned updates for {} additional sentences (S{} - S{}).", num_updates, first_idx + 1, last_idx + 1));
-                    ui.label("This often happens when using a context window to prevent hallucinations.");
-                    ui.label("Do you want to apply these extra updates?");
-                    
-                    ui.separator();
-                    
-                    ui.horizontal(|ui| {
-                        if ui.button("Yes, Apply All").clicked() {
-                            self.state.pending_terminal_command = Some("approve collateral".to_string());
-                            self.state.show_collateral_confirm = false;
-                        }
-                        
-                        if ui.button("No, Discard Extras").clicked() {
-                            self.state.pending_terminal_command = Some("discard collateral".to_string());
-                            self.state.show_collateral_confirm = false;
-                        }
-                    });
-                });
-                
-             if !open {
-                 self.state.pending_collateral_updates.clear();
-                 self.state.show_collateral_confirm = false;
-             }
-        }
-        
         // Project Settings Window
         if self.state.show_project_settings {
             let mut open = true;
@@ -1420,7 +1474,9 @@ impl App for WeaveLangApp {
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            if self.state.document.is_empty() {
+            if self.state.show_media_tab {
+                components::media_view::render(ui, &mut self.state);
+            } else if self.state.document.is_empty() {
                 ui.vertical_centered(|ui| {
                     ui.add_space(ui.available_height() * 0.25);
                     ui.heading("No Document Open");

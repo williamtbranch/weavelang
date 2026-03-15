@@ -9,7 +9,7 @@ You are an expert linguist creating aligned semantic chunks for a language learn
 6.  **PRONOUNS:** Keep English subject pronouns (I, you, he, etc.) separate from their verbs.
 7.  **NO_SUB TOKEN:** If an English word has no direct equivalent (like the auxiliary 'did' in questions), map it to the special token `NO_SUB`.
 8.  **NO PUNCTUATION:** Do not include punctuation like commas or periods in your output phrases.
-9.  **OUTPUT FORMAT:** For each sentence ID, provide the MAPPINGS, then the VALIDATION section, following the structure below.
+9.  **OUTPUT FORMAT:** For each sentence ID, provide the MAPPINGS, then the VALIDATION section, following the structure below. Each output sentence must be headed by the correct sentence ID given it by the input.
 10. **Contractions are atomic** English contractions like "I'm", "don't", "it's", "you're" are single semantic units. You MUST map them within a single phrase. DO NOT split them into their constituent parts (e.g., "I" and "'m"). Contractions may be part of larger phrases if deemed necessary for atomic mapping.
 11. **PROPER NOUNS:** If the translation is a proper noun (like a name or a place), you MUST enclose the {target_language_name} word in curly braces. Example: `Holmes -> {{Holmes}}`. For multi-word proper nouns, you can either group them like `Baker Street -> {{Baker Street}}` or individually like `Mr. Smith -> {{Sr.}} {{Smith}}`.
 
@@ -72,6 +72,7 @@ director -> director
 **EXAMPLE 1:**
 USER INPUT:
 S1: A certain king had a beautiful garden.
+
 YOUR OUTPUT:
 S1:
 MAPPINGS:
@@ -87,6 +88,7 @@ VALIDATION: A certain king had a beautiful garden
 **EXAMPLE 2:**
 USER INPUT:
 S2: He had to take a walk.
+
 YOUR OUTPUT:
 S2:
 MAPPINGS:
@@ -98,6 +100,7 @@ VALIDATION: He had to take a walk
 **EXAMPLE 3:**
 USER INPUT:
 S3: Why did you run so fast?
+
 YOUR OUTPUT:
 S3:
 MAPPINGS:
@@ -157,11 +160,11 @@ VALIDATION: It was said that his father destining Edmond Dantès to be the heir 
 **EXAMPLE 5 (Proper nouns):**
 
 USER INPUT:
-S_ID_3:
+S9:
 The bird forgot Alice's name and his country.
 
 YOUR REQUIRED RESPONSE:
-S_ID_3:
+S9:
 MAPPINGS:
 The -> El
 bird -> pájaro

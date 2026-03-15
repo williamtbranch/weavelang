@@ -19,6 +19,12 @@ pub fn json_chapter_to_numerical(
         .iter()
         .filter_map(|block| match block {
             JsonContentBlock::Sentence(s) => {
+                // Skip placeholder or incomplete sentences that lack required tiers
+                let required = ["basic_base", "basic_target", "moderate_target", "advanced_target"];
+                let has_all = required.iter().all(|tid| s.tiers.iter().any(|t| t.tier_id == *tid));
+                if !has_all {
+                    return None;
+                }
                 let numerical_sentence =
                     json_sentence_to_numerical(s, dictionary, &json_chapter.book_meta.book_name);
                 Some(numerical_sentence)

@@ -12,6 +12,40 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::mpsc::{Receiver};
+use std::sync::{Arc, Mutex};
+
+// ---------------------------------------------------------------------------
+// Chapter — a named range of sentences for incremental publishing
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Chapter {
+    pub name: String,
+    pub start: usize, // 1-based inclusive
+    pub end: usize,   // 1-based inclusive
+}
+
+// ---------------------------------------------------------------------------
+// AV Job — shared state for background audio/video generation
+// ---------------------------------------------------------------------------
+
+/// Shared state for a background AV generation job.
+/// Owned by both the spawned thread and the GUI poll loop.
+#[derive(Debug)]
+pub struct AvJobState {
+    /// Lines of output from the subprocess (appended by the worker thread).
+    pub output_lines: Vec<String>,
+    /// Set to true to request cancellation.
+    pub cancel_requested: bool,
+    /// Set to true when the job thread has finished (success or failure).
+    pub finished: bool,
+    /// Final result message (set on finish).
+    pub result_message: Option<String>,
+    /// PID of the running child process (for kill on cancel).
+    pub child_pid: Option<u32>,
+    /// Description shown in the UI (e.g. "Generating audio: Metamorphosis_UL26")
+    pub label: String,
+}
 
 // ... (Enums TierView, DetailView, SimulationMode remain unchanged) ...
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -114,12 +148,6 @@ pub struct AppState {
     pub llm_run_batch_size: usize,
     #[serde(skip)]
     pub llm_run_prompt_name: String,
-    // When a job returns multiple results (collateral updates), we park them here for user review
-    #[serde(skip)]
-    pub pending_collateral_updates: Vec<(usize, String, String, String)>,
-    #[serde(skip)]
-    pub show_collateral_confirm: bool,
-
     // Output directory for generated files
     #[serde(skip)]
     pub output_dir: Option<String>,
@@ -195,6 +223,32 @@ pub struct AppState {
     // Format: (name, port). None if the server is not running.
     #[serde(skip)]
     pub copilot_server_info: Option<(String, u16)>,
+
+    // Media (AV production) tab
+    #[serde(skip)]
+    pub show_media_tab: bool,
+
+    // Currently selected stem in the Media tab (for chunk detail panel)
+    #[serde(skip)]
+    pub av_selected_stem: Option<String>,
+
+    // Background AV generation job (audio or video subprocess)
+    #[serde(skip)]
+    pub av_job: Option<Arc<Mutex<AvJobState>>>,
+
+    /// Whether the last audit passed without demotions.
+    /// Any mutation (edit, validate, LLM result) resets this to false.
+    /// generate_weave refuses to run unless this is true.
+    #[serde(default)]
+    pub audit_passed: bool,
+
+    // --- Chapter Mode ---
+    #[serde(default)]
+    pub chapter_mode: bool,
+    #[serde(default)]
+    pub chapters: Vec<Chapter>,
+    #[serde(skip)]
+    pub selected_chapter_idx: Option<usize>,
 }
 
 fn default_languages() -> (String, String) {
@@ -251,8 +305,6 @@ impl Default for AppState {
             llm_job_backup: Vec::new(),
             show_cancel_confirm: false,
             last_log: "Ready.".to_string(),
-            pending_collateral_updates: Vec::new(),
-            show_collateral_confirm: false,
             output_dir: None,
             show_debug_dump: false,
             debug_dump_start: 0,
@@ -275,6 +327,13 @@ impl Default for AppState {
             selected_tier_id: "basic_target".to_string(),
             llm_followup_queue: VecDeque::new(),
             copilot_server_info: None,
+            show_media_tab: false,
+            av_selected_stem: None,
+            av_job: None,
+            audit_passed: false,
+            chapter_mode: false,
+            chapters: Vec::new(),
+            selected_chapter_idx: None,
         }
     }
 }

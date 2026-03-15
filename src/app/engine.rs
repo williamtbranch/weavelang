@@ -1,5 +1,6 @@
-use crate::app::commands::AppCommand;
+use crate::app::commands::{AppCommand, AvTarget};
 use crate::app::state::AppState;
+use crate::domain::tier::TierState;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -204,6 +205,42 @@ impl Engine {
     }
 
     pub fn execute(&mut self, command: AppCommand) -> Result<String, String> {
+        // Any command that modifies data invalidates the audit.
+        // Read-only commands are explicitly excluded.
+        let is_read_only = matches!(
+            &command,
+            AppCommand::SelectSentence { .. }
+            | AppCommand::SelectRange { .. }
+            | AppCommand::SetRightView { .. }
+            | AppCommand::SetLeftView { .. }
+            | AppCommand::CheckStatus
+            | AppCommand::ConfigList
+            | AppCommand::Drc
+            | AppCommand::Audit
+            | AppCommand::WeaveStatus
+            | AppCommand::ReportSentencesIncomplete
+            | AppCommand::ReportSentencesComplete
+            | AppCommand::ReportSentence { .. }
+            | AppCommand::ListPnLemmas { .. }
+            | AppCommand::SelectTier { .. }
+            | AppCommand::KeyStatus
+            | AppCommand::DebugDump { .. }
+            | AppCommand::SaveProject { .. }
+            | AppCommand::MeasureAvd { .. }
+            | AppCommand::MeasureUserScore { .. }
+            | AppCommand::SetOutputDir { .. }
+            | AppCommand::ExportJson { .. }
+            | AppCommand::ExportLevelMap { .. }
+            | AppCommand::ShowLevelMap { .. }
+            | AppCommand::GenerateWeave { .. }
+            | AppCommand::ListChapters
+            | AppCommand::SelectChapter { .. }
+            | AppCommand::SetChapterMode { .. }
+        );
+        if !is_read_only {
+            self.state.audit_passed = false;
+        }
+
         match command {
             AppCommand::SelectSentence { id, index } => {
                 if let Some(idx) = index {
@@ -345,7 +382,6 @@ impl Engine {
                 self.state.last_log = format!("New project: {}", name);
                 self.state.output_dir = None;
                 self.current_file_path = None;
-                self.state.pending_collateral_updates.clear();
                 self.state.llm_followup_queue.clear();
                 Ok(format!("Created new project '{}'", name))
             }
@@ -362,7 +398,6 @@ impl Engine {
                 self.state.selected_range = None;
                 self.state.output_dir = None;
                 self.current_file_path = None;
-                self.state.pending_collateral_updates.clear();
                 self.state.llm_followup_queue.clear();
                 self.state.last_log = "Project closed.".to_string();
                 Ok(format!("Closed project '{}'", old_name))
@@ -1175,6 +1210,7 @@ impl Engine {
                 }
 
                 self.state.config = Some(config);
+                self.load_chapters();
                 Ok(format!("Workspace opened: {}", path))
             }
             AppCommand::LoadProject { path } => {
@@ -1203,12 +1239,25 @@ impl Engine {
                         self.state = loaded_state;
                         self.current_file_path = Some(path_buf);
 
+                        // Re-hydrate output_dir from workspace config (skipped by serde)
+                        if let Some(cfg) = &self.state.config {
+                            if let Some(ref out_dir) = cfg.output_dir {
+                                let resolved = if PathBuf::from(out_dir).is_absolute() {
+                                    PathBuf::from(out_dir)
+                                } else {
+                                    PathBuf::from(&cfg.content_project_dir).join(out_dir)
+                                };
+                                self.state.output_dir = Some(resolved.to_string_lossy().to_string());
+                            }
+                        }
+
                         if let Some(cfg) = &mut self.state.config {
                             cfg.last_project_file = Some(path.clone());
                             let config_path = PathBuf::from(&cfg.content_project_dir).join("config.toml");
                             let _ = crate::config::save_config_to_file(cfg, &config_path);
                         }
 
+                        self.load_chapters();
                         return Ok(format!("Loaded project from {}", path));
                     }
                     return Err("Failed to deserialize project".to_string());
@@ -1280,7 +1329,6 @@ impl Engine {
                 self.state.selected_range = None;
                 // Import is not a saved project — clear file path
                 self.current_file_path = None;
-                self.state.pending_collateral_updates.clear();
                 self.state.llm_followup_queue.clear();
                 Ok(format!("Imported {} sentences from source", self.state.document.len()))
             }
@@ -1299,7 +1347,6 @@ impl Engine {
 
                 // Import is not a saved project — clear file path
                 self.current_file_path = None;
-                self.state.pending_collateral_updates.clear();
                 self.state.llm_followup_queue.clear();
 
                 let mut error_count = 0;
@@ -1344,6 +1391,9 @@ impl Engine {
             AppCommand::ExportLevelMap { path } => {
                 self.execute_export_level_map(&path)
             }
+            AppCommand::ShowLevelMap { level } => {
+                self.execute_show_level_map(level)
+            }
             AppCommand::ImportLevelMap { path } => {
                 self.execute_import_level_map(&path)
             }
@@ -1369,9 +1419,26 @@ impl Engine {
                 if self.state.document.is_empty() {
                     return Err("No document loaded.".to_string());
                 }
-                let not_ready: Vec<usize> = self.state.document.iter().enumerate()
-                    .filter(|(_, s)| !s.is_weave_ready())
-                    .map(|(i, _)| i + 1) // 1-based for display
+
+                // In chapter mode, check readiness only for the selected chapter
+                let chapter_range: Option<(usize, usize)> = if self.state.chapter_mode {
+                    let ch_idx = self.state.selected_chapter_idx
+                        .ok_or("Chapter mode is on but no chapter selected. Use 'select chapter \"<name>\"'.")?;
+                    let ch = self.state.chapters.get(ch_idx)
+                        .ok_or("Selected chapter index is invalid.")?;
+                    Some((ch.start, ch.end))
+                } else {
+                    None
+                };
+
+                // Check weave readiness on the relevant sentence range
+                let (check_start, check_end) = chapter_range
+                    .map(|(s, e)| (s.saturating_sub(1), e.saturating_sub(1)))
+                    .unwrap_or((0, self.state.document.len().saturating_sub(1)));
+
+                let not_ready: Vec<usize> = (check_start..=check_end)
+                    .filter(|&i| self.state.document.get(i).map_or(true, |s| !s.is_weave_ready()))
+                    .map(|i| i + 1) // 1-based for display
                     .collect();
                 if !not_ready.is_empty() {
                     let preview: String = if not_ready.len() <= 10 {
@@ -1380,15 +1447,26 @@ impl Engine {
                         let first: Vec<String> = not_ready[..10].iter().map(|n| n.to_string()).collect();
                         format!("{} ... and {} more", first.join(", "), not_ready.len() - 10)
                     };
+                    let scope = if let Some((cs, ce)) = chapter_range {
+                        let ch_name = self.state.selected_chapter_idx
+                            .and_then(|idx| self.state.chapters.get(idx))
+                            .map(|ch| format!("Chapter \"{}\" (S{}-S{})", ch.name, cs, ce))
+                            .unwrap_or_else(|| "Chapter".to_string());
+                        ch_name
+                    } else {
+                        "Document".to_string()
+                    };
                     return Err(format!(
-                        "Document is not ready for weave output. {}/{} sentences incomplete.\nIncomplete: [{}]\nUse 'weave status' or 'report sentences incomplete' for details.",
-                        not_ready.len(), self.state.document.len(), preview
+                        "{} is not ready for weave output. {}/{} sentences incomplete.\nIncomplete: [{}]\nUse 'weave status' or 'report sentences incomplete' for details.",
+                        scope, not_ready.len(),
+                        check_end - check_start + 1, preview
                     ));
                 }
 
                 // Run DRC before generating (unless --force)
                 if !force {
-                    let drc_violations = self.run_drc();
+                    let drc_range = chapter_range.map(|(s, e)| (s - 1, e - 1));
+                    let drc_violations = self.run_drc(drc_range);
                     if !drc_violations.is_empty() {
                         let count = drc_violations.len();
                         let report = drc_violations.join("\n");
@@ -1399,7 +1477,7 @@ impl Engine {
                     }
                 }
 
-                self.execute_generate_weave(&level)
+                self.execute_generate_weave(&level, chapter_range)
             }
             AppCommand::Calibrate { max_level } => {
                 self.execute_calibrate(max_level)
@@ -1408,13 +1486,39 @@ impl Engine {
                 if self.state.document.is_empty() {
                     return Err("No document loaded.".to_string());
                 }
-                let violations = self.run_drc();
+                // In chapter mode, scope DRC to selected chapter
+                let drc_range: Option<(usize, usize)> = if self.state.chapter_mode {
+                    self.state.selected_chapter_idx.and_then(|idx| {
+                        self.state.chapters.get(idx).map(|ch| (ch.start - 1, ch.end - 1))
+                    })
+                } else {
+                    None
+                };
+                let violations = self.run_drc(drc_range);
+                let scope_label = if drc_range.is_some() {
+                    format!("chapter ({} sentence(s))", drc_range.map(|(s,e)| e - s + 1).unwrap_or(0))
+                } else {
+                    format!("all {} sentence(s)", self.state.document.len())
+                };
                 if violations.is_empty() {
-                    Ok(format!("DRC PASSED — all {} sentence(s) clean.", self.state.document.len()))
+                    Ok(format!("DRC PASSED — {} clean.", scope_label))
                 } else {
                     let count = violations.len();
                     let report = violations.join("\n");
-                    Ok(format!("DRC FAILED — {} violation(s):\n{}", count, report))
+                    Ok(format!("DRC FAILED — {} violation(s) in {}:\n{}", count, scope_label, report))
+                }
+            }
+            AppCommand::Audit => {
+                if self.state.document.is_empty() {
+                    return Err("No document loaded.".to_string());
+                }
+                let demotions = self.run_audit();
+                if demotions.is_empty() {
+                    Ok(format!("Audit clean — all {} sentence(s) marked Valid are structurally sound.", self.state.document.len()))
+                } else {
+                    let count = demotions.len();
+                    let report = demotions.join("\n");
+                    Ok(format!("Audit demoted {} tier(s):\n{}", count, report))
                 }
             }
             AppCommand::WeaveStatus => {
@@ -1425,19 +1529,46 @@ impl Engine {
                 let complete = self.state.document.iter().filter(|s| s.is_weave_ready()).count();
                 let has_level_map = self.state.book_map.as_ref().map_or(false, |m| !m.is_empty());
 
-                let mut parts = Vec::new();
+                let mut out = String::new();
+
+                // Book-level status
+                let mut book_parts = Vec::new();
                 if complete < total {
-                    parts.push(format!("{}/{} sentences complete, {} remaining", complete, total, total - complete));
+                    book_parts.push(format!("{}/{} sentences complete, {} remaining", complete, total, total - complete));
                 }
                 if !has_level_map {
-                    parts.push("no level map (run 'calibrate' to generate)".to_string());
+                    book_parts.push("no level map (run 'calibrate' to generate)".to_string());
+                }
+                if book_parts.is_empty() {
+                    out.push_str(&format!("Book: Ready — all {} sentences are weave-complete and level map is loaded.", total));
+                } else {
+                    out.push_str(&format!("Book: Not Ready — {}", book_parts.join("; ")));
                 }
 
-                if parts.is_empty() {
-                    Ok(format!("Ready — all {} sentences are weave-complete and level map is loaded.", total))
-                } else {
-                    Ok(format!("Not Ready — {}", parts.join("; ")))
+                // Chapter-level status
+                if !self.state.chapters.is_empty() {
+                    out.push_str("\n\nChapters:");
+                    for (ci, ch) in self.state.chapters.iter().enumerate() {
+                        let s0 = ch.start.saturating_sub(1);
+                        let e0 = ch.end.saturating_sub(1);
+                        let ch_total = e0 - s0 + 1;
+                        let ch_complete = (s0..=e0)
+                            .filter(|&i| self.state.document.get(i).map_or(false, |s| s.is_weave_ready()))
+                            .count();
+                        let selected = self.state.selected_chapter_idx == Some(ci);
+                        let marker = if selected { " ←" } else { "" };
+                        let ch_status = if ch_complete == ch_total && has_level_map {
+                            "Ready".to_string()
+                        } else if ch_complete == ch_total {
+                            "Complete (needs calibration)".to_string()
+                        } else {
+                            format!("{}/{} complete", ch_complete, ch_total)
+                        };
+                        out.push_str(&format!("\n  [{}] \"{}\" (S{}-S{}): {}{}", ci + 1, ch.name, ch.start, ch.end, ch_status, marker));
+                    }
                 }
+
+                Ok(out)
             }
             AppCommand::ReportSentencesIncomplete => {
                 if self.state.document.is_empty() {
@@ -1749,7 +1880,22 @@ impl Engine {
                 let bridge_status = if self.state.bridge.is_some() { "OK" } else { "OFF" };
                 let llm_status = if self.state.llm.is_some() { "OK" } else { "OFF" };
                 let config_status = if self.state.config.is_some() { "OK" } else { "OFF" };
-                Ok(format!("Bridge: {}\nLLM: {}\nConfig: {}", bridge_status, llm_status, config_status))
+                let mode_info = if self.state.chapter_mode {
+                    let ch_info = self.state.selected_chapter_idx
+                        .and_then(|idx| self.state.chapters.get(idx))
+                        .map(|ch| format!("\"{}\" (S{}-S{})", ch.name, ch.start, ch.end))
+                        .unwrap_or_else(|| "(none selected)".to_string());
+                    format!("Chapter — selected: {}", ch_info)
+                } else {
+                    "Book".to_string()
+                };
+                let doc_info = if self.state.document.is_empty() {
+                    "No document loaded".to_string()
+                } else {
+                    format!("{} sentences", self.state.document.len())
+                };
+                Ok(format!("Bridge: {}\nLLM: {}\nConfig: {}\nMode: {}\nDocument: {}",
+                    bridge_status, llm_status, config_status, mode_info, doc_info))
             }
             AppCommand::GenerateStage { stage_name, start_index, end_index } => {
                 if self.state.llm.is_none() || self.state.prompts.is_none() || self.state.logger.is_none() {
@@ -1806,6 +1952,45 @@ impl Engine {
                 let end = std::cmp::min(end_index, self.state.document.len().saturating_sub(1));
                 let (s, e) = if start <= end { (start, end) } else { (end, start) };
 
+                // Mapping stages accept Pending source tiers (content valid, mapping pending)
+                let is_mapping_stage = matches!(stage_name.as_str(),
+                    "GeneratePhraseMap" | "GenerateInversePhraseMap");
+
+                // ── Source tier validity check ──────────────────────────────────
+                // Every sentence in the range must have its source tier present
+                // and Valid.  Bail early with a clear message if not.
+                for idx in s..=e {
+                    if let Some(sent) = self.state.document.get(idx) {
+                        match sent.get_tier(source_tier) {
+                            None => {
+                                return Err(format!(
+                                    "Cannot run '{}' for sentences {}-{}: \
+                                     source tier '{}' is missing on {} (index {}).",
+                                    stage_name, s + 1, e + 1, source_tier, sent.id, idx + 1
+                                ));
+                            }
+                            Some(tier) if tier.state != TierState::Valid
+                                && !(is_mapping_stage && tier.state == TierState::Pending) =>
+                            {
+                                let state_label = match tier.state {
+                                    TierState::Dirty  => "Dirty (unapproved edits)",
+                                    TierState::Stale  => "Stale (upstream changed)",
+                                    TierState::Pending => "Pending (mapping/segmentation needed)",
+                                    TierState::Broken => "Broken",
+                                    TierState::Valid   => unreachable!(),
+                                };
+                                return Err(format!(
+                                    "Cannot run '{}' for sentences {}-{}: \
+                                     source tier '{}' is {} on {} (index {}). \
+                                     Please fix and approve before processing.",
+                                    stage_name, s + 1, e + 1, source_tier, state_label, sent.id, idx + 1
+                                ));
+                            }
+                            _ => {} // Valid — OK
+                        }
+                    }
+                }
+
                 // Build items — segment-level for GenerateModerateTarget,
                 // sentence-level for everything else.
                 let segment_level = stage_name == "GenerateModerateTarget";
@@ -1817,12 +2002,17 @@ impl Engine {
                             if let Some(tier) = sent.get_tier(source_tier) {
                                 for (seg_i, seg) in tier.segments.iter().enumerate() {
                                     let seg_id = format!("{}_S{}", sent.id, seg_i + 1);
-                                    items.push((idx, seg_id, seg.full_text()));
+                                    let text = seg.full_text();
+                                    if !text.trim().is_empty() {
+                                        items.push((idx, seg_id, text));
+                                    }
                                 }
                             }
                         } else {
                             let source_text = sent.get_tier(source_tier).map(|t| t.full_text()).unwrap_or_default();
-                            items.push((idx, sent.id.clone(), source_text));
+                            if !source_text.trim().is_empty() {
+                                items.push((idx, sent.id.clone(), source_text));
+                            }
                         }
                     }
                 }
@@ -1833,22 +2023,45 @@ impl Engine {
 
                 // ── Auto-mapping interleave for basic tier stages ────────────────
                 // When generating BasicBase or BasicTarget, split the work into
-                // translation sub-batches and interleave mapping generation after
-                // each sub-batch.  This prevents an error at sentence N from leaving
-                // sentences 1..N-1 without mappings.
+                // "master batches" and interleave mapping generation after each.
+                //
+                // Master batch size = max(translation_batch, mapping_batch) so
+                // each stage uses its own batch_size inside spawn_llm_job while
+                // the scheduling ranges stay aligned.
+                //
+                // BasicBase  → follow-up: PhraseMap only
+                // BasicTarget → follow-up: PhraseMap + InversePhraseMap
                 let needs_auto_mapping = matches!(
                     stage_name.as_str(),
                     "GenerateBasicBase" | "GenerateBasicTarget"
                 );
 
                 if needs_auto_mapping {
-                    // Split items into sub-batches of batch_size
-                    let sub_batches: Vec<Vec<(usize, String, String)>> =
-                        items.chunks(batch_size).map(|c| c.to_vec()).collect();
+                    let config_ref = self.state.config.as_ref().unwrap();
 
-                    // Queue mapping follow-ups for the first sub-batch,
-                    // then subsequent (translate + mapping) pairs for the rest.
-                    for (batch_idx, batch) in sub_batches.iter().enumerate() {
+                    // Determine which mapping stages follow this translation stage
+                    let mapping_stages: Vec<&str> = match stage_name.as_str() {
+                        "GenerateBasicBase" => vec!["GeneratePhraseMap"],
+                        "GenerateBasicTarget" => vec!["GeneratePhraseMap", "GenerateInversePhraseMap"],
+                        _ => vec![],
+                    };
+
+                    // Compute master batch size = max(translation, largest follower)
+                    let follower_max_batch = mapping_stages.iter()
+                        .filter_map(|s| config_ref.get_stage_config(s))
+                        .map(|sc| sc.batch_size_in_items)
+                        .max()
+                        .unwrap_or(batch_size);
+                    let master_batch_size = batch_size.max(follower_max_batch);
+
+                    // Split items into balanced master batches
+                    let master_batches = crate::services::llm_worker::compute_balanced_chunks(
+                        items.clone(), master_batch_size,
+                    );
+
+                    // Build the follow-up queue:
+                    // For each master batch: translate (leader) → mapping stages (followers)
+                    for (batch_idx, batch) in master_batches.iter().enumerate() {
                         let batch_start = batch.first().unwrap().0;
                         let batch_end = batch.last().unwrap().0;
 
@@ -1863,21 +2076,19 @@ impl Engine {
                             ));
                         }
 
-                        // Queue both mapping stages after each translation batch
-                        self.state.llm_followup_queue.push_back(format!(
-                            "run generate GeneratePhraseMap {} {}",
-                            batch_start + 1,
-                            batch_end + 1,
-                        ));
-                        self.state.llm_followup_queue.push_back(format!(
-                            "run generate GenerateInversePhraseMap {} {}",
-                            batch_start + 1,
-                            batch_end + 1,
-                        ));
+                        // Queue only the appropriate mapping stages
+                        for mapping_stage in &mapping_stages {
+                            self.state.llm_followup_queue.push_back(format!(
+                                "run generate {} {} {}",
+                                mapping_stage,
+                                batch_start + 1,
+                                batch_end + 1,
+                            ));
+                        }
                     }
 
-                    // Use only the first sub-batch for the immediate spawn
-                    items = sub_batches.into_iter().next().unwrap();
+                    // Use only the first master batch for the immediate spawn
+                    items = master_batches.into_iter().next().unwrap();
                 }
 
                 // Spawn Job
@@ -1951,26 +2162,437 @@ impl Engine {
             AppCommand::DebugDump { start_index, end_index, path } => {
                 self.execute_debug_dump(start_index, end_index, path.as_deref())
             }
-            AppCommand::ApplyCollateral { accept } => {
-                if accept {
-                    let count = self.state.pending_collateral_updates.len();
-                    let updates = std::mem::take(&mut self.state.pending_collateral_updates);
-                    let (base_lang, target_lang) = self.state.project_languages.clone();
-                    let bridge = self.state.bridge.as_ref();
-                    for (idx, _s_id, tier_id, text) in updates {
-                        if let Some(sent) = self.state.document.get_mut(idx) {
-                            let lang = crate::services::tier_processor::lang_for_tier(&tier_id, &base_lang, &target_lang);
-                            let segments = crate::services::tier_processor::tokenize_only(&text, &lang, bridge);
-                            sent.update_tier_with_segments(&tier_id, segments);
+            // ----- AV Production commands -----
+            AppCommand::AvInit => {
+                self.av_execute(|producer| {
+                    let _ = producer; // manifest created by av_execute
+                    Ok("AV manifest initialized.".to_string())
+                })
+            }
+            AppCommand::AvStatus => {
+                self.av_execute(|producer| {
+                    let statuses = producer.scan();
+                    let ill_count = producer.count_illustrations();
+                    let mut out = crate::services::av_producer::AvProducer::format_status_table(&statuses);
+                    out.push_str(&format!("Illustrations: {} image(s) in /illustrations\n", ill_count));
+                    Ok(out)
+                })
+            }
+            AppCommand::AvMark { stems } => {
+                self.av_execute_mut(|producer| {
+                    let added = producer.mark(&stems)?;
+                    Ok(format!("Marked {} file(s). Total marked: {}", added, producer.manifest.files.marked.len()))
+                })
+            }
+            AppCommand::AvUnmark { stems } => {
+                self.av_execute_mut(|producer| {
+                    let removed = producer.unmark(&stems)?;
+                    Ok(format!("Unmarked {} file(s). Total marked: {}", removed, producer.manifest.files.marked.len()))
+                })
+            }
+            AppCommand::AvMarkAll => {
+                self.av_execute_mut(|producer| {
+                    let added = producer.mark_all()?;
+                    Ok(format!("Marked {} file(s). Total marked: {}", added, producer.manifest.files.marked.len()))
+                })
+            }
+            AppCommand::AvClearMarks => {
+                self.av_execute_mut(|producer| {
+                    let cleared = producer.clear_marks()?;
+                    Ok(format!("Cleared {} mark(s).", cleared))
+                })
+            }
+            AppCommand::AvConfigShow => {
+                self.av_execute(|producer| {
+                    let m = &producer.manifest;
+                    let mut out = String::new();
+                    out.push_str("--- TTS Config ---\n");
+                    out.push_str(&format!("  service:             {}\n", m.tts.service));
+                    out.push_str(&format!("  model:               {}\n", m.tts.model));
+                    out.push_str(&format!("  voices:              {}\n", m.tts.voices.join(", ")));
+                    out.push_str(&format!("  prompt_prefix:       {}\n", if m.tts.prompt_prefix.is_empty() { "(empty)" } else { &m.tts.prompt_prefix }));
+                    out.push_str(&format!("  use_vertex_auth:     {}\n", m.tts.use_vertex_auth));
+                    out.push_str(&format!("  output_format:       {}\n", m.tts.output_format));
+                    out.push_str(&format!("  chunk_max_chars:     {}\n", m.tts.chunk_max_chars));
+                    out.push_str(&format!("  max_api_retries:     {}\n", m.tts.max_api_retries));
+                    out.push_str(&format!("  retry_delay:         {}\n", m.tts.retry_delay));
+                    out.push_str(&format!("  concurrent_requests: {}\n", m.tts.concurrent_requests));
+                    out.push_str("--- Video Config ---\n");
+                    out.push_str(&format!("  image_duration:      {}\n", m.video.image_duration));
+                    out.push_str(&format!("  frame_rate:          {}\n", m.video.frame_rate));
+                    Ok(out)
+                })
+            }
+            AppCommand::AvConfigTts { key, value } => {
+                self.av_execute_mut(|producer| {
+                    let tts = &mut producer.manifest.tts;
+                    match key.as_str() {
+                        "service" => tts.service = value.clone(),
+                        "model" => tts.model = value.clone(),
+                        "prompt_prefix" => tts.prompt_prefix = value.clone(),
+                        "use_vertex_auth" => tts.use_vertex_auth = value.parse().map_err(|_| "Expected true or false".to_string())?,
+                        "output_format" => tts.output_format = value.clone(),
+                        "chunk_max_chars" => tts.chunk_max_chars = value.parse().map_err(|_| "Expected a number".to_string())?,
+                        "max_api_retries" => tts.max_api_retries = value.parse().map_err(|_| "Expected a number".to_string())?,
+                        "retry_delay" => tts.retry_delay = value.parse().map_err(|_| "Expected a number".to_string())?,
+                        "concurrent_requests" => tts.concurrent_requests = value.parse().map_err(|_| "Expected a number".to_string())?,
+                        _ => return Err(format!("Unknown TTS config key: '{}'. Valid keys: service, model, prompt_prefix, use_vertex_auth, output_format, chunk_max_chars, max_api_retries, retry_delay, concurrent_requests", key)),
+                    }
+                    producer.manifest.save(&producer.book_dir)?;
+                    Ok(format!("TTS config '{}' set to '{}'", key, value))
+                })
+            }
+            AppCommand::AvConfigVideo { key, value } => {
+                self.av_execute_mut(|producer| {
+                    let vid = &mut producer.manifest.video;
+                    match key.as_str() {
+                        "image_duration" => vid.image_duration = value.parse().map_err(|_| "Expected a number".to_string())?,
+                        "frame_rate" => vid.frame_rate = value.parse().map_err(|_| "Expected a number".to_string())?,
+                        _ => return Err(format!("Unknown video config key: '{}'. Valid keys: image_duration, frame_rate", key)),
+                    }
+                    producer.manifest.save(&producer.book_dir)?;
+                    Ok(format!("Video config '{}' set to '{}'", key, value))
+                })
+            }
+            AppCommand::AvConfigVoices { voices } => {
+                self.av_execute_mut(|producer| {
+                    let count = voices.len();
+                    producer.manifest.tts.voices = voices;
+                    producer.manifest.save(&producer.book_dir)?;
+                    Ok(format!("Set {} voice(s).", count))
+                })
+            }
+            AppCommand::AvOpenDir { which } => {
+                let book_dir = self.resolve_av_book_dir()?;
+                let target = match which.as_str() {
+                    "book-dir" => book_dir.clone(),
+                    "audio-dir" => book_dir.join("audio"),
+                    "video-dir" => book_dir.join("video"),
+                    "illustrations" => book_dir.join("illustrations"),
+                    _ => return Err(format!("Unknown directory '{}'. Use: book-dir, audio-dir, video-dir, illustrations", which)),
+                };
+                if !target.exists() {
+                    fs::create_dir_all(&target)
+                        .map_err(|e| format!("Failed to create directory: {}", e))?;
+                }
+                opener::open(&target)
+                    .map_err(|e| format!("Failed to open directory: {}", e))?;
+                Ok(format!("Opened {}", target.display()))
+            }
+            AppCommand::AvGenerateAudio { target } => {
+                // Reject if a job is already running
+                if let Some(ref job) = self.state.av_job {
+                    let j = job.lock().unwrap();
+                    if !j.finished {
+                        return Err(format!("AV job already running: {}. Use 'av cancel' to stop it.", j.label));
+                    }
+                }
+
+                let book_dir = self.resolve_av_book_dir()?;
+                let producer = crate::services::av_producer::AvProducer::new(book_dir)?;
+                let project_root = std::env::current_dir()
+                    .map_err(|e| format!("Cannot determine project root: {}", e))?;
+                let api_key = crate::services::secrets::get_google_key()?;
+                if api_key.trim().is_empty() {
+                    return Err("Google API key is empty. Set a valid key:\n  → set key google AIza...".to_string());
+                }
+
+                let stem = match target {
+                    AvTarget::Stem(ref s) => {
+                        let statuses = producer.scan();
+                        let found = statuses.iter().find(|st| st.stem == *s);
+                        match found {
+                            Some(st) if !st.has_text => return Err(format!("No text file found for '{}'.", s)),
+                            Some(st) if st.has_audio => return Err(format!("Audio already exists for '{}'. Delete it first to regenerate.", s)),
+                            None => return Err(format!("Stem '{}' not found in book directory.", s)),
+                            _ => s.clone(),
                         }
                     }
-                    Ok(format!("Applied {} collateral updates", count))
+                    AvTarget::Next => {
+                        match producer.next_stem_needing_audio() {
+                            Some(s) => s,
+                            None => return Ok("All marked files already have audio.".to_string()),
+                        }
+                    }
+                    AvTarget::All => {
+                        // For streaming, only support one stem at a time
+                        match producer.next_stem_needing_audio() {
+                            Some(s) => s,
+                            None => return Ok("All marked files already have audio.".to_string()),
+                        }
+                    }
+                };
+
+                // Spawn the child process
+                let child = producer.spawn_audio(&stem, &project_root, &api_key)?;
+                let pid = child.id();
+                let label = format!("Generating audio: {}", stem);
+
+                let job_state = std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::app::state::AvJobState {
+                        output_lines: vec![format!("--- {} ---", label)],
+                        cancel_requested: false,
+                        finished: false,
+                        result_message: None,
+                        child_pid: Some(pid),
+                        label: label.clone(),
+                    },
+                ));
+
+                // Spawn reader thread
+                let job_clone = job_state.clone();
+                std::thread::spawn(move || {
+                    av_job_reader(child, job_clone);
+                });
+
+                self.state.av_job = Some(job_state);
+                Ok(format!("Started: {} (pid {}). Use 'av cancel' to stop.", label, pid))
+            }
+            AppCommand::AvGenerateVideo { target } => {
+                // Reject if a job is already running
+                if let Some(ref job) = self.state.av_job {
+                    let j = job.lock().unwrap();
+                    if !j.finished {
+                        return Err(format!("AV job already running: {}. Use 'av cancel' to stop it.", j.label));
+                    }
+                }
+
+                let book_dir = self.resolve_av_book_dir()?;
+                let producer = crate::services::av_producer::AvProducer::new(book_dir)?;
+                let project_root = std::env::current_dir()
+                    .map_err(|e| format!("Cannot determine project root: {}", e))?;
+
+                if producer.count_illustrations() == 0 {
+                    return Err(format!(
+                        "No illustrations found in {}. Add images before generating video.",
+                        producer.illustrations_dir().display()
+                    ));
+                }
+
+                let stem = match target {
+                    AvTarget::Stem(ref s) => {
+                        let statuses = producer.scan();
+                        let found = statuses.iter().find(|st| st.stem == *s);
+                        match found {
+                            Some(st) if !st.has_audio => return Err(format!("No audio file for '{}'. Generate audio first.", s)),
+                            Some(st) if st.has_video => return Err(format!("Video already exists for '{}'. Delete it first to regenerate.", s)),
+                            None => return Err(format!("Stem '{}' not found in book directory.", s)),
+                            _ => s.clone(),
+                        }
+                    }
+                    AvTarget::Next => {
+                        match producer.next_stem_needing_video() {
+                            Some(s) => s,
+                            None => return Ok("All marked files with audio already have video.".to_string()),
+                        }
+                    }
+                    AvTarget::All => {
+                        match producer.next_stem_needing_video() {
+                            Some(s) => s,
+                            None => return Ok("All marked files with audio already have video.".to_string()),
+                        }
+                    }
+                };
+
+                let child = producer.spawn_video(&stem, &project_root)?;
+                let pid = child.id();
+                let label = format!("Generating video: {}", stem);
+
+                let job_state = std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::app::state::AvJobState {
+                        output_lines: vec![format!("--- {} ---", label)],
+                        cancel_requested: false,
+                        finished: false,
+                        result_message: None,
+                        child_pid: Some(pid),
+                        label: label.clone(),
+                    },
+                ));
+
+                let job_clone = job_state.clone();
+                std::thread::spawn(move || {
+                    av_job_reader(child, job_clone);
+                });
+
+                self.state.av_job = Some(job_state);
+                Ok(format!("Started: {} (pid {}). Use 'av cancel' to stop.", label, pid))
+            }
+            AppCommand::AvCancel => {
+                if let Some(ref job) = self.state.av_job {
+                    let mut j = job.lock().unwrap();
+                    if j.finished {
+                        return Ok("No AV job is running.".to_string());
+                    }
+                    j.cancel_requested = true;
+                    // Kill the child process
+                    if let Some(pid) = j.child_pid {
+                        // On Windows, kill the process tree
+                        let _ = std::process::Command::new("taskkill")
+                            .args(["/PID", &pid.to_string(), "/T", "/F"])
+                            .output();
+                    }
+                    Ok("Cancel requested. The AV job will stop shortly.".to_string())
                 } else {
-                    self.state.pending_collateral_updates.clear();
-                    Ok("Discarded collateral updates".to_string())
+                    Ok("No AV job is running.".to_string())
                 }
             }
+
+            AppCommand::AvChunkStatus { stem } => {
+                self.av_execute(|producer| {
+                    let chunks = producer.scan_chunks(&stem);
+                    if chunks.is_empty() {
+                        return Ok(format!("No chunks found for '{}'. Generate audio first.", stem));
+                    }
+                    let mut out = format!("Chunks for '{}':\n", stem);
+                    out.push_str(&format!("{:>5}  {:>5}  {:>5}  {}\n", "Index", "Text", "Audio", "Status"));
+                    out.push_str(&format!("{}\n", "-".repeat(35)));
+                    for c in &chunks {
+                        let status = if c.is_rejected {
+                            "REJECTED"
+                        } else if c.has_audio {
+                            "ok"
+                        } else {
+                            "MISSING"
+                        };
+                        let txt = if c.has_text { "✓" } else { "-" };
+                        let aud = if c.has_audio { "✓" } else if c.is_rejected { "✗" } else { "-" };
+                        out.push_str(&format!("{:>5}  {:>5}  {:>5}  {}\n", c.index, txt, aud, status));
+                    }
+                    let good = chunks.iter().filter(|c| c.has_audio && !c.is_rejected).count();
+                    let rejected = chunks.iter().filter(|c| c.is_rejected).count();
+                    let missing = chunks.iter().filter(|c| !c.has_audio && !c.is_rejected && c.has_text).count();
+                    out.push_str(&format!("\nTotal: {} | Good: {} | Rejected: {} | Missing: {}\n",
+                        chunks.len(), good, rejected, missing));
+                    Ok(out)
+                })
+            }
+
+            AppCommand::AvRejectChunk { stem, index } => {
+                self.av_execute(|producer| {
+                    let chunks_dir = producer.chunks_dir(&stem);
+                    if !chunks_dir.exists() {
+                        return Err(format!("No chunks directory for '{}'.", stem));
+                    }
+                    let prefix = format!("temp_chunk_{:04}", index);
+                    let wav = chunks_dir.join(format!("{}.wav", prefix));
+                    let silence = chunks_dir.join(format!("{}_silence.wav", prefix));
+                    if wav.exists() {
+                        let bad = chunks_dir.join(format!("{}.wav.bad", prefix));
+                        std::fs::rename(&wav, &bad)
+                            .map_err(|e| format!("Failed to rename: {}", e))?;
+                        Ok(format!("Rejected chunk {} for '{}'.", index, stem))
+                    } else if silence.exists() {
+                        let bad = chunks_dir.join(format!("{}_silence.wav.bad", prefix));
+                        std::fs::rename(&silence, &bad)
+                            .map_err(|e| format!("Failed to rename: {}", e))?;
+                        Ok(format!("Rejected silence chunk {} for '{}'.", index, stem))
+                    } else {
+                        Err(format!("No audio file found for chunk {} of '{}'.", index, stem))
+                    }
+                })
+            }
+
+            AppCommand::AvRestoreChunk { stem, index } => {
+                self.av_execute(|producer| {
+                    let chunks_dir = producer.chunks_dir(&stem);
+                    if !chunks_dir.exists() {
+                        return Err(format!("No chunks directory for '{}'.", stem));
+                    }
+                    let prefix = format!("temp_chunk_{:04}", index);
+                    let bad_wav = chunks_dir.join(format!("{}.wav.bad", prefix));
+                    let bad_silence = chunks_dir.join(format!("{}_silence.wav.bad", prefix));
+                    if bad_wav.exists() {
+                        let wav = chunks_dir.join(format!("{}.wav", prefix));
+                        std::fs::rename(&bad_wav, &wav)
+                            .map_err(|e| format!("Failed to rename: {}", e))?;
+                        Ok(format!("Restored chunk {} for '{}'.", index, stem))
+                    } else if bad_silence.exists() {
+                        let silence = chunks_dir.join(format!("{}_silence.wav", prefix));
+                        std::fs::rename(&bad_silence, &silence)
+                            .map_err(|e| format!("Failed to rename: {}", e))?;
+                        Ok(format!("Restored silence chunk {} for '{}'.", index, stem))
+                    } else {
+                        Err(format!("No rejected (.wav.bad) file found for chunk {} of '{}'.", index, stem))
+                    }
+                })
+            }
+
+            AppCommand::AvRebuildAudio { stem } => {
+                let book_dir = self.resolve_av_book_dir()?;
+                let producer = crate::services::av_producer::AvProducer::new(book_dir)?;
+                let project_root = std::env::current_dir()
+                    .map_err(|e| format!("Cannot determine project root: {}", e))?;
+                producer.rebuild_audio(&stem, &project_root)
+            }
+
+            // --- Chapter Mode Commands ---
+            AppCommand::NewChapter { name, start, end } => {
+                self.execute_new_chapter(name, start, end)
+            }
+            AppCommand::ListChapters => {
+                self.execute_list_chapters()
+            }
+            AppCommand::DeleteChapter { name } => {
+                self.execute_delete_chapter(&name)
+            }
+            AppCommand::SelectChapter { name } => {
+                self.execute_select_chapter(&name)
+            }
+            AppCommand::SetChapterMode { enabled } => {
+                self.state.chapter_mode = enabled;
+                let mode_str = if enabled { "Chapter" } else { "Book" };
+                Ok(format!("Mode set to {}.", mode_str))
+            }
+            AppCommand::InitMediaWorkspace => {
+                self.execute_init_media_workspace()
+            }
         }
+    }
+
+    // ----- AV Production helpers -----
+
+    /// Resolve the book output directory from output_dir + book_name.
+    /// In chapter mode, returns the selected chapter's subdirectory.
+    fn resolve_av_book_dir(&self) -> Result<PathBuf, String> {
+        let output_dir = self.state.output_dir.as_ref()
+            .ok_or("Output directory not set. Use 'set output_dir <path>' first.")?;
+        let book_dir = crate::services::av_producer::AvProducer::resolve_book_dir(output_dir, &self.state.book_name);
+
+        let target_dir = if self.state.chapter_mode {
+            let ch_idx = self.state.selected_chapter_idx
+                .ok_or("Chapter mode is on but no chapter selected.")?;
+            let ch = self.state.chapters.get(ch_idx)
+                .ok_or("Selected chapter index is invalid.")?;
+            let ch_dir_name = Self::sanitize_name(&ch.name);
+            book_dir.join(ch_dir_name)
+        } else {
+            book_dir
+        };
+
+        if !target_dir.exists() {
+            return Err(format!("Directory does not exist: {}. Run 'init media' first.", target_dir.display()));
+        }
+        Ok(target_dir)
+    }
+
+    /// Execute an AV operation with an immutable AvProducer.
+    fn av_execute<F>(&self, f: F) -> Result<String, String>
+    where
+        F: FnOnce(&crate::services::av_producer::AvProducer) -> Result<String, String>,
+    {
+        let book_dir = self.resolve_av_book_dir()?;
+        let producer = crate::services::av_producer::AvProducer::new(book_dir)?;
+        f(&producer)
+    }
+
+    /// Execute an AV operation with a mutable AvProducer.
+    fn av_execute_mut<F>(&self, f: F) -> Result<String, String>
+    where
+        F: FnOnce(&mut crate::services::av_producer::AvProducer) -> Result<String, String>,
+    {
+        let book_dir = self.resolve_av_book_dir()?;
+        let mut producer = crate::services::av_producer::AvProducer::new(book_dir)?;
+        f(&mut producer)
     }
 
     fn execute_measure_avd(&self, path: &str) -> Result<String, String> {
@@ -2273,6 +2895,175 @@ impl Engine {
         ))
     }
 
+    /// Show the level map — either open a full HTML view in the browser,
+    /// or dump a single level's entries to the terminal.
+    fn execute_show_level_map(&self, level: Option<u32>) -> Result<String, String> {
+        let book_map = self.state.book_map.as_ref()
+            .ok_or("No level map loaded. Use 'calibrate' or 'import level_map' first.")?;
+        if book_map.is_empty() {
+            return Err("Level map is empty.".to_string());
+        }
+
+        // Collect and sort levels numerically
+        let mut sorted_keys: Vec<u32> = book_map.keys()
+            .filter_map(|k| k.parse::<u32>().ok())
+            .collect();
+        sorted_keys.sort();
+
+        let total_sentences = self.state.document.len();
+        let book_name = if self.state.book_name.is_empty() { "Untitled" } else { &self.state.book_name };
+
+        // Single-level terminal dump
+        if let Some(lvl) = level {
+            let key = lvl.to_string();
+            let cm = book_map.get(&key)
+                .ok_or(format!("No level map entry for UL{}. Available: {}", lvl,
+                    sorted_keys.iter().map(|k| k.to_string()).collect::<Vec<_>>().join(", ")))?;
+
+            let mut out = format!("=== UL{} (end_level: {:.1}, {} entries) ===\n", lvl, cm.end_level, cm.map.len());
+            out.push_str(&format!("{:<8} {:<14} {:<18} {:<18}\n",
+                "Level", "Sentences", "V-Recipe (B/M/A)", "L-Recipe (B/M/A)"));
+            out.push_str(&format!("{}\n", "-".repeat(60)));
+
+            for (i, entry) in cm.map.iter().enumerate() {
+                let start = entry.start_sentence_idx;
+                let end = if i + 1 < cm.map.len() {
+                    cm.map[i + 1].start_sentence_idx.saturating_sub(1)
+                } else {
+                    total_sentences.saturating_sub(1)
+                };
+                let count = end.saturating_sub(start) + 1;
+
+                let v_recipe = if entry.recipe.bas == u32::MAX {
+                    "MAX/MAX/MAX".to_string()
+                } else {
+                    format!("{}/{}/{}", entry.recipe.bas, entry.recipe.mod_v, entry.recipe.adv)
+                };
+                let l_recipe = format!("{:.2}/{:.2}/{:.2}",
+                    entry.l_level_recipe.bas, entry.l_level_recipe.mod_v, entry.l_level_recipe.adv);
+
+                out.push_str(&format!("{:<8.1} S{}-S{} ({:>4})  {:<18} {:<18}\n",
+                    entry.level, start + 1, end + 1, count, v_recipe, l_recipe));
+            }
+            return Ok(out);
+        }
+
+        // Full HTML view — generate and open in browser
+        let mut html = String::with_capacity(8192);
+        html.push_str("<!DOCTYPE html><html><head><meta charset='utf-8'>\n");
+        html.push_str("<title>Level Map — ");
+        html.push_str(&html_escape(book_name));
+        html.push_str("</title>\n<style>\n");
+        html.push_str("body { font-family: 'Segoe UI', system-ui, sans-serif; max-width: 1000px; margin: 20px auto; padding: 0 20px; background: #1e1e2e; color: #cdd6f4; }\n");
+        html.push_str("h1 { color: #89b4fa; border-bottom: 2px solid #45475a; padding-bottom: 8px; }\n");
+        html.push_str(".meta { background: #313244; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; }\n");
+        html.push_str("details { margin: 4px 0; }\n");
+        html.push_str("summary { cursor: pointer; padding: 8px 12px; background: #313244; border-radius: 4px; font-weight: 600; }\n");
+        html.push_str("summary:hover { background: #45475a; }\n");
+        html.push_str("table { width: 100%; border-collapse: collapse; margin: 8px 0 12px 0; font-size: 0.9em; }\n");
+        html.push_str("th { text-align: left; padding: 6px 10px; background: #45475a; color: #cdd6f4; }\n");
+        html.push_str("td { padding: 4px 10px; border-bottom: 1px solid #313244; }\n");
+        html.push_str("tr:hover td { background: #313244; }\n");
+        html.push_str(".bar-cell { position: relative; width: 120px; }\n");
+        html.push_str(".bar { height: 14px; display: inline-block; }\n");
+        html.push_str(".bar-bas { background: #89b4fa; }\n");
+        html.push_str(".bar-mod { background: #a6e3a1; }\n");
+        html.push_str(".bar-adv { background: #f9e2af; }\n");
+        html.push_str(".legend { font-size: 0.85em; color: #a6adc8; margin: 4px 0 8px 12px; }\n");
+        html.push_str(".legend span { margin-right: 12px; }\n");
+        html.push_str("</style></head><body>\n");
+
+        html.push_str(&format!("<h1>Level Map — {}</h1>\n", html_escape(book_name)));
+        html.push_str(&format!("<div class='meta'>Total sentences: {} &nbsp;|&nbsp; Start levels: {} &nbsp;|&nbsp; Range: UL{}–UL{}</div>\n",
+            total_sentences, sorted_keys.len(),
+            sorted_keys.first().unwrap_or(&0), sorted_keys.last().unwrap_or(&0)));
+        html.push_str("<div class='legend'><span>&#9632; <span style='color:#89b4fa'>Basic</span></span><span>&#9632; <span style='color:#a6e3a1'>Moderate</span></span><span>&#9632; <span style='color:#f9e2af'>Advanced</span></span></div>\n");
+
+        for &lvl in &sorted_keys {
+            let key = lvl.to_string();
+            let cm = match book_map.get(&key) { Some(c) => c, None => continue };
+
+            // Calculate summary for the level header
+            let first = cm.map.first();
+            let last = cm.map.last();
+            let summary_recipe = first.map(|e| {
+                if e.recipe.bas == u32::MAX { "MAX".to_string() }
+                else { format!("{}/{}/{}", e.recipe.bas, e.recipe.mod_v, e.recipe.adv) }
+            }).unwrap_or_default();
+            let end_recipe = last.map(|e| {
+                if e.recipe.bas == u32::MAX { "MAX".to_string() }
+                else { format!("{}/{}/{}", e.recipe.bas, e.recipe.mod_v, e.recipe.adv) }
+            }).unwrap_or_default();
+
+            html.push_str(&format!(
+                "<details><summary>UL{} &nbsp;→&nbsp; UL{:.1} &emsp; ({} entries) &emsp; Recipe: {} → {}</summary>\n",
+                lvl, cm.end_level, cm.map.len(), summary_recipe, end_recipe));
+
+            html.push_str("<table><tr><th>Level</th><th>Sentences</th><th>Count</th><th>V-Recipe (B/M/A)</th><th>L-Recipe (B/M/A)</th><th>Mix</th></tr>\n");
+
+            for (i, entry) in cm.map.iter().enumerate() {
+                let start = entry.start_sentence_idx;
+                let end = if i + 1 < cm.map.len() {
+                    cm.map[i + 1].start_sentence_idx.saturating_sub(1)
+                } else {
+                    total_sentences.saturating_sub(1)
+                };
+                let count = end.saturating_sub(start) + 1;
+
+                let (v_recipe, is_max) = if entry.recipe.bas == u32::MAX {
+                    ("MAX/MAX/MAX".to_string(), true)
+                } else {
+                    (format!("{}/{}/{}", entry.recipe.bas, entry.recipe.mod_v, entry.recipe.adv), false)
+                };
+                let l_recipe = format!("{:.2}/{:.2}/{:.2}",
+                    entry.l_level_recipe.bas, entry.l_level_recipe.mod_v, entry.l_level_recipe.adv);
+
+                // Mini bar chart from l_level_recipe
+                let bar_html = if is_max {
+                    "<span style='color:#a6adc8;font-size:0.8em'>N/A</span>".to_string()
+                } else {
+                    let total = entry.l_level_recipe.bas + entry.l_level_recipe.mod_v + entry.l_level_recipe.adv;
+                    if total > 0.0 {
+                        let w_bas = (entry.l_level_recipe.bas / total * 100.0) as u32;
+                        let w_mod = (entry.l_level_recipe.mod_v / total * 100.0) as u32;
+                        let w_adv = 100u32.saturating_sub(w_bas).saturating_sub(w_mod);
+                        format!("<div class='bar-cell'><span class='bar bar-bas' style='width:{}px'></span><span class='bar bar-mod' style='width:{}px'></span><span class='bar bar-adv' style='width:{}px'></span></div>",
+                            w_bas, w_mod, w_adv)
+                    } else {
+                        String::new()
+                    }
+                };
+
+                html.push_str(&format!(
+                    "<tr><td>{:.1}</td><td>S{}–S{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+                    entry.level, start + 1, end + 1, count, v_recipe, l_recipe, bar_html));
+            }
+
+            html.push_str("</table></details>\n");
+        }
+
+        html.push_str("</body></html>");
+
+        // Write to a temp file and open in browser
+        let temp_dir = std::env::temp_dir();
+        let html_path = temp_dir.join("weavelang_level_map.html");
+        fs::write(&html_path, &html)
+            .map_err(|e| format!("Failed to write HTML: {}", e))?;
+
+        // Open in default browser
+        #[cfg(target_os = "windows")]
+        { let _ = std::process::Command::new("cmd").args(["/C", "start", "", &html_path.to_string_lossy()]).spawn(); }
+        #[cfg(target_os = "macos")]
+        { let _ = std::process::Command::new("open").arg(&html_path).spawn(); }
+        #[cfg(target_os = "linux")]
+        { let _ = std::process::Command::new("xdg-open").arg(&html_path).spawn(); }
+
+        Ok(format!("Level map opened in browser ({} levels, {} → {}).",
+            sorted_keys.len(),
+            sorted_keys.first().unwrap_or(&0),
+            sorted_keys.last().unwrap_or(&0)))
+    }
+
     fn execute_import_level_map(&mut self, path: &str) -> Result<String, String> {
         use crate::types::json_types::LevelMapFile;
 
@@ -2298,7 +3089,7 @@ impl Engine {
         ))
     }
 
-    fn execute_generate_weave(&self, level_arg: &str) -> Result<String, String> {
+    fn execute_generate_weave(&self, level_arg: &str, chapter_range: Option<(usize, usize)>) -> Result<String, String> {
         use crate::domain::bridge::domain_sentences_to_json_chapter;
         use crate::simulation::dictionary::GlobalLemmaDictionary;
         use crate::simulation::metrics::TextMetrics;
@@ -2308,6 +3099,10 @@ impl Engine {
 
         if self.state.document.is_empty() {
             return Err("No document loaded.".to_string());
+        }
+
+        if !self.state.audit_passed {
+            return Err("Please run 'audit' on the project before outputting woven text.".to_string());
         }
 
         let output_dir = self.state.output_dir.as_ref()
@@ -2322,9 +3117,31 @@ impl Engine {
             let dir_name = sanitized.trim().replace(' ', "_");
             output_path.join(&dir_name)
         };
-        if !book_dir.exists() {
-            fs::create_dir_all(&book_dir)
-                .map_err(|e| format!("Failed to create book directory '{}': {}", book_dir.display(), e))?;
+
+        // In chapter mode, output goes into a chapter subdirectory
+        let (weave_dir, chapter_name_sanitized) = if let Some((ch_start, ch_end)) = chapter_range {
+            // Find the chapter by its range to get the name
+            let ch_name = self.state.chapters.iter()
+                .find(|c| c.start == ch_start && c.end == ch_end)
+                .map(|c| c.name.clone())
+                .unwrap_or_else(|| format!("ch_{}-{}", ch_start, ch_end));
+            let ch_dir_name = Self::sanitize_name(&ch_name);
+            let ch_dir = book_dir.join(&ch_dir_name);
+            (ch_dir, Some(ch_dir_name))
+        } else {
+            (book_dir.clone(), None)
+        };
+
+        // For chapter mode, put tts files in tts_files/ subdirectory
+        let tts_dir = if chapter_range.is_some() {
+            weave_dir.join("tts_files")
+        } else {
+            weave_dir.clone()
+        };
+
+        if !tts_dir.exists() {
+            fs::create_dir_all(&tts_dir)
+                .map_err(|e| format!("Failed to create output directory '{}': {}", tts_dir.display(), e))?;
         }
 
         let book_map = self.state.book_map.as_ref()
@@ -2343,10 +3160,21 @@ impl Engine {
             vec![lvl]
         };
 
-        // Build JsonChapter from domain sentences
+        // Build JsonChapter from domain sentences.
+        // In chapter mode, pass only the chapter's sentences so the numerical
+        // chapter has a 1:1 index alignment with the chapter range.
         let (base_lang, target_lang) = &self.state.project_languages;
+        let ch_offset: usize = chapter_range.map(|(s, _)| s.saturating_sub(1)).unwrap_or(0);
+        let doc_total = self.state.document.len();
+        let sentences_for_chapter: &[crate::domain::sentence::Sentence] = if let Some((cs, ce)) = chapter_range {
+            let s0 = cs.saturating_sub(1);
+            let e0 = (ce.saturating_sub(1)).min(self.state.document.len().saturating_sub(1));
+            &self.state.document[s0..=e0]
+        } else {
+            &self.state.document
+        };
         let json_chapter = domain_sentences_to_json_chapter(
-            &self.state.document,
+            sentences_for_chapter,
             &self.state.book_name,
             base_lang,
             target_lang,
@@ -2358,8 +3186,9 @@ impl Engine {
         let (numerical_chapter, _eng_word_counts) =
             preprocessor::json_chapter_to_numerical(&json_chapter, &mut dictionary);
 
+        let ch_len = numerical_chapter.sentences_numerical.len();
         let mut generated_files: Vec<String> = Vec::new();
-        let analysis_path = book_dir.join("analysis.txt");
+        let analysis_path = weave_dir.join("analysis.txt");
 
         for level in &levels {
             let level_key = level.to_string();
@@ -2371,22 +3200,36 @@ impl Engine {
             let first_entry = &cm.map[0];
 
             // --- Progressive recipe stepping: iterate map entries, slicing by sentence range ---
+            // Level-map indices are absolute (0-based into the full document).
+            // We remap them to chapter-relative indices so each sentence gets
+            // the same recipe it would in a full-book generation.
             let mut full_result = corpus_generator::BookGenerationResult::default();
 
             for (i, entry) in cm.map.iter().enumerate() {
-                let start_idx = entry.start_sentence_idx;
-                let end_idx = if i + 1 < cm.map.len() {
+                let abs_start = entry.start_sentence_idx;
+                let abs_end = if i + 1 < cm.map.len() {
                     cm.map[i + 1].start_sentence_idx
                 } else {
-                    numerical_chapter.sentences_numerical.len()
+                    doc_total
                 };
-                if start_idx >= end_idx {
+                if abs_start >= abs_end {
                     continue;
                 }
 
+                // Clip the absolute range to the chapter bounds
+                let clip_start = abs_start.max(ch_offset);
+                let clip_end = abs_end.min(ch_offset + ch_len);
+                if clip_start >= clip_end {
+                    continue;
+                }
+
+                // Convert to chapter-relative indices
+                let rel_start = clip_start - ch_offset;
+                let rel_end = clip_end - ch_offset;
+
                 let mut numerical_slice = numerical_chapter.clone();
                 numerical_slice.sentences_numerical =
-                    numerical_chapter.sentences_numerical[start_idx..end_idx].to_vec();
+                    numerical_chapter.sentences_numerical[rel_start..rel_end].to_vec();
 
                 let mut json_slice = json_chapter.clone();
                 json_slice.content_blocks = json_chapter
@@ -2438,21 +3281,56 @@ impl Engine {
                 .collect();
             let output_text = cleaned_parts.join("\n\n");
 
-            // Determine filename, combining levels when end_level spans multiple
-            let end_level_for_range = (cm.end_level - 1.0).floor() as u32;
-            let level_suffix = if end_level_for_range > *level {
-                format!("UL{}-{}", level, end_level_for_range)
+            // Determine filename, combining levels when end_level spans multiple.
+            // In chapter mode, compute the actual micro-level range the chapter
+            // covers and use floor() of start/end to build a compact suffix.
+            let level_suffix = if chapter_range.is_some() {
+                // Find the micro-level range that overlaps with this chapter
+                let ch_s = ch_offset;
+                let ch_e = ch_offset + ch_len;
+                let overlapping: Vec<f32> = cm.map.iter().enumerate()
+                    .filter(|(i, entry)| {
+                        let abs_start = entry.start_sentence_idx;
+                        let abs_end = if *i + 1 < cm.map.len() {
+                            cm.map[*i + 1].start_sentence_idx
+                        } else {
+                            doc_total
+                        };
+                        abs_start < ch_e && abs_end > ch_s
+                    })
+                    .map(|(_, entry)| entry.level)
+                    .collect();
+                let first_lvl = overlapping.first().copied().unwrap_or(*level as f32);
+                let last_lvl = overlapping.last().copied().unwrap_or(first_lvl);
+                let floor_first = first_lvl.floor() as u32;
+                let floor_last = last_lvl.floor() as u32;
+                if floor_last > floor_first {
+                    format!("UL{}-{}", floor_first, floor_last)
+                } else {
+                    format!("UL{}", floor_first)
+                }
             } else {
-                format!("UL{}", level)
+                let end_level_for_range = (cm.end_level - 1.0).floor() as u32;
+                if end_level_for_range > *level {
+                    format!("UL{}-{}", level, end_level_for_range)
+                } else {
+                    format!("UL{}", level)
+                }
             };
             let file_name = if self.state.book_name.is_empty() {
-                format!("{}.txt", level_suffix)
+                match &chapter_name_sanitized {
+                    Some(ch) => format!("{}_{}.txt", ch, level_suffix),
+                    None => format!("{}.txt", level_suffix),
+                }
             } else {
                 let sanitized = self.state.book_name.replace(|c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != ' ', "");
                 let prefix = sanitized.trim().replace(' ', "_");
-                format!("{}_{}.txt", prefix, level_suffix)
+                match &chapter_name_sanitized {
+                    Some(ch) => format!("{}_{}_{}.txt", prefix, ch, level_suffix),
+                    None => format!("{}_{}.txt", prefix, level_suffix),
+                }
             };
-            let file_path = book_dir.join(&file_name);
+            let file_path = tts_dir.join(&file_name);
             fs::write(&file_path, &output_text)
                 .map_err(|e| format!("Failed to write '{}': {}", file_path.display(), e))?;
 
@@ -2481,14 +3359,16 @@ impl Engine {
         Ok(format!(
             "Generated {} weave file(s) in '{}':\n  {}",
             generated_files.len(),
-            book_dir.display(),
+            tts_dir.display(),
             generated_files.join("\n  "),
         ))
     }
 
     /// Design Rule Check — returns a Vec of violation strings.
     /// Empty vec means PASS.
-    fn run_drc(&self) -> Vec<String> {
+    /// When `range` is Some((start, end)) (0-based inclusive), only those
+    /// sentences are checked.  Global rules are always checked.
+    fn run_drc(&self, range: Option<(usize, usize)>) -> Vec<String> {
         use crate::domain::sentence::Sentence;
         use crate::domain::tier::TierState;
 
@@ -2506,7 +3386,9 @@ impl Engine {
             violations.push("GLOBAL: no level map loaded (use 'import level_map' or 'calibrate')".to_string());
         }
 
+        let (range_start, range_end) = range.unwrap_or((0, self.state.document.len().saturating_sub(1)));
         for (i, sent) in self.state.document.iter().enumerate() {
+            if i < range_start || i > range_end { continue; }
             let sn = i + 1; // 1-based for display
             let sid = &sent.id;
 
@@ -2613,6 +3495,84 @@ impl Engine {
         violations
     }
 
+    /// Structural audit: walk all sentences and demote any tier that is
+    /// currently Valid but violates a DRC rule.  Never promotes — only
+    /// invalidates.  Returns a list of demotions performed.
+    fn run_audit(&mut self) -> Vec<String> {
+        use crate::domain::tier::TierState;
+
+        let mut demotions: Vec<String> = Vec::new();
+
+        for (idx, sent) in self.state.document.iter_mut().enumerate() {
+            let sn = idx + 1;
+
+            // Rule 1: basic_base Valid but forward mapping missing/incomplete → Broken
+            if let Some(tier) = sent.tiers.get("basic_base") {
+                if tier.state == TierState::Valid {
+                    if !sent.check_mapping_coverage("basic_base") {
+                        demotions.push(format!(
+                            "S{}: basic_base demoted Valid → Broken (forward mapping incomplete)", sn
+                        ));
+                        if let Some(t) = sent.tiers.get_mut("basic_base") {
+                            t.state = TierState::Broken;
+                        }
+                    }
+                }
+            }
+
+            // Rule 2: basic_target Valid but inverse mapping missing/incomplete → Broken
+            if let Some(tier) = sent.tiers.get("basic_target") {
+                if tier.state == TierState::Valid {
+                    if !sent.check_mapping_coverage("basic_target") {
+                        demotions.push(format!(
+                            "S{}: basic_target demoted Valid → Broken (inverse mapping incomplete)", sn
+                        ));
+                        if let Some(t) = sent.tiers.get_mut("basic_target") {
+                            t.state = TierState::Broken;
+                        }
+                    }
+                }
+            }
+
+            // Rule 3: moderate_target Valid but segment count ≠ advanced_target → Broken
+            let adv_seg = sent.tiers.get("advanced_target").map(|t| t.segments.len());
+            let mod_seg = sent.tiers.get("moderate_target").map(|t| t.segments.len());
+            if let Some(tier) = sent.tiers.get("moderate_target") {
+                if tier.state == TierState::Valid {
+                    if let (Some(a), Some(m)) = (adv_seg, mod_seg) {
+                        if a > 0 && m > 0 && a != m {
+                            demotions.push(format!(
+                                "S{}: moderate_target demoted Valid → Broken (has {} segments, advanced_target has {})",
+                                sn, m, a
+                            ));
+                            if let Some(t) = sent.tiers.get_mut("moderate_target") {
+                                t.state = TierState::Broken;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Rule 4: advanced_target Valid but no segments → Broken
+            if let Some(tier) = sent.tiers.get("advanced_target") {
+                if tier.state == TierState::Valid && tier.segments.is_empty() {
+                    demotions.push(format!(
+                        "S{}: advanced_target demoted Valid → Broken (no segments)", sn
+                    ));
+                    if let Some(t) = sent.tiers.get_mut("advanced_target") {
+                        t.state = TierState::Broken;
+                    }
+                }
+            }
+        }
+
+        // Mark audit as passed (even if demotions occurred — the point
+        // is that the audit has run and structural state is now accurate).
+        self.state.audit_passed = true;
+
+        demotions
+    }
+
     fn execute_calibrate(&mut self, max_level: Option<u32>) -> Result<String, String> {
         use crate::domain::bridge::domain_sentences_to_json_chapter;
         use crate::simulation::calibrator;
@@ -2644,28 +3604,89 @@ impl Engine {
 
         let max_level = max_level.unwrap_or(45);
 
-        // Build JsonChapter from the currently-loaded domain sentences
         let (base_lang, target_lang) = &self.state.project_languages;
+
+        // In chapter mode: only include sentences from valid (complete) chapters
+        let sentences_for_calibration: &[crate::domain::sentence::Sentence];
+        let chapter_mode_info: String;
+        let owned_sentences: Vec<crate::domain::sentence::Sentence>;
+
+        if self.state.chapter_mode && !self.state.chapters.is_empty() {
+            // Collect valid chapters
+            let valid_chapters: Vec<&crate::app::state::Chapter> = self.state.chapters.iter()
+                .filter(|ch| self.chapter_is_valid(ch))
+                .collect();
+
+            if valid_chapters.is_empty() {
+                return Err("Chapter mode: no chapters have all sentences complete. Complete at least one chapter before calibrating.".to_string());
+            }
+
+            // Build the full-length sentence vector with empty placeholders for gaps.
+            // This preserves book-global sentence indexing.
+            let total = self.state.document.len();
+            let mut synthetic = Vec::with_capacity(total);
+            let mut chapter_sentence_count = 0usize;
+
+            for idx in 0..total {
+                let in_valid_chapter = valid_chapters.iter().any(|ch| {
+                    let s0 = ch.start.saturating_sub(1);
+                    let e0 = ch.end.saturating_sub(1);
+                    idx >= s0 && idx <= e0
+                });
+                if in_valid_chapter {
+                    synthetic.push(self.state.document[idx].clone());
+                    chapter_sentence_count += 1;
+                } else {
+                    // Empty placeholder — preserves indexing
+                    synthetic.push(crate::domain::sentence::Sentence::new(
+                        format!("__placeholder_{}", idx),
+                    ));
+                }
+            }
+
+            chapter_mode_info = format!(
+                " (chapter mode: {} valid chapter(s), {} sentences of {} total)",
+                valid_chapters.len(), chapter_sentence_count, total
+            );
+            owned_sentences = synthetic;
+            sentences_for_calibration = &owned_sentences;
+        } else {
+            chapter_mode_info = String::new();
+            owned_sentences = Vec::new(); // unused
+            let _ = &owned_sentences; // suppress warning
+            sentences_for_calibration = &self.state.document;
+        }
+
+        // Build JsonChapter from the selected sentences
         let json_chapter = domain_sentences_to_json_chapter(
-            &self.state.document,
+            sentences_for_calibration,
             &self.state.book_name,
             base_lang,
             target_lang,
             None, // no existing level maps
         );
 
+        // In chapter mode, pass the true total sentence count so the calibrator
+        // can extrapolate word counts and pacing for the full book.
+        let total_sentences_hint = if self.state.chapter_mode && !self.state.chapters.is_empty() {
+            Some(self.state.document.len())
+        } else {
+            None
+        };
+
         let curriculum_maps = calibrator::calibrate_from_chapter(
             &json_chapter,
             &master_scale,
             max_level,
+            total_sentences_hint,
         ).map_err(|e| format!("Calibration failed: {}", e))?;
 
         let level_count = curriculum_maps.len();
         self.state.book_map = Some(curriculum_maps);
 
         Ok(format!(
-            "Calibration complete — {} start-level maps generated and loaded.",
-            level_count
+            "Calibration complete — {} start-level maps generated and loaded{}.",
+            level_count, chapter_mode_info
         ))
     }
 
@@ -2781,4 +3802,290 @@ impl Engine {
             Ok(out)
         }
     }
+
+    // ----- Chapter Mode helpers -----
+
+    /// Sanitize a name for use in file/directory names: replace spaces with underscores,
+    /// strip non-alphanumeric chars (except _ and -).
+    fn sanitize_name(name: &str) -> String {
+        let sanitized = name.replace(|c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != ' ', "");
+        sanitized.trim().replace(' ', "_")
+    }
+
+    fn execute_new_chapter(&mut self, name: String, start: usize, end: usize) -> Result<String, String> {
+        if name.is_empty() {
+            return Err("Chapter name cannot be empty.".to_string());
+        }
+        // Check for duplicate name
+        if self.state.chapters.iter().any(|c| c.name == name) {
+            return Err(format!("A chapter named '{}' already exists.", name));
+        }
+        // Check for overlapping ranges (1-based inclusive)
+        for ch in &self.state.chapters {
+            if start <= ch.end && end >= ch.start {
+                return Err(format!(
+                    "Range {}-{} overlaps with chapter '{}' ({}-{}).",
+                    start, end, ch.name, ch.start, ch.end
+                ));
+            }
+        }
+        self.state.chapters.push(crate::app::state::Chapter {
+            name: name.clone(),
+            start,
+            end,
+        });
+        // Sort by start index
+        self.state.chapters.sort_by_key(|c| c.start);
+        // Persist
+        self.save_chapters();
+        Ok(format!("Chapter '{}' created: sentences {}-{}.", name, start, end))
+    }
+
+    fn execute_list_chapters(&self) -> Result<String, String> {
+        if self.state.chapters.is_empty() {
+            return Ok("No chapters defined.".to_string());
+        }
+        let mut out = String::new();
+        out.push_str(&format!("Chapters ({}):\n", self.state.chapters.len()));
+
+        let selected_idx = self.state.selected_chapter_idx;
+
+        for (i, ch) in self.state.chapters.iter().enumerate() {
+            let marker = if selected_idx == Some(i) { ">" } else { " " };
+            // Validity: every sentence in range has all 5 tiers + both mappings
+            let valid = self.chapter_is_valid(ch);
+            let status = if valid { "✓ valid" } else { "✗ incomplete" };
+            let count = ch.end.saturating_sub(ch.start) + 1;
+            out.push_str(&format!(
+                "{} {:>2}. [{}] \"{}\" sentences {}-{} ({} sentences)\n",
+                marker, i + 1, status, ch.name, ch.start, ch.end, count
+            ));
+        }
+        Ok(out.trim_end().to_string())
+    }
+
+    fn execute_delete_chapter(&mut self, name: &str) -> Result<String, String> {
+        let pos = self.state.chapters.iter().position(|c| c.name == name);
+        match pos {
+            Some(idx) => {
+                self.state.chapters.remove(idx);
+                // Fix up selected index
+                if let Some(sel) = self.state.selected_chapter_idx {
+                    if sel == idx {
+                        self.state.selected_chapter_idx = None;
+                    } else if sel > idx {
+                        self.state.selected_chapter_idx = Some(sel - 1);
+                    }
+                }
+                self.save_chapters();
+                Ok(format!("Chapter '{}' deleted.", name))
+            }
+            None => Err(format!("No chapter named '{}'.", name)),
+        }
+    }
+
+    fn execute_select_chapter(&mut self, name: &str) -> Result<String, String> {
+        let pos = self.state.chapters.iter().position(|c| c.name == name);
+        match pos {
+            Some(idx) => {
+                self.state.selected_chapter_idx = Some(idx);
+                let ch = &self.state.chapters[idx];
+                Ok(format!("Selected chapter '{}' (sentences {}-{}).", ch.name, ch.start, ch.end))
+            }
+            None => Err(format!("No chapter named '{}'.", name)),
+        }
+    }
+
+    fn chapter_is_valid(&self, ch: &crate::app::state::Chapter) -> bool {
+        // Convert 1-based inclusive range to 0-based
+        let start_0 = ch.start.saturating_sub(1);
+        let end_0 = ch.end.saturating_sub(1);
+        for idx in start_0..=end_0 {
+            if let Some(s) = self.state.document.get(idx) {
+                if !s.is_weave_ready() {
+                    return false;
+                }
+            } else {
+                return false; // Out of range
+            }
+        }
+        true
+    }
+
+    fn execute_init_media_workspace(&self) -> Result<String, String> {
+        let output_dir = self.state.output_dir.as_ref()
+            .ok_or("Output directory not set. Use 'set output_dir <path>' first.")?;
+        let book_dir = crate::services::av_producer::AvProducer::resolve_book_dir(output_dir, &self.state.book_name);
+
+        let subdirs = ["tts_files", "audio", "video", "illustrations"];
+
+        // Create whole_book directory structure
+        let whole_book_dir = book_dir.join("whole_book");
+        for sub in &subdirs {
+            let dir = whole_book_dir.join(sub);
+            if !dir.exists() {
+                fs::create_dir_all(&dir)
+                    .map_err(|e| format!("Failed to create '{}': {}", dir.display(), e))?;
+            }
+        }
+        // Also create chunks dir under audio
+        let chunks_dir = whole_book_dir.join("audio").join("chunks");
+        if !chunks_dir.exists() {
+            fs::create_dir_all(&chunks_dir)
+                .map_err(|e| format!("Failed to create '{}': {}", chunks_dir.display(), e))?;
+        }
+
+        let mut created_chapters = Vec::new();
+        // Create per-chapter directory structures
+        for ch in &self.state.chapters {
+            let ch_dir_name = Self::sanitize_name(&ch.name);
+            let ch_dir = book_dir.join(&ch_dir_name);
+            for sub in &subdirs {
+                let dir = ch_dir.join(sub);
+                if !dir.exists() {
+                    fs::create_dir_all(&dir)
+                        .map_err(|e| format!("Failed to create '{}': {}", dir.display(), e))?;
+                }
+            }
+            let ch_chunks_dir = ch_dir.join("audio").join("chunks");
+            if !ch_chunks_dir.exists() {
+                fs::create_dir_all(&ch_chunks_dir)
+                    .map_err(|e| format!("Failed to create '{}': {}", ch_chunks_dir.display(), e))?;
+            }
+            created_chapters.push(ch_dir_name);
+        }
+
+        let mut msg = format!("Media workspace initialized at '{}'.\n  whole_book/", book_dir.display());
+        for name in &created_chapters {
+            msg.push_str(&format!("\n  {}/", name));
+        }
+        Ok(msg)
+    }
+
+    /// Save chapters to _chapters.toml in the project directory.
+    fn save_chapters(&self) {
+        if let Some(cfg) = &self.state.config {
+            let chapters_path = PathBuf::from(&cfg.content_project_dir).join("_chapters.toml");
+            // Use a wrapper struct for proper TOML serialization
+            #[derive(serde::Serialize)]
+            struct ChaptersFile<'a> {
+                chapters: &'a [crate::app::state::Chapter],
+            }
+            let wrapper = ChaptersFile { chapters: &self.state.chapters };
+            if let Ok(toml_str) = toml::to_string_pretty(&wrapper) {
+                let _ = fs::write(&chapters_path, toml_str);
+            }
+        }
+    }
+
+    /// Load chapters from _chapters.toml in the project directory.
+    pub fn load_chapters(&mut self) {
+        if let Some(cfg) = &self.state.config {
+            let chapters_path = PathBuf::from(&cfg.content_project_dir).join("_chapters.toml");
+            if chapters_path.exists() {
+                if let Ok(content) = fs::read_to_string(&chapters_path) {
+                    #[derive(serde::Deserialize)]
+                    struct ChaptersFile {
+                        #[serde(default)]
+                        chapters: Vec<crate::app::state::Chapter>,
+                    }
+                    if let Ok(parsed) = toml::from_str::<ChaptersFile>(&content) {
+                        self.state.chapters = parsed.chapters;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AV Job background worker — reads stdout/stderr from the child process
+// and pushes lines into the shared AvJobState.
+// ---------------------------------------------------------------------------
+
+fn av_job_reader(
+    mut child: std::process::Child,
+    job: std::sync::Arc<std::sync::Mutex<crate::app::state::AvJobState>>,
+) {
+    use std::io::{BufRead, BufReader};
+
+    // Take stdout and stderr from the child
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    // Spawn a thread to read stderr, collecting into a shared buffer
+    let stderr_lines: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let stderr_lines_clone = stderr_lines.clone();
+    let job_clone = job.clone();
+    let stderr_thread = stderr.map(|se| {
+        std::thread::spawn(move || {
+            let reader = BufReader::new(se);
+            for line in reader.lines() {
+                match line {
+                    Ok(l) => {
+                        let trimmed = l.trim_end().to_string();
+                        if !trimmed.is_empty() {
+                            stderr_lines_clone.lock().unwrap().push(trimmed.clone());
+                            job_clone.lock().unwrap().output_lines.push(trimmed);
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        })
+    });
+
+    // Read stdout on the current thread
+    if let Some(so) = stdout {
+        let reader = BufReader::new(so);
+        for line in reader.lines() {
+            match line {
+                Ok(l) => {
+                    let trimmed = l.trim_end().to_string();
+                    if !trimmed.is_empty() {
+                        job.lock().unwrap().output_lines.push(trimmed);
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    }
+
+    // Wait for stderr thread
+    if let Some(t) = stderr_thread {
+        let _ = t.join();
+    }
+
+    // Wait for the child process to exit
+    let status = child.wait();
+    let mut j = job.lock().unwrap();
+    j.child_pid = None;
+
+    if j.cancel_requested {
+        j.output_lines.push("--- Cancelled ---".to_string());
+        j.result_message = Some("AV job cancelled.".to_string());
+    } else {
+        match status {
+            Ok(s) if s.success() => {
+                j.output_lines.push("--- Finished successfully ---".to_string());
+                j.result_message = Some("AV job completed successfully.".to_string());
+            }
+            Ok(s) => {
+                let code = s.code().map(|c| c.to_string()).unwrap_or_else(|| "unknown".to_string());
+                j.output_lines.push(format!("--- Failed (exit code {}) ---", code));
+                j.result_message = Some(format!("AV job failed with exit code {}.", code));
+            }
+            Err(e) => {
+                j.output_lines.push(format!("--- Error waiting for process: {} ---", e));
+                j.result_message = Some(format!("AV job error: {}", e));
+            }
+        }
+    }
+    j.finished = true;
+}
+
+/// Minimal HTML escaping for injecting text into generated HTML.
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }

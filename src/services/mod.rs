@@ -1,3 +1,4 @@
+pub mod av_producer;
 pub mod llm_client;
 pub mod llm_logger;
 pub mod secrets;

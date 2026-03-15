@@ -139,6 +139,11 @@ pub fn spawn_llm_job(
             compute_balanced_chunks(items, batch_size)
         };
 
+        // Clone cancel flag for the callback — if the receiver is gone
+        // (app closed/crashed), tx.send() fails and we set the flag so
+        // the LLM loop stops before making more API calls.
+        let cancel_on_disconnect = cancel_thread_flag.clone();
+
         let result = svc.generate_for_items_streaming(
             &base_code,
             &target_code,
@@ -186,7 +191,13 @@ pub fn spawn_llm_job(
                         .collect()
                 };
 
-                let _ = tx.send(Ok(mapped));
+                // If the receiver is gone, set cancel flag to stop further LLM calls
+                if tx.send(Ok(mapped)).is_err() {
+                    eprintln!("[LLM-THREAD] Dead-man's switch triggered! Channel disconnected — setting cancel flag");
+                    cancel_on_disconnect.store(true, std::sync::atomic::Ordering::SeqCst);
+                } else {
+                    eprintln!("[LLM-THREAD] Batch results sent to GUI successfully");
+                }
             },
         );
 

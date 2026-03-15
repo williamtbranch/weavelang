@@ -21,7 +21,6 @@ pub enum AppCommand {
     GenerateTier { sentence_id: Option<String>, index: Option<usize>, tier_id: String },
     GenerateMapping { sentence_id: Option<String>, index: Option<usize>, source_tier: String, target_tier: String },
     GenerateStage { stage_name: String, start_index: usize, end_index: usize },
-    ApplyCollateral { accept: bool },
     CheckStatus,
     ConfigSet { key: String, value: String },
     ConfigList,
@@ -101,6 +100,10 @@ pub enum AppCommand {
     /// Design Rule Check — validate all sentences for weave readiness.
     Drc,
 
+    /// Structural audit — demote Valid tiers that violate DRC rules.
+    /// Can only invalidate, never promote. Respects editor intent.
+    Audit,
+
     // Debug / Testing
     DebugDump { start_index: usize, end_index: usize, path: Option<String> },
 
@@ -110,9 +113,43 @@ pub enum AppCommand {
     ReportSentencesComplete,
     ReportSentence { start_index: usize, end_index: usize },
 
-    // Terminal Specific (handled by CLI layer, but defined here for parsing convenience or separate enum)
-    // Actually, terminal specific commands shouldn't be in AppCommand if they don't affect AppState.
-    // We'll define a separate enum for TerminalCommand.
+    // AV Production
+    AvInit,
+    AvStatus,
+    AvMark { stems: Vec<String> },
+    AvUnmark { stems: Vec<String> },
+    AvMarkAll,
+    AvClearMarks,
+    AvGenerateAudio { target: AvTarget },
+    AvGenerateVideo { target: AvTarget },
+    AvConfigShow,
+    AvConfigTts { key: String, value: String },
+    AvConfigVideo { key: String, value: String },
+    AvConfigVoices { voices: Vec<String> },
+    AvOpenDir { which: String },
+    AvCancel,
+    AvRejectChunk { stem: String, index: u32 },
+    AvRestoreChunk { stem: String, index: u32 },
+    AvChunkStatus { stem: String },
+    AvRebuildAudio { stem: String },
+
+    // Level Map Inspection
+    ShowLevelMap { level: Option<u32> },
+
+    // Chapter Mode
+    NewChapter { name: String, start: usize, end: usize },
+    ListChapters,
+    DeleteChapter { name: String },
+    SelectChapter { name: String },
+    SetChapterMode { enabled: bool },
+    InitMediaWorkspace,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum AvTarget {
+    Stem(String),
+    Next,
+    All,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -127,6 +164,7 @@ pub enum TerminalCommand {
     Clear,
     History,
     Help,
+    AvHelp,
     Exit,
     /// Show copilot server name and port.
     ServerInfo,

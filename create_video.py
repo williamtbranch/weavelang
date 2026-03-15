@@ -111,49 +111,84 @@ def create_video_from_audio(
 
 
 def main():
-    # This function is unchanged.
     parser = argparse.ArgumentParser(description="Create audiobook-style videos from audio files and illustrations.")
-    parser.add_argument("book_name", type=str, help="The name of the book directory inside the 'video' folder (e.g., 'Metamorphosis').")
+    parser.add_argument("book_name", nargs='?', type=str, default=None, help="The name of the book directory inside the 'video' folder (legacy mode).")
+    parser.add_argument("--audio-file", type=Path, default=None, help="Full path to a single audio file (overrides book_name mode).")
+    parser.add_argument("--illustrations-dir", type=Path, default=None, help="Full path to the illustrations directory.")
+    parser.add_argument("--output-dir", type=Path, default=None, help="Full path to the video output directory.")
+    parser.add_argument("--frame-rate", type=int, default=DEFAULT_FRAME_RATE, help="Output video frame rate.")
+    parser.add_argument("--image-duration", type=int, default=DEFAULT_IMAGE_DURATION_SECONDS, help="Seconds per illustration.")
     args = parser.parse_args()
-    try:
-        with open("config.toml", "rb") as f: config = tomllib.load(f)
-        content_project_dir_str = config.get("content_project_dir")
-        if not content_project_dir_str: raise ValueError("'content_project_dir' not found in config.")
-        content_project_root = Path(content_project_dir_str)
-    except (IOError, ValueError) as e:
-        print(f"Error loading config.toml: {e}"); return
-    
-    video_root = content_project_root / "video"
-    book_dir = video_root / args.book_name
-    audio_dir = book_dir / "audio"
-    illustrations_dir = book_dir / "illustrations"
-    output_dir = book_dir / "output"
 
-    if not book_dir.is_dir(): print(f"Error: Book directory not found at '{book_dir}'"); return
-    if not audio_dir.is_dir(): print(f"Error: Audio directory not found at '{audio_dir}'"); return
-    if not illustrations_dir.is_dir(): print(f"Error: Illustrations directory not found at '{illustrations_dir}'"); return
-    
-    output_dir.mkdir(exist_ok=True)
-    
-    audio_files = sorted([p for p in audio_dir.iterdir() if p.is_file() and p.suffix.lower() in ['.wav', '.mp3', '.flac']])
-    illustration_files = sorted([p for p in illustrations_dir.iterdir() if p.is_file() and p.suffix.lower() in ['.png', '.jpg', '.jpeg']])
+    if args.audio_file and args.illustrations_dir and args.output_dir:
+        # Explicit path mode: process a single audio file with provided paths
+        if not args.audio_file.exists():
+            print(f"Error: Audio file not found at '{args.audio_file}'"); return
+        if not args.illustrations_dir.is_dir():
+            print(f"Error: Illustrations directory not found at '{args.illustrations_dir}'"); return
 
-    if not audio_files: print(f"No audio files found in '{audio_dir}'. Nothing to do."); return
-    if not illustration_files: print(f"No illustrations found in '{illustrations_dir}'. Cannot create videos."); return
+        args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Found {len(audio_files)} audio file(s) and {len(illustration_files)} illustration(s).")
-    print(f"Videos will be saved to: {output_dir}")
+        illustration_files = sorted([p for p in args.illustrations_dir.iterdir() if p.is_file() and p.suffix.lower() in ['.png', '.jpg', '.jpeg']])
+        if not illustration_files:
+            print(f"No illustrations found in '{args.illustrations_dir}'. Cannot create video."); return
 
-    for audio_path in audio_files:
+        print(f"Processing single file with {len(illustration_files)} illustration(s).")
+        print(f"Video will be saved to: {args.output_dir}")
+
         create_video_from_audio(
-            audio_path,
+            args.audio_file,
             illustration_files,
-            output_dir,
-            DEFAULT_FRAME_RATE,
-            DEFAULT_IMAGE_DURATION_SECONDS
+            args.output_dir,
+            args.frame_rate,
+            args.image_duration
         )
-    
-    print("\n--- All videos processed. ---")
+        print("\n--- Video processed. ---")
+
+    elif args.book_name:
+        # Legacy mode: resolve from config.toml
+        try:
+            with open("config.toml", "rb") as f: config = tomllib.load(f)
+            content_project_dir_str = config.get("content_project_dir")
+            if not content_project_dir_str: raise ValueError("'content_project_dir' not found in config.")
+            content_project_root = Path(content_project_dir_str)
+        except (IOError, ValueError) as e:
+            print(f"Error loading config.toml: {e}"); return
+
+        video_root = content_project_root / "video"
+        book_dir = video_root / args.book_name
+        audio_dir = book_dir / "audio"
+        illustrations_dir = book_dir / "illustrations"
+        output_dir = book_dir / "output"
+
+        if not book_dir.is_dir(): print(f"Error: Book directory not found at '{book_dir}'"); return
+        if not audio_dir.is_dir(): print(f"Error: Audio directory not found at '{audio_dir}'"); return
+        if not illustrations_dir.is_dir(): print(f"Error: Illustrations directory not found at '{illustrations_dir}'"); return
+
+        output_dir.mkdir(exist_ok=True)
+
+        audio_files = sorted([p for p in audio_dir.iterdir() if p.is_file() and p.suffix.lower() in ['.wav', '.mp3', '.flac']])
+        illustration_files = sorted([p for p in illustrations_dir.iterdir() if p.is_file() and p.suffix.lower() in ['.png', '.jpg', '.jpeg']])
+
+        if not audio_files: print(f"No audio files found in '{audio_dir}'. Nothing to do."); return
+        if not illustration_files: print(f"No illustrations found in '{illustrations_dir}'. Cannot create videos."); return
+
+        print(f"Found {len(audio_files)} audio file(s) and {len(illustration_files)} illustration(s).")
+        print(f"Videos will be saved to: {output_dir}")
+
+        for audio_path in audio_files:
+            create_video_from_audio(
+                audio_path,
+                illustration_files,
+                output_dir,
+                args.frame_rate,
+                args.image_duration
+            )
+
+        print("\n--- All videos processed. ---")
+    else:
+        print("Error: Provide either --audio-file + --illustrations-dir + --output-dir, or a positional book_name.")
+        parser.print_help()
 
 if __name__ == "__main__":
     main()

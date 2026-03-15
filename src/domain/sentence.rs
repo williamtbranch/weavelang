@@ -56,6 +56,13 @@ impl Sentence {
         let is_forward_diglot =
             mapping.from_tier_id == "basic_base" && mapping.to_tier_id == "basic_target";
 
+        // Replace any existing mapping with the same direction to prevent
+        // stale data.  Display and coverage-check must always see the same
+        // (most-recent) mapping.
+        self.mappings.retain(|m| {
+            !(m.from_tier_id == mapping.from_tier_id && m.to_tier_id == mapping.to_tier_id)
+        });
+
         self.mappings.push(mapping);
 
         if is_forward_diglot {
@@ -277,8 +284,8 @@ impl Sentence {
 
     fn mark_tier_stale(&mut self, tier_id: &str) {
         if let Some(tier) = self.tiers.get_mut(tier_id) {
-            // Only mark as Stale if it was clean (Valid)
-            if tier.state == TierState::Valid {
+            // Only mark as Stale if it was clean (Valid or Pending)
+            if tier.state == TierState::Valid || tier.state == TierState::Pending {
                 tier.state = TierState::Stale;
 
                 // Recurse: if this tier becomes stale, its children also become stale
@@ -337,6 +344,42 @@ impl Sentence {
             m.from_tier_id == "basic_target"
                 && m.to_tier_id == "basic_base"
                 && !m.entries.is_empty()
+        })
+    }
+
+    /// Check whether every Word in the given tier has a corresponding
+    /// MappingEntry in a mapping where `from_tier_id == tier_id`.
+    /// Returns `true` if every word is covered (translation or NO_SUB),
+    /// `false` if any word lacks a mapping entry.
+    pub fn check_mapping_coverage(&self, from_tier_id: &str) -> bool {
+        // Collect all WordIds from the tier's token streams
+        let tier = match self.get_tier(from_tier_id) {
+            Some(t) => t,
+            None => return false,
+        };
+        let word_ids: Vec<WordId> = tier.segments.iter()
+            .flat_map(|seg| seg.stream.tokens().iter())
+            .filter_map(|tok| match tok {
+                Token::Word(wd) => Some(wd.id),
+                _ => None,
+            })
+            .collect();
+
+        if word_ids.is_empty() {
+            return true; // no words → vacuously covered
+        }
+
+        // Find the most recent mapping from this tier
+        let mapping = match self.mappings.iter().rev()
+            .find(|m| m.from_tier_id == from_tier_id)
+        {
+            Some(m) => m,
+            None => return false, // no mapping at all
+        };
+
+        // Check every word has an entry
+        word_ids.iter().all(|wid| {
+            mapping.entries.iter().any(|e| e.source_word_id == *wid)
         })
     }
 

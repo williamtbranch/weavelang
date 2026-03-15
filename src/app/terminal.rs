@@ -3,7 +3,7 @@
 // Terminal command parsing and execution — shared by the interactive REPL and the API server.
 // All output is returned as String rather than printed, so both frontends can use it.
 
-use crate::app::commands::{AppCommand, TerminalCommand};
+use crate::app::commands::{AppCommand, AvTarget, TerminalCommand};
 use crate::app::engine::Engine;
 use crate::domain::mapping_logic::apply_llm_mapping;
 use crate::domain::mapping::TierMapping;
@@ -47,6 +47,74 @@ fn tier_display_alias(tier_id: &str) -> &str {
     }
 }
 
+/// Extract a quoted name from command parts.
+/// Handles both `"Name Here"` (quoted) and `Name` (single unquoted word) forms.
+fn parse_quoted_name(parts: &[&str]) -> String {
+    let joined = parts.join(" ");
+    if joined.starts_with('"') {
+        // Find closing quote
+        if let Some(end) = joined[1..].find('"') {
+            return joined[1..1 + end].to_string();
+        }
+    }
+    // Fall back to first part as an unquoted name
+    if let Some(first) = parts.first() {
+        first.to_string()
+    } else {
+        String::new()
+    }
+}
+
+/// Parse `new chapter "Name Here" 66 150`
+fn parse_new_chapter_command(input: &str) -> Result<TerminalCommand, String> {
+    // Skip "new chapter "
+    let rest = input.trim();
+    let after_new_chapter = if let Some(pos) = rest.find("chapter") {
+        rest[pos + 7..].trim()
+    } else {
+        return Err("Usage: new chapter \"<name>\" <start> <end>".to_string());
+    };
+
+    // Extract quoted name and remaining text
+    let (name, remainder) = if after_new_chapter.starts_with('"') {
+        if let Some(end) = after_new_chapter[1..].find('"') {
+            let name = after_new_chapter[1..1 + end].to_string();
+            let rest = after_new_chapter[2 + end..].trim().to_string();
+            (name, rest)
+        } else {
+            return Err("Unclosed quote in chapter name.".to_string());
+        }
+    } else {
+        // Unquoted: take first token as name
+        let parts: Vec<&str> = after_new_chapter.split_whitespace().collect();
+        if parts.is_empty() {
+            return Err("Usage: new chapter \"<name>\" <start> <end>".to_string());
+        }
+        let name = parts[0].to_string();
+        let rest = parts[1..].join(" ");
+        (name, rest)
+    };
+
+    if name.is_empty() {
+        return Err("Chapter name cannot be empty.".to_string());
+    }
+
+    let nums: Vec<&str> = remainder.split_whitespace().collect();
+    if nums.len() < 2 {
+        return Err("Usage: new chapter \"<name>\" <start> <end>".to_string());
+    }
+    let start = nums[0].parse::<usize>().map_err(|_| "Invalid start number")?;
+    let end = nums[1].parse::<usize>().map_err(|_| "Invalid end number")?;
+    if start == 0 || end == 0 {
+        return Err("Sentence numbers start at 1".to_string());
+    }
+    if start > end {
+        return Err("Start must be <= end.".to_string());
+    }
+
+    Ok(TerminalCommand::App(AppCommand::NewChapter { name, start, end }))
+}
+
 /// Parse a raw terminal input line into a TerminalCommand.
 pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
     let parts: Vec<&str> = input.split_whitespace().collect();
@@ -70,8 +138,10 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
                 let n = parts[2].parse::<usize>().map_err(|_| "Invalid sentence number")?;
                 if n == 0 { return Err("Sentence numbers start at 1".to_string()); }
                 Ok(TerminalCommand::App(AppCommand::ListPnLemmas { index: n - 1 }))
+            } else if parts.len() > 1 && parts[1] == "chapters" {
+                Ok(TerminalCommand::App(AppCommand::ListChapters))
             } else {
-                Err("Unknown list command. Try 'list nav' or 'list pn_lemmas <N>'".to_string())
+                Err("Unknown list command. Try 'list nav', 'list pn_lemmas <N>', or 'list chapters'".to_string())
             }
         },
         "load" => {
@@ -105,7 +175,11 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
             }
         },
         "select" => {
-            if parts.len() > 2 && parts[1] == "sentence" {
+            if parts.len() > 2 && parts[1] == "chapter" {
+                let name = parse_quoted_name(&parts[2..]);
+                if name.is_empty() { return Err("Usage: select chapter \"<name>\"".to_string()); }
+                Ok(TerminalCommand::App(AppCommand::SelectChapter { name }))
+            } else if parts.len() > 2 && parts[1] == "sentence" {
                 let val = parts[2];
                 if val.starts_with('S') {
                     Ok(TerminalCommand::App(AppCommand::SelectSentence { id: Some(val.to_string()), index: None }))
@@ -178,8 +252,6 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
             if parts.len() == 1 {
                 // Bare 'approve' — use current selection (sentinel usize::MAX resolved in engine)
                 Ok(TerminalCommand::App(AppCommand::ApproveTier { index: usize::MAX, tier_id: String::new() }))
-            } else if parts[1] == "collateral" {
-                Ok(TerminalCommand::App(AppCommand::ApplyCollateral { accept: true }))
             } else if parts.len() > 3 && parts[1] == "tier" {
                 let n = parts[2].parse::<usize>().map_err(|_| "Invalid sentence number")?;
                 if n == 0 { return Err("Sentence numbers start at 1".to_string()); }
@@ -198,14 +270,7 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
                     }
                 }
             } else {
-                Err("Usage: approve | approve tier <N> <tier> | approve collateral".to_string())
-            }
-        },
-        "discard" => {
-            if parts.len() > 1 && parts[1] == "collateral" {
-                Ok(TerminalCommand::App(AppCommand::ApplyCollateral { accept: false }))
-            } else {
-                 Err("Usage: discard collateral".to_string())
+                Err("Usage: approve | approve tier <N> <tier>".to_string())
             }
         },
         "run" => {
@@ -265,8 +330,14 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
             } else if parts.len() > 2 && parts[1] == "book_name" {
                 let name = parts[2..].join(" ");
                 Ok(TerminalCommand::App(AppCommand::SetBookName { name }))
+            } else if parts.len() > 2 && parts[1] == "chapter_mode" {
+                match parts[2] {
+                    "true" | "on" | "1" => Ok(TerminalCommand::App(AppCommand::SetChapterMode { enabled: true })),
+                    "false" | "off" | "0" => Ok(TerminalCommand::App(AppCommand::SetChapterMode { enabled: false })),
+                    _ => Err("Usage: set chapter_mode true|false".to_string()),
+                }
             } else {
-                Err("Usage: set right_view <v> | set left_view <v> | set output_dir <p> | set key <anthropic|google> <value> | set languages <source> <target> | set book_name <name>".to_string())
+                Err("Usage: set right_view <v> | set left_view <v> | set output_dir <p> | set key <anthropic|google> <value> | set languages <source> <target> | set book_name <name> | set chapter_mode true|false".to_string())
             }
         },
         "show" => {
@@ -276,8 +347,15 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
                 Ok(TerminalCommand::ShowMapping)
             } else if parts.len() > 1 && parts[1] == "tokens" {
                 Ok(TerminalCommand::ShowTokens)
+            } else if parts.len() > 1 && (parts[1] == "level_map" || parts[1] == "levelmap") {
+                let level = if parts.len() > 2 {
+                    Some(parts[2].parse::<u32>().map_err(|_| format!("Invalid level '{}'. Use a number.", parts[2]))?)
+                } else {
+                    None
+                };
+                Ok(TerminalCommand::App(AppCommand::ShowLevelMap { level }))
             } else {
-                Err("Usage: show detail | show mapping | show tokens".to_string())
+                Err("Usage: show detail | show mapping | show tokens | show level_map [level]".to_string())
             }
         },
         "print" => {
@@ -342,6 +420,9 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
         "drc" => {
             Ok(TerminalCommand::App(AppCommand::Drc))
         },
+        "audit" => {
+            Ok(TerminalCommand::App(AppCommand::Audit))
+        },
         "open" => {
             if parts.len() > 2 && parts[1] == "workspace" {
                 let path = parts[2..].join(" ");
@@ -367,7 +448,11 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
             }
         },
         "delete" => {
-            if parts.len() > 2 && parts[1] == "key" {
+            if parts.len() > 2 && parts[1] == "chapter" {
+                let name = parse_quoted_name(&parts[2..]);
+                if name.is_empty() { return Err("Usage: delete chapter \"<name>\"".to_string()); }
+                Ok(TerminalCommand::App(AppCommand::DeleteChapter { name }))
+            } else if parts.len() > 2 && parts[1] == "key" {
                 Ok(TerminalCommand::App(AppCommand::DeleteKey { provider: parts[2].to_string() }))
             } else if parts.len() > 1 {
                 // delete <N>  — delete word token at 1-based word index on selected sent/tier
@@ -570,8 +655,10 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
         "init" => {
             if parts.len() > 1 && parts[1] == "mapping" {
                 Ok(TerminalCommand::App(AppCommand::InitMapping))
+            } else if parts.len() > 1 && parts[1] == "media" {
+                Ok(TerminalCommand::App(AppCommand::InitMediaWorkspace))
             } else {
-                Err("Usage: init mapping".to_string())
+                Err("Usage: init mapping | init media".to_string())
             }
         },
         "server" => {
@@ -585,8 +672,11 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
             if parts.len() > 2 && parts[1] == "project" {
                 let name = parts[2..].join(" ");
                 Ok(TerminalCommand::App(AppCommand::NewProject { name }))
+            } else if parts.len() > 1 && parts[1] == "chapter" {
+                // new chapter "Name Here" 66 150
+                parse_new_chapter_command(input)
             } else {
-                Err("Usage: new project <name>".to_string())
+                Err("Usage: new project <name> | new chapter \"<name>\" <start> <end>".to_string())
             }
         },
         "close" => {
@@ -605,7 +695,132 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
                 Err("Usage: remove sentence <N>".to_string())
             }
         },
+        "av" => parse_av_command(&parts[1..]),
         _ => Err(format!("Unknown command: {}", parts[0])),
+    }
+}
+
+/// Parse `av` subcommands.
+fn parse_av_command(parts: &[&str]) -> Result<TerminalCommand, String> {
+    if parts.is_empty() {
+        return Err("Usage: av <subcommand>. Try 'av help' for details.".to_string());
+    }
+    match parts[0] {
+        "init" => Ok(TerminalCommand::App(AppCommand::AvInit)),
+        "status" | "scan" => Ok(TerminalCommand::App(AppCommand::AvStatus)),
+        "mark" => {
+            if parts.len() < 2 {
+                return Err("Usage: av mark <stem> [stem2 ...]".to_string());
+            }
+            let stems = parts[1..].iter().map(|s| s.to_string()).collect();
+            Ok(TerminalCommand::App(AppCommand::AvMark { stems }))
+        }
+        "unmark" => {
+            if parts.len() < 2 {
+                return Err("Usage: av unmark <stem> [stem2 ...]".to_string());
+            }
+            let stems = parts[1..].iter().map(|s| s.to_string()).collect();
+            Ok(TerminalCommand::App(AppCommand::AvUnmark { stems }))
+        }
+        "mark-all" => Ok(TerminalCommand::App(AppCommand::AvMarkAll)),
+        "clear-marks" => Ok(TerminalCommand::App(AppCommand::AvClearMarks)),
+        "generate" => {
+            if parts.len() < 2 {
+                return Err("Usage: av generate audio|video [stem|next|all]".to_string());
+            }
+            let target = if parts.len() >= 3 {
+                match parts[2] {
+                    "next" => AvTarget::Next,
+                    "all" => AvTarget::All,
+                    stem => AvTarget::Stem(stem.to_string()),
+                }
+            } else {
+                AvTarget::Next
+            };
+            match parts[1] {
+                "audio" => Ok(TerminalCommand::App(AppCommand::AvGenerateAudio { target })),
+                "video" => Ok(TerminalCommand::App(AppCommand::AvGenerateVideo { target })),
+                _ => Err("Usage: av generate audio|video [stem|next|all]".to_string()),
+            }
+        }
+        "config" => {
+            if parts.len() < 2 {
+                return Err("Usage: av config show | av config tts|video|voices <key> <value>".to_string());
+            }
+            match parts[1] {
+                "show" => Ok(TerminalCommand::App(AppCommand::AvConfigShow)),
+                "tts" => {
+                    if parts.len() < 4 {
+                        return Err("Usage: av config tts <key> <value>".to_string());
+                    }
+                    let key = parts[2].to_string();
+                    let value = parts[3..].join(" ");
+                    Ok(TerminalCommand::App(AppCommand::AvConfigTts { key, value }))
+                }
+                "video" => {
+                    if parts.len() < 4 {
+                        return Err("Usage: av config video <key> <value>".to_string());
+                    }
+                    let key = parts[2].to_string();
+                    let value = parts[3..].join(" ");
+                    Ok(TerminalCommand::App(AppCommand::AvConfigVideo { key, value }))
+                }
+                "voices" => {
+                    if parts.len() < 3 {
+                        return Err("Usage: av config voices <v1> [v2 ...]".to_string());
+                    }
+                    let voices = parts[2..].iter().map(|s| s.to_string()).collect();
+                    Ok(TerminalCommand::App(AppCommand::AvConfigVoices { voices }))
+                }
+                _ => Err("Usage: av config show | av config tts|video|voices <key> <value>".to_string()),
+            }
+        }
+        "open" => {
+            if parts.len() < 2 {
+                return Err("Usage: av open book-dir|audio-dir|video-dir".to_string());
+            }
+            let which = parts[1].to_string();
+            Ok(TerminalCommand::App(AppCommand::AvOpenDir { which }))
+        }
+        "cancel" | "stop" => Ok(TerminalCommand::App(AppCommand::AvCancel)),
+        "reject" => {
+            // av reject chunk <stem> <index>
+            if parts.len() < 4 || parts[1] != "chunk" {
+                return Err("Usage: av reject chunk <stem> <index>".to_string());
+            }
+            let stem = parts[2].to_string();
+            let index: u32 = parts[3].parse().map_err(|_| "Chunk index must be a number.".to_string())?;
+            Ok(TerminalCommand::App(AppCommand::AvRejectChunk { stem, index }))
+        }
+        "restore" => {
+            // av restore chunk <stem> <index>
+            if parts.len() < 4 || parts[1] != "chunk" {
+                return Err("Usage: av restore chunk <stem> <index>".to_string());
+            }
+            let stem = parts[2].to_string();
+            let index: u32 = parts[3].parse().map_err(|_| "Chunk index must be a number.".to_string())?;
+            Ok(TerminalCommand::App(AppCommand::AvRestoreChunk { stem, index }))
+        }
+        "chunks" => {
+            // av chunks <stem>
+            if parts.len() < 2 {
+                return Err("Usage: av chunks <stem>".to_string());
+            }
+            let stem = parts[1].to_string();
+            Ok(TerminalCommand::App(AppCommand::AvChunkStatus { stem }))
+        }
+        "rebuild" => {
+            // av rebuild audio <stem>
+            if parts.len() < 3 || parts[1] != "audio" {
+                return Err("Usage: av rebuild audio <stem>".to_string());
+            }
+            let stem = parts[2].to_string();
+            Ok(TerminalCommand::App(AppCommand::AvRebuildAudio { stem }))
+        }
+        "help" => {
+            Ok(TerminalCommand::AvHelp)
+        }
+        _ => Err(format!("Unknown av subcommand: '{}'. Try 'av help'.", parts[0])),
     }
 }
 
@@ -636,7 +851,6 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  config list            - List config\n");
             out.push_str("  export level_map [p]   - Export level map (.lm file)\n");
             out.push_str("  run generate <S> <s> <e> - Run generation stage (s,e are 1-based)\n");
-            out.push_str("  approve collateral     - Approve collateral updates\n");
             out.push_str("  approve tier <N> <tier> - Approve tier as Valid (lemmatizes if bridge available)\n");
             out.push_str("  show detail            - Show selected sentence details\n");
             out.push_str("  show mapping           - Show mappings for selected sentence/tier (human-readable)\n");
@@ -669,6 +883,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  rm seg <N> <tier> <seg_id>           - Remove segment\n");
             out.push_str("  lemmatize <N> <tier>   - Re-lemmatize tier segments via SpaCy\n");
             out.push_str("  validate <N> <tier>    - Lemmatize + mark tier Valid\n");
+            out.push_str("  audit                  - Demote Valid tiers that violate DRC rules\n");
             out.push_str("\n--- Token/Mapping Editing (Bas B / Bas T) ---\n");
             out.push_str("  split <N>              - Split word at index N into sub-tokens\n");
             out.push_str("  merge <N>-<M>          - Merge words N through M into one\n");
@@ -679,9 +894,50 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  edit_targets N:t N:t .. - Batch edit mapping targets (e.g. 1:La 2:vieja)\n");
             out.push_str("  init mapping           - Init empty mapping on selected sentence/tier\n");
             out.push_str("  accept map             - Accept mapping, mark tier Valid\n");
+            out.push_str("\n--- Chapter Mode ---\n");
+            out.push_str("  new chapter \"<name>\" <start> <end> - Define a chapter (1-based sentence range)\n");
+            out.push_str("  list chapters          - List all chapters with ranges and validity\n");
+            out.push_str("  delete chapter \"<name>\" - Remove a chapter definition\n");
+            out.push_str("  select chapter \"<name>\" - Select a chapter as current\n");
+            out.push_str("  set chapter_mode true|false - Toggle chapter mode\n");
+            out.push_str("  init media             - Create media workspace directory structure\n");
             out.push_str("\n--- Co-Pilot ---\n");
             out.push_str("  server info            - Show copilot server name and port\n");
+            out.push_str("\n--- AV Production ---\n");
+            out.push_str("  av status              - Show audio/video file status\n");
+            out.push_str("  av mark/unmark <stem>  - Mark/unmark files for AV\n");
+            out.push_str("  av generate audio|video [stem|next|all] - Generate media\n");
+            out.push_str("  av cancel              - Cancel running AV generation\n");
+            out.push_str("  av chunks <stem>       - Show chunk status for a stem\n");
+            out.push_str("  av rebuild audio <stem> - Rebuild final audio from chunks\n");
+            out.push_str("  av config show         - Show AV config\n");
+            out.push_str("  av help                - Full AV command list\n");
             out.push_str("  exit                   - Exit");
+        },
+        TerminalCommand::AvHelp => {
+            out.push_str("AV Production commands:\n");
+            out.push_str("  av init                    - Create default AV manifest\n");
+            out.push_str("  av status                  - Show file status table\n");
+            out.push_str("  av mark <stem> [stem2...]   - Mark files for AV production\n");
+            out.push_str("  av unmark <stem> [stem2...] - Unmark files\n");
+            out.push_str("  av mark-all                - Mark all woven text files\n");
+            out.push_str("  av clear-marks             - Remove all marks\n");
+            out.push_str("  av generate audio [stem|next|all] - Generate audio\n");
+            out.push_str("  av generate video [stem|next|all] - Generate video\n");
+            out.push_str("  av config show             - Show AV config\n");
+            out.push_str("  av config tts <key> <val>  - Set TTS config value\n");
+            out.push_str("  av config video <key> <val> - Set video config value\n");
+            out.push_str("  av config voices <v1> ...  - Set voice list\n");
+            out.push_str("  av open book-dir|audio-dir|video-dir|illustrations - Open folder\n");
+            out.push_str("  av cancel                  - Cancel running AV generation\n");
+            out.push_str("  av chunks <stem>           - Show chunk status for a stem\n");
+            out.push_str("  av reject chunk <stem> <N> - Mark chunk N as bad (.wav.bad)\n");
+            out.push_str("  av restore chunk <stem> <N> - Restore rejected chunk N\n");
+            out.push_str("  av rebuild audio <stem>    - Concatenate good chunks into final audio\n");
+            out.push_str("  av help                    - This help text\n");
+            out.push_str("\nPrerequisites:\n");
+            out.push_str("  Audio:  Python + Google API key (set key google AIza...)\n");
+            out.push_str("  Video:  Python + ffmpeg on PATH + illustrations in book dir\n");
         },
         TerminalCommand::Clear => {
             out.push_str("\x1B[2J\x1B[1;1H");
@@ -1113,6 +1369,7 @@ pub fn apply_llm_result(
             }
 
             if let Some(m) = mapping_to_add {
+                let source_id_owned = source_id.to_string();
                 sent.add_mapping(m);
 
                 // Mirror the Python pipeline's FinalizeMappings stage:
@@ -1120,6 +1377,23 @@ pub fn apply_llm_result(
                 // SpaCy (forward diglot) or the basic_target token
                 // stream (inverse diglot).
                 sent.finalize_mapping_lemmas(bridge, target_lang_code);
+
+                // Round-trip validation: upgrade the source tier from Stale
+                // to Valid if every word now has a mapping entry, or Broken
+                // if the mapping is incomplete.
+                if sent.check_mapping_coverage(&source_id_owned) {
+                    if let Some(tier) = sent.get_tier_mut(&source_id_owned) {
+                        if tier.state == crate::domain::tier::TierState::Stale
+                            || tier.state == crate::domain::tier::TierState::Pending
+                        {
+                            tier.state = crate::domain::tier::TierState::Valid;
+                        }
+                    }
+                } else {
+                    if let Some(tier) = sent.get_tier_mut(&source_id_owned) {
+                        tier.state = crate::domain::tier::TierState::Broken;
+                    }
+                }
             }
         }
     } else {
@@ -1151,6 +1425,22 @@ pub fn apply_llm_result(
         } else {
             let segments = crate::services::tier_processor::tokenize_only(actual_text, lang_code, bridge);
             sent.update_tier_with_segments(tier_id, segments);
+        }
+
+        // Store the input text so we can validate the round-trip later.
+        if let Some(tier) = sent.get_tier_mut(tier_id) {
+            tier.input_text = Some(actual_text.to_string());
+        }
+
+        // NOTE: basic_base / basic_target are left Valid after LLM generation.
+        // The follow-up mapping stage (GeneratePhraseMap) requires the source
+        // tier to be Valid, so downgrading to Stale here would deadlock the
+        // auto-queued follow-up pipeline.  The follow-up queue itself signals
+        // that mapping is still pending.
+        if matches!(tier_id, "basic_base" | "basic_target") {
+            if let Some(tier) = sent.get_tier_mut(tier_id) {
+                tier.state = crate::domain::tier::TierState::Pending;
+            }
         }
 
         // If segmentation failed, downgrade from Valid to Stale so the UI shows a warning.

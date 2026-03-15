@@ -227,6 +227,7 @@ pub fn calibrate_from_chapter(
     json_chapter: &JsonChapter,
     master_scale: &[u32],
     max_level: u32,
+    total_sentences_hint: Option<usize>,
 ) -> Result<HashMap<String, JsonCurriculumMap>, Box<dyn Error>> {
     println!("[INFO] Starting in-memory calibration...");
 
@@ -279,6 +280,7 @@ pub fn calibrate_from_chapter(
         &u_level_analysis,
         json_chapter,
         master_scale,
+        total_sentences_hint,
     )?;
 
     let level_count = curriculum_maps.len();
@@ -460,7 +462,7 @@ fn generate_curriculum_maps(
     master_avd_scale_path: &Path,
 ) -> Result<HashMap<String, JsonCurriculumMap>, Box<dyn Error>> {
     let master_scale = parse_master_avd_scale(master_avd_scale_path)?;
-    generate_curriculum_maps_from_scale(max_level, u_level_analysis, json_chapter, &master_scale)
+    generate_curriculum_maps_from_scale(max_level, u_level_analysis, json_chapter, &master_scale, None)
 }
 
 fn generate_curriculum_maps_from_scale(
@@ -468,6 +470,7 @@ fn generate_curriculum_maps_from_scale(
     u_level_analysis: &ULevelAnalysisData,
     json_chapter: &JsonChapter,
     master_scale: &[u32],
+    total_sentences_hint: Option<usize>,
 ) -> Result<HashMap<String, JsonCurriculumMap>, Box<dyn Error>> {
     let mut curriculum_maps = HashMap::new();
 
@@ -475,7 +478,7 @@ fn generate_curriculum_maps_from_scale(
     // recipe tier is NOT exhausted (i.e. not u32::MAX).  We use floor()
     // because if the peak micro-level is e.g. 34.8, the last useful
     // start_level is 34 — start_level 35 would begin entirely exhausted.
-    let natural_peak_level = u_level_analysis
+    let vocab_peak_level = u_level_analysis
         .u_level_map
         .iter()
         .filter(|e| {
@@ -487,17 +490,37 @@ fn generate_curriculum_maps_from_scale(
         .max()
         .unwrap_or(max_level);
 
+    // When extrapolating (chapter mode), the vocabulary-based peak is
+    // artificially low because we only analysed a fraction of the book.
+    // Trust the master_scale length as the upper bound instead.
+    let natural_peak_level = if total_sentences_hint.is_some() {
+        let scale_max = master_scale.len().saturating_sub(1) as u32;
+        vocab_peak_level.max(scale_max).min(max_level)
+    } else {
+        vocab_peak_level
+    };
+
     // The effective max is whichever is smaller: the natural peak or the
     // formula-based max_level.  We add 1 so the final level that *just*
     // exhausted still gets a map entry (the reader can start there and
     // finish at end_level).
     let effective_max = natural_peak_level.min(max_level);
     println!(
-        "  -> Natural peak detected at UL{} (formula max {})",
-        effective_max, max_level
+        "  -> Natural peak detected at UL{} (formula max {}{})",
+        effective_max,
+        max_level,
+        if total_sentences_hint.is_some() {
+            format!(", vocab peak {}, extrapolating", vocab_peak_level)
+        } else {
+            String::new()
+        }
     );
 
-    let total_words_in_book: f64 = json_chapter
+    // Count actual (non-placeholder) words and sentences in the input.
+    // In chapter mode the json_chapter contains placeholder sentences with
+    // no tiers; we must exclude those from the average or the extrapolation
+    // collapses back to the raw word count.
+    let actual_words: f64 = json_chapter
         .content_blocks
         .iter()
         .map(|cb| match cb {
@@ -509,11 +532,35 @@ fn generate_curriculum_maps_from_scale(
             _ => 0,
         })
         .sum::<usize>() as f64;
-    let total_sentences_in_book = json_chapter
+    let actual_sentences = json_chapter
         .content_blocks
         .iter()
-        .filter(|cb| matches!(cb, JsonContentBlock::Sentence(_)))
+        .filter(|cb| match cb {
+            JsonContentBlock::Sentence(s) => s
+                .tiers
+                .iter()
+                .any(|t| t.tier_id == "basic_base" && !t.full_text.trim().is_empty()),
+            _ => false,
+        })
         .count();
+
+    // When a total_sentences_hint is provided (chapter mode), extrapolate
+    // word count from the average words-per-sentence of the complete data.
+    let (total_words_in_book, total_sentences_in_book) = if let Some(hint) = total_sentences_hint {
+        let avg_words_per_sentence = if actual_sentences > 0 {
+            actual_words / actual_sentences as f64
+        } else {
+            15.0 // reasonable fallback
+        };
+        let extrapolated_words = avg_words_per_sentence * hint as f64;
+        println!(
+            "  -> Extrapolating: {:.0} actual words in {} sentences -> avg {:.1} w/s -> {:.0} estimated total ({} sentences)",
+            actual_words, actual_sentences, avg_words_per_sentence, extrapolated_words, hint
+        );
+        (extrapolated_words, hint)
+    } else {
+        (actual_words, actual_sentences)
+    };
 
     for start_level in 1..=effective_max {
         let mut time_costs: Vec<(u32, f64)> = Vec::new();
@@ -584,6 +631,15 @@ fn generate_curriculum_maps_from_scale(
                 .round() as usize;
             if sentence_cursor >= total_sentences_in_book {
                 sentence_cursor = total_sentences_in_book - 1;
+            }
+        }
+
+        // Post-process: enforce minimum basic vocabulary ramp-up.
+        // ceil(level) - 1 gives: 1.0→0, 1.1→1, 2.0→1, 2.1→2, 3.0→2, 3.1→3, etc.
+        for entry in &mut map {
+            let min_bas = (entry.level.ceil() as u32).saturating_sub(1);
+            if entry.recipe.bas < min_bas {
+                entry.recipe.bas = min_bas;
             }
         }
 

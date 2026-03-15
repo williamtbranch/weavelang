@@ -123,6 +123,9 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
                     TierState::Stale => {
                         ui.colored_label(egui::Color32::from_rgb(255, 140, 0), "[Stale]")
                     }
+                    TierState::Pending => {
+                        ui.colored_label(egui::Color32::from_rgb(100, 149, 237), "[Pending]")
+                    }
                     TierState::Broken => ui.colored_label(egui::Color32::RED, "[BROKEN]"),
                 };
             } else {

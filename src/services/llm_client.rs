@@ -338,6 +338,9 @@ struct GeminiContent {
 #[derive(Serialize, Deserialize, Debug)]
 struct GeminiPart {
     text: String,
+    /// Present in thinking-model responses; we ignore it.
+    #[serde(rename = "thoughtSignature", default, skip_serializing)]
+    _thought_signature: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -345,6 +348,14 @@ struct GeminiGenerationConfig {
     temperature: f32,
     #[serde(rename = "maxOutputTokens")]
     max_output_tokens: u32,
+    #[serde(rename = "thinkingConfig", skip_serializing_if = "Option::is_none")]
+    thinking_config: Option<GeminiThinkingConfig>,
+}
+
+#[derive(Serialize)]
+struct GeminiThinkingConfig {
+    #[serde(rename = "thinkingBudget")]
+    thinking_budget: u32,
 }
 
 #[derive(Deserialize, Debug)]
@@ -412,6 +423,7 @@ impl GeminiClient {
                 role: Some("user".to_string()),
                 parts: vec![GeminiPart {
                     text: user_prompt.to_string(),
+                    _thought_signature: None,
                 }],
             }],
             system_instruction: if system_prompt.is_empty() {
@@ -421,12 +433,16 @@ impl GeminiClient {
                     role: None,
                     parts: vec![GeminiPart {
                         text: system_prompt.to_string(),
+                        _thought_signature: None,
                     }],
                 })
             },
             generation_config: Some(GeminiGenerationConfig {
                 temperature: 0.0,
                 max_output_tokens: 8192,
+                thinking_config: Some(GeminiThinkingConfig {
+                    thinking_budget: 1024,
+                }),
             }),
         };
 

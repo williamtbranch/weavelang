@@ -209,7 +209,10 @@ async def process_book_to_audio_async(
     effective_args: argparse.Namespace
 ):
     semaphore = asyncio.Semaphore(effective_args.concurrent_requests)
-    temp_chunk_dir = output_file_path.parent / TEMP_DIR_NAME / output_file_path.stem
+    if args.chunks_dir:
+        temp_chunk_dir = args.chunks_dir.resolve()
+    else:
+        temp_chunk_dir = output_file_path.parent / TEMP_DIR_NAME / output_file_path.stem
     temp_chunk_dir.mkdir(parents=True, exist_ok=True)
     metadata_file_path = temp_chunk_dir / METADATA_FILENAME
     
@@ -234,8 +237,8 @@ async def process_book_to_audio_async(
     # --- END NEW ---
 
     tasks_to_generate = []
-    if args.repair_mode:
-        logging.info("--- REPAIR MODE ENABLED ---")
+    if args.repair_mode or args.chunks_dir:
+        logging.info("--- GAP-DETECTION MODE ---")
         for i, text_content in enumerate(text_chunks_from_file):
             if not text_content.strip(): continue
             expected_audio_file = temp_chunk_dir / f"temp_chunk_{i:04d}.wav"; expected_silence_file = temp_chunk_dir / f"temp_chunk_{i:04d}_silence.wav"
@@ -278,6 +281,11 @@ async def process_book_to_audio_async(
             # --- END NEW ---
     else:
         logging.info("No chunks required TTS generation in this run.")
+
+    if args.no_concat:
+        logging.info("--no-concat flag set. Skipping final audio concatenation.")
+        logging.info(f"Audio chunks are in: {temp_chunk_dir}")
+        return
 
     # --- NEW: Robust Merging Pre-Check ---
     logging.info("Verifying all audio chunks are present before concatenation...")
@@ -340,7 +348,9 @@ async def main_async():
     parser.add_argument("--use-vertex-auth-for-gemini", action="store_true", help="Use Vertex AI authentication for Gemini models (production quotas).")
     parser.add_argument("--gcloud-project", help="Your Google Cloud Project ID (optional, but recommended for clarity).")
     parser.add_argument("--delay-between-chunks", type=int, default=0, help="Seconds to wait after processing each chunk to avoid rate limits.")
-    parser.add_argument("--input-filename", required=True)
+    parser.add_argument("--input-filename", required=False, default=None)
+    parser.add_argument("--input-file", type=Path, default=None, help="Full path to the input text file (overrides --input-filename + config.toml resolution).")
+    parser.add_argument("--output-dir", type=Path, default=None, help="Full path to the output audio directory (overrides config.toml resolution).")
     parser.add_argument("--tool-root-dir", type=Path, default=Path(__file__).resolve().parent)
     parser.add_argument("--tts-service", default=DEFAULT_TTS_SERVICE, choices=["gemini", "vertex"])
     parser.add_argument("--api-key", help="Google API Key (for Gemini free tier).")
@@ -357,6 +367,9 @@ async def main_async():
     parser.add_argument("--output-audio-format", default=DEFAULT_OUTPUT_AUDIO_FORMAT)
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
     parser.add_argument("--repair-mode", action="store_true")
+    parser.add_argument("--chunks-dir", type=Path, default=None, help="Directory for audio chunks. Enables gap-detection mode.")
+    parser.add_argument("--no-concat", action="store_true", help="Skip final audio concatenation.")
+    parser.add_argument("--concat-only", action="store_true", help="Skip TTS generation and only concatenate existing chunks.")
     args = parser.parse_args()
 
     if args.voice_name is None:
@@ -368,35 +381,93 @@ async def main_async():
     load_dotenv(dotenv_path=args.tool_root_dir / ".env")
     
     client = None
-    if args.tts_service == "gemini":
-        if not google_genai: logging.critical("Gemini API library not installed."); return
-        try:
-            if args.use_vertex_auth_for_gemini:
-                if not google.auth: logging.critical("Google Auth library not found."); return
-                logging.info("Attempting to authenticate using Google Cloud Application Default Credentials (ADC)...")
-                credentials, discovered_project_id = google.auth.default()
-                project_id_to_use = args.gcloud_project or discovered_project_id
-                if not project_id_to_use: logging.critical("Could not discover Google Cloud Project ID."); return
-                logging.info(f"Initializing Gemini client for Vertex AI project '{project_id_to_use}'...")
-                client = google_genai.Client(project=project_id_to_use, credentials=credentials)
-                logging.info("Gemini client configured for Vertex AI successfully.")
-            else:
-                api_key_to_use = args.api_key or os.getenv("GOOGLE_API_KEY")
-                if not api_key_to_use: logging.critical("Gemini API Key not found."); return
-                client = google_genai.Client(api_key=api_key_to_use)
-                logging.info("Gemini API (free tier) client configured.")
-        except Exception as e:
-            logging.critical(f"Failed to configure Gemini client. Error: {e}", exc_info=True); return
+    if not args.concat_only:
+        if args.tts_service == "gemini":
+            if not google_genai: logging.critical("Gemini API library not installed."); return
+            try:
+                if args.use_vertex_auth_for_gemini:
+                    if not google.auth: logging.critical("Google Auth library not found."); return
+                    logging.info("Attempting to authenticate using Google Cloud Application Default Credentials (ADC)...")
+                    credentials, discovered_project_id = google.auth.default()
+                    project_id_to_use = args.gcloud_project or discovered_project_id
+                    if not project_id_to_use: logging.critical("Could not discover Google Cloud Project ID."); return
+                    logging.info(f"Initializing Gemini client for Vertex AI project '{project_id_to_use}'...")
+                    client = google_genai.Client(project=project_id_to_use, credentials=credentials)
+                    logging.info("Gemini client configured for Vertex AI successfully.")
+                else:
+                    api_key_to_use = args.api_key or os.getenv("GOOGLE_API_KEY")
+                    if not api_key_to_use: logging.critical("Gemini API Key not found."); return
+                    client = google_genai.Client(api_key=api_key_to_use)
+                    logging.info("Gemini API (free tier) client configured.")
+            except Exception as e:
+                logging.critical(f"Failed to configure Gemini client. Error: {e}", exc_info=True); return
 
-    elif args.tts_service == "vertex":
-        if not texttospeech: logging.critical("Google Cloud Text-to-Speech library not installed."); return
-        try: client = texttospeech.TextToSpeechAsyncClient()
-        except Exception as e: logging.critical(f"Failed to configure Vertex AI client: {e}"); return
+        elif args.tts_service == "vertex":
+            if not texttospeech: logging.critical("Google Cloud Text-to-Speech library not installed."); return
+            try: client = texttospeech.TextToSpeechAsyncClient()
+            except Exception as e: logging.critical(f"Failed to configure Vertex AI client: {e}"); return
     
-    tool_config = load_project_config(args.tool_root_dir)
-    content_project_dir_str = tool_config.get("content_project_dir"); content_project_dir = Path(content_project_dir_str).resolve()
-    input_text_file = content_project_dir / "generated_tts_input" / args.input_filename
-    output_audio_dir = content_project_dir / "audio"; output_audio_file_path = output_audio_dir / f"{Path(args.input_filename).stem}.{args.output_audio_format}"
+    # --- Path resolution: explicit paths take priority over config.toml ---
+    if args.input_file and args.output_dir:
+        # Rust app path mode: full paths provided directly
+        input_text_file = args.input_file.resolve()
+        output_audio_dir = args.output_dir.resolve()
+        output_audio_file_path = output_audio_dir / f"{input_text_file.stem}.{args.output_audio_format}"
+        # Populate input_filename for metadata (used in process_book_to_audio_async)
+        if not args.input_filename:
+            args.input_filename = input_text_file.name
+    elif args.input_filename:
+        # Legacy CLI mode: resolve from config.toml
+        tool_config = load_project_config(args.tool_root_dir)
+        content_project_dir_str = tool_config.get("content_project_dir"); content_project_dir = Path(content_project_dir_str).resolve()
+        input_text_file = content_project_dir / "generated_tts_input" / args.input_filename
+        output_audio_dir = content_project_dir / "audio"; output_audio_file_path = output_audio_dir / f"{Path(args.input_filename).stem}.{args.output_audio_format}"
+    else:
+        logging.critical("Either --input-file + --output-dir or --input-filename must be provided."); return
+
+    # --- concat-only mode: skip TTS, just concatenate existing chunks ---
+    if args.concat_only:
+        if not args.chunks_dir:
+            logging.critical("--concat-only requires --chunks-dir"); return
+        temp_chunk_dir = args.chunks_dir.resolve()
+        if not temp_chunk_dir.exists():
+            logging.critical(f"Chunks directory not found: {temp_chunk_dir}"); return
+        logging.info(f"Concat-only mode: concatenating chunks from {temp_chunk_dir}")
+
+        chunk_files = []
+        for f in sorted(temp_chunk_dir.iterdir()):
+            name = f.name
+            if name.endswith('.wav.bad'):
+                continue
+            if name.startswith('temp_chunk_') and name.endswith('.wav'):
+                try:
+                    AudioSegment.from_file(f)
+                    chunk_files.append(f)
+                except Exception as e:
+                    logging.warning(f"Skipping corrupt chunk {name}: {e}")
+
+        if not chunk_files:
+            logging.error("No valid audio chunks found for concatenation."); return
+
+        def get_idx(p: Path) -> int:
+            try: return int(p.stem.replace("_silence", "").split('_')[-1])
+            except: return -1
+
+        sorted_chunks = sorted(chunk_files, key=get_idx)
+        logging.info(f"Concatenating {len(sorted_chunks)} audio chunks...")
+        combined_audio = AudioSegment.empty()
+        for chunk_path in sorted_chunks:
+            try: combined_audio += AudioSegment.from_file(chunk_path)
+            except Exception as e: logging.error(f"Error loading chunk {chunk_path}: {e}. Skipping.")
+        if len(combined_audio) == 0:
+            logging.error("Combined audio is empty. Final file not created."); return
+
+        output_audio_file_path.parent.mkdir(parents=True, exist_ok=True)
+        combined_audio.export(str(output_audio_file_path), format=args.output_audio_format)
+        logging.info(f"Successfully rebuilt audio: {output_audio_file_path}")
+        return
+    # --- end concat-only mode ---
+
     import re
 
     raw_text = input_text_file.read_text(encoding="utf-8")

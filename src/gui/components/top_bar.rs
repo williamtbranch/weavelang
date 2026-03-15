@@ -23,6 +23,15 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState) {
 
         ui.separator();
 
+        if ui
+            .selectable_label(state.show_media_tab, "Media")
+            .clicked()
+        {
+            state.show_media_tab = !state.show_media_tab;
+        }
+
+        ui.separator();
+
         // --- Bridge Test ---
         if ui
             .button("🔌 Test Bridge")

@@ -47,6 +47,9 @@ tiktoken-rs = "0.5"
 # Local API Server
 tiny_http = "0.12"
 
+# Open files/directories in system default application
+opener = "0.7"
+
 [dev-dependencies]
 pest = "2.7"       
 pest_derive = "2.7" 
