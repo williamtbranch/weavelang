@@ -95,6 +95,12 @@ impl TokenStream {
             }
         }
 
+        // 1.5: Split Word tokens containing em-dashes (—) or en-dashes (–)
+        // into separate Word-Background-Word sequences.  Some SpaCy language
+        // models (e.g. Spanish) deliver "vaca—tener" as a single token.
+        let (initial_tokens, word_id_counter) =
+            Self::split_internal_dashes(initial_tokens, word_id_counter);
+
         // 2. LEGACY PIPELINE FUSION LOGIC (Refactored for Borrow Checker)
         let fused_tokens = Self::fuse_word_tokens(initial_tokens);
 
@@ -638,6 +644,22 @@ mod tests {
     }
 
     #[test]
+    fn test_em_dash_single_token_split() {
+        // SpaCy Spanish sometimes sends "vaca—tener" as one token.
+        // split_internal_dashes must break it into Word-Bg-Word.
+        let raw = vec![raw_w("vaca\u{2014}tener", "vaca")];
+        let ts = TokenStream::from_raw_spacy(raw, "vaca\u{2014}tener");
+        assert_eq!(ts.word_count(), 2);
+        let words: Vec<_> = ts.tokens().iter().filter_map(|t| match t {
+            Token::Word(w) => Some(w.text.as_str()),
+            _ => None,
+        }).collect();
+        assert_eq!(words, vec!["vaca", "tener"]);
+        // Em-dash should be a Background token
+        assert!(ts.tokens().iter().any(|t| matches!(t, Token::Background(s) if s == "\u{2014}")));
+    }
+
+    #[test]
     fn test_possessive_fusion_restored() {
         let raw = vec![raw_w("Frank", "frank"), raw_w("'s", "'s")];
         let ts = TokenStream::from_raw_spacy(raw, "Frank's");
@@ -666,6 +688,48 @@ mod tests {
 // ------------------------------------------------------------------
 
 impl TokenStream {
+    /// Split Word tokens that contain em-dashes (\u{2014}) or en-dashes
+    /// (\u{2013}) into separate Word-Background-Word sequences so that the
+    /// fusion / mapping algorithms see the sub-words individually.
+    fn split_internal_dashes(tokens: Vec<Token>, mut next_id: u64) -> (Vec<Token>, u64) {
+        let mut result = Vec::new();
+        for token in tokens {
+            if let Token::Word(ref w) = token {
+                if w.text.contains('\u{2014}') || w.text.contains('\u{2013}') {
+                    let text = &w.text;
+                    let mut last_end = 0;
+                    for (i, c) in text.char_indices() {
+                        if c == '\u{2014}' || c == '\u{2013}' {
+                            let before = &text[last_end..i];
+                            if !before.is_empty() {
+                                result.push(Token::Word(WordData::new(
+                                    WordId(next_id),
+                                    before.to_string(),
+                                    w.lemmas.clone(),
+                                )));
+                                next_id += 1;
+                            }
+                            result.push(Token::Background(c.to_string()));
+                            last_end = i + c.len_utf8();
+                        }
+                    }
+                    let remainder = &text[last_end..];
+                    if !remainder.is_empty() {
+                        result.push(Token::Word(WordData::new(
+                            WordId(next_id),
+                            remainder.to_string(),
+                            w.lemmas.clone(),
+                        )));
+                        next_id += 1;
+                    }
+                    continue;
+                }
+            }
+            result.push(token);
+        }
+        (result, next_id)
+    }
+
     pub(crate) fn fuse_word_tokens(initial_tokens: Vec<Token>) -> Vec<Token> {
         let mut fused_tokens = Vec::new();
         let mut i = 0;

@@ -1363,7 +1363,13 @@ pub fn apply_llm_result(
                 if let Some(segment) = source_tier.segments.first_mut() {
                     match apply_llm_mapping(&mut segment.stream, actual_text, source_id, target_id) {
                         Ok(m) => mapping_to_add = Some(m),
-                        Err(e) => eprintln!("Mapping Error: {}", e),
+                        Err(e) => {
+                            eprintln!("Mapping Error on {}: {}", sent.id, e);
+                            // Surface the error in the terminal so the user can see it
+                            if let Some(tier) = sent.tiers.get_mut(source_id) {
+                                tier.state = crate::domain::tier::TierState::Broken;
+                            }
+                        }
                     }
                 }
             }

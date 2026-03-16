@@ -142,7 +142,9 @@ fn parse_labeled_segmentation_response(
     response: &str,
     s_id: &str,
 ) -> Result<Vec<String>, String> {
-    let header_re = Regex::new(r"^\s*([A-Za-z0-9_:-]+)\s*:\s*$").unwrap();
+    // Require at least one digit so content lines like "diciendo:" or
+    // "leche:" are not mistaken for section headers.
+    let header_re = Regex::new(r"^\s*([A-Za-z]+\d+)\s*:\s*$").unwrap();
     
     let mut segments_for_id: Vec<String> = Vec::new();
     let mut found = false;
