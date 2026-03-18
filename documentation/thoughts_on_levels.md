@@ -120,7 +120,7 @@ The Metamorphosis calibration was reviewed manually and confirmed via user exper
 
 A book's **peak AVD score** (the AVD at which the calibrator's `is_maxed_out` fires) may be estimable from a small sample of sentences — perhaps as few as 10. If so, the expensive per-book calibration could be replaced by a **curve library** lookup for most use cases.
 
-The intuition: even a handful of sentences from Les Misérables will contain words with frequency ranks far higher than anything in a Grimm fairy tale. The tail-weighted AVD formula `(P85_Rank + 2 * P95_Rank) / 3` is designed to capture exactly this signal — the hardest words the learner will encounter — and that should stabilize quickly.
+The intuition: even a handful of sentences from Les Misérables will contain words with frequency ranks far higher than anything in a Grimm fairy tale. The tail-weighted AVD formula `(P85_Rank * 2 + P95_Rank) / 3` is designed to capture exactly this signal — the hardest words the learner will encounter — and that should stabilize quickly.
 
 ### 5.2 Proposed Experiment
 

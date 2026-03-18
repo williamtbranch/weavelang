@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{
     corpus_generator,
-    types::json_types::{JsonChapterForParsing, JsonCurriculumMap, JsonCurriculumMapEntry, TierId},
+    types::json_types::{JsonChapterForParsing, JsonCurriculumMap, JsonCurriculumMapEntry},
     JsonChapter, JsonContentBlock,
 };
 use serde::{Deserialize, Serialize};
@@ -22,13 +22,19 @@ use std::{
 };
 
 // --- Tunable Parameters ---
-const MOD_CATCHUP_START: f32 = 13.0;
-const ADV_CATCHUP_START: f32 = 16.0;
 const LADDER_LINEAR_THRESHOLD: u32 = 500;
 const LADDER_PERCENTAGE_STEP: f32 = 1.01;
 const WORDS_PER_HOUR: f64 = 6.0;
 const INITIAL_LEARNING_THRESHOLD_WORDS: u32 = 10;
 const INITIAL_LEARNING_RATE_MULTIPLIER: f64 = 2.0;
+
+// --- Basic-tier ramp parameters ---
+// Below RAMP_START, bas == v (no ramp).
+// Between RAMP_START and RAMP_END, bas pulls ahead on a power curve.
+// Above RAMP_END, bas is clamped at max_rank.
+const RAMP_START: u32 = 2000;
+const RAMP_END: u32 = 4000;
+const RAMP_EXPONENT: f64 = 2.0;
 
 // --- Structs for Data Serialization ---
 
@@ -45,42 +51,6 @@ struct ULevelAnalysisData {
     u_level_map: Vec<ULevelAnalysisEntry>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-struct LLevelRangeEntry {
-    l_level: f32,
-    target_avd: f64,
-    actual_avd: f64,
-    v_low: u32,
-}
-
-#[derive(Serialize, Deserialize, Debug, Default, Clone)]
-struct LLevelTable {
-    tier_id: String,
-    natural_exhaustion_level: f32,
-    levels: Vec<LLevelRangeEntry>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Default, Clone)]
-struct BookAnalysisData {
-    l_level_tables: BookLLevelTables,
-    u_level_analysis: ULevelAnalysisData,
-}
-
-#[derive(Serialize, Deserialize, Debug, Default, Clone)]
-struct BookLLevelTables {
-    basic: LLevelTable,
-    moderate: LLevelTable,
-    advanced: LLevelTable,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum CalibrationPhase {
-    BasMod,
-    ModAdv,
-    AdvOnly,
-    Complete,
-}
-
 // --- AVD Formula (Unchanged) ---
 const A_FIT: f64 = 4.15;
 const B_FIT: f64 = 0.02;
@@ -88,6 +58,21 @@ const B_FIT: f64 = 0.02;
 fn get_avd_from_user_level(user_level: f32) -> f64 {
     let avd_score = ((user_level as f64 - B_FIT) / A_FIT).exp() - 1.0;
     avd_score.max(0.0)
+}
+
+/// Map a unified vocabulary level `v` to the basic tier's V-level.
+/// Basic vocabulary is always a superset, so it ramps ahead of mod/adv.
+fn ramp_basic_v(v: u32) -> u32 {
+    let max_rank = frequency_manager::get_max_rank();
+    if v <= RAMP_START {
+        return v;
+    }
+    if v >= RAMP_END {
+        return max_rank;
+    }
+    let t = (v - RAMP_START) as f64 / (RAMP_END - RAMP_START) as f64;
+    let ramped = RAMP_START as f64 + t.powf(RAMP_EXPONENT) * (max_rank - RAMP_START) as f64;
+    (ramped.round() as u32).min(max_rank)
 }
 
 fn generate_vocabulary_ladder() -> Vec<u32> {
@@ -140,51 +125,18 @@ pub fn run_unified_calibration(
     let (numerical_chapter, _) =
         preprocessor::json_chapter_to_numerical(&json_chapter, &mut dictionary);
 
-    println!("  -> Phase A: Pre-computing AVD cache...");
+    println!("  -> Phase A: Pre-computing unified AVD cache...");
     let ladder = generate_vocabulary_ladder();
-    let mut avd_cache: HashMap<TierId, Vec<(u32, f64)>> = HashMap::new();
-
-    for tier_id in [TierId::Basic, TierId::Moderate, TierId::Advanced] {
-        let mut tier_results = Vec::new();
-        for (i, &v_level) in ladder.iter().enumerate() {
-            let avd = generate_and_measure(
-                &numerical_chapter,
-                &json_chapter,
-                &dictionary,
-                tier_id,
-                v_level,
-            )?;
-            tier_results.push((v_level, avd));
-            if (i + 1) % 50 == 0 || (i + 1) == ladder.len() {
-                print!(
-                    "\r     ...pre-computing for {:?}: {:.1}%",
-                    tier_id,
-                    (i + 1) as f32 / ladder.len() as f32 * 100.0
-                );
-                std::io::stdout().flush()?;
-            }
-        }
-        println!();
-        avd_cache.insert(tier_id, tier_results);
-    }
-
-    println!("  -> Phase B: Synthesizing L-Level tables and running U-Level state machine...");
-    let l_tables = synthesize_l_level_tables(&avd_cache, max_level)?;
-    let u_level_analysis = run_u_level_state_machine(
-        max_level,
-        &l_tables,
-        &numerical_chapter,
-        &json_chapter,
-        &dictionary,
+    let avd_cache = build_unified_avd_cache(
+        &numerical_chapter, &json_chapter, &dictionary, &ladder,
     )?;
 
+    println!("  -> Phase B: Walking U-Levels...");
+    let u_level_analysis = walk_u_levels(max_level, &avd_cache)?;
+
     if let Some(debug_path) = output_debug_path {
-        let debug_data = BookAnalysisData {
-            l_level_tables: l_tables,
-            u_level_analysis: u_level_analysis.clone(),
-        };
         let mut file = File::create(debug_path)?;
-        file.write_all(serde_json::to_string_pretty(&debug_data)?.as_bytes())?;
+        file.write_all(serde_json::to_string_pretty(&u_level_analysis)?.as_bytes())?;
         println!(
             "  -> Saved detailed analysis file to '{}'",
             debug_path.display()
@@ -192,11 +144,13 @@ pub fn run_unified_calibration(
     }
 
     println!("  -> Phase C: Generating final curriculum maps...");
-    let curriculum_maps = generate_curriculum_maps(
+    let master_scale = parse_master_avd_scale(master_avd_scale_path)?;
+    let curriculum_maps = generate_curriculum_maps_from_scale(
         max_level,
         &u_level_analysis,
         &json_chapter,
-        master_avd_scale_path,
+        &master_scale,
+        None,
     )?;
 
     println!("  -> Finalizing: Merging curriculum maps into book JSON...");
@@ -236,43 +190,14 @@ pub fn calibrate_from_chapter(
     let (numerical_chapter, _) =
         preprocessor::json_chapter_to_numerical(json_chapter, &mut dictionary);
 
-    println!("  -> Phase A: Pre-computing AVD cache...");
+    println!("  -> Phase A: Pre-computing unified AVD cache...");
     let ladder = generate_vocabulary_ladder();
-    let mut avd_cache: HashMap<TierId, Vec<(u32, f64)>> = HashMap::new();
-
-    for tier_id in [TierId::Basic, TierId::Moderate, TierId::Advanced] {
-        let mut tier_results = Vec::new();
-        for (i, &v_level) in ladder.iter().enumerate() {
-            let avd = generate_and_measure(
-                &numerical_chapter,
-                json_chapter,
-                &dictionary,
-                tier_id,
-                v_level,
-            )?;
-            tier_results.push((v_level, avd));
-            if (i + 1) % 50 == 0 || (i + 1) == ladder.len() {
-                print!(
-                    "\r     ...pre-computing for {:?}: {:.1}%",
-                    tier_id,
-                    (i + 1) as f32 / ladder.len() as f32 * 100.0
-                );
-                std::io::stdout().flush()?;
-            }
-        }
-        println!();
-        avd_cache.insert(tier_id, tier_results);
-    }
-
-    println!("  -> Phase B: Synthesizing L-Level tables and running U-Level state machine...");
-    let l_tables = synthesize_l_level_tables(&avd_cache, max_level)?;
-    let u_level_analysis = run_u_level_state_machine(
-        max_level,
-        &l_tables,
-        &numerical_chapter,
-        json_chapter,
-        &dictionary,
+    let avd_cache = build_unified_avd_cache(
+        &numerical_chapter, json_chapter, &dictionary, &ladder,
     )?;
+
+    println!("  -> Phase B: Walking U-Levels...");
+    let u_level_analysis = walk_u_levels(max_level, &avd_cache)?;
 
     println!("  -> Phase C: Generating final curriculum maps...");
     let curriculum_maps = generate_curriculum_maps_from_scale(
@@ -305,164 +230,120 @@ pub fn parse_master_avd_scale(path: &Path) -> Result<Vec<u32>, Box<dyn Error>> {
     Ok(scale)
 }
 
-fn synthesize_l_level_tables(
-    avd_cache: &HashMap<TierId, Vec<(u32, f64)>>,
-    max_level: u32,
-) -> Result<BookLLevelTables, Box<dyn Error>> {
-    let mut tables = BookLLevelTables::default();
-    let num_l_steps = max_level as usize * 10;
-
-    for (tier_id, tier_cache) in avd_cache {
-        let mut levels = Vec::new();
-        let mut natural_exhaustion_level = 0.0;
-
-        for i in 0..=num_l_steps {
-            let l_level = i as f32 / 10.0;
-            let target_avd = get_avd_from_user_level(l_level);
-            let (v_low, actual_avd) = tier_cache
-                .iter()
-                .find(|&&(_, avd)| avd >= target_avd)
-                .map_or((u32::MAX, tier_cache.last().unwrap().1), |&(v, avd)| {
-                    (v, avd)
-                });
-
-            levels.push(LLevelRangeEntry {
-                l_level,
-                target_avd,
-                actual_avd,
-                v_low,
-            });
-
-            if v_low == u32::MAX {
-                natural_exhaustion_level = l_level;
-                break;
-            }
-        }
-        if natural_exhaustion_level == 0.0 {
-            natural_exhaustion_level = max_level as f32;
-        }
-
-        let table = LLevelTable {
-            tier_id: format!("{tier_id:?}"),
-            natural_exhaustion_level,
-            levels,
-        };
-        match tier_id {
-            TierId::Basic => tables.basic = table,
-            TierId::Moderate => tables.moderate = table,
-            TierId::Advanced => tables.advanced = table,
+/// Phase A: Build a single unified AVD cache.
+/// For each vocabulary level `v` on the ladder, measure AVD with
+/// recipe { bas: ramp(v), mod_v: v, adv: v }.
+fn build_unified_avd_cache(
+    nc: &NumericalChapter,
+    jc: &JsonChapter,
+    dict: &GlobalLemmaDictionary,
+    ladder: &[u32],
+) -> Result<Vec<(u32, f64)>, Box<dyn Error>> {
+    let mut cache = Vec::with_capacity(ladder.len());
+    for (i, &v) in ladder.iter().enumerate() {
+        let bas = ramp_basic_v(v);
+        let res = corpus_generator::generate_book_instance(
+            nc, jc, dict, bas, v, v, 0.4, false,
+        )?;
+        let avd = TextMetrics::new(&res.all_output_lemma_instances, res.total_base_words)
+            .calculate_avd_score();
+        cache.push((v, avd));
+        if (i + 1) % 50 == 0 || (i + 1) == ladder.len() {
+            print!(
+                "\r     ...pre-computing: {:.1}%",
+                (i + 1) as f32 / ladder.len() as f32 * 100.0
+            );
+            std::io::stdout().flush()?;
         }
     }
-    Ok(tables)
+    println!();
+    Ok(cache)
 }
 
-fn run_u_level_state_machine(
+/// Phase B: For each whole user-level 0..=max_level, find the smallest
+/// unified V-level whose AVD meets or exceeds the target.
+///
+/// Post-processing:
+///  - Enforce a minimum vocab floor: level N gets at least N for each tier.
+///  - Detect the "natural level": the first level where all tiers reach
+///    max_rank.  Pull that max recipe back one level and trim the rest.
+fn walk_u_levels(
     max_level: u32,
-    l_tables: &BookLLevelTables,
-    numerical_chapter: &NumericalChapter,
-    json_chapter: &JsonChapter,
-    dictionary: &GlobalLemmaDictionary,
+    avd_cache: &[(u32, f64)],
 ) -> Result<ULevelAnalysisData, Box<dyn Error>> {
-    let mut u_level_analysis = ULevelAnalysisData::default();
-    let num_u_steps = max_level as usize * 10;
-    let mut calculation_cache: HashMap<VLevelRecipe, f64> = HashMap::new();
+    let max_rank = frequency_manager::get_max_rank();
+    let mut analysis = ULevelAnalysisData::default();
 
-    let mut last_best_l_recipe = LLevelRecipe::default();
-    let mut last_best_v_recipe = VLevelRecipe::default();
-    let mut last_best_avd = 0.0;
+    for ul in 0..=max_level {
+        let target_avd = get_avd_from_user_level(ul as f32);
 
-    let mut is_maxed_out = false;
+        // Find the first cache entry whose AVD meets the target.
+        let (v, actual_avd) = avd_cache
+            .iter()
+            .find(|&&(_, avd)| avd >= target_avd)
+            .map_or_else(
+                || {
+                    // Vocabulary exhausted — use the last entry.
+                    let last = avd_cache.last().unwrap();
+                    (last.0, last.1)
+                },
+                |&(v, avd)| (v, avd),
+            );
 
-    for i in 0..=num_u_steps {
-        let current_u_level = i as f32 / 10.0;
-        let target_avd = get_avd_from_user_level(current_u_level);
+        let bas = ramp_basic_v(v);
+        // Enforce minimum: level N must have at least N for each tier.
+        let recipe = VLevelRecipe {
+            bas: bas.max(ul),
+            mod_v: v.max(ul),
+            adv: v.max(ul),
+        };
+        let l_level_recipe = LLevelRecipe {
+            bas: ul as f32,
+            mod_v: ul as f32,
+            adv: ul as f32,
+        };
 
-        if is_maxed_out {
-            u_level_analysis.u_level_map.push(ULevelAnalysisEntry {
-                u_level: current_u_level,
-                target_avd,
-                actual_avd: last_best_avd,
-                recipe: last_best_v_recipe.clone(),
-                l_level_recipe: last_best_l_recipe.clone(),
-            });
-            continue;
-        }
-
-        let mut candidate_l_recipes = Vec::new();
-        let mut current_l_recipe = last_best_l_recipe.clone();
-
-        for _ in 0..100 {
-            let (next_l_recipe, phase_complete) = advance_l_recipe(current_l_recipe, l_tables);
-            if phase_complete {
-                break;
-            }
-            candidate_l_recipes.push(next_l_recipe.clone());
-            current_l_recipe = next_l_recipe;
-        }
-
-        let mut found_improvement = false;
-        for candidate_l in candidate_l_recipes {
-            let mut candidate_v = VLevelRecipe {
-                bas: find_v_level_for_l_level(&l_tables.basic, candidate_l.bas),
-                mod_v: find_v_level_for_l_level(&l_tables.moderate, candidate_l.mod_v),
-                adv: find_v_level_for_l_level(&l_tables.advanced, candidate_l.adv),
-            };
-
-            let u_level_floor = current_u_level.floor() as u32;
-            if candidate_v.bas < u_level_floor {
-                candidate_v.bas = u_level_floor;
-            }
-
-            let candidate_avd = get_avd_for_recipe(
-                numerical_chapter,
-                json_chapter,
-                dictionary,
-                candidate_v.clone(),
-                &mut calculation_cache,
-            )?;
-
-            if candidate_avd <= target_avd {
-                last_best_l_recipe = candidate_l;
-                last_best_v_recipe = candidate_v;
-                last_best_avd = candidate_avd;
-                found_improvement = true;
-            } else {
-                break;
-            }
-        }
-
-        if !found_improvement {
-            let (_, phase_complete) = advance_l_recipe(last_best_l_recipe.clone(), l_tables);
-            if phase_complete {
-                println!("\n[INFO] Book has reached its natural maximum AVD of {last_best_avd:.2} at U-Level {current_u_level:.1}. Filling remaining levels.");
-                is_maxed_out = true;
-            }
-        }
-
-        u_level_analysis.u_level_map.push(ULevelAnalysisEntry {
-            u_level: current_u_level,
+        analysis.u_level_map.push(ULevelAnalysisEntry {
+            u_level: ul as f32,
             target_avd,
-            actual_avd: last_best_avd,
-            recipe: last_best_v_recipe.clone(),
-            l_level_recipe: last_best_l_recipe.clone(), // <-- THIS IS THE KEY CHANGE
+            actual_avd,
+            recipe,
+            l_level_recipe,
         });
 
-        print!("\r     ...calibrating U-Level {current_u_level:.1}");
+        print!("\r     ...walking U-Level {ul}");
         std::io::stdout().flush()?;
     }
-
     println!();
-    Ok(u_level_analysis)
-}
 
-fn generate_curriculum_maps(
-    max_level: u32,
-    u_level_analysis: &ULevelAnalysisData,
-    json_chapter: &JsonChapter,
-    master_avd_scale_path: &Path,
-) -> Result<HashMap<String, JsonCurriculumMap>, Box<dyn Error>> {
-    let master_scale = parse_master_avd_scale(master_avd_scale_path)?;
-    generate_curriculum_maps_from_scale(max_level, u_level_analysis, json_chapter, &master_scale, None)
+    // --- Natural level detection ---
+    // Find the first level where all three tiers are at max_rank.
+    // Pull that max recipe back one level and trim everything after.
+    let first_all_max = analysis.u_level_map.iter().position(|e| {
+        e.recipe.bas >= max_rank && e.recipe.mod_v >= max_rank && e.recipe.adv >= max_rank
+    });
+    if let Some(max_idx) = first_all_max {
+        // The natural level is one before the first all-max.
+        // Promote the previous level to all-max so it becomes the ceiling.
+        let natural_idx = if max_idx > 0 { max_idx - 1 } else { max_idx };
+        let max_recipe = VLevelRecipe {
+            bas: max_rank,
+            mod_v: max_rank,
+            adv: max_rank,
+        };
+        // Copy AVD from the all-max entry for accurate diagnostics.
+        let max_avd = analysis.u_level_map[max_idx].actual_avd;
+        analysis.u_level_map[natural_idx].recipe = max_recipe;
+        analysis.u_level_map[natural_idx].actual_avd = max_avd;
+        // Trim everything after the natural level.
+        analysis.u_level_map.truncate(natural_idx + 1);
+        println!(
+            "  -> Natural level: UL{} (all tiers at max_rank {})",
+            analysis.u_level_map[natural_idx].u_level as u32, max_rank
+        );
+    }
+
+    Ok(analysis)
 }
 
 fn generate_curriculum_maps_from_scale(
@@ -474,52 +355,34 @@ fn generate_curriculum_maps_from_scale(
 ) -> Result<HashMap<String, JsonCurriculumMap>, Box<dyn Error>> {
     let mut curriculum_maps = HashMap::new();
 
-    // Detect the natural peak: the last whole u-level where at least one
-    // recipe tier is NOT exhausted (i.e. not u32::MAX).  We use floor()
-    // because if the peak micro-level is e.g. 34.8, the last useful
-    // start_level is 34 — start_level 35 would begin entirely exhausted.
-    let vocab_peak_level = u_level_analysis
+    // The analysis is already trimmed to the natural level by walk_u_levels.
+    // Use the last entry as the effective max.
+    let natural_peak = u_level_analysis
         .u_level_map
-        .iter()
-        .filter(|e| {
-            e.recipe.bas != u32::MAX
-                || e.recipe.mod_v != u32::MAX
-                || e.recipe.adv != u32::MAX
-        })
+        .last()
         .map(|e| e.u_level.floor() as u32)
-        .max()
-        .unwrap_or(max_level);
+        .unwrap_or(1);
 
-    // When extrapolating (chapter mode), the vocabulary-based peak is
-    // artificially low because we only analysed a fraction of the book.
-    // Trust the master_scale length as the upper bound instead.
-    let natural_peak_level = if total_sentences_hint.is_some() {
+    // When extrapolating (chapter mode), the vocabulary-based peak may be
+    // artificially low.  Trust the master_scale length as a lower bound.
+    let effective_max = if total_sentences_hint.is_some() {
         let scale_max = master_scale.len().saturating_sub(1) as u32;
-        vocab_peak_level.max(scale_max).min(max_level)
+        natural_peak.max(scale_max).min(max_level)
     } else {
-        vocab_peak_level
+        natural_peak.min(max_level)
     };
-
-    // The effective max is whichever is smaller: the natural peak or the
-    // formula-based max_level.  We add 1 so the final level that *just*
-    // exhausted still gets a map entry (the reader can start there and
-    // finish at end_level).
-    let effective_max = natural_peak_level.min(max_level);
     println!(
-        "  -> Natural peak detected at UL{} (formula max {}{})",
+        "  -> Effective max: UL{} (formula max {}{})",
         effective_max,
         max_level,
         if total_sentences_hint.is_some() {
-            format!(", vocab peak {}, extrapolating", vocab_peak_level)
+            format!(", natural peak {}, extrapolating", natural_peak)
         } else {
             String::new()
         }
     );
 
     // Count actual (non-placeholder) words and sentences in the input.
-    // In chapter mode the json_chapter contains placeholder sentences with
-    // no tiers; we must exclude those from the average or the extrapolation
-    // collapses back to the raw word count.
     let actual_words: f64 = json_chapter
         .content_blocks
         .iter()
@@ -544,13 +407,11 @@ fn generate_curriculum_maps_from_scale(
         })
         .count();
 
-    // When a total_sentences_hint is provided (chapter mode), extrapolate
-    // word count from the average words-per-sentence of the complete data.
     let (total_words_in_book, total_sentences_in_book) = if let Some(hint) = total_sentences_hint {
         let avg_words_per_sentence = if actual_sentences > 0 {
             actual_words / actual_sentences as f64
         } else {
-            15.0 // reasonable fallback
+            15.0
         };
         let extrapolated_words = avg_words_per_sentence * hint as f64;
         println!(
@@ -570,7 +431,7 @@ fn generate_curriculum_maps_from_scale(
         for level in start_level..effective_max {
             let v_start = *master_scale.get(level as usize - 1).unwrap_or(&0);
             let v_end = *master_scale.get(level as usize).unwrap_or(&0);
-            let new_words = v_end - v_start;
+            let new_words = v_end.saturating_sub(v_start);
             let mut time_per_word = 1.0 / WORDS_PER_HOUR * 60.0;
             if v_end <= INITIAL_LEARNING_THRESHOLD_WORDS {
                 time_per_word *= INITIAL_LEARNING_RATE_MULTIPLIER;
@@ -590,40 +451,41 @@ fn generate_curriculum_maps_from_scale(
             end_level = start_level + 1;
         }
 
+        // Whole-level steps: one entry per UL (no micro-levels).
+        let num_steps = (end_level - start_level) as usize;
         let mut map = Vec::new();
         let mut sentence_cursor = 0;
-        for micro_level_step in 0..((end_level - start_level) * 10) {
-            let micro_level = start_level as f32 + micro_level_step as f32 / 10.0;
+        for step in 0..num_steps {
+            let level = (start_level + step as u32) as f32;
 
             let analysis_entry = u_level_analysis
                 .u_level_map
                 .iter()
                 .min_by(|a, b| {
-                    (a.u_level - micro_level)
+                    (a.u_level - level)
                         .abs()
-                        .partial_cmp(&(b.u_level - micro_level).abs())
+                        .partial_cmp(&(b.u_level - level).abs())
                         .unwrap()
                 })
-                .ok_or("Could not find closest analysis entry for micro-level")?;
+                .ok_or("Could not find closest analysis entry for level")?;
 
-            // --- THIS BLOCK IS THE KEY CHANGE ---
             map.push(JsonCurriculumMapEntry {
-                level: micro_level,
+                level,
                 start_sentence_idx: sentence_cursor,
                 recipe: analysis_entry.recipe.clone(),
-                l_level_recipe: analysis_entry.l_level_recipe.clone(), // <-- ADD THIS LINE
+                l_level_recipe: analysis_entry.l_level_recipe.clone(),
+                target_avd: analysis_entry.target_avd,
+                actual_avd: analysis_entry.actual_avd,
             });
 
-            let current_level_in_costs = start_level + (micro_level_step / 10);
             let proportion_of_book = if cumulative_time_cost > 0.0 {
                 time_costs
                     .iter()
-                    .find(|(l, _)| *l == current_level_in_costs)
+                    .find(|(l, _)| *l == start_level + step as u32)
                     .map_or(0.0, |(_, cost)| *cost)
                     / cumulative_time_cost
-                    / 10.0
             } else {
-                1.0 / ((end_level - start_level) * 10) as f64
+                1.0 / num_steps as f64
             };
 
             sentence_cursor = (sentence_cursor as f64
@@ -631,15 +493,6 @@ fn generate_curriculum_maps_from_scale(
                 .round() as usize;
             if sentence_cursor >= total_sentences_in_book {
                 sentence_cursor = total_sentences_in_book - 1;
-            }
-        }
-
-        // Post-process: enforce minimum basic vocabulary ramp-up.
-        // ceil(level) - 1 gives: 1.0→0, 1.1→1, 2.0→1, 2.1→2, 3.0→2, 3.1→3, etc.
-        for entry in &mut map {
-            let min_bas = (entry.level.ceil() as u32).saturating_sub(1);
-            if entry.recipe.bas < min_bas {
-                entry.recipe.bas = min_bas;
             }
         }
 
@@ -652,148 +505,4 @@ fn generate_curriculum_maps_from_scale(
         );
     }
     Ok(curriculum_maps)
-}
-
-fn find_v_level_for_l_level(table: &LLevelTable, l_level: f32) -> u32 {
-    if l_level >= table.natural_exhaustion_level {
-        return u32::MAX;
-    }
-    if l_level <= 0.0 {
-        return 0;
-    }
-    table
-        .levels
-        .iter()
-        .find(|&entry| entry.l_level >= l_level)
-        .map_or(u32::MAX, |l| l.v_low)
-}
-
-// MODIFIED: 'sim' field removed from initializers.
-fn generate_and_measure(
-    nc: &NumericalChapter,
-    jc: &JsonChapter,
-    dict: &GlobalLemmaDictionary,
-    tier: TierId,
-    v: u32,
-) -> Result<f64, Box<dyn Error>> {
-    let vs = match tier {
-        TierId::Basic => VLevelRecipe {
-            bas: v,
-            mod_v: 0,
-            adv: 0,
-        },
-        TierId::Moderate => VLevelRecipe {
-            bas: v,
-            mod_v: v,
-            adv: 0,
-        },
-        TierId::Advanced => VLevelRecipe {
-            bas: v,
-            mod_v: v,
-            adv: v,
-        },
-    };
-    let r = corpus_generator::generate_book_instance(
-        nc, jc, dict, vs.bas, vs.mod_v, vs.adv, 0.4, false,
-    )?;
-    Ok(TextMetrics::new(&r.all_output_lemma_instances, r.total_base_words).calculate_avd_score())
-}
-
-// MODIFIED: Call to generate_book_instance no longer includes 'r.sim'.
-fn get_avd_for_recipe(
-    nc: &NumericalChapter,
-    jc: &JsonChapter,
-    dict: &GlobalLemmaDictionary,
-    r: VLevelRecipe,
-    c: &mut HashMap<VLevelRecipe, f64>,
-) -> Result<f64, Box<dyn Error>> {
-    if let Some(avd) = c.get(&r) {
-        return Ok(*avd);
-    }
-    let res =
-        corpus_generator::generate_book_instance(nc, jc, dict, r.bas, r.mod_v, r.adv, 0.4, false)?;
-    let avd = TextMetrics::new(&res.all_output_lemma_instances, res.total_base_words)
-        .calculate_avd_score();
-    c.insert(r, avd);
-    Ok(avd)
-}
-
-fn advance_l_recipe(mut recipe: LLevelRecipe, l_tables: &BookLLevelTables) -> (LLevelRecipe, bool) {
-    // Determine the current phase based on the recipe's state BEFORE this step.
-    let phase = if recipe.adv >= l_tables.advanced.natural_exhaustion_level {
-        CalibrationPhase::Complete
-    } else if recipe.mod_v >= l_tables.moderate.natural_exhaustion_level {
-        CalibrationPhase::AdvOnly
-    } else if recipe.bas >= l_tables.basic.natural_exhaustion_level {
-        CalibrationPhase::ModAdv
-    } else {
-        CalibrationPhase::BasMod
-    };
-
-    // --- THIS IS THE FINAL, CORRECTED LOGIC ---
-    // Based on the phase, we perform different actions.
-    match phase {
-        // Phase 1: Basic is leading. Moderate and Advanced are chasing.
-        CalibrationPhase::BasMod => {
-            // Increment the leader.
-            recipe.bas = (recipe.bas * 10.0 + 1.0).round() / 10.0;
-
-            // Recalculate the chasing tiers based on the leader's new position.
-            let mod_catchup_start_point =
-                l_tables.basic.natural_exhaustion_level - MOD_CATCHUP_START;
-            if recipe.bas >= mod_catchup_start_point {
-                let progress_ratio =
-                    ((recipe.bas - mod_catchup_start_point) / MOD_CATCHUP_START).min(1.0);
-                let ramp_target = l_tables
-                    .basic
-                    .natural_exhaustion_level
-                    .min(l_tables.moderate.natural_exhaustion_level);
-                recipe.mod_v = progress_ratio * ramp_target;
-            }
-
-            let adv_catchup_start_point =
-                l_tables.moderate.natural_exhaustion_level - ADV_CATCHUP_START;
-            if recipe.mod_v >= adv_catchup_start_point {
-                let progress_ratio =
-                    ((recipe.mod_v - adv_catchup_start_point) / ADV_CATCHUP_START).min(1.0);
-                let ramp_target = l_tables
-                    .moderate
-                    .natural_exhaustion_level
-                    .min(l_tables.advanced.natural_exhaustion_level);
-                recipe.adv = progress_ratio * ramp_target;
-            }
-        }
-        // Phase 2: Basic is exhausted. Moderate is now leading. Advanced is chasing.
-        CalibrationPhase::ModAdv => {
-            // Increment the new leader. Do NOT touch 'bas' anymore.
-            recipe.mod_v = (recipe.mod_v * 10.0 + 1.0).round() / 10.0;
-
-            // Recalculate only the 'adv' tier based on 'mod_v'.
-            let adv_catchup_start_point =
-                l_tables.moderate.natural_exhaustion_level - ADV_CATCHUP_START;
-            if recipe.mod_v >= adv_catchup_start_point {
-                let progress_ratio =
-                    ((recipe.mod_v - adv_catchup_start_point) / ADV_CATCHUP_START).min(1.0);
-                // THE CRITICAL FIX: The ramp target is now the Advanced tier's OWN exhaustion level.
-                let ramp_target = l_tables.advanced.natural_exhaustion_level;
-                recipe.adv = progress_ratio * ramp_target;
-            }
-        }
-        // Phase 3: Basic and Moderate are exhausted. Advanced leads alone.
-        CalibrationPhase::AdvOnly => {
-            // Increment the final leader. Do NOT touch 'bas' or 'mod_v'.
-            recipe.adv = (recipe.adv * 10.0 + 1.0).round() / 10.0;
-        }
-        // Phase 4: All are exhausted.
-        CalibrationPhase::Complete => {
-            return (recipe, true);
-        }
-    }
-
-    // Final clamp to ensure no value exceeds its natural limit.
-    recipe.bas = recipe.bas.min(l_tables.basic.natural_exhaustion_level);
-    recipe.mod_v = recipe.mod_v.min(l_tables.moderate.natural_exhaustion_level);
-    recipe.adv = recipe.adv.min(l_tables.advanced.natural_exhaustion_level);
-
-    (recipe, false)
 }

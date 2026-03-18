@@ -383,6 +383,9 @@ impl Engine {
                 self.state.output_dir = None;
                 self.current_file_path = None;
                 self.state.llm_followup_queue.clear();
+                self.state.chapters.clear();
+                self.state.chapter_mode = false;
+                self.state.selected_chapter_idx = None;
                 Ok(format!("Created new project '{}'", name))
             }
             AppCommand::CloseProject => {
@@ -399,6 +402,9 @@ impl Engine {
                 self.state.output_dir = None;
                 self.current_file_path = None;
                 self.state.llm_followup_queue.clear();
+                self.state.chapters.clear();
+                self.state.chapter_mode = false;
+                self.state.selected_chapter_idx = None;
                 self.state.last_log = "Project closed.".to_string();
                 Ok(format!("Closed project '{}'", old_name))
             }
@@ -1257,7 +1263,6 @@ impl Engine {
                             let _ = crate::config::save_config_to_file(cfg, &config_path);
                         }
 
-                        self.load_chapters();
                         return Ok(format!("Loaded project from {}", path));
                     }
                     return Err("Failed to deserialize project".to_string());
@@ -3199,12 +3204,35 @@ impl Engine {
             }
             let first_entry = &cm.map[0];
 
-            // --- Progressive recipe stepping: iterate map entries, slicing by sentence range ---
-            // Level-map indices are absolute (0-based into the full document).
-            // We remap them to chapter-relative indices so each sentence gets
-            // the same recipe it would in a full-book generation.
+            // --- Recipe selection ---
+            // In chapter mode, use the first recipe of the requested level
+            // so every chapter gets the true level-N recipe regardless of
+            // its position in the book.  In full-book mode, step through
+            // the progressive recipe map as before.
             let mut full_result = corpus_generator::BookGenerationResult::default();
 
+            if chapter_range.is_some() {
+                // Chapter mode: single recipe for the whole chapter.
+                let recipe = &first_entry.recipe;
+                let result = corpus_generator::generate_book_instance(
+                    &numerical_chapter,
+                    &json_chapter,
+                    &dictionary,
+                    recipe.bas,
+                    recipe.mod_v,
+                    recipe.adv,
+                    0.5,
+                    false,
+                ).map_err(|e| format!("Generation failed for level {}: {}", level, e))?;
+
+                full_result.final_text_parts = result.final_text_parts;
+                full_result.all_output_lemma_instances = result.all_output_lemma_instances;
+                full_result.total_target_words = result.total_target_words;
+                full_result.total_base_words = result.total_base_words;
+                full_result.level_stats = result.level_stats;
+                full_result.segment_stats = result.segment_stats;
+            } else {
+            // Full-book mode: progressive recipe stepping.
             for (i, entry) in cm.map.iter().enumerate() {
                 let abs_start = entry.start_sentence_idx;
                 let abs_end = if i + 1 < cm.map.len() {
@@ -3273,6 +3301,7 @@ impl Engine {
                     *full_result.segment_stats.entry(seg_type).or_insert(0) += count;
                 }
             }
+            } // end else (full-book mode)
 
             // Assemble output text: join sentence texts with double newline
             let cleaned_parts: Vec<String> = full_result.final_text_parts
@@ -3281,34 +3310,11 @@ impl Engine {
                 .collect();
             let output_text = cleaned_parts.join("\n\n");
 
-            // Determine filename, combining levels when end_level spans multiple.
-            // In chapter mode, compute the actual micro-level range the chapter
-            // covers and use floor() of start/end to build a compact suffix.
+            // Determine filename.
+            // In chapter mode the level is always the true requested level.
+            // In full-book mode, the range may span multiple levels.
             let level_suffix = if chapter_range.is_some() {
-                // Find the micro-level range that overlaps with this chapter
-                let ch_s = ch_offset;
-                let ch_e = ch_offset + ch_len;
-                let overlapping: Vec<f32> = cm.map.iter().enumerate()
-                    .filter(|(i, entry)| {
-                        let abs_start = entry.start_sentence_idx;
-                        let abs_end = if *i + 1 < cm.map.len() {
-                            cm.map[*i + 1].start_sentence_idx
-                        } else {
-                            doc_total
-                        };
-                        abs_start < ch_e && abs_end > ch_s
-                    })
-                    .map(|(_, entry)| entry.level)
-                    .collect();
-                let first_lvl = overlapping.first().copied().unwrap_or(*level as f32);
-                let last_lvl = overlapping.last().copied().unwrap_or(first_lvl);
-                let floor_first = first_lvl.floor() as u32;
-                let floor_last = last_lvl.floor() as u32;
-                if floor_last > floor_first {
-                    format!("UL{}-{}", floor_first, floor_last)
-                } else {
-                    format!("UL{}", floor_first)
-                }
+                format!("UL{}", level)
             } else {
                 let end_level_for_range = (cm.end_level - 1.0).floor() as u32;
                 if end_level_for_range > *level {
@@ -3980,6 +3986,8 @@ impl Engine {
 
     /// Load chapters from _chapters.toml in the project directory.
     pub fn load_chapters(&mut self) {
+        self.state.chapters.clear();
+        self.state.selected_chapter_idx = None;
         if let Some(cfg) = &self.state.config {
             let chapters_path = PathBuf::from(&cfg.content_project_dir).join("_chapters.toml");
             if chapters_path.exists() {

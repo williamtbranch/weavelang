@@ -120,6 +120,10 @@ pub struct JsonCurriculumMapEntry {
     pub start_sentence_idx: usize,
     pub recipe: VLevelRecipe,
     pub l_level_recipe: LLevelRecipe,
+    #[serde(default)]
+    pub target_avd: f64,
+    #[serde(default)]
+    pub actual_avd: f64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
