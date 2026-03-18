@@ -316,6 +316,19 @@ fn walk_u_levels(
     }
     println!();
 
+    // --- Monotonic increment enforcement ---
+    // Each level must advance at least +1 per tier over the previous level,
+    // so no two consecutive ULs share the same recipe. Cap at max_rank.
+    for i in 1..analysis.u_level_map.len() {
+        let prev_bas = analysis.u_level_map[i - 1].recipe.bas;
+        let prev_mod = analysis.u_level_map[i - 1].recipe.mod_v;
+        let prev_adv = analysis.u_level_map[i - 1].recipe.adv;
+        let cur = &mut analysis.u_level_map[i].recipe;
+        cur.bas = cur.bas.max(prev_bas + 1).min(max_rank);
+        cur.mod_v = cur.mod_v.max(prev_mod + 1).min(max_rank);
+        cur.adv = cur.adv.max(prev_adv + 1).min(max_rank);
+    }
+
     // --- Natural level detection ---
     // Find the first level where all three tiers are at max_rank.
     // Pull that max recipe back one level and trim everything after.
