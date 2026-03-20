@@ -1968,7 +1968,7 @@ impl Engine {
                     "GenerateBasicBase" => ("simplify_to_basic_english", "basic_base", "base"),
                     "GenerateBasicTarget" => ("translate_text_basic", "basic_target", "basic_base"),
                     "GenerateAdvancedTarget" => ("translate_text", "advanced_target", "base"),
-                    "GenerateModerateTarget" => ("simplify_segments", "moderate_target", "advanced_target"),
+                    "GenerateModerateTarget" => ("simplify_segments_moderate", "moderate_target", "advanced_target"),
                     "GeneratePhraseMap" => ("generate_diglot_map", "MAPPING:basic_base:basic_target", "basic_base"),
                     "GenerateInversePhraseMap" => ("generate_inverse_phrase_map", "MAPPING:basic_target:basic_base", "basic_target"),
                     _ => return Err(format!("Unknown stage mapping for '{}'", stage_name)),
@@ -3183,19 +3183,6 @@ impl Engine {
         let book_map = self.state.book_map.as_ref()
             .ok_or("No level map loaded. Use 'import level_map <path>' first.")?;
 
-        // Determine which levels to generate
-        let levels: Vec<u32> = if level_arg == "all" {
-            let mut lvls: Vec<u32> = book_map.keys()
-                .filter_map(|k| k.parse::<u32>().ok())
-                .collect();
-            lvls.sort();
-            lvls
-        } else {
-            let lvl = level_arg.parse::<u32>()
-                .map_err(|_| format!("Invalid level '{}'. Use a number or 'all'.", level_arg))?;
-            vec![lvl]
-        };
-
         // Build JsonChapter from domain sentences.
         // In chapter mode, pass only the chapter's sentences so the numerical
         // chapter has a 1:1 index alignment with the chapter range.
@@ -3226,7 +3213,156 @@ impl Engine {
         let mut generated_files: Vec<String> = Vec::new();
         let analysis_path = weave_dir.join("analysis.txt");
 
-        for level in &levels {
+        // Helper: build filename from a level suffix string
+        let build_file_name = |suffix: &str| -> String {
+            if self.state.book_name.is_empty() {
+                match &chapter_name_sanitized {
+                    Some(ch) => format!("{}_{}.txt", ch, suffix),
+                    None => format!("{}.txt", suffix),
+                }
+            } else {
+                let sanitized = self.state.book_name.replace(|c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != ' ', "");
+                let prefix = sanitized.trim().replace(' ', "_");
+                match &chapter_name_sanitized {
+                    Some(ch) => format!("{}_{}_{}.txt", prefix, ch, suffix),
+                    None => format!("{}_{}.txt", prefix, suffix),
+                }
+            }
+        };
+
+        // --- Helper: generate a flat-recipe output file ---
+        let generate_flat = |bas: u32, mod_v: u32, adv: u32, suffix: &str,
+                             generated: &mut Vec<String>| -> Result<(), String> {
+            let result = corpus_generator::generate_book_instance(
+                &numerical_chapter,
+                &json_chapter,
+                &dictionary,
+                bas, mod_v, adv,
+                0.5,
+                false,
+            ).map_err(|e| format!("Generation failed for '{}': {}", suffix, e))?;
+
+            let cleaned_parts: Vec<String> = result.final_text_parts
+                .iter()
+                .map(|p| text_generator::clean_text_for_tts(p))
+                .collect();
+            let output_text = cleaned_parts.join("\n\n");
+
+            let file_name = build_file_name(suffix);
+            let file_path = tts_dir.join(&file_name);
+            fs::write(&file_path, &output_text)
+                .map_err(|e| format!("Failed to write '{}': {}", file_path.display(), e))?;
+
+            let metrics = TextMetrics::new(
+                &result.all_output_lemma_instances,
+                result.total_base_words,
+            );
+            let avd_score = metrics.calculate_avd_score();
+            let recipe_obj = crate::simulation::numerical_types::VLevelRecipe { bas, mod_v, adv };
+            corpus_generator::log_analysis_to_file(
+                &analysis_path,
+                &file_name,
+                &result,
+                avd_score,
+                Some(recipe_obj.clone()),
+                Some(recipe_obj),
+                None,
+                None,
+            ).map_err(|e| format!("Failed to write analysis: {}", e))?;
+
+            generated.push(format!("{} ({} sentences)", suffix, result.final_text_parts.len()));
+            Ok(())
+        };
+
+        // --- Helper: generate interlinear output file ---
+        let generate_interlinear = |generated: &mut Vec<String>| -> Result<(), String> {
+            let result_basic = corpus_generator::generate_book_instance(
+                &numerical_chapter,
+                &json_chapter,
+                &dictionary,
+                u32::MAX, 0, 0,
+                0.5,
+                false,
+            ).map_err(|e| format!("Generation failed for interlinear (basic): {}", e))?;
+
+            let result_base = corpus_generator::generate_book_instance(
+                &numerical_chapter,
+                &json_chapter,
+                &dictionary,
+                0, 0, 0,
+                0.5,
+                false,
+            ).map_err(|e| format!("Generation failed for interlinear (base): {}", e))?;
+
+            let count = result_basic.final_text_parts.len().min(result_base.final_text_parts.len());
+            let mut interlinear_parts: Vec<String> = Vec::with_capacity(count * 3);
+            for idx in 0..count {
+                let basic_clean = text_generator::clean_text_for_tts(&result_basic.final_text_parts[idx]);
+                let base_clean = text_generator::clean_text_for_tts(&result_base.final_text_parts[idx]);
+                interlinear_parts.push(format!("Speaker 1: {}", basic_clean));
+                interlinear_parts.push(format!("Speaker 2: {}", base_clean));
+                interlinear_parts.push(format!("Speaker 3: {}", basic_clean));
+            }
+            let output_text = interlinear_parts.join("\n\n");
+
+            let suffix = "ULi";
+            let file_name = build_file_name(suffix);
+            let file_path = tts_dir.join(&file_name);
+            fs::write(&file_path, &output_text)
+                .map_err(|e| format!("Failed to write '{}': {}", file_path.display(), e))?;
+
+            let metrics = TextMetrics::new(
+                &result_basic.all_output_lemma_instances,
+                result_basic.total_base_words,
+            );
+            let avd_score = metrics.calculate_avd_score();
+            let recipe_obj = crate::simulation::numerical_types::VLevelRecipe { bas: u32::MAX, mod_v: 0, adv: 0 };
+            corpus_generator::log_analysis_to_file(
+                &analysis_path,
+                &file_name,
+                &result_basic,
+                avd_score,
+                Some(recipe_obj.clone()),
+                Some(recipe_obj),
+                None,
+                None,
+            ).map_err(|e| format!("Failed to write analysis: {}", e))?;
+
+            generated.push(format!("{} ({} sentences x3)", suffix, count));
+            Ok(())
+        };
+
+        // --- Dispatch: special modes b/m/a/i, or standard levels / all ---
+        let is_all = level_arg == "all";
+
+        match level_arg {
+            "b" => {
+                generate_flat(u32::MAX, 0, 0, "ULb", &mut generated_files)?;
+            }
+            "m" => {
+                generate_flat(u32::MAX, u32::MAX, 0, "ULm", &mut generated_files)?;
+            }
+            "a" => {
+                generate_flat(u32::MAX, u32::MAX, u32::MAX, "ULa", &mut generated_files)?;
+            }
+            "i" => {
+                generate_interlinear(&mut generated_files)?;
+            }
+            _ => {
+                // Standard level modes: numeric level or 'all'
+                let levels: Vec<u32> = if is_all {
+                    let mut lvls: Vec<u32> = book_map.keys()
+                        .filter_map(|k| k.parse::<u32>().ok())
+                        .collect();
+                    lvls.sort();
+                    lvls
+                } else {
+                    let lvl = level_arg.parse::<u32>()
+                        .map_err(|_| format!("Invalid level '{}'. Use a number, 'all', 'b', 'm', 'a', or 'i'.", level_arg))?;
+                    vec![lvl]
+                };
+
+                for level in &levels {
             let level_key = level.to_string();
             let cm = book_map.get(&level_key)
                 .ok_or(format!("No recipe found for level {}", level))?;
@@ -3354,19 +3490,7 @@ impl Engine {
                     format!("UL{}", level)
                 }
             };
-            let file_name = if self.state.book_name.is_empty() {
-                match &chapter_name_sanitized {
-                    Some(ch) => format!("{}_{}.txt", ch, level_suffix),
-                    None => format!("{}.txt", level_suffix),
-                }
-            } else {
-                let sanitized = self.state.book_name.replace(|c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != ' ', "");
-                let prefix = sanitized.trim().replace(' ', "_");
-                match &chapter_name_sanitized {
-                    Some(ch) => format!("{}_{}_{}.txt", prefix, ch, level_suffix),
-                    None => format!("{}_{}.txt", prefix, level_suffix),
-                }
-            };
+            let file_name = build_file_name(&level_suffix);
             let file_path = tts_dir.join(&file_name);
             fs::write(&file_path, &output_text)
                 .map_err(|e| format!("Failed to write '{}': {}", file_path.display(), e))?;
@@ -3392,6 +3516,16 @@ impl Engine {
 
             generated_files.push(format!("{} ({} sentences)", level_suffix, full_result.final_text_parts.len()));
         }
+
+                // When generating 'all', also produce the 4 special outputs
+                if is_all {
+                    generate_flat(u32::MAX, 0, 0, "ULb", &mut generated_files)?;
+                    generate_flat(u32::MAX, u32::MAX, 0, "ULm", &mut generated_files)?;
+                    generate_flat(u32::MAX, u32::MAX, u32::MAX, "ULa", &mut generated_files)?;
+                    generate_interlinear(&mut generated_files)?;
+                }
+            } // end _ => (standard levels / all)
+        } // end match
 
         Ok(format!(
             "Generated {} weave file(s) in '{}':\n  {}",

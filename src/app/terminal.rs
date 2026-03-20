@@ -414,7 +414,7 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
                 }
                 Ok(TerminalCommand::App(AppCommand::GenerateWeave { level, force }))
             } else {
-                Err("Usage: generate_weave <level|all> [--force]".to_string())
+                Err("Usage: generate_weave <level|all|b|m|a|i> [--force]".to_string())
             }
         },
         "drc" => {
