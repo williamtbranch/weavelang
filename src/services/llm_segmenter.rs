@@ -87,8 +87,8 @@ fn get_initial_segments_from_llm(
         .get_prompt("segment_sentence_universal", base_lang, target_lang)
         .map_err(|e| format!("Failed to load segmentation prompt: {e}"))?;
 
-    // 2. Resolve model from config
-    let model_name = resolve_segmenter_model(config)?;
+    // 2. Resolve models from config (primary + optional fallback)
+    let (primary_model, fallback_model) = resolve_segmenter_models(config)?;
 
     // 3. Build user prompt with Sn: label (consistent with all other LLM stages)
     let user_prompt = format!("{}: {}", s_id, sentence_text);
@@ -96,16 +96,49 @@ fn get_initial_segments_from_llm(
     // 4. Set context so MockLlmProvider knows which canned file to read.
     llm.set_context("segment_sentence_universal");
 
-    // 5. Call LLM
-    let raw_response = llm.complete(&model_name, &system_prompt, &user_prompt)?;
+    // 5. Call LLM — try primary, then fallback if configured
+    let mut models_to_try: Vec<&str> = vec![&primary_model];
+    if let Some(ref fb) = fallback_model {
+        if fb != &primary_model {
+            models_to_try.push(fb);
+        }
+    }
 
-    // Log
-    let _ = logger.log_interaction(
-        &format!("LLMSegmenter S_ID={s_id}"),
-        &system_prompt,
-        &user_prompt,
-        &raw_response,
-    );
+    let mut last_err = String::new();
+    let mut raw_response: Option<String> = None;
+
+    for model_name in &models_to_try {
+        match llm.complete(model_name, &system_prompt, &user_prompt) {
+            Ok(resp) => {
+                let _ = logger.log_interaction(
+                    &format!("LLMSegmenter S_ID={s_id}"),
+                    &system_prompt,
+                    &user_prompt,
+                    &resp,
+                );
+                raw_response = Some(resp);
+                break;
+            }
+            Err(e) => {
+                let _ = logger.log_interaction(
+                    &format!("LLMSegmenter FAILED S_ID={s_id} (model: {model_name})"),
+                    &system_prompt,
+                    &user_prompt,
+                    &format!("ERROR: {e}"),
+                );
+                last_err = e;
+                // If there's a fallback, log and continue
+                if models_to_try.len() > 1 {
+                    eprintln!("[Segmenter] {s_id} failed with model '{model_name}', trying fallback...");
+                }
+            }
+        }
+    }
+
+    let raw_response = match raw_response {
+        Some(r) => r,
+        None => return Err(last_err),
+    };
 
     // 5. Parse the Sn:-labeled response to extract segment lines for this sentence
     let llm_segments = parse_labeled_segmentation_response(&raw_response, s_id)?;
@@ -179,9 +212,10 @@ fn parse_labeled_segmentation_response(
     Ok(segments_for_id)
 }
 
-/// Resolves the concrete model name string (e.g. "claude-3-haiku-20240307") from
-/// the config chain: `stages.Segmenter.primary_model` → `models.<key>.name`.
-fn resolve_segmenter_model(config: &crate::config::Config) -> Result<String, String> {
+/// Resolves the primary and optional fallback model aliases from the config
+/// chain: `stages.Segmenter.primary_model` / `fallback_model` → validated
+/// against `[models]`.
+fn resolve_segmenter_models(config: &crate::config::Config) -> Result<(String, Option<String>), String> {
     let stage_cfg = config
         .get_stage_config("Segmenter")
         .ok_or("No [stages.Segmenter] in config")?;
@@ -196,7 +230,17 @@ fn resolve_segmenter_model(config: &crate::config::Config) -> Result<String, Str
             "Model key '{model_key}' (from stages.Segmenter.primary_model) not found in [models]"
         ))?;
 
-    Ok(model_key.clone())
+    let fallback = if let Some(ref fb_key) = stage_cfg.fallback_model {
+        if config.get_model_config(fb_key).is_some() {
+            Some(fb_key.clone())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    Ok((model_key.clone(), fallback))
 }
 
 // ─── Validation ───────────────────────────────────────────────────────────────

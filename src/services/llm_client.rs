@@ -332,6 +332,7 @@ struct GeminiRequest {
 struct GeminiContent {
     #[serde(skip_serializing_if = "Option::is_none")]
     role: Option<String>,
+    #[serde(default)]
     parts: Vec<GeminiPart>,
 }
 
@@ -367,6 +368,8 @@ struct GeminiResponse {
 #[derive(Deserialize, Debug)]
 struct GeminiCandidate {
     content: Option<GeminiContent>,
+    #[serde(rename = "finishReason")]
+    finish_reason: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -490,13 +493,26 @@ impl GeminiClient {
             return Err(format!("Gemini API Error: {} [model: {}]", err.message, model));
         }
 
-        let result_text = response_body
+        let first_candidate = response_body
             .candidates
-            .and_then(|c| c.into_iter().next())
+            .and_then(|c| c.into_iter().next());
+
+        let finish_reason: String = first_candidate
+            .as_ref()
+            .and_then(|c| c.finish_reason.as_deref())
+            .unwrap_or("UNKNOWN")
+            .to_string();
+
+        let result_text = first_candidate
             .and_then(|c| c.content)
             .and_then(|c| c.parts.into_iter().next())
             .map(|p| p.text)
-            .ok_or_else(|| "Gemini response contained no content".to_string())?;
+            .ok_or_else(|| {
+                format!(
+                    "Gemini response contained no content (finishReason: {}, model: {})",
+                    finish_reason, model
+                )
+            })?;
 
         write_cache(&self.cache_dir, model, system_prompt, user_prompt, &result_text);
         Ok(result_text)

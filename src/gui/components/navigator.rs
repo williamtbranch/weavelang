@@ -232,17 +232,22 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState) {
             ui.ctx().output_mut(|o| o.copied_text = joined.clone());
         }
 
-        // Handle Paste events to apply to primary selected sentence
-        let events = ui.ctx().input(|i| i.events.clone());
-        for ev in &events {
-            if let egui::Event::Paste(pasted) = ev {
-                let target_idx = state.selected_range.map(|(s, _)| s).unwrap_or(state.selected_sentence_idx);
-                let tid = tier_id_for_view(state.left_view);
-                // update text uses 1-based sentence number
-                state.pending_terminal_command = Some(format!("update text {} {} {}", target_idx + 1, tid, pasted));
-                // clear range, make this the single selection
-                state.selected_range = None;
-                state.selected_sentence_idx = target_idx;
+        // Handle Paste events to apply to primary selected sentence,
+        // but ONLY when no text-editing widget (TextEdit) has keyboard focus.
+        // If a TextEdit is focused the paste belongs to that widget, not here.
+        let any_widget_focused = ui.ctx().memory(|m| m.focused().is_some());
+        if !any_widget_focused {
+            let events = ui.ctx().input(|i| i.events.clone());
+            for ev in &events {
+                if let egui::Event::Paste(pasted) = ev {
+                    let target_idx = state.selected_range.map(|(s, _)| s).unwrap_or(state.selected_sentence_idx);
+                    let tid = tier_id_for_view(state.left_view);
+                    // update text uses 1-based sentence number
+                    state.pending_terminal_command = Some(format!("update text {} {} {}", target_idx + 1, tid, pasted));
+                    // clear range, make this the single selection
+                    state.selected_range = None;
+                    state.selected_sentence_idx = target_idx;
+                }
             }
         }
     });

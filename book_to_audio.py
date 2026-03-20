@@ -12,6 +12,7 @@ import wave
 import time
 import importlib.metadata
 import json
+import re
 from typing import Any
 import sys # <-- NEW: For sys.exit()
 
@@ -118,7 +119,8 @@ async def generate_audio_chunk_async(
     effective_args: argparse.Namespace,
     semaphore: asyncio.Semaphore,
     temp_chunk_dir: Path,
-    voice_for_this_chunk: str # <-- NEW: Pass the specific voice for this chunk
+    voice_for_this_chunk: str, # <-- NEW: Pass the specific voice for this chunk
+    file_suffix: str = ""
 ) -> Path | None:
     try:
         async with semaphore:
@@ -174,7 +176,7 @@ async def generate_audio_chunk_async(
                     else: raise ValueError(f"Unsupported TTS service: {effective_args.tts_service}")
                     
                     if audio_data_bytes:
-                        temp_file_path = temp_chunk_dir / f"temp_chunk_{chunk_index:04d}.wav"
+                        temp_file_path = temp_chunk_dir / f"temp_chunk_{chunk_index:04d}{file_suffix}.wav"
                         save_raw_pcm_to_wav(temp_file_path, audio_data_bytes, PCM_CHANNELS, PCM_FRAME_RATE, PCM_SAMPLE_WIDTH)
                         logging.info(f"[{effective_args.tts_service.upper()}] Chunk {chunk_index + 1} successfully converted and saved.")
                         return temp_file_path
@@ -200,6 +202,40 @@ async def generate_audio_chunk_async(
         if delay > 0: logging.debug(f"Waiting for {delay} seconds before next chunk..."); await asyncio.sleep(delay)
 # --- END MODIFIED FUNCTION ---
 
+
+def find_sub_chunk_texts(temp_chunk_dir: Path, chunk_index: int) -> list[tuple[str, Path]]:
+    """Find sub-chunk text files like temp_chunk_0004_A.txt, _B.txt, etc.
+    Returns sorted list of (label, path) tuples."""
+    prefix = f"temp_chunk_{chunk_index:04d}_"
+    sub_chunks = []
+    for f in sorted(temp_chunk_dir.iterdir()):
+        if f.name.startswith(prefix) and f.suffix == '.txt':
+            label = f.stem[len(prefix):]
+            if re.match(r'^[A-Z]$', label):
+                sub_chunks.append((label, f))
+    return sub_chunks
+
+
+def concatenate_sub_chunk_audio(temp_chunk_dir: Path, chunk_index: int, labels: list[str]) -> Path | None:
+    """Concatenate sub-chunk wav files (_A.wav, _B.wav ...) into the main chunk wav."""
+    combined = AudioSegment.empty()
+    for label in labels:
+        sub_wav = temp_chunk_dir / f"temp_chunk_{chunk_index:04d}_{label}.wav"
+        if not sub_wav.exists() or sub_wav.stat().st_size <= 44:
+            return None
+        try:
+            combined += AudioSegment.from_file(sub_wav)
+        except Exception as e:
+            logging.error(f"Error loading sub-chunk audio {sub_wav.name}: {e}")
+            return None
+    if len(combined) == 0:
+        return None
+    main_wav = temp_chunk_dir / f"temp_chunk_{chunk_index:04d}.wav"
+    combined.export(str(main_wav), format="wav")
+    logging.info(f"Concatenated {len(labels)} sub-chunks into {main_wav.name}")
+    return main_wav
+
+
 # --- START: MODIFIED FUNCTION (Voice Rotation & Robust Merging) ---
 async def process_book_to_audio_async(
     text_chunks_from_file: list[str],
@@ -222,10 +258,13 @@ async def process_book_to_audio_async(
     logging.info("Saving source text for each chunk to the temporary directory...")
     for i, text_content in enumerate(text_chunks_from_file):
         text_file_path = temp_chunk_dir / f"temp_chunk_{i:04d}.txt"
-        try:
-            with open(text_file_path, 'w', encoding='utf-8') as f: f.write(text_content)
-        except IOError as e:
-            logging.warning(f"Could not write source text file for chunk {i+1}: {e}")
+        if (args.repair_mode or args.chunks_dir) and text_file_path.exists():
+            logging.debug(f"Repair mode: Preserving existing text file {text_file_path.name}")
+        else:
+            try:
+                with open(text_file_path, 'w', encoding='utf-8') as f: f.write(text_content)
+            except IOError as e:
+                logging.warning(f"Could not write source text file for chunk {i+1}: {e}")
     logging.info("All source text files saved.")
 
     # --- NEW: Voice Rotation Logic ---
@@ -237,6 +276,7 @@ async def process_book_to_audio_async(
     # --- END NEW ---
 
     tasks_to_generate = []
+    sub_chunk_parents = []  # (chunk_idx, [labels]) for chunks assembled from sub-parts
     if args.repair_mode or args.chunks_dir:
         logging.info("--- GAP-DETECTION MODE ---")
         for i, text_content in enumerate(text_chunks_from_file):
@@ -250,8 +290,35 @@ async def process_book_to_audio_async(
                 try: AudioSegment.from_file(expected_silence_file); is_valid_existing = True; logging.info(f"Repair mode: Chunk {i+1} (silence) found valid.")
                 except Exception: logging.warning(f"Repair mode: Chunk {i+1} ({expected_silence_file.name}) exists but is corrupt. Will regenerate.")
             if not is_valid_existing:
-                logging.info(f"Repair mode: Chunk {i+1} needs generation.")
-                tasks_to_generate.append((i, text_content))
+                # Check for sub-chunks (e.g. temp_chunk_0004_A.txt, _B.txt)
+                sub_chunks = find_sub_chunk_texts(temp_chunk_dir, i)
+                if sub_chunks:
+                    logging.info(f"Repair mode: Chunk {i+1} has {len(sub_chunks)} sub-chunk(s): {', '.join(l for l, _ in sub_chunks)}")
+                    for label, sc_path in sub_chunks:
+                        sc_wav = temp_chunk_dir / f"temp_chunk_{i:04d}_{label}.wav"
+                        sc_valid = False
+                        if sc_wav.exists() and sc_wav.stat().st_size > 44:
+                            try: AudioSegment.from_file(sc_wav); sc_valid = True
+                            except Exception: pass
+                        if not sc_valid:
+                            sc_text = sc_path.read_text(encoding='utf-8').strip()
+                            if sc_text:
+                                tasks_to_generate.append((i, sc_text, f"_{label}"))
+                                logging.info(f"  Sub-chunk {label} needs audio generation.")
+                            else:
+                                logging.warning(f"  Sub-chunk {label} text file is empty, skipping.")
+                        else:
+                            logging.info(f"  Sub-chunk {label} audio already valid.")
+                    sub_chunk_parents.append((i, [l for l, _ in sub_chunks]))
+                else:
+                    # Read from on-disk text file (may have been hand-edited)
+                    disk_txt = temp_chunk_dir / f"temp_chunk_{i:04d}.txt"
+                    if disk_txt.exists():
+                        disk_text = disk_txt.read_text(encoding='utf-8').strip()
+                        if disk_text:
+                            text_content = disk_text
+                    logging.info(f"Repair mode: Chunk {i+1} needs generation.")
+                    tasks_to_generate.append((i, text_content, ""))
     else: # Normal mode
         logging.info(f"--- NORMAL MODE ---")
         metadata_to_save = { "script_version": SCRIPT_VERSION, "input_filename": effective_args.input_filename, "tts_service": effective_args.tts_service, "chunk_max_chars": effective_args.chunk_max_chars, "total_expected_chunks": total_expected_chunks_count }
@@ -259,17 +326,17 @@ async def process_book_to_audio_async(
         elif effective_args.tts_service == "vertex": metadata_to_save.update({"voice_name": effective_args.voice_name, "language_code": effective_args.language_code})
         with open(metadata_file_path, 'w') as mf: json.dump(metadata_to_save, mf, indent=4)
         for i, text_content in enumerate(text_chunks_from_file):
-            tasks_to_generate.append((i, text_content))
+            tasks_to_generate.append((i, text_content, ""))
 
     if tasks_to_generate:
         logging.info(f"Preparing {len(tasks_to_generate)} chunks for API calls.")
         generation_tasks_for_asyncio = []
-        for original_idx, text_content in tasks_to_generate:
+        for original_idx, text_content, suffix in tasks_to_generate:
             # --- NEW: Assign voice for this chunk ---
             voice_for_this_chunk = voices[original_idx % len(voices)]
             # --- END NEW ---
             generation_tasks_for_asyncio.append(
-                generate_audio_chunk_async(client, text_content, original_idx, effective_args, semaphore, temp_chunk_dir, voice_for_this_chunk)
+                generate_audio_chunk_async(client, text_content, original_idx, effective_args, semaphore, temp_chunk_dir, voice_for_this_chunk, suffix)
             )
         
         if generation_tasks_for_asyncio:
@@ -281,6 +348,14 @@ async def process_book_to_audio_async(
             # --- END NEW ---
     else:
         logging.info("No chunks required TTS generation in this run.")
+
+    # --- Assemble sub-chunk audio into parent chunks ---
+    for chunk_idx, labels in sub_chunk_parents:
+        result = concatenate_sub_chunk_audio(temp_chunk_dir, chunk_idx, labels)
+        if result:
+            logging.info(f"Chunk {chunk_idx + 1} assembled from sub-chunks {', '.join(labels)}.")
+        else:
+            logging.warning(f"Chunk {chunk_idx + 1}: not all sub-chunk audio ready, assembly skipped.")
 
     if args.no_concat:
         logging.info("--no-concat flag set. Skipping final audio concatenation.")
@@ -440,6 +515,9 @@ async def main_async():
             if name.endswith('.wav.bad'):
                 continue
             if name.startswith('temp_chunk_') and name.endswith('.wav'):
+                # Skip sub-chunk audio files (e.g., temp_chunk_0004_A.wav)
+                if re.match(r'^temp_chunk_\d{4}_[A-Z]$', f.stem):
+                    continue
                 try:
                     AudioSegment.from_file(f)
                     chunk_files.append(f)

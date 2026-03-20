@@ -13,7 +13,7 @@ RULES:
 6.  No Ambiguity: Do not use parentheses or provide empty translations. Every Spanish atom must map to a concrete English atom.
 7.  NO_SUB TOKEN: Use the special token `NO_SUB` only when a Spanish word is a purely grammatical particle with no semantic equivalent in the English translation and cannot be logically grouped with another word.
 8.  **Exhaustive Mapping of WORDS:** The concatenation of only the **words** from your Spanish atoms MUST perfectly match the sequence of **words** in the original input phrase.
-9.  STRIP ALL PUNCTUATION: Your output on both sides of the `->` MUST NOT contain any punctuation (no commas, periods, quotes, etc.).
+9.  STRIP ALL PUNCTUATION: Your output on both sides of the `->` MUST NOT contain any punctuation (no commas, periods, quotes, etc.) This includes Spanish punctuation such as '¿' or '?'.
 10. **Output Format:** For each phrase ID, you will respond with a `MAPPINGS:` section containing the mappings, one per line, in the format: `Spanish Atom -> English Atom`.
 11. No Extra Text: Do not include any other text or explanations.
 12. Verb Conjugations: The English translation MUST accurately reflect the tense, mood, and person of the Spanish verb.
@@ -91,6 +91,7 @@ a ->
 esta -> this
 persona -> person
 
+
 GOOD MAPPING (Correctly absorbs the 'a' with the verb phrase):
 S_55:
 Ella -> She
@@ -119,6 +120,22 @@ vio a -> saw
 la -> the
 mujer -> woman
 ---
+
+--- EXAMPLE 4 no punctuation in mapping ---
+BAD MAPPING (Causes errors due to punctuation being mapped. Just map the words.)
+¿ -> NO_SUB
+Te quedarás -> Will you stay
+a desayunar -> for breakfast
+con -> with
+nosotros -> us
+? -> NO_SUB
+
+GOOD MAPPING
+Te quedarás -> Will you stay
+a desayunar -> for breakfast
+con -> with
+nosotros -> us
+
 
 ---
 FULL PHRASE EXAMPLE 1:

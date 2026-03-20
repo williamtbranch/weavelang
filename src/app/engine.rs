@@ -1582,12 +1582,33 @@ impl Engine {
                 let incomplete: Vec<String> = self.state.document.iter().enumerate()
                     .filter(|(_, s)| !s.is_weave_ready())
                     .map(|(i, s)| {
-                        let status = match s.weave_completeness() {
-                            crate::domain::sentence::Completeness::Empty => "empty",
-                            crate::domain::sentence::Completeness::Incomplete => "incomplete",
-                            crate::domain::sentence::Completeness::Complete => "complete",
-                        };
-                        format!("  {} (sentence {}) — {}", s.id, i + 1, status)
+                        use crate::domain::tier::TierState;
+                        // Collect problematic tiers (non-Valid or missing)
+                        let mut issues: Vec<String> = Vec::new();
+                        for &tid in crate::domain::sentence::Sentence::WEAVE_TIERS {
+                            match s.tiers.get(tid) {
+                                None => issues.push(format!("{}: missing", tid)),
+                                Some(t) if t.state != TierState::Valid => {
+                                    let label = match t.state {
+                                        TierState::Dirty => "dirty",
+                                        TierState::Stale => "stale",
+                                        TierState::Pending => "pending",
+                                        TierState::Broken => "BROKEN",
+                                        TierState::Valid => unreachable!(),
+                                    };
+                                    issues.push(format!("{}: {}", tid, label));
+                                }
+                                _ => {}
+                            }
+                        }
+                        if !s.has_diglot_mapping() {
+                            issues.push("fwd_mapping: missing".to_string());
+                        }
+                        if !s.has_inverse_diglot_mapping() {
+                            issues.push("inv_mapping: missing".to_string());
+                        }
+                        let detail = if issues.is_empty() { String::new() } else { format!(" [{}]", issues.join(", ")) };
+                        format!("  {} (sentence {}){}", s.id, i + 1, detail)
                     })
                     .collect();
                 if incomplete.is_empty() {
@@ -1975,7 +1996,7 @@ impl Engine {
                                 ));
                             }
                             Some(tier) if tier.state != TierState::Valid
-                                && !(is_mapping_stage && tier.state == TierState::Pending) =>
+                                && !(is_mapping_stage && (tier.state == TierState::Pending || tier.state == TierState::Broken)) =>
                             {
                                 let state_label = match tier.state {
                                     TierState::Dirty  => "Dirty (unapproved edits)",
@@ -2014,7 +2035,17 @@ impl Engine {
                                 }
                             }
                         } else {
-                            let source_text = sent.get_tier(source_tier).map(|t| t.full_text()).unwrap_or_default();
+                            let mut source_text = sent.get_tier(source_tier).map(|t| t.full_text()).unwrap_or_default();
+                            // For mapping stages, strip punctuation so the LLM
+                            // only sees words and cannot map ¿, ?, etc.
+                            if is_mapping_stage {
+                                source_text = source_text.chars()
+                                    .filter(|c| !c.is_ascii_punctuation() && !matches!(*c, '¿' | '¡' | '«' | '»' | '—' | '…'))
+                                    .collect::<String>()
+                                    .split_whitespace()
+                                    .collect::<Vec<_>>()
+                                    .join(" ");
+                            }
                             if !source_text.trim().is_empty() {
                                 items.push((idx, sent.id.clone(), source_text));
                             }
