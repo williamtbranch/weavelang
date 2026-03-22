@@ -2723,9 +2723,7 @@ impl Engine {
         use crate::simulation::frequency_manager;
         use crate::simulation::metrics::TextMetrics;
 
-        // AVD-to-User-Level inverse formula constants (from calibrator.rs)
-        const A_FIT: f64 = 4.15;
-        const B_FIT: f64 = 0.02;
+        use crate::simulation::calibrator;
 
         // Verify frequency list is loaded
         if frequency_manager::get_max_rank() == 0 {
@@ -2765,8 +2763,8 @@ impl Engine {
         let metrics = TextMetrics::new(&lemma_instances, 0);
         let avd_score = metrics.calculate_avd_score();
 
-        // Inverse mapping: User Level = A_FIT * ln(AVD + 1) + B_FIT
-        let user_level = A_FIT * (avd_score + 1.0).ln() + B_FIT;
+        // Inverse mapping: AVD -> User Level
+        let user_level = calibrator::get_user_level_from_avd(avd_score);
 
         // Find unique lemma count and coverage stats
         let mut unique_lemmas: std::collections::HashSet<&str> = std::collections::HashSet::new();
@@ -3233,6 +3231,8 @@ impl Engine {
         // --- Helper: generate a flat-recipe output file ---
         let generate_flat = |bas: u32, mod_v: u32, adv: u32, suffix: &str,
                              generated: &mut Vec<String>| -> Result<(), String> {
+            use crate::simulation::calibrator;
+
             let result = corpus_generator::generate_book_instance(
                 &numerical_chapter,
                 &json_chapter,
@@ -3248,16 +3248,27 @@ impl Engine {
                 .collect();
             let output_text = cleaned_parts.join("\n\n");
 
-            let file_name = build_file_name(suffix);
-            let file_path = tts_dir.join(&file_name);
-            fs::write(&file_path, &output_text)
-                .map_err(|e| format!("Failed to write '{}': {}", file_path.display(), e))?;
-
             let metrics = TextMetrics::new(
                 &result.all_output_lemma_instances,
                 result.total_base_words,
             );
             let avd_score = metrics.calculate_avd_score();
+
+            // For special tiers (ULb, ULm, ULa), append the derived user level
+            let actual_suffix = if suffix.starts_with("UL") && suffix.len() == 3
+                && ["ULb", "ULm", "ULa", "ULi"].contains(&suffix)
+            {
+                let ul = calibrator::get_user_level_from_avd(avd_score).round() as u32;
+                format!("{}{}", suffix, ul)
+            } else {
+                suffix.to_string()
+            };
+
+            let file_name = build_file_name(&actual_suffix);
+            let file_path = tts_dir.join(&file_name);
+            fs::write(&file_path, &output_text)
+                .map_err(|e| format!("Failed to write '{}': {}", file_path.display(), e))?;
+
             let recipe_obj = crate::simulation::numerical_types::VLevelRecipe { bas, mod_v, adv };
             corpus_generator::log_analysis_to_file(
                 &analysis_path,
@@ -3270,7 +3281,7 @@ impl Engine {
                 None,
             ).map_err(|e| format!("Failed to write analysis: {}", e))?;
 
-            generated.push(format!("{} ({} sentences)", suffix, result.final_text_parts.len()));
+            generated.push(format!("{} ({} sentences)", actual_suffix, result.final_text_parts.len()));
             Ok(())
         };
 
@@ -3305,17 +3316,20 @@ impl Engine {
             }
             let output_text = interlinear_parts.join("\n\n");
 
-            let suffix = "ULi";
-            let file_name = build_file_name(suffix);
-            let file_path = tts_dir.join(&file_name);
-            fs::write(&file_path, &output_text)
-                .map_err(|e| format!("Failed to write '{}': {}", file_path.display(), e))?;
-
             let metrics = TextMetrics::new(
                 &result_basic.all_output_lemma_instances,
                 result_basic.total_base_words,
             );
             let avd_score = metrics.calculate_avd_score();
+
+            // Derive user level from AVD and append to suffix
+            let ul = crate::simulation::calibrator::get_user_level_from_avd(avd_score).round() as u32;
+            let suffix = format!("ULi{}", ul);
+            let file_name = build_file_name(&suffix);
+            let file_path = tts_dir.join(&file_name);
+            fs::write(&file_path, &output_text)
+                .map_err(|e| format!("Failed to write '{}': {}", file_path.display(), e))?;
+
             let recipe_obj = crate::simulation::numerical_types::VLevelRecipe { bas: u32::MAX, mod_v: 0, adv: 0 };
             corpus_generator::log_analysis_to_file(
                 &analysis_path,

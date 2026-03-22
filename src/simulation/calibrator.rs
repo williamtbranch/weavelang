@@ -60,6 +60,12 @@ fn get_avd_from_user_level(user_level: f32) -> f64 {
     avd_score.max(0.0)
 }
 
+/// Inverse of `get_avd_from_user_level`: map an AVD score back to a user level.
+pub fn get_user_level_from_avd(avd_score: f64) -> f64 {
+    let level = A_FIT * (avd_score + 1.0).ln() + B_FIT;
+    level.max(0.0)
+}
+
 /// Map a unified vocabulary level `v` to the basic tier's V-level.
 /// Basic vocabulary is always a superset, so it ramps ahead of mod/adv.
 fn ramp_basic_v(v: u32) -> u32 {
