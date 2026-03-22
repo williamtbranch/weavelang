@@ -18,29 +18,74 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState) {
         load_chunk_data(state, stem)
     });
 
-    // Use a horizontal layout: main table on the left, chunk detail on the right
-    ui.horizontal(|ui| {
-        // Determine widths: if chunk panel is shown, split the space
-        let has_chunks = chunk_data.as_ref().map(|d| !d.chunks.is_empty()).unwrap_or(false);
-        let total_width = ui.available_width();
-        let main_width = if has_chunks { (total_width * 0.6).max(300.0) } else { total_width };
-
-        // ---- Left: Main status table ----
-        ui.vertical(|ui| {
-            ui.set_max_width(main_width);
-            render_main_panel(ui, state, &statuses, manifest_ok, illustrations, &error_msg);
-        });
-
-        // ---- Right: Chunk detail panel ----
+    // ---- Right: Chunk detail panel (reserve space first via SidePanel) ----
+    let has_chunks = chunk_data.as_ref().map(|d| !d.chunks.is_empty()).unwrap_or(false);
+    if has_chunks {
         if let (Some(stem), Some(data)) = (&selected, &chunk_data) {
-            if !data.chunks.is_empty() {
-                ui.separator();
-                ui.vertical(|ui| {
+            egui::SidePanel::right("media_chunk_panel")
+                .resizable(true)
+                .default_width(ui.available_width() * 0.35)
+                .show_inside(ui, |ui| {
                     render_chunk_panel(ui, state, stem, data);
                 });
-            }
         }
-    });
+    }
+
+    // ---- Bottom: batch buttons + job status (reserve space at bottom) ----
+    egui::TopBottomPanel::bottom("media_bottom_bar")
+        .show_inside(ui, |ui| {
+            // --- AV job status bar ---
+            if let Some(ref job) = state.av_job {
+                let j = job.lock().unwrap();
+                ui.horizontal(|ui| {
+                    if j.finished {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(80, 180, 80),
+                            format!("Done: {}", j.label),
+                        );
+                    } else {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(200, 180, 60),
+                            format!("Running: {}", j.label),
+                        );
+                        ui.spinner();
+                    }
+                    if !j.finished {
+                        drop(j);
+                        if ui.button("Cancel").clicked() {
+                            state.pending_terminal_command = Some("av cancel".to_string());
+                        }
+                    }
+                });
+                ui.separator();
+            }
+
+            // --- Batch buttons ---
+            let job_running = state.av_job.as_ref()
+                .map(|j| !j.lock().unwrap().finished)
+                .unwrap_or(false);
+
+            ui.horizontal(|ui| {
+                if ui.button("Mark All").clicked() {
+                    state.pending_terminal_command = Some("av mark-all".to_string());
+                }
+                if ui.button("Clear Marks").clicked() {
+                    state.pending_terminal_command = Some("av clear-marks".to_string());
+                }
+                ui.separator();
+                ui.add_enabled_ui(!job_running, |ui| {
+                    if ui.button("Gen Next Audio").clicked() {
+                        state.pending_terminal_command = Some("av generate audio next".to_string());
+                    }
+                    if ui.button("Gen Next Video").clicked() {
+                        state.pending_terminal_command = Some("av generate video next".to_string());
+                    }
+                });
+            });
+        });
+
+    // ---- Remaining space: heading + summary + file table (fills everything) ----
+    render_main_panel(ui, state, &statuses, manifest_ok, illustrations, &error_msg);
 }
 
 // ---------------------------------------------------------------------------
@@ -130,7 +175,7 @@ fn render_main_panel(
         ui.separator();
     }
 
-    // --- File status table ---
+    // --- File status table (fills all remaining vertical space) ---
     if statuses.is_empty() {
         ui.label("No woven text files found in the book directory.");
     } else {
@@ -139,58 +184,6 @@ fn render_main_panel(
             .unwrap_or(false);
         render_status_table(ui, state, statuses, illustrations, job_active);
     }
-
-    ui.add_space(8.0);
-
-    // --- AV job status bar ---
-    if let Some(ref job) = state.av_job {
-        let j = job.lock().unwrap();
-        ui.separator();
-        ui.horizontal(|ui| {
-            if j.finished {
-                ui.colored_label(
-                    egui::Color32::from_rgb(80, 180, 80),
-                    format!("Done: {}", j.label),
-                );
-            } else {
-                ui.colored_label(
-                    egui::Color32::from_rgb(200, 180, 60),
-                    format!("Running: {}", j.label),
-                );
-                ui.spinner();
-            }
-            if !j.finished {
-                drop(j);
-                if ui.button("Cancel").clicked() {
-                    state.pending_terminal_command = Some("av cancel".to_string());
-                }
-            }
-        });
-        ui.separator();
-    }
-
-    // --- Batch buttons ---
-    let job_running = state.av_job.as_ref()
-        .map(|j| !j.lock().unwrap().finished)
-        .unwrap_or(false);
-
-    ui.horizontal(|ui| {
-        if ui.button("Mark All").clicked() {
-            state.pending_terminal_command = Some("av mark-all".to_string());
-        }
-        if ui.button("Clear Marks").clicked() {
-            state.pending_terminal_command = Some("av clear-marks".to_string());
-        }
-        ui.separator();
-        ui.add_enabled_ui(!job_running, |ui| {
-            if ui.button("Gen Next Audio").clicked() {
-                state.pending_terminal_command = Some("av generate audio next".to_string());
-            }
-            if ui.button("Gen Next Video").clicked() {
-                state.pending_terminal_command = Some("av generate video next".to_string());
-            }
-        });
-    });
 }
 
 // ---------------------------------------------------------------------------

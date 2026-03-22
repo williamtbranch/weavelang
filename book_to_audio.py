@@ -62,7 +62,7 @@ import tomllib
 DEFAULT_TTS_SERVICE = "gemini"
 DEFAULT_GEMINI_MODEL_NAME = "models/gemini-2.5-pro-preview-tts"
 DEFAULT_GEMINI_VOICE_NAME = "Schedar"
-DEFAULT_GEMINI_TTS_PROMPT_PREFIX = "You have a Mexican Spanish accent. Narrate the following text in a clear, even voice, suitable for an audiobook. You are telling a story. Be engaging:"
+DEFAULT_GEMINI_TTS_PROMPT_PREFIX = "You have a Mexican Spanish accent. You are performing a story from classic public domain literature from Project Gutenberg. Read the text in a clear, engaging, and natural way, as if narrating an audiobook. Use appropriate intonation and pacing to bring the story to life. Do not add any commentary or information that is not in the text. Just read the text as it is written."
 DEFAULT_VERTEX_VOICE_NAME = "en-US-Standard-C"
 DEFAULT_VERTEX_LANGUAGE_CODE = "en-US"
 DEFAULT_CHUNK_MAX_CHARS = 750
@@ -262,7 +262,9 @@ async def process_book_to_audio_async(
             logging.debug(f"Repair mode: Preserving existing text file {text_file_path.name}")
         else:
             try:
-                with open(text_file_path, 'w', encoding='utf-8') as f: f.write(text_content)
+                # Replace all CR/LF variants with spaces to reduce TTS error rate
+                sanitized = text_content.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
+                with open(text_file_path, 'w', encoding='utf-8') as f: f.write(sanitized)
             except IOError as e:
                 logging.warning(f"Could not write source text file for chunk {i+1}: {e}")
     logging.info("All source text files saved.")

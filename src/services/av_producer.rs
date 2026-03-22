@@ -63,9 +63,9 @@ impl Default for TtsConfig {
             prompt_prefix: String::new(),
             use_vertex_auth: false,
             output_format: "wav".to_string(),
-            chunk_max_chars: 5000,
-            max_api_retries: 2,
-            retry_delay: 20,
+            chunk_max_chars: 4500,
+            max_api_retries: 1,
+            retry_delay: 10,
             concurrent_requests: 1,
         }
     }

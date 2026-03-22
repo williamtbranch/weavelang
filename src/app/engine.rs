@@ -3363,6 +3363,13 @@ impl Engine {
                 };
 
                 for level in &levels {
+            // Level 0 is a special "acclimatization" level: 100% base language (recipe 0/0/0).
+            // It has no entry in the book_map, so handle it via generate_flat.
+            if *level == 0 {
+                generate_flat(0, 0, 0, "UL0", &mut generated_files)?;
+                continue;
+            }
+
             let level_key = level.to_string();
             let cm = book_map.get(&level_key)
                 .ok_or(format!("No recipe found for level {}", level))?;
@@ -3517,8 +3524,9 @@ impl Engine {
             generated_files.push(format!("{} ({} sentences)", level_suffix, full_result.final_text_parts.len()));
         }
 
-                // When generating 'all', also produce the 4 special outputs
+                // When generating 'all', also produce UL0 and the 4 special outputs
                 if is_all {
+                    generate_flat(0, 0, 0, "UL0", &mut generated_files)?;
                     generate_flat(u32::MAX, 0, 0, "ULb", &mut generated_files)?;
                     generate_flat(u32::MAX, u32::MAX, 0, "ULm", &mut generated_files)?;
                     generate_flat(u32::MAX, u32::MAX, u32::MAX, "ULa", &mut generated_files)?;
