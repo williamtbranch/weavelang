@@ -493,6 +493,11 @@ impl AvProducer {
         cmd.env("GOOGLE_API_KEY", api_key);
         cmd.env("PYTHONUTF8", "1");
 
+        // Auto-detect interleave files (ULi pattern) for multi-speaker TTS
+        if is_interleave_stem(stem) {
+            cmd.arg("--interleave");
+        }
+
         let output = cmd
             .output()
             .map_err(|e| format!("Failed to spawn book_to_audio.py ({}): {}", python_exe, e))?;
@@ -681,6 +686,11 @@ impl AvProducer {
         cmd.env("PYTHONUTF8", "1");
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
+
+        // Auto-detect interleave files (ULi pattern) for multi-speaker TTS
+        if is_interleave_stem(stem) {
+            cmd.arg("--interleave");
+        }
 
         cmd.spawn()
             .map_err(|e| format!("Failed to spawn book_to_audio.py ({}): {}", python_exe, e))
@@ -874,6 +884,15 @@ impl AvProducer {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Return true if the stem matches the ULi interleave naming pattern (e.g. "Book_ULi34").
+fn is_interleave_stem(stem: &str) -> bool {
+    if let Some(pos) = stem.find("ULi") {
+        stem[pos + 3..].starts_with(|c: char| c.is_ascii_digit())
+    } else {
+        false
+    }
+}
 
 /// Find a Python executable, preferring a local venv.
 pub fn find_python(project_root: &Path) -> String {
@@ -1151,5 +1170,15 @@ mod tests {
         assert_eq!(super::parse_chunk_index("temp_chunk_0003_silence.wav"), Some(3));
         assert_eq!(super::parse_chunk_index("other_file.txt"), None);
         assert_eq!(super::parse_chunk_index("_metadata.json"), None);
+    }
+
+    #[test]
+    fn is_interleave_stem_works() {
+        assert!(super::is_interleave_stem("grimms_The_Golden_Bird_ULi34"));
+        assert!(super::is_interleave_stem("Book_ULi7"));
+        assert!(!super::is_interleave_stem("Book_UL7"));
+        assert!(!super::is_interleave_stem("Book_ULb12"));
+        assert!(!super::is_interleave_stem("Book_ULi"));
+        assert!(!super::is_interleave_stem("something_else"));
     }
 }

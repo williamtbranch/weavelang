@@ -1,11 +1,13 @@
 # -----------------------------------------------------------------------------
 # book_to_audio.py
-# Script Version: 1.5.0 (Multi-voice, Robust Merging, Quota Handling)
+# Script Version: 1.6.0 (Multi-voice, Multi-speaker Interleave, Robust Merging, Quota Handling)
 # -----------------------------------------------------------------------------
 
 import asyncio
 import argparse
 from pathlib import Path
+import struct
+import mimetypes
 import os
 import logging
 import wave
@@ -16,7 +18,7 @@ import re
 from typing import Any
 import sys # <-- NEW: For sys.exit()
 
-SCRIPT_VERSION = "1.5.0"
+SCRIPT_VERSION = "1.6.0"
 
 # --- NEW: Custom exception for handling daily quota limits ---
 class QuotaExhaustedError(Exception):
@@ -49,8 +51,8 @@ except ImportError:
 try:
     import vertexai
     from vertexai.generative_models import GenerativeModel
-except ImportError:
-    logging.warning("Vertex AI SDK (`google-cloud-aiplatform`) not found. Gemini via Vertex AI auth will not be available.")
+except (ImportError, MemoryError):
+    logging.warning("Vertex AI SDK (`google-cloud-aiplatform`) not available. Gemini via Vertex AI auth will not be available.")
     vertexai = None
     GenerativeModel = None
 from google.api_core import exceptions as api_core_exceptions
@@ -91,6 +93,90 @@ def save_raw_pcm_to_wav(filename: Path, pcm_data: bytes, channels: int, rate: in
     with wave.open(str(filename), "wb") as wf:
         wf.setnchannels(channels); wf.setsampwidth(sample_width); wf.setframerate(rate); wf.writeframes(pcm_data)
     logging.debug(f"Raw PCM data saved to WAV: {filename}")
+
+def is_interleave_file(filename: str) -> bool:
+    """Return True if the filename matches the ULi interleave pattern (e.g. name_ULi34.txt)."""
+    return bool(re.search(r'ULi\d+', filename))
+
+
+def chunk_interleave_text(full_text: str, max_chars: int) -> list[str]:
+    """Chunk interleave text by speaker pairs, respecting max_chars.
+
+    Each group of consecutive Speaker lines (Speaker 1 + Speaker 2) is kept
+    together. Groups are accumulated into chunks until adding another would
+    exceed max_chars.
+    """
+    # Parse into groups: each group is a block of consecutive "Speaker N: ..." lines
+    lines = [line.strip() for line in full_text.splitlines() if line.strip()]
+    groups: list[str] = []
+    current_group_lines: list[str] = []
+    for line in lines:
+        if re.match(r'^Speaker \d+:', line) and current_group_lines:
+            # If this Speaker 1 starts a new triplet, flush the previous group
+            if line.startswith('Speaker 1:') and current_group_lines:
+                groups.append('\n'.join(current_group_lines))
+                current_group_lines = []
+        current_group_lines.append(line)
+    if current_group_lines:
+        groups.append('\n'.join(current_group_lines))
+
+    # Now pack groups into chunks respecting max_chars
+    chunks: list[str] = []
+    current_chunk_parts: list[str] = []
+    current_len = 0
+    for group in groups:
+        group_len = len(group)
+        # If adding this group would exceed max_chars, flush current chunk
+        if current_chunk_parts and current_len + group_len + 2 > max_chars:
+            chunks.append('\n\n'.join(current_chunk_parts))
+            current_chunk_parts = []
+            current_len = 0
+        current_chunk_parts.append(group)
+        current_len += group_len + 2  # +2 for the \n\n separator
+    if current_chunk_parts:
+        chunks.append('\n\n'.join(current_chunk_parts))
+    return chunks
+
+
+def parse_audio_mime_type(mime_type: str) -> dict[str, int]:
+    """Parse bits_per_sample and rate from an audio MIME type (e.g. 'audio/L16;rate=24000')."""
+    bits_per_sample = 16
+    rate = 24000
+    parts = mime_type.split(";")
+    for param in parts:
+        param = param.strip()
+        if param.lower().startswith("rate="):
+            try:
+                rate = int(param.split("=", 1)[1])
+            except (ValueError, IndexError):
+                pass
+        elif param.startswith("audio/L"):
+            try:
+                bits_per_sample = int(param.split("L", 1)[1])
+            except (ValueError, IndexError):
+                pass
+    return {"bits_per_sample": bits_per_sample, "rate": rate}
+
+
+def convert_to_wav(audio_data: bytes, mime_type: str) -> bytes:
+    """Wrap raw PCM audio data in a WAV header based on MIME type parameters."""
+    parameters = parse_audio_mime_type(mime_type)
+    bits_per_sample = parameters["bits_per_sample"]
+    sample_rate = parameters["rate"]
+    num_channels = 1
+    data_size = len(audio_data)
+    bytes_per_sample = bits_per_sample // 8
+    block_align = num_channels * bytes_per_sample
+    byte_rate = sample_rate * block_align
+    chunk_size = 36 + data_size
+    header = struct.pack(
+        "<4sI4s4sIHHIIHH4sI",
+        b"RIFF", chunk_size, b"WAVE", b"fmt ", 16, 1,
+        num_channels, sample_rate, byte_rate, block_align, bits_per_sample,
+        b"data", data_size,
+    )
+    return header + audio_data
+
 
 def chunk_text(full_text: str, max_chars: int) -> list[str]:
     chunks = []; current_pos = 0; text_len = len(full_text)
@@ -203,6 +289,132 @@ async def generate_audio_chunk_async(
 # --- END MODIFIED FUNCTION ---
 
 
+async def generate_interleave_audio_chunk_async(
+    client: Any,
+    text_chunk: str,
+    chunk_index: int,
+    effective_args: argparse.Namespace,
+    semaphore: asyncio.Semaphore,
+    temp_chunk_dir: Path,
+    speaker_voices: list[tuple[str, str]],
+    file_suffix: str = ""
+) -> Path | None:
+    """Generate audio for an interleave chunk using multi-speaker TTS.
+
+    speaker_voices is a list of (speaker_label, voice_name) tuples,
+    e.g. [("Speaker 1", "Charon"), ("Speaker 2", "aoede"), ("Speaker 3", "Puck")].
+    """
+    try:
+        async with semaphore:
+            logging.info(f"[GEMINI-MULTI] Requesting multi-speaker TTS for chunk {chunk_index + 1}...")
+            if not text_chunk.strip():
+                silence = AudioSegment.silent(duration=100, frame_rate=PCM_FRAME_RATE)
+                temp_file_path = temp_chunk_dir / f"temp_chunk_{chunk_index:04d}_silence.wav"
+                silence.export(str(temp_file_path), format="wav", parameters=["-ac", str(PCM_CHANNELS), "-ar", str(PCM_FRAME_RATE)])
+                return temp_file_path
+
+            if not google_genai or not genai_types:
+                raise RuntimeError("Gemini API library not available.")
+
+            last_exception = None
+            for attempt in range(effective_args.max_api_retries):
+                try:
+                    api_call_description = f"Chunk {chunk_index + 1} (Attempt {attempt + 1}/{effective_args.max_api_retries})"
+
+                    prompt_text = f"{effective_args.tts_prompt_prefix}\n\n{text_chunk}"
+                    contents = [
+                        genai_types.Content(
+                            role="user",
+                            parts=[genai_types.Part.from_text(text=prompt_text)],
+                        ),
+                    ]
+
+                    speaker_configs = [
+                        genai_types.SpeakerVoiceConfig(
+                            speaker=label,
+                            voice_config=genai_types.VoiceConfig(
+                                prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(
+                                    voice_name=voice
+                                )
+                            ),
+                        )
+                        for label, voice in speaker_voices
+                    ]
+
+                    api_config = genai_types.GenerateContentConfig(
+                        temperature=1,
+                        response_modalities=["audio"],
+                        speech_config=genai_types.SpeechConfig(
+                            multi_speaker_voice_config=genai_types.MultiSpeakerVoiceConfig(
+                                speaker_voice_configs=speaker_configs,
+                            ),
+                        ),
+                    )
+
+                    # Use streaming to collect audio data
+                    audio_buffers = []
+                    async for chunk in await client.aio.models.generate_content_stream(
+                        model=effective_args.model_name,
+                        contents=contents,
+                        config=api_config,
+                    ):
+                        if chunk.parts is None:
+                            continue
+                        part = chunk.parts[0]
+                        if part.inline_data and part.inline_data.data:
+                            inline_data = part.inline_data
+                            data_buffer = inline_data.data
+                            mime_type = inline_data.mime_type or ""
+                            # Convert raw PCM to WAV if no recognized extension
+                            file_extension = mimetypes.guess_extension(mime_type)
+                            if file_extension is None:
+                                data_buffer = convert_to_wav(data_buffer, mime_type)
+                            audio_buffers.append(data_buffer)
+
+                    if audio_buffers:
+                        temp_file_path = temp_chunk_dir / f"temp_chunk_{chunk_index:04d}{file_suffix}.wav"
+                        # Concatenate all streamed wav segments
+                        if len(audio_buffers) == 1:
+                            with open(temp_file_path, "wb") as f:
+                                f.write(audio_buffers[0])
+                        else:
+                            combined = AudioSegment.empty()
+                            for buf in audio_buffers:
+                                import io
+                                combined += AudioSegment.from_file(io.BytesIO(buf), format="wav")
+                            combined.export(str(temp_file_path), format="wav")
+                        logging.info(f"[GEMINI-MULTI] Chunk {chunk_index + 1} successfully converted and saved.")
+                        return temp_file_path
+                    else:
+                        error_message = "No audio data in multi-speaker Gemini streaming response."
+                        logging.error(f"{api_call_description} [GEMINI-MULTI] - {error_message}")
+                        last_exception = RuntimeError(error_message)
+
+                except Exception as e:
+                    error_str = str(e).lower()
+                    if "resource_exhausted" in error_str and "quota" in error_str:
+                        logging.warning("Daily API quota has been reached. Halting all further API calls.")
+                        raise QuotaExhaustedError(str(e))
+                    logging.error(f"{api_call_description} [GEMINI-MULTI] - Error: {e}", exc_info=False)
+                    last_exception = e
+
+                if attempt + 1 < effective_args.max_api_retries:
+                    delay = effective_args.retry_delay
+                    error_str = str(last_exception).lower() if last_exception else ""
+                    if any(sub in error_str for sub in ["429", "rate limit", "unavailable", "s503"]):
+                        delay = effective_args.retry_delay * (2 ** attempt)
+                    logging.info(f"Retrying chunk {chunk_index + 1} after error. Waiting {delay} seconds...")
+                    await asyncio.sleep(delay)
+
+            logging.error(f"[GEMINI-MULTI] Chunk {chunk_index + 1} failed after {effective_args.max_api_retries} retries. Last error: {last_exception}")
+            return None
+    finally:
+        delay = effective_args.delay_between_chunks
+        if delay > 0:
+            logging.debug(f"Waiting for {delay} seconds before next chunk...")
+            await asyncio.sleep(delay)
+
+
 def find_sub_chunk_texts(temp_chunk_dir: Path, chunk_index: int) -> list[tuple[str, Path]]:
     """Find sub-chunk text files like temp_chunk_0004_A.txt, _B.txt, etc.
     Returns sorted list of (label, path) tuples."""
@@ -255,6 +467,7 @@ async def process_book_to_audio_async(
     logging.info(f"Temporary audio and text chunks are stored in: {temp_chunk_dir}")
     total_expected_chunks_count = len(text_chunks_from_file)
     
+    is_interleave = getattr(args, 'interleave', False)
     logging.info("Saving source text for each chunk to the temporary directory...")
     for i, text_content in enumerate(text_chunks_from_file):
         text_file_path = temp_chunk_dir / f"temp_chunk_{i:04d}.txt"
@@ -262,8 +475,12 @@ async def process_book_to_audio_async(
             logging.debug(f"Repair mode: Preserving existing text file {text_file_path.name}")
         else:
             try:
-                # Replace all CR/LF variants with spaces to reduce TTS error rate
-                sanitized = text_content.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
+                if is_interleave:
+                    # Preserve newlines for multi-speaker format (Speaker N: lines)
+                    sanitized = text_content.replace('\r\n', '\n').replace('\r', '\n')
+                else:
+                    # Replace all CR/LF variants with spaces to reduce TTS error rate
+                    sanitized = text_content.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
                 with open(text_file_path, 'w', encoding='utf-8') as f: f.write(sanitized)
             except IOError as e:
                 logging.warning(f"Could not write source text file for chunk {i+1}: {e}")
@@ -334,9 +551,8 @@ async def process_book_to_audio_async(
         logging.info(f"Preparing {len(tasks_to_generate)} chunks for API calls.")
         generation_tasks_for_asyncio = []
         for original_idx, text_content, suffix in tasks_to_generate:
-            # --- NEW: Assign voice for this chunk ---
+            # --- Assign voice for this chunk ---
             voice_for_this_chunk = voices[original_idx % len(voices)]
-            # --- END NEW ---
             generation_tasks_for_asyncio.append(
                 generate_audio_chunk_async(client, text_content, original_idx, effective_args, semaphore, temp_chunk_dir, voice_for_this_chunk, suffix)
             )
@@ -447,6 +663,7 @@ async def main_async():
     parser.add_argument("--chunks-dir", type=Path, default=None, help="Directory for audio chunks. Enables gap-detection mode.")
     parser.add_argument("--no-concat", action="store_true", help="Skip final audio concatenation.")
     parser.add_argument("--concat-only", action="store_true", help="Skip TTS generation and only concatenate existing chunks.")
+    parser.add_argument("--interleave", action="store_true", help="Use multi-speaker TTS for interleaved Speaker 1/2/3 format files.")
     args = parser.parse_args()
 
     if args.voice_name is None:
@@ -548,34 +765,31 @@ async def main_async():
         return
     # --- end concat-only mode ---
 
-    import re
-
     raw_text = input_text_file.read_text(encoding="utf-8")
-    
-    # 1. Replace any sequence of two or more newlines with a single newline.
-    #    This collapses paragraph breaks but preserves intentional single line breaks.
-    text_with_single_breaks = re.sub(r'\n{2,}', '\n', raw_text)
-    
-    # 2. Heuristic: For lines that do NOT end in punctuation, the single newline
-    #    provides a good pause. For lines that DO end in punctuation, the newline
-    #    can create an unnaturally long pause. We'll replace the newline with a space
-    #    in those specific cases.
-    final_text_parts = []
-    for line in text_with_single_breaks.splitlines():
-        stripped_line = line.strip()
-        if stripped_line:
-            # Check if the line ends with common sentence-ending punctuation.
-            if stripped_line.endswith(('.', '!', '?', '"', '”')):
-                final_text_parts.append(stripped_line)
-            else:
-                # If it's a heading or title, keep the line break for pacing.
-                # We'll represent this with a unique placeholder for now.
-                final_text_parts.append(stripped_line + "<PAUSE>")
 
-    # Join everything with spaces, then replace the placeholder with a newline.
-    # This ensures that even after joining, our intentional breaks are preserved.
-    full_text = ' '.join(final_text_parts).replace("<PAUSE>", "\n")
+    # Auto-detect interleave mode from filename if not explicitly set
+    if not args.interleave and is_interleave_file(input_text_file.name):
+        logging.info(f"Auto-detected interleave file from filename: {input_text_file.name}")
+        args.interleave = True
 
+    if args.interleave:
+        logging.info("Interleave mode: preserving double-newline spacing for TTS.")
+        full_text = raw_text.strip()
+    else:
+        # Replace any sequence of two or more newlines with a single newline.
+        text_with_single_breaks = re.sub(r'\n{2,}', '\n', raw_text)
+        # Heuristic: For lines that do NOT end in punctuation, the single newline
+        # provides a good pause. For lines that DO, the newline can create an
+        # unnaturally long pause -- replace with a space in those cases.
+        final_text_parts = []
+        for line in text_with_single_breaks.splitlines():
+            stripped_line = line.strip()
+            if stripped_line:
+                if stripped_line.endswith(('.', '!', '?', '"', '”')):
+                    final_text_parts.append(stripped_line)
+                else:
+                    final_text_parts.append(stripped_line + '<PAUSE>')
+        full_text = ' '.join(final_text_parts).replace('<PAUSE>', '\n')
 
     effective_args = argparse.Namespace(**vars(args))
     text_chunks = chunk_text(full_text, effective_args.chunk_max_chars)

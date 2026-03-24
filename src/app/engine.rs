@@ -2078,7 +2078,7 @@ impl Engine {
                     // Determine which mapping stages follow this translation stage
                     let mapping_stages: Vec<&str> = match stage_name.as_str() {
                         "GenerateBasicBase" => vec!["GeneratePhraseMap"],
-                        "GenerateBasicTarget" => vec!["GeneratePhraseMap", "GenerateInversePhraseMap"],
+                        "GenerateBasicTarget" => vec!["GenerateInversePhraseMap"],
                         _ => vec![],
                     };
 
@@ -3310,9 +3310,9 @@ impl Engine {
             for idx in 0..count {
                 let basic_clean = text_generator::clean_text_for_tts(&result_basic.final_text_parts[idx]);
                 let base_clean = text_generator::clean_text_for_tts(&result_base.final_text_parts[idx]);
-                interlinear_parts.push(format!("Speaker 1: {}", basic_clean));
-                interlinear_parts.push(format!("Speaker 2: {}", base_clean));
-                interlinear_parts.push(format!("Speaker 3: {}", basic_clean));
+                interlinear_parts.push(basic_clean.clone());
+                interlinear_parts.push(base_clean);
+                interlinear_parts.push(basic_clean);
             }
             let output_text = interlinear_parts.join("\n\n");
 
