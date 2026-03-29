@@ -1,0 +1,40 @@
+# Copilot Plan
+#
+# This file is written by the agent at session start (from _goal.toml)
+# and updated as tasks complete or fail.
+# Do not edit by hand during a session.
+
+[session]
+name = ""
+date = ""
+status = "idle"              # idle | running | completed | failed | aborted
+
+# Overall progress
+total_tasks = 0
+completed_tasks = 0
+failed_tasks = 0
+
+# Ordered task list. The agent works through these sequentially.
+# Each task has:
+#   id        — sequential integer
+#   step      — pipeline stage: weave | mark | audio | illustrations | video | upload
+#   stem      — target stem name (empty for non-stem tasks like "mark" or "weave")
+#   chapter   — chapter name
+#   status    — pending | in-progress | completed | failed | skipped
+#   attempts  — number of times this task has been tried
+#   error     — last error message (empty if none)
+#   started   — ISO timestamp when task began
+#   finished  — ISO timestamp when task ended
+
+[[tasks]]
+# Example (remove when real tasks are generated):
+# id = 1
+# step = "weave"
+# stem = ""
+# chapter = "The Travelling Musicians"
+# command = "generate_weave all"
+# status = "pending"
+# attempts = 0
+# error = ""
+# started = ""
+# finished = ""

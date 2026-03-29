@@ -17,6 +17,17 @@ pub struct Config {
     pub stages: HashMap<String, StageConfig>,
     pub copilot_server_name: Option<String>,
     pub copilot_server_port: Option<u16>,
+    pub copilot: Option<CopilotConfig>,
+    /// Workspace-wide path to YouTube OAuth client_secret JSON file.
+    pub youtube_client_secret_file: Option<String>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct CopilotConfig {
+    /// Model alias from the [models] table. Empty or missing = copilot disabled.
+    pub model: Option<String>,
+    /// Maximum LLM round-trips per autonomous session (safety cap).
+    pub max_turns: Option<u32>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
@@ -114,6 +125,8 @@ impl Default for Config {
             stages,
             copilot_server_name: None,
             copilot_server_port: None,
+            copilot: None,
+            youtube_client_secret_file: None,
         }
     }
 }

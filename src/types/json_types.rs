@@ -149,4 +149,7 @@ pub struct LevelMapMeta {
     pub peak_user_score: f64,
     pub total_start_levels: u32,
     pub schema_version: String,
+    /// Number of completed sentences used during calibration.
+    #[serde(default)]
+    pub calibration_sentence_count: Option<usize>,
 }

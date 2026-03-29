@@ -18,6 +18,53 @@ fn format_lemma_with_rank(lemma: &str) -> String {
     }
 }
 
+/// Heuristic: does this text look like a chapter/section heading?
+fn is_likely_heading(text: &str) -> bool {
+    let len = text.chars().count();
+    // Must be reasonably short
+    if len > 100 {
+        return false;
+    }
+    let lower = text.to_lowercase();
+    // Explicit chapter/part markers
+    if lower.starts_with("chapter ")
+        || lower.starts_with("part ")
+        || lower.starts_with("book ")
+        || lower.starts_with("volume ")
+        || lower.starts_with("prologue")
+        || lower.starts_with("epilogue")
+        || lower.starts_with("preface")
+        || lower.starts_with("introduction")
+        || lower.starts_with("appendix")
+    {
+        return true;
+    }
+    // All-caps short line (e.g. "THE OLD WOMAN" as a section title)
+    if len <= 60 && len >= 2 {
+        let alpha_chars: Vec<char> = text.chars().filter(|c| c.is_alphabetic()).collect();
+        if !alpha_chars.is_empty() && alpha_chars.iter().all(|c| c.is_uppercase()) {
+            return true;
+        }
+    }
+    // Roman numeral lines: I, II, III, IV, ... possibly with a period or title after
+    if len <= 40 {
+        let first_word = text.split_whitespace().next().unwrap_or("");
+        let stripped = first_word.trim_end_matches('.');
+        if is_roman_numeral(stripped) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Check if a string is a valid Roman numeral (I through L or so).
+fn is_roman_numeral(s: &str) -> bool {
+    if s.is_empty() || s.len() > 10 {
+        return false;
+    }
+    s.chars().all(|c| matches!(c, 'I' | 'V' | 'X' | 'L' | 'C' | 'D' | 'M'))
+}
+
 /// Format a slice of lemmas with ranks, joined by ", ".
 fn format_lemmas_with_ranks(lemmas: &[String]) -> String {
     lemmas.iter().map(|l| format_lemma_with_rank(l)).collect::<Vec<_>>().join(", ")
@@ -128,20 +175,29 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
         "clear" => Ok(TerminalCommand::Clear),
         "list" => {
             if parts.len() > 1 && parts[1] == "nav" {
-                let start_index = if parts.len() > 2 {
-                    parts[2].parse::<usize>().ok().map(|n| n.saturating_sub(1))
+                // list nav --around <N>
+                if parts.len() >= 4 && parts[2] == "--around" {
+                    let n = parts[3].parse::<usize>().map_err(|_| "Invalid sentence number".to_string())?;
+                    if n == 0 { return Err("Sentence numbers start at 1".to_string()); }
+                    Ok(TerminalCommand::ListNavAround { center: n - 1 })
                 } else {
-                    None
-                };
-                Ok(TerminalCommand::ListNav { start_index })
+                    let start_index = if parts.len() > 2 {
+                        parts[2].parse::<usize>().ok().map(|n| n.saturating_sub(1))
+                    } else {
+                        None
+                    };
+                    Ok(TerminalCommand::ListNav { start_index })
+                }
             } else if parts.len() > 2 && parts[1] == "pn_lemmas" {
                 let n = parts[2].parse::<usize>().map_err(|_| "Invalid sentence number")?;
                 if n == 0 { return Err("Sentence numbers start at 1".to_string()); }
                 Ok(TerminalCommand::App(AppCommand::ListPnLemmas { index: n - 1 }))
             } else if parts.len() > 1 && parts[1] == "chapters" {
                 Ok(TerminalCommand::App(AppCommand::ListChapters))
+            } else if parts.len() > 1 && parts[1] == "headings" {
+                Ok(TerminalCommand::ListHeadings)
             } else {
-                Err("Unknown list command. Try 'list nav', 'list pn_lemmas <N>', or 'list chapters'".to_string())
+                Err("Unknown list command. Try 'list nav', 'list headings', 'list pn_lemmas <N>', or 'list chapters'".to_string())
             }
         },
         "load" => {
@@ -150,6 +206,19 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
             } else {
                 Err("Usage: load project <path>".to_string())
             }
+        },
+        "search" => {
+            // search "<text>" or search <text...>
+            // Extract the query: join remaining parts, strip surrounding quotes if present
+            if parts.len() < 2 {
+                return Err("Usage: search <text>".to_string());
+            }
+            let raw = parts[1..].join(" ");
+            let query = raw.trim_matches('"').trim_matches('\'').to_string();
+            if query.is_empty() {
+                return Err("Usage: search <text>".to_string());
+            }
+            Ok(TerminalCommand::SearchText { query })
         },
         "add" => {
             if parts.len() > 2 && parts[1] == "sentence" {
@@ -396,13 +465,18 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
             }
         },
         "watch_job" => Ok(TerminalCommand::WatchJob),
+        "job_status" => Ok(TerminalCommand::JobStatus),
         "calibrate" => {
-            let max_level = if parts.len() > 1 {
-                Some(parts[1].parse::<u32>().map_err(|_| "Invalid max level number")?)
+            if parts.len() > 1 && parts[1] == "info" {
+                Ok(TerminalCommand::CalibrationInfo)
             } else {
-                None
-            };
-            Ok(TerminalCommand::App(AppCommand::Calibrate { max_level }))
+                let max_level = if parts.len() > 1 {
+                    Some(parts[1].parse::<u32>().map_err(|_| "Invalid max level number")?)
+                } else {
+                    None
+                };
+                Ok(TerminalCommand::App(AppCommand::Calibrate { max_level }))
+            }
         },
         "generate_weave" => {
             if parts.len() > 1 {
@@ -480,11 +554,13 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
         "report" => {
             if parts.len() > 1 && parts[1] == "sentences" {
                 if parts.len() > 2 && parts[2] == "incomplete" {
-                    Ok(TerminalCommand::App(AppCommand::ReportSentencesIncomplete))
+                    let limit = if parts.len() > 3 { parts[3].parse::<usize>().ok() } else { None };
+                    Ok(TerminalCommand::App(AppCommand::ReportSentencesIncomplete { limit }))
                 } else if parts.len() > 2 && parts[2] == "complete" {
-                    Ok(TerminalCommand::App(AppCommand::ReportSentencesComplete))
+                    let limit = if parts.len() > 3 { parts[3].parse::<usize>().ok() } else { None };
+                    Ok(TerminalCommand::App(AppCommand::ReportSentencesComplete { limit }))
                 } else {
-                    Err("Usage: report sentences incomplete | report sentences complete".to_string())
+                    Err("Usage: report sentences incomplete [N] | report sentences complete [N]".to_string())
                 }
             } else if parts.len() > 2 && parts[1] == "sentence" {
                 // report sentence <N> or report sentence <N>-<M> (1-based)
@@ -646,10 +722,17 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
         },
         "accept" => {
             // accept map — validate/accept the mapping for selected tier
+            // accept map <start> <end> — bulk accept for stale sentences in range
             if parts.len() > 1 && parts[1] == "map" {
-                Ok(TerminalCommand::App(AppCommand::AcceptMap))
+                if parts.len() >= 4 {
+                    let start = parts[2].parse::<usize>().map_err(|_| "Invalid start number".to_string())?;
+                    let end = parts[3].parse::<usize>().map_err(|_| "Invalid end number".to_string())?;
+                    Ok(TerminalCommand::App(AppCommand::AcceptMapRange { start, end }))
+                } else {
+                    Ok(TerminalCommand::App(AppCommand::AcceptMap))
+                }
             } else {
-                Err("Usage: accept map".to_string())
+                Err("Usage: accept map [<start> <end>]".to_string())
             }
         },
         "init" => {
@@ -666,6 +749,16 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
                 Ok(TerminalCommand::ServerInfo)
             } else {
                 Err("Usage: server info".to_string())
+            }
+        },
+        "copilot" => {
+            if parts.len() >= 3 && parts[1] == "journal" {
+                let text = parts[2..].join(" ");
+                Ok(TerminalCommand::App(AppCommand::CopilotJournal { text }))
+            } else if parts.len() >= 2 && parts[1] == "reset" {
+                Ok(TerminalCommand::App(AppCommand::CopilotReset))
+            } else {
+                Err("Usage: copilot journal <text> | copilot reset".to_string())
             }
         },
         "new" => {
@@ -726,7 +819,7 @@ fn parse_av_command(parts: &[&str]) -> Result<TerminalCommand, String> {
         "clear-marks" => Ok(TerminalCommand::App(AppCommand::AvClearMarks)),
         "generate" => {
             if parts.len() < 2 {
-                return Err("Usage: av generate audio|video [stem|next|all]".to_string());
+                return Err("Usage: av generate audio|video|prompts|illustrations [stem|next|all]".to_string());
             }
             let target = if parts.len() >= 3 {
                 match parts[2] {
@@ -740,7 +833,9 @@ fn parse_av_command(parts: &[&str]) -> Result<TerminalCommand, String> {
             match parts[1] {
                 "audio" => Ok(TerminalCommand::App(AppCommand::AvGenerateAudio { target })),
                 "video" => Ok(TerminalCommand::App(AppCommand::AvGenerateVideo { target })),
-                _ => Err("Usage: av generate audio|video [stem|next|all]".to_string()),
+                "prompts" => Ok(TerminalCommand::App(AppCommand::AvGeneratePrompts)),
+                "illustrations" => Ok(TerminalCommand::App(AppCommand::AvGenerateIllustrations)),
+                _ => Err("Usage: av generate audio|video|prompts|illustrations [stem|next|all]".to_string()),
             }
         }
         "config" => {
@@ -772,7 +867,15 @@ fn parse_av_command(parts: &[&str]) -> Result<TerminalCommand, String> {
                     let voices = parts[2..].iter().map(|s| s.to_string()).collect();
                     Ok(TerminalCommand::App(AppCommand::AvConfigVoices { voices }))
                 }
-                _ => Err("Usage: av config show | av config tts|video|voices <key> <value>".to_string()),
+                "illustrations" => {
+                    if parts.len() < 4 {
+                        return Err("Usage: av config illustrations <key> <value>".to_string());
+                    }
+                    let key = parts[2].to_string();
+                    let value = parts[3..].join(" ");
+                    Ok(TerminalCommand::App(AppCommand::AvConfigIllustrations { key, value }))
+                }
+                _ => Err("Usage: av config show | av config tts|video|illustrations|voices <key> <value>".to_string()),
             }
         }
         "open" => {
@@ -783,6 +886,11 @@ fn parse_av_command(parts: &[&str]) -> Result<TerminalCommand, String> {
             Ok(TerminalCommand::App(AppCommand::AvOpenDir { which }))
         }
         "cancel" | "stop" => Ok(TerminalCommand::App(AppCommand::AvCancel)),
+        "log" | "output" => {
+            // av log [N]  — show last N lines of AV job output (default: all)
+            let tail = parts.get(1).and_then(|s| s.parse::<usize>().ok());
+            Ok(TerminalCommand::App(AppCommand::AvLog { tail }))
+        }
         "reject" => {
             // av reject chunk <stem> <index>
             if parts.len() < 4 || parts[1] != "chunk" {
@@ -817,6 +925,51 @@ fn parse_av_command(parts: &[&str]) -> Result<TerminalCommand, String> {
             let stem = parts[2].to_string();
             Ok(TerminalCommand::App(AppCommand::AvRebuildAudio { stem }))
         }
+        "youtube" | "yt" => {
+            if parts.len() < 2 {
+                return Err("Usage: av youtube init|auth|config|upload".to_string());
+            }
+            match parts[1] {
+                "init" => Ok(TerminalCommand::App(AppCommand::AvYoutubeInit)),
+                "auth" => Ok(TerminalCommand::App(AppCommand::AvYoutubeAuth)),
+                "config" => {
+                    if parts.len() < 3 {
+                        return Err("Usage: av youtube config show | av youtube config <key> <value>".to_string());
+                    }
+                    if parts[2] == "show" {
+                        Ok(TerminalCommand::App(AppCommand::AvYoutubeConfigShow))
+                    } else {
+                        if parts.len() < 4 {
+                            return Err("Usage: av youtube config <key> <value>".to_string());
+                        }
+                        let key = parts[2].to_string();
+                        let value = parts[3..].join(" ");
+                        // Strip surrounding quotes if present (terminal doesn't shell-parse)
+                        let value = if (value.starts_with('"') && value.ends_with('"'))
+                            || (value.starts_with('\'') && value.ends_with('\''))
+                        {
+                            value[1..value.len()-1].to_string()
+                        } else {
+                            value
+                        };
+                        Ok(TerminalCommand::App(AppCommand::AvYoutubeConfig { key, value }))
+                    }
+                }
+                "upload" => {
+                    let target = if parts.len() >= 3 {
+                        match parts[2] {
+                            "next" => AvTarget::Next,
+                            "all" => AvTarget::All,
+                            stem => AvTarget::Stem(stem.to_string()),
+                        }
+                    } else {
+                        AvTarget::Next
+                    };
+                    Ok(TerminalCommand::App(AppCommand::AvYoutubeUpload { target }))
+                }
+                _ => Err("Usage: av youtube init|auth|config|upload".to_string()),
+            }
+        }
         "help" => {
             Ok(TerminalCommand::AvHelp)
         }
@@ -838,6 +991,9 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  set languages <s> <t>  - Set source and target languages (e.g. en es)\n");
             out.push_str("  set book_name <name>   - Set or rename the book name\n");
             out.push_str("  list nav [N]           - List navigator sentences (N is 1-based)\n");
+            out.push_str("  list nav --around <N>  - Show context around sentence N\n");
+            out.push_str("  list headings          - Scan for chapter/section headings\n");
+            out.push_str("  search <text>          - Find sentences containing text (case-insensitive)\n");
             out.push_str("  select sentence <N>    - Select sentence by number (1-based) or ID\n");
             out.push_str("  select tier <tier>     - Select active tier (source, bas_b, bas_t, etc.)\n");
             out.push_str("  add sentence [text]    - Add empty sentence, or with initial base text\n");
@@ -868,12 +1024,14 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  delete key <p>         - Remove key from OS keychain\n");
             out.push_str("  key status             - Show which API keys are configured\n");
             out.push_str("  watch_job              - Block until current LLM job completes\n");
+            out.push_str("  job_status             - Non-blocking: show LLM job progress (for copilot polling)\n");
             out.push_str("  import level_map <p>   - Import a .lm level map file\n");
             out.push_str("  set output_dir <p>     - Set output directory for weave files\n");
             out.push_str("  generate_weave <N|all> - Generate weave text file(s) for level N or all\n");
             out.push_str("  generate_weave <N|all> --force - Generate weave, skip DRC\n");
             out.push_str("  drc                    - Run Design Rule Check on all sentences\n");
             out.push_str("  calibrate [max_level]  - Run calibration on loaded document (default max: 45)\n");
+            out.push_str("  calibrate info         - Show calibration status (sentence count, stability)\n");
             out.push_str("  list pn_lemmas <N>     - List proper noun lemmas for sentence N (1-based)\n");
             out.push_str("  add pn_lemma <N> <L>   - Add lemma L to sentence N's PN list\n");
             out.push_str("  rm pn_lemma <N> <L>    - Remove lemma L from sentence N's PN list\n");
@@ -894,6 +1052,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  edit_targets N:t N:t .. - Batch edit mapping targets (e.g. 1:La 2:vieja)\n");
             out.push_str("  init mapping           - Init empty mapping on selected sentence/tier\n");
             out.push_str("  accept map             - Accept mapping, mark tier Valid\n");
+            out.push_str("  accept map <s> <e>     - Bulk accept stale mappings in range\n");
             out.push_str("\n--- Chapter Mode ---\n");
             out.push_str("  new chapter \"<name>\" <start> <end> - Define a chapter (1-based sentence range)\n");
             out.push_str("  list chapters          - List all chapters with ranges and validity\n");
@@ -902,12 +1061,18 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  set chapter_mode true|false - Toggle chapter mode\n");
             out.push_str("  init media             - Create media workspace directory structure\n");
             out.push_str("\n--- Co-Pilot ---\n");
+            out.push_str("  $ <message>            - Send message to copilot agent (LLM)\n");
+            out.push_str("  copilot journal <text>  - Append timestamped entry to copilot journal\n");
+            out.push_str("  copilot reset          - Clear copilot session history (start fresh)\n");
             out.push_str("  server info            - Show copilot server name and port\n");
+            out.push_str("  config set copilot.model <alias> - Set copilot LLM model\n");
+            out.push_str("  config set copilot.max_turns <N> - Set max turns per session\n");
             out.push_str("\n--- AV Production ---\n");
             out.push_str("  av status              - Show audio/video file status\n");
             out.push_str("  av mark/unmark <stem>  - Mark/unmark files for AV\n");
-            out.push_str("  av generate audio|video [stem|next|all] - Generate media\n");
+            out.push_str("  av generate audio|video|prompts|illustrations - Generate media\n");
             out.push_str("  av cancel              - Cancel running AV generation\n");
+            out.push_str("  av log [N]             - Show AV job output (last N lines)\n");
             out.push_str("  av chunks <stem>       - Show chunk status for a stem\n");
             out.push_str("  av rebuild audio <stem> - Rebuild final audio from chunks\n");
             out.push_str("  av config show         - Show AV config\n");
@@ -924,20 +1089,31 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  av clear-marks             - Remove all marks\n");
             out.push_str("  av generate audio [stem|next|all] - Generate audio\n");
             out.push_str("  av generate video [stem|next|all] - Generate video\n");
+            out.push_str("  av generate prompts            - Generate illustration prompts via LLM\n");
+            out.push_str("  av generate illustrations       - Generate images from prompts\n");
             out.push_str("  av config show             - Show AV config\n");
             out.push_str("  av config tts <key> <val>  - Set TTS config value\n");
             out.push_str("  av config video <key> <val> - Set video config value\n");
+            out.push_str("  av config illustrations <key> <val> - Set illustration config\n");
             out.push_str("  av config voices <v1> ...  - Set voice list\n");
             out.push_str("  av open book-dir|audio-dir|video-dir|illustrations - Open folder\n");
             out.push_str("  av cancel                  - Cancel running AV generation\n");
+            out.push_str("  av log [N]                 - Show AV job output (last N lines)\n");
             out.push_str("  av chunks <stem>           - Show chunk status for a stem\n");
             out.push_str("  av reject chunk <stem> <N> - Mark chunk N as bad (.wav.bad)\n");
             out.push_str("  av restore chunk <stem> <N> - Restore rejected chunk N\n");
             out.push_str("  av rebuild audio <stem>    - Concatenate good chunks into final audio\n");
+            out.push_str("  av youtube init            - Create default _youtube.toml\n");
+            out.push_str("  av youtube auth            - Run OAuth flow (one-time browser consent)\n");
+            out.push_str("  av youtube config show     - Show YouTube config\n");
+            out.push_str("  av youtube config <k> <v>  - Set YouTube config value\n");
+            out.push_str("  av youtube upload [stem|next|all] - Upload video to YouTube\n");
             out.push_str("  av help                    - This help text\n");
             out.push_str("\nPrerequisites:\n");
             out.push_str("  Audio:  Python + Google API key (set key google AIza...)\n");
             out.push_str("  Video:  Python + ffmpeg on PATH + illustrations in book dir\n");
+            out.push_str("  Illustrations: Python + Google API key (for Gemini + Imagen)\n");
+            out.push_str("  YouTube: Python + google-api-python-client + OAuth client secret\n");
         },
         TerminalCommand::Clear => {
             out.push_str("\x1B[2J\x1B[1;1H");
@@ -961,6 +1137,123 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
                 let preview: String = base_text.chars().take(60).collect();
                 out.push_str(&format!("{} [{}] {}: {}", marker, i + 1, s.id, preview));
                 if i < end - 1 {
+                    out.push('\n');
+                }
+            }
+        },
+        TerminalCommand::ListNavAround { center } => {
+            if engine.state.document.is_empty() {
+                out.push_str("No document loaded.");
+                return Some(out);
+            }
+            let half = 5usize;
+            let doc_len = engine.state.document.len();
+            let start = center.saturating_sub(half);
+            let end = std::cmp::min(center + half + 1, doc_len);
+            out.push_str(&format!("--- Context around sentence {} ({} total) ---\n", center + 1, doc_len));
+            for i in start..end {
+                let s = &engine.state.document[i];
+                let marker = if i == center { ">>>" } else { "   " };
+                let base_text = s.get_tier("base")
+                    .map(|t| t.full_text())
+                    .unwrap_or_else(|| "(no base tier)".to_string());
+                let preview: String = base_text.chars().take(80).collect();
+                let ellipsis = if base_text.chars().count() > 80 { "..." } else { "" };
+                out.push_str(&format!("{} [{}] {}{}", marker, i + 1, preview, ellipsis));
+                if i < end - 1 {
+                    out.push('\n');
+                }
+            }
+        },
+        TerminalCommand::SearchText { query } => {
+            if engine.state.document.is_empty() {
+                out.push_str("No document loaded.");
+                return Some(out);
+            }
+            let query_lower = query.to_lowercase();
+            let mut matches = Vec::new();
+            for (i, s) in engine.state.document.iter().enumerate() {
+                let base_text = s.get_tier("base")
+                    .map(|t| t.full_text())
+                    .unwrap_or_default();
+                if base_text.to_lowercase().contains(&query_lower) {
+                    let preview: String = base_text.chars().take(70).collect();
+                    let ellipsis = if base_text.chars().count() > 70 { "..." } else { "" };
+                    matches.push(format!("[{}] {}{}", i + 1, preview, ellipsis));
+                }
+            }
+            if matches.is_empty() {
+                out.push_str(&format!("No sentences found containing \"{}\".", query));
+            } else {
+                out.push_str(&format!("Found {} sentence(s) containing \"{}\":\n", matches.len(), query));
+                // Limit output to first 50 matches to avoid flooding
+                let show = matches.len().min(50);
+                for m in &matches[..show] {
+                    out.push_str(m);
+                    out.push('\n');
+                }
+                if matches.len() > 50 {
+                    out.push_str(&format!("... and {} more matches.", matches.len() - 50));
+                }
+            }
+        },
+        TerminalCommand::CalibrationInfo => {
+            if engine.state.book_map.is_none() {
+                out.push_str("No level map loaded. No calibration has been run (or imported) yet.");
+                return Some(out);
+            }
+            let level_count = engine.state.book_map.as_ref().unwrap().len();
+            let total_sentences = engine.state.document.len();
+            match engine.state.calibration_sentence_count {
+                Some(n) => {
+                    out.push_str(&format!("Calibration info:\n"));
+                    out.push_str(&format!("  Sentences used for calibration: {}\n", n));
+                    out.push_str(&format!("  Total sentences in document:    {}\n", total_sentences));
+                    out.push_str(&format!("  Start levels in map:            {}\n", level_count));
+                    if n >= 800 {
+                        out.push_str("  Status: Calibration is STABLE (≥800 sentences). Recalibration not recommended unless the book structure changed significantly.");
+                    } else {
+                        let remaining = 800_usize.saturating_sub(n);
+                        out.push_str(&format!("  Status: Calibration is PROVISIONAL (<800 sentences). Finish ~{} more sentences before recalibrating for stable levels.", remaining));
+                    }
+                },
+                None => {
+                    out.push_str(&format!("Calibration info:\n"));
+                    out.push_str(&format!("  Sentences used for calibration: unknown (level map pre-dates tracking)\n"));
+                    out.push_str(&format!("  Total sentences in document:    {}\n", total_sentences));
+                    out.push_str(&format!("  Start levels in map:            {}\n", level_count));
+                    out.push_str("  Status: Cannot determine — re-export the level map after next calibration to record the count.");
+                },
+            }
+        },
+        TerminalCommand::ListHeadings => {
+            if engine.state.document.is_empty() {
+                out.push_str("No document loaded.");
+                return Some(out);
+            }
+            // Scan for sentences that look like chapter/section headings:
+            // - Short (< 80 chars) AND matches common heading patterns
+            // - e.g. "Chapter X", "CHAPTER X", roman numerals, "Part X", all-caps short lines
+            let mut headings = Vec::new();
+            for (i, s) in engine.state.document.iter().enumerate() {
+                let base_text = s.get_tier("base")
+                    .map(|t| t.full_text())
+                    .unwrap_or_default();
+                let trimmed = base_text.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                let is_heading = is_likely_heading(trimmed);
+                if is_heading {
+                    headings.push(format!("[{}] {}", i + 1, trimmed));
+                }
+            }
+            if headings.is_empty() {
+                out.push_str("No headings detected. Try `search \"Chapter\"` for manual lookup.");
+            } else {
+                out.push_str(&format!("Found {} likely heading(s):\n", headings.len()));
+                for h in &headings {
+                    out.push_str(h);
                     out.push('\n');
                 }
             }
@@ -1299,6 +1592,31 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
                         out.push_str(&format!("\n({} queued follow-up steps cancelled due to error.)", cleared));
                     }
                 }
+            }
+        },
+        TerminalCommand::JobStatus => {
+            // Non-blocking job status check — returns immediately with progress info.
+            // Designed for copilot/agent polling instead of blocking watch_job.
+            if engine.state.llm_results_receiver.is_some() {
+                let done = engine.state.llm_job_done;
+                let total = engine.state.llm_job_total;
+                let stage = &engine.state.llm_job_stage;
+                let tier = &engine.state.llm_job_target_tier;
+                out.push_str(&format!("RUNNING {}/{} stage={} tier={}", done, total, stage, tier));
+            } else if engine.state.llm_job_total > 0 && engine.state.llm_job_done >= engine.state.llm_job_total {
+                out.push_str(&format!("DONE {}/{} stage={} tier={}",
+                    engine.state.llm_job_done, engine.state.llm_job_total,
+                    engine.state.llm_job_stage, engine.state.llm_job_target_tier));
+            } else if let Some(ref av) = engine.state.av_job {
+                let j = av.lock().unwrap();
+                if j.finished {
+                    let msg = j.result_message.as_deref().unwrap_or("AV job finished.");
+                    out.push_str(&format!("AV_DONE {}", msg));
+                } else {
+                    out.push_str(&format!("AV_RUNNING {}", j.label));
+                }
+            } else {
+                out.push_str("IDLE");
             }
         },
         TerminalCommand::ServerInfo => {

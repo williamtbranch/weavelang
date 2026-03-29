@@ -64,7 +64,8 @@ import tomllib
 DEFAULT_TTS_SERVICE = "gemini"
 DEFAULT_GEMINI_MODEL_NAME = "models/gemini-2.5-pro-preview-tts"
 DEFAULT_GEMINI_VOICE_NAME = "Schedar"
-DEFAULT_GEMINI_TTS_PROMPT_PREFIX = "You have a Mexican Spanish accent. You are performing a story from classic public domain literature from Project Gutenberg. Read the text in a clear, engaging, and natural way, as if narrating an audiobook. Use appropriate intonation and pacing to bring the story to life. Do not add any commentary or information that is not in the text. Just read the text as it is written."
+#DEFAULT_GEMINI_TTS_PROMPT_PREFIX = "You have a Mexican Spanish accent. You are performing a story from classic public domain literature from Project Gutenberg. Read the text in a clear, engaging, and natural way, as if narrating an audiobook. Use appropriate intonation and pacing to bring the story to life. Do not add any commentary or information that is not in the text. Just read the text as it is written."
+DEFAULT_GEMINI_TTS_PROMPT_PREFIX = "You are performing a story from classic public domain literature from Project Gutenberg. Read the text in a clear, engaging, and natural way, as if narrating an audiobook. You have a Mexican Spanish accent. Use appropriate intonation and pacing to bring the story to life. Do not read too quickly as this is for Spanish Students."
 DEFAULT_VERTEX_VOICE_NAME = "en-US-Standard-C"
 DEFAULT_VERTEX_LANGUAGE_CODE = "en-US"
 DEFAULT_CHUNK_MAX_CHARS = 750

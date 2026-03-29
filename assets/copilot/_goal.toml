@@ -1,0 +1,60 @@
+# Copilot Goal
+#
+# Edit this file to tell the copilot what to produce today.
+# The agent reads this at session start and builds a plan from it.
+#
+# After the agent finishes (or you return), review _plan.toml and _journal.md.
+
+[session]
+# A short label for this production run (used in journal headers).
+name = ""
+
+# ISO date for this session. Agent uses this for journal entries.
+date = ""
+
+[target]
+# Which book/project to work on.
+book = ""
+
+# Which chapters to process. Use exact chapter names.
+# Examples: ["The Travelling Musicians"], ["The Golden Bird", "Hans in Luck"]
+chapters = []
+
+[production]
+# Which pipeline steps to run. Omit or leave empty to skip a step.
+# Steps execute in order: weave → mark → audio → illustrations → video → upload
+
+# Levels to generate woven text for.
+# Examples: "all", "0-18", "2,14,18", "b", "m", "a"
+# Leave empty to skip weave generation.
+weave_levels = ""
+
+# If true, pass --force to generate_weave (skip DRC check).
+weave_force = false
+
+# Stems to mark for AV production.
+# Use "auto" to mark all woven text files after generation.
+# Use explicit list: ["<book>_<chapter>_UL2", ...]
+# Leave empty to keep existing marks unchanged.
+mark = "auto"
+
+# Which AV steps to run on marked stems.
+# true = run for all marked stems; false = skip
+generate_audio = false
+generate_illustrations = false
+generate_video = false
+youtube_upload = false
+
+[constraints]
+# Maximum number of YouTube uploads per session (platform daily limit safety).
+max_uploads = 6
+
+# Maximum retries per stem before marking it failed.
+max_retries_per_stem = 2
+
+# Seconds to wait between retries on transient errors.
+retry_delay = 30
+
+# If true, stop the entire session on the first error.
+# If false, log the error and continue with the next stem.
+stop_on_error = false

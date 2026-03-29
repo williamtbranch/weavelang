@@ -16,6 +16,8 @@ use std::process::Command;
 pub struct AvManifest {
     pub tts: TtsConfig,
     pub video: VideoConfig,
+    #[serde(default)]
+    pub illustrations: IllustrationsConfig,
     pub files: FilesConfig,
 }
 
@@ -37,6 +39,16 @@ pub struct TtsConfig {
 pub struct VideoConfig {
     pub image_duration: u32,
     pub frame_rate: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IllustrationsConfig {
+    pub style_prefix: String,
+    pub prompt_model: String,
+    pub image_model: String,
+    pub image_size: String,
+    pub sentences_per_illustration: u32,
+    pub minimum_count: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,6 +92,19 @@ impl Default for VideoConfig {
     }
 }
 
+impl Default for IllustrationsConfig {
+    fn default() -> Self {
+        Self {
+            style_prefix: "fairy tale watercolor, storybook illustration, warm lighting".to_string(),
+            prompt_model: "gemini-2.5-flash".to_string(),
+            image_model: "imagen-4.0-generate-001".to_string(),
+            image_size: "1792x1024".to_string(),
+            sentences_per_illustration: 50,
+            minimum_count: 3,
+        }
+    }
+}
+
 impl Default for FilesConfig {
     fn default() -> Self {
         Self { marked: Vec::new() }
@@ -91,6 +116,7 @@ impl Default for AvManifest {
         Self {
             tts: TtsConfig::default(),
             video: VideoConfig::default(),
+            illustrations: IllustrationsConfig::default(),
             files: FilesConfig::default(),
         }
     }
@@ -124,11 +150,19 @@ impl AvManifest {
     }
 
     /// Load existing manifest or create a default one and save it.
+    ///
+    /// When creating a new manifest for a chapter directory, the parent
+    /// (book-level) directory is checked first.  If a `_av_manifest.toml`
+    /// exists there it is used as the template instead of the built-in
+    /// defaults, so users can set their preferences once at the book level.
     pub fn load_or_create(book_dir: &Path) -> Result<Self, String> {
         match Self::load(book_dir)? {
             Some(m) => Ok(m),
             None => {
-                let m = Self::default();
+                // Try parent directory as book-level template
+                let m = book_dir.parent()
+                    .and_then(|parent| Self::load(parent).ok().flatten())
+                    .unwrap_or_default();
                 m.save(book_dir)?;
                 Ok(m)
             }
@@ -743,6 +777,100 @@ impl AvProducer {
             .map_err(|e| format!("Failed to spawn create_video.py ({}): {}", python_exe, e))
     }
 
+    /// Spawn illustration prompt generation as a child process.
+    /// Calls `generate_illustration_prompts.py` with args from the manifest [illustrations] config.
+    pub fn spawn_prompts(
+        &self,
+        book_name: &str,
+        project_root: &Path,
+        api_key: &str,
+    ) -> Result<std::process::Child, String> {
+        let tts_dir = self.book_dir.join("tts_files");
+        if !tts_dir.exists() {
+            return Err(format!("tts_files directory not found: {}", tts_dir.display()));
+        }
+
+        let chapter_name = self.book_dir
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .ok_or("Cannot determine chapter name from book directory.")?;
+
+        let illustrations_dir = self.illustrations_dir();
+        fs::create_dir_all(&illustrations_dir)
+            .map_err(|e| format!("Failed to create illustrations directory: {}", e))?;
+
+        let script_path = project_root.join("generate_illustration_prompts.py");
+        if !script_path.exists() {
+            return Err(format!("generate_illustration_prompts.py not found at {}", script_path.display()));
+        }
+
+        let python_exe = find_python(project_root);
+        validate_python(&python_exe)?;
+        let ill = &self.manifest.illustrations;
+
+        let mut cmd = Command::new(&python_exe);
+        cmd.arg(&script_path)
+            .arg(&tts_dir)
+            .arg(&chapter_name)
+            .arg("--book-name").arg(book_name)
+            .arg("--sentences-per").arg(ill.sentences_per_illustration.to_string())
+            .arg("--minimum").arg(ill.minimum_count.to_string())
+            .arg("--style").arg(&ill.style_prefix)
+            .arg("--model").arg(&ill.prompt_model)
+            .arg("--output").arg(illustrations_dir.join("_prompts.toml"));
+        cmd.env("GOOGLE_API_KEY", api_key);
+        cmd.env("PYTHONUTF8", "1");
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+
+        cmd.spawn()
+            .map_err(|e| format!("Failed to spawn generate_illustration_prompts.py ({}): {}", python_exe, e))
+    }
+
+    /// Spawn illustration image generation as a child process.
+    /// Calls `illustration_gen.py` with the _prompts.toml file.
+    pub fn spawn_illustrations(
+        &self,
+        project_root: &Path,
+        api_key: &str,
+    ) -> Result<std::process::Child, String> {
+        let prompts_file = self.illustrations_dir().join("_prompts.toml");
+        if !prompts_file.exists() {
+            return Err(format!(
+                "No _prompts.toml found at {}. Run 'av generate prompts' first.",
+                prompts_file.display()
+            ));
+        }
+
+        let script_path = project_root.join("illustration_gen.py");
+        if !script_path.exists() {
+            return Err(format!("illustration_gen.py not found at {}", script_path.display()));
+        }
+
+        let python_exe = find_python(project_root);
+        validate_python(&python_exe)?;
+        let ill = &self.manifest.illustrations;
+
+        let mut cmd = Command::new(&python_exe);
+        cmd.arg(&script_path)
+            .arg(&prompts_file)
+            .arg("--size").arg(&ill.image_size)
+            .arg("--model").arg(&ill.image_model)
+            .arg("--output-dir").arg(self.illustrations_dir());
+        cmd.env("GOOGLE_API_KEY", api_key);
+        cmd.env("PYTHONUTF8", "1");
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+
+        cmd.spawn()
+            .map_err(|e| format!("Failed to spawn illustration_gen.py ({}): {}", python_exe, e))
+    }
+
+    /// Check if _prompts.toml exists in the illustrations directory.
+    pub fn has_prompts(&self) -> bool {
+        self.illustrations_dir().join("_prompts.toml").exists()
+    }
+
     /// Rebuild final audio by concatenating all good chunks via `book_to_audio.py --concat-only`.
     ///
     /// This is a blocking call (concatenation is fast). No API key needed.
@@ -878,6 +1006,234 @@ impl AvProducer {
         ));
 
         out
+    }
+}
+
+// ---------------------------------------------------------------------------
+// YouTube config (_youtube.toml)
+// ---------------------------------------------------------------------------
+
+pub const YOUTUBE_CONFIG_FILENAME: &str = "_youtube.toml";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YouTubeConfig {
+    pub metadata: YouTubeMetadata,
+    #[serde(default)]
+    pub auth: YouTubeAuth,
+    #[serde(default)]
+    pub variables: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub uploads: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YouTubeMetadata {
+    pub title_template: String,
+    pub description_template: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub category_id: String,
+    pub privacy: String,
+    pub language: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct YouTubeAuth {
+    pub client_secret_file: String,
+}
+
+impl Default for YouTubeMetadata {
+    fn default() -> Self {
+        Self {
+            title_template: "{book_name} - {chapter_name} ({stem})".to_string(),
+            description_template: "Language learning audio with illustrated video.\n\nBook: {book_name}\nChapter: {chapter_name}\nLevel: {stem}".to_string(),
+            tags: vec![
+                "language learning".to_string(),
+                "audiobook".to_string(),
+                "illustrated".to_string(),
+            ],
+            category_id: "27".to_string(), // Education
+            privacy: "unlisted".to_string(),
+            language: "en".to_string(),
+        }
+    }
+}
+
+impl Default for YouTubeConfig {
+    fn default() -> Self {
+        Self {
+            metadata: YouTubeMetadata::default(),
+            auth: YouTubeAuth::default(),
+            variables: std::collections::BTreeMap::new(),
+            uploads: std::collections::BTreeMap::new(),
+        }
+    }
+}
+
+impl YouTubeConfig {
+    pub fn load(book_dir: &Path) -> Result<Option<Self>, String> {
+        let path = book_dir.join(YOUTUBE_CONFIG_FILENAME);
+        if !path.exists() {
+            return Ok(None);
+        }
+        let content = fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+        let config: YouTubeConfig = toml::from_str(&content)
+            .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))?;
+        Ok(Some(config))
+    }
+
+    pub fn save(&self, book_dir: &Path) -> Result<(), String> {
+        let path = book_dir.join(YOUTUBE_CONFIG_FILENAME);
+        let content = toml::to_string_pretty(self)
+            .map_err(|e| format!("Failed to serialize YouTube config: {}", e))?;
+        fs::write(&path, content)
+            .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
+        Ok(())
+    }
+
+    /// Load existing config or create a new one and save it.
+    ///
+    /// When creating, checks the parent (book-level) directory first so
+    /// users can place a template `_youtube.toml` at the book root.
+    pub fn load_or_create(book_dir: &Path) -> Result<Self, String> {
+        match Self::load(book_dir)? {
+            Some(c) => Ok(c),
+            None => {
+                let c = book_dir.parent()
+                    .and_then(|parent| Self::load(parent).ok().flatten())
+                    .unwrap_or_default();
+                c.save(book_dir)?;
+                Ok(c)
+            }
+        }
+    }
+
+    pub fn is_uploaded(&self, stem: &str) -> bool {
+        self.uploads.contains_key(stem)
+    }
+
+    /// Resolve template variables for display / dry-run.
+    pub fn resolve_title(&self, vars: &std::collections::BTreeMap<String, String>) -> String {
+        resolve_template(&self.metadata.title_template, vars)
+    }
+
+    pub fn resolve_description(&self, vars: &std::collections::BTreeMap<String, String>) -> String {
+        resolve_template(&self.metadata.description_template, vars)
+    }
+}
+
+fn resolve_template(template: &str, vars: &std::collections::BTreeMap<String, String>) -> String {
+    let mut result = template.to_string();
+    for (key, val) in vars {
+        result = result.replace(&format!("{{{}}}", key), val);
+    }
+    result
+}
+
+impl AvProducer {
+    /// Get the YouTube config file path.
+    pub fn youtube_config_path(&self) -> PathBuf {
+        self.book_dir.join(YOUTUBE_CONFIG_FILENAME)
+    }
+
+    /// Spawn the YouTube authentication flow (opens browser).
+    pub fn spawn_youtube_auth(
+        &self,
+        project_root: &Path,
+        client_secret_file: Option<&str>,
+    ) -> Result<std::process::Child, String> {
+        let yt_config_path = self.youtube_config_path();
+        if !yt_config_path.exists() {
+            return Err("No _youtube.toml found. Run 'av youtube init' first.".to_string());
+        }
+
+        let script_path = project_root.join("youtube_upload.py");
+        if !script_path.exists() {
+            return Err(format!("youtube_upload.py not found at {}", script_path.display()));
+        }
+
+        let python_exe = find_python(project_root);
+        validate_python(&python_exe)?;
+
+        let video_dir = self.video_dir();
+        let mut cmd = Command::new(&python_exe);
+        cmd.arg(&script_path)
+            .arg(&video_dir)
+            .arg(&yt_config_path)
+            .arg("__auth__")  // dummy stem
+            .arg("--book-dir").arg(&self.book_dir)
+            .arg("--auth-only");
+        cmd.env("PYTHONUTF8", "1");
+        if let Some(secret_path) = client_secret_file {
+            cmd.env("YOUTUBE_CLIENT_SECRET_FILE", secret_path);
+        }
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+
+        cmd.spawn()
+            .map_err(|e| format!("Failed to spawn youtube_upload.py ({}): {}", python_exe, e))
+    }
+
+    /// Spawn a YouTube upload for a specific stem.
+    pub fn spawn_youtube_upload(
+        &self,
+        stem: &str,
+        project_root: &Path,
+        extra_vars: &str,
+        client_secret_file: Option<&str>,
+    ) -> Result<std::process::Child, String> {
+        let yt_config_path = self.youtube_config_path();
+        if !yt_config_path.exists() {
+            return Err("No _youtube.toml found. Run 'av youtube init' first.".to_string());
+        }
+
+        let video_dir = self.video_dir();
+        let script_path = project_root.join("youtube_upload.py");
+        if !script_path.exists() {
+            return Err(format!("youtube_upload.py not found at {}", script_path.display()));
+        }
+
+        let python_exe = find_python(project_root);
+        validate_python(&python_exe)?;
+
+        let mut cmd = Command::new(&python_exe);
+        cmd.arg(&script_path)
+            .arg(&video_dir)
+            .arg(&yt_config_path)
+            .arg(stem)
+            .arg("--book-dir").arg(&self.book_dir)
+            .arg("--illustrations-dir").arg(self.illustrations_dir());
+        if !extra_vars.is_empty() {
+            cmd.arg("--variables").arg(extra_vars);
+        }
+        cmd.env("PYTHONUTF8", "1");
+        if let Some(secret_path) = client_secret_file {
+            cmd.env("YOUTUBE_CLIENT_SECRET_FILE", secret_path);
+        }
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+
+        cmd.spawn()
+            .map_err(|e| format!("Failed to spawn youtube_upload.py ({}): {}", python_exe, e))
+    }
+
+    /// Find the next stem that has video but hasn't been uploaded yet.
+    pub fn next_stem_needing_upload(&self, yt_config: &YouTubeConfig) -> Option<String> {
+        let statuses = self.scan();
+        statuses.iter()
+            .filter(|s| s.marked && s.has_video && !yt_config.is_uploaded(&s.stem))
+            .map(|s| s.stem.clone())
+            .next()
+    }
+
+    /// Get all stems that need uploading.
+    pub fn all_stems_needing_upload(&self, yt_config: &YouTubeConfig) -> Vec<String> {
+        let statuses = self.scan();
+        statuses.iter()
+            .filter(|s| s.marked && s.has_video && !yt_config.is_uploaded(&s.stem))
+            .map(|s| s.stem.clone())
+            .collect()
     }
 }
 

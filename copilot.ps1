@@ -5,6 +5,8 @@
 #   .\copilot.ps1 sentence <N>        (1-based, matches terminal)
 #   .\copilot.ps1 cmd <terminal_cmd>
 #   .\copilot.ps1 batch "cmd1" "cmd2" "cmd3"   (run multiple commands sequentially)
+#   .\copilot.ps1 job_status                   (non-blocking: check LLM job progress)
+#   .\copilot.ps1 wait [interval_sec]           (poll job_status until DONE/IDLE)
 #   .\copilot.ps1 shutdown
 
 param(
@@ -21,7 +23,7 @@ $base = "http://127.0.0.1:$port/api/v1"
 function Send-Cmd {
     param([string]$CmdText)
     $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($CmdText)
-    $result = Invoke-RestMethod -Uri "$base/terminal" -Method Post -Body $bodyBytes -ContentType "text/plain; charset=utf-8"
+    $result = Invoke-RestMethod -Uri "$base/terminal" -Method Post -Body $bodyBytes -ContentType "text/plain; charset=utf-8" -TimeoutSec 660
     Write-Host $result
 }
 
@@ -51,9 +53,34 @@ switch ($Action) {
     "shutdown" {
         Invoke-RestMethod -Uri "$base/shutdown" -Method Post | ConvertTo-Json
     }
+    "job_status" {
+        Send-Cmd "job_status"
+    }
+    "wait" {
+        # Poll job_status until DONE or IDLE, with configurable interval (default 10s)
+        $interval = if ($Args -and $Args[0]) { [int]$Args[0] } else { 10 }
+        $maxPolls = 360  # safety cap: 360 * 10s = 1 hour
+        $polls = 0
+        while ($polls -lt $maxPolls) {
+            $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes("job_status")
+            $result = Invoke-RestMethod -Uri "$base/terminal" -Method Post -Body $bodyBytes -ContentType "text/plain; charset=utf-8"
+            $resultStr = $result.ToString().Trim()
+            if ($resultStr -match "^DONE" -or $resultStr -match "^IDLE") {
+                Write-Host $resultStr
+                break
+            }
+            # Still running — show progress and sleep
+            Write-Host "[$([DateTime]::Now.ToString('HH:mm:ss'))] $resultStr"
+            Start-Sleep -Seconds $interval
+            $polls++
+        }
+        if ($polls -ge $maxPolls) {
+            Write-Host "Wait timed out after $($maxPolls * $interval) seconds."
+        }
+    }
     default {
         Write-Host "Unknown action: $Action"
-        Write-Host "Actions: ping, state, sentence <N>, cmd <text>, batch <cmds...>, shutdown"
+        Write-Host "Actions: ping, state, sentence <N>, cmd <text>, batch <cmds...>, job_status, wait [sec], shutdown"
         exit 1
     }
 }

@@ -94,6 +94,8 @@ pub enum AppCommand {
     EditText { new_text: String },
     /// Accept / validate the mapping for the selected tier, marking it complete.
     AcceptMap,
+    /// Bulk accept mapping for sentences in a range where the tier is Stale.
+    AcceptMapRange { start: usize, end: usize },
     /// Initialize an empty diglot mapping for the selected sentence + tier direction.
     InitMapping,
 
@@ -109,8 +111,8 @@ pub enum AppCommand {
 
     // Weave readiness & reporting (indices are 0-based internally)
     WeaveStatus,
-    ReportSentencesIncomplete,
-    ReportSentencesComplete,
+    ReportSentencesIncomplete { limit: Option<usize> },
+    ReportSentencesComplete { limit: Option<usize> },
     ReportSentence { start_index: usize, end_index: usize },
 
     // AV Production
@@ -122,16 +124,27 @@ pub enum AppCommand {
     AvClearMarks,
     AvGenerateAudio { target: AvTarget },
     AvGenerateVideo { target: AvTarget },
+    AvGeneratePrompts,
+    AvGenerateIllustrations,
     AvConfigShow,
     AvConfigTts { key: String, value: String },
     AvConfigVideo { key: String, value: String },
+    AvConfigIllustrations { key: String, value: String },
     AvConfigVoices { voices: Vec<String> },
     AvOpenDir { which: String },
     AvCancel,
+    AvLog { tail: Option<usize> },
     AvRejectChunk { stem: String, index: u32 },
     AvRestoreChunk { stem: String, index: u32 },
     AvChunkStatus { stem: String },
     AvRebuildAudio { stem: String },
+
+    // YouTube
+    AvYoutubeInit,
+    AvYoutubeAuth,
+    AvYoutubeConfigShow,
+    AvYoutubeConfig { key: String, value: String },
+    AvYoutubeUpload { target: AvTarget },
 
     // Level Map Inspection
     ShowLevelMap { level: Option<u32> },
@@ -143,6 +156,10 @@ pub enum AppCommand {
     SelectChapter { name: String },
     SetChapterMode { enabled: bool },
     InitMediaWorkspace,
+    /// Append a timestamped entry to copilot/_journal.md.
+    CopilotJournal { text: String },
+    /// Clear copilot session history (start fresh).
+    CopilotReset,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -155,12 +172,21 @@ pub enum AvTarget {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TerminalCommand {
     ListNav { start_index: Option<usize> },
+    /// Show context around a specific sentence: `list nav --around <N>`
+    ListNavAround { center: usize },
+    /// Search for text in base tier: `search "<text>"`
+    SearchText { query: String },
+    /// Scan for chapter-like headings in the document.
+    ListHeadings,
+    /// Show calibration metadata (sentence count, whether recalibration needed).
+    CalibrationInfo,
     ShowDetail,
     ShowMapping,
     ShowTokens,
     /// Print the current view (selected tier) or a specific tier without switching.
     Print { tier: Option<String> },
     WatchJob,
+    JobStatus,
     Clear,
     History,
     Help,

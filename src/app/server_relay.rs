@@ -158,7 +158,10 @@ fn run_relay_loop(
             break; // main thread dropped the receiver — shut down
         }
 
-        match resp_rx.recv_timeout(std::time::Duration::from_secs(30)) {
+        // 10-minute timeout: commands like `calibrate` can block the GUI thread
+        // for extended periods. The copilot agent uses `job_status` / `wait` for
+        // LLM jobs, but synchronous commands need a generous timeout here.
+        match resp_rx.recv_timeout(std::time::Duration::from_secs(600)) {
             Ok(response) => {
                 let http_resp = match response.content_type {
                     ContentType::Json => make_json_response(response.status, &response.body),
@@ -169,7 +172,7 @@ fn run_relay_loop(
             Err(_) => {
                 let _ = request.respond(make_text_response(
                     504,
-                    "Timeout: GUI did not respond within 30 seconds",
+                    "Timeout: GUI did not respond within 600 seconds",
                 ));
             }
         }

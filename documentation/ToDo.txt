@@ -47,3 +47,148 @@ REMAINING / OPEN
 - Command parity: API-only queries (state dump, sentence JSON) have no terminal equivalents.
   Regular workflow should use focused terminal commands. API dumps are for export/analysis only.
 - Always document UTF-8 requirement in copilot.ps1 header and future test scripts.
+- GUI font missing Unicode glyphs — ✓ ✗ and similar symbols render as boxes in egui terminal.
+  Either bundle a font with full Unicode coverage (e.g. Noto Sans) or use ASCII fallbacks.
+
+COPILOT AGENT — Runaway Prevention (deferred until after initial testing)
+═════════════════════════════════════════════════════════════════════════
+  Goal: prevent a confused copilot from cycling endlessly and burning tokens.
+
+  1. Turn-limit enforcement
+     - copilot_turns already tracked in state; max_turns already in CopilotConfig.
+     - When max_turns is hit: stop executing CMD: lines, ask LLM for a summary,
+       log summary to _journal.md, update _plan.toml statuses, enter paused state.
+     - Terminal message: "[copilot] Session paused: turn limit (N) reached."
+
+  2. Context compaction
+     - When copilot_history exceeds a threshold (message count or estimated tokens),
+       send the full history to the LLM with "summarize this context" instruction.
+     - Replace history with the single summary message and continue.
+     - Log compaction event in _journal.md.
+
+  3. User reset commands
+     - `$ reset`  — clear history, restart from _goal.toml (fresh session).
+     - `$ resume` — continue after a turn-limit pause (resets turn counter).
+     - LLM Settings dialog can also adjust max_turns and re-enable.
+
+  4. Safety invariants
+     - Turn cap enforced by WeaveLang Rust code, not the LLM — cannot be bypassed.
+     - Compaction triggered deterministically by message count, not LLM decision.
+     - Summary call is a bounded single request — cannot trigger further commands.
+     - If summary call fails, log "compaction failed" and stop.
+
+COPILOT AGENT WORKFLOW — FIXED
+═══════════════════════════════
+Problem: When an LLM agent (Copilot) runs translation stages via copilot.ps1, it needs
+to wait for completion. The existing `watch_job` command blocks the HTTP relay's 30s
+recv_timeout, causing 504 Gateway Timeout. The agent then resorts to polling loops in
+the terminal which spawn background shells and get stuck indefinitely.
+
+Root cause:
+  - `watch_job` takes the llm_results_receiver and blocks in a loop until all items arrive
+  - The relay server's HTTP handler has a 30s timeout on GUI response
+  - LLM stages can take 5-30+ minutes → always exceeds timeout
+  - Agent polling via `run_in_terminal` with loops spawns background terminals on timeout
+  - No way to check progress without blocking
+
+Fix (implemented):
+  ✔ Added `job_status` terminal command (non-blocking, instant response):
+    Returns "RUNNING 12/48 stage=GenerateAdvancedTarget tier=adv"
+            "DONE 48/48 stage=GenerateAdvancedTarget tier=adv"
+            "IDLE"
+  ✔ Added `copilot.ps1 job_status` action — single non-blocking check
+  ✔ Added `copilot.ps1 wait [interval_sec]` action — client-side polling loop:
+    - Default 10s interval, 1-hour safety cap
+    - Prints timestamped progress each poll
+    - Exits cleanly on DONE or IDLE
+    - Waiting happens in PowerShell, not in the HTTP handler
+
+Agent workflow (new):
+  1. .\copilot.ps1 cmd "run generate <Stage> <start> <end>"  → fire-and-forget, returns immediately
+  2. .\copilot.ps1 wait 15                                    → polls every 15s, prints progress
+  3. Proceeds to next stage when "DONE" is returned
+
+  Or for manual checking:
+  1. .\copilot.ps1 job_status                                  → instant status check
+
+Design notes for agent-friendly commands:
+  - Never block the HTTP relay for more than a few seconds
+  - All long-running operations should be fire-and-forget + poll-for-status
+  - Keep response text concise — avoid flooding LLM context windows
+  - Status responses should be machine-parseable (prefixed: RUNNING/DONE/IDLE)
+
+AUTOMATIC ILLUSTRATION GENERATION
+════════════════════════════════════════════
+Design Notes:
+  - Count heuristic: 1 illustration per 50 sentences, minimum 3 (configurable in manifest)
+  - Current practice: ~3 per chapter, ~15 per whole book
+  - Image gen model: Google Imagen 4 (outputs PNG natively — no format conversion needed)
+  - Software will be on GitHub; other devs can extend with additional image gen backends
+  - API key: Imagen uses the same Gemini/Google API key already in keyring
+  - Keyring note: Rust keyring stores as target={account}.{service}; Python reads via
+    keyring.get_password("google_api_key.weavelang", "google_api_key")
+
+Phase A — Prompt Generation
+  [x] Add [illustrations] section to _av_manifest.toml (style_prefix, prompt_model, image_model,
+      image_size, sentences_per_illustration, minimum_count)
+  [x] generate_illustration_prompts.py — split woven text into narrative segments, LLM-generate image prompts
+  [x] Count calculation: max(ceil(sentence_count / sentences_per_illustration), minimum_count)
+  [x] Output prompts to illustrations/_prompts.toml (numbered, editable)
+  [x] Rust: av generate prompts — terminal command + engine handler (subprocess)
+  [ ] Rust: av prompts show — display current prompts (future)
+  [ ] Rust: av prompts edit <N> "text" — edit a prompt before image generation (future)
+
+Phase B — Image Generation
+  [x] illustration_gen.py — call Imagen 4 API from prompts file, output PNG directly
+  [x] Style consistency via style_prefix prepended to all prompts
+  [x] Output numbered PNGs to illustrations/ directory (001.png, 002.png, ...)
+  [x] Rust: av generate illustrations — terminal command (subprocess)
+  [x] Rust: av config illustrations <key> <value> — configure model, size, style, count params
+  [x] API key flow: reuses existing Gemini key from keyring (same Google Cloud project)
+
+Phase C — GUI
+  [ ] Illustration count + prompt count shown in Media tab summary bar
+  [ ] "Gen Prompts" / "Gen Illustrations" buttons per row (follows audio/video pattern)
+  [ ] Prompt preview/edit panel (optional, lower priority)
+
+YOUTUBE UPLOAD AUTOMATION
+═══════════════════════════════════
+Phase A — Templates & Config
+  [x] _youtube.toml in book/chapter media directory (title_template, description_template, tags, category, privacy, playlist)
+  [x] Template variable resolution ({book_name}, {chapter_name}, {stem}, plus custom variables)
+  [x] Rust: av youtube init — create default _youtube.toml
+  [x] Rust: av youtube config show — display config
+  [x] Rust: av youtube config <key> <value> — edit fields (unknown keys become template variables)
+
+Phase B — Upload Implementation
+  [x] youtube_upload.py — google-api-python-client + google-auth-oauthlib, resumable upload
+  [x] OAuth token stored as _yt_token.json in book dir (refresh token persists after one-time browser consent)
+  [x] Set title, description, tags, category, privacy, language from resolved template
+  [x] Thumbnail from first illustration (auto-detected)
+  [x] Rust: av youtube auth — run OAuth flow (one-time, opens browser)
+  [x] Rust: av youtube upload <stem> / next / all — terminal commands (subprocess)
+  [x] Upload tracking in _youtube.toml [uploads] section (stem → video_id, prevents double-upload)
+  [ ] YouTube OAuth client secret setup (user needs to create Google Cloud project + OAuth consent screen)
+
+Phase C — GUI
+  [ ] YouTube status column in Media tab (not uploaded / uploaded / URL link)
+  [ ] "Upload" button per row + batch "Upload All" button
+  [ ] YouTube auth status indicator in Media tab summary
+
+LEVEL MAP CALIBRATION METADATA
+══════════════════════════════
+  Problem: There is no way to know how many sentences were used when the current
+  level_map was calibrated. Calibration is slow and, once the book has enough data
+  (≥800 sentences), re-running it changes level boundaries, which introduces slight
+  inconsistencies with already-finished weave/audio files.
+
+  Fix:
+  [ ] Store calibration metadata in the level_map file (sentence_count, timestamp)
+  [ ] Surface this in `calibrate` output and `av status` / weave_status
+  [ ] Update copilot _runbook.md: skip calibration when level_map.sentence_count ≥ 800
+
+FULL PIPELINE AUTOMATION (future)
+═════════════════════════════════
+  [ ] av generate pipeline <stem> — chains: audio → prompts → illustrations → video → upload
+  [ ] av generate pipeline all — batch version, sequential per stem
+  [ ] Each step checks filesystem prerequisites (same pattern as existing av commands)

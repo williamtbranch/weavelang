@@ -218,8 +218,8 @@ impl Engine {
             | AppCommand::Drc
             | AppCommand::Audit
             | AppCommand::WeaveStatus
-            | AppCommand::ReportSentencesIncomplete
-            | AppCommand::ReportSentencesComplete
+            | AppCommand::ReportSentencesIncomplete { .. }
+            | AppCommand::ReportSentencesComplete { .. }
             | AppCommand::ReportSentence { .. }
             | AppCommand::ListPnLemmas { .. }
             | AppCommand::SelectTier { .. }
@@ -1135,6 +1135,89 @@ impl Engine {
                 Ok(format!("Mapping for {} accepted. Tier marked Valid.", tier_id))
             }
 
+            AppCommand::AcceptMapRange { start, end } => {
+                let tier_id = self.state.selected_tier_id.clone();
+
+                let (source_tier, target_tier) = if tier_id == "basic_base" {
+                    ("basic_base", "basic_target")
+                } else if tier_id == "basic_target" {
+                    ("basic_target", "basic_base")
+                } else {
+                    return Err(format!("accept map only applies to basic_base or basic_target, not '{}'", tier_id));
+                };
+
+                if start < 1 || end < start {
+                    return Err(format!("Invalid range: {} to {}", start, end));
+                }
+                let start_idx = start - 1; // convert to 0-based
+                let end_idx = end.min(self.state.document.len()); // clamp
+
+                let mut accepted = 0usize;
+                let mut skipped = 0usize;
+                let mut errors = Vec::new();
+
+                for idx in start_idx..end_idx {
+                    let sent = match self.state.document.get(idx) {
+                        Some(s) => s,
+                        None => continue,
+                    };
+
+                    // Only process sentences where the tier is Stale
+                    let tier_state = sent.tiers.get(&tier_id)
+                        .map(|t| t.state)
+                        .unwrap_or(crate::domain::tier::TierState::Valid);
+                    if tier_state != crate::domain::tier::TierState::Stale {
+                        skipped += 1;
+                        continue;
+                    }
+
+                    // Check that all word tokens have a mapping entry
+                    let word_ids: Vec<crate::domain::primitives::WordId> = sent.tiers.get(&tier_id)
+                        .and_then(|t| t.segments.first())
+                        .map(|seg| {
+                            seg.stream.words_enumerated()
+                                .iter()
+                                .map(|(_, _, w)| w.id)
+                                .collect()
+                        })
+                        .unwrap_or_default();
+
+                    let mapped_ids: std::collections::HashSet<crate::domain::primitives::WordId> = sent.mappings.iter()
+                        .find(|m| m.from_tier_id == source_tier && m.to_tier_id == target_tier)
+                        .map(|m| m.entries.iter().map(|e| e.source_word_id).collect())
+                        .unwrap_or_default();
+
+                    let unmapped: Vec<usize> = word_ids.iter().enumerate()
+                        .filter(|(_, wid)| !mapped_ids.contains(wid))
+                        .map(|(i, _)| i + 1)
+                        .collect();
+
+                    if !unmapped.is_empty() {
+                        errors.push(format!("S{}: unmapped words {:?}", idx + 1, unmapped));
+                        continue;
+                    }
+
+                    // Mark as Valid
+                    if let Some(sent) = self.state.document.get_mut(idx) {
+                        if let Some(tier) = sent.tiers.get_mut(&tier_id) {
+                            tier.state = crate::domain::tier::TierState::Valid;
+                            accepted += 1;
+                        }
+                    }
+                }
+
+                let mut result = format!("Bulk accept map ({} tier): {} accepted, {} skipped (not stale).",
+                    tier_id, accepted, skipped);
+                if !errors.is_empty() {
+                    let shown = errors.len().min(5);
+                    result.push_str(&format!("\n{} errors (showing first {}):", errors.len(), shown));
+                    for e in &errors[..shown] {
+                        result.push_str(&format!("\n  {}", e));
+                    }
+                }
+                Ok(result)
+            }
+
             AppCommand::InitMapping => {
                 use crate::domain::mapping::TierMapping;
 
@@ -1189,6 +1272,21 @@ impl Engine {
                         .map_err(|e| format!("Cannot write config.toml: {e}"))?;
                     cfg
                 };
+
+                // Bootstrap copilot/ directory with default files if it doesn't exist
+                let copilot_dir = workspace_path.join("copilot");
+                if !copilot_dir.exists() {
+                    let _ = std::fs::create_dir_all(&copilot_dir);
+                    let defaults: &[(&str, &str)] = &[
+                        ("_runbook.md", include_str!("../../assets/copilot/_runbook.md")),
+                        ("_goal.toml", include_str!("../../assets/copilot/_goal.toml")),
+                        ("_plan.toml", include_str!("../../assets/copilot/_plan.toml")),
+                        ("_journal.md", include_str!("../../assets/copilot/_journal.md")),
+                    ];
+                    for (name, content) in defaults {
+                        let _ = std::fs::write(copilot_dir.join(name), content);
+                    }
+                }
 
                 // Persist last-used workspace for auto-load on next launch
                 let mut gs = crate::global_settings::GlobalSettings::load();
@@ -1575,7 +1673,7 @@ impl Engine {
 
                 Ok(out)
             }
-            AppCommand::ReportSentencesIncomplete => {
+            AppCommand::ReportSentencesIncomplete { limit } => {
                 if self.state.document.is_empty() {
                     return Ok("No document loaded.".to_string());
                 }
@@ -1583,7 +1681,6 @@ impl Engine {
                     .filter(|(_, s)| !s.is_weave_ready())
                     .map(|(i, s)| {
                         use crate::domain::tier::TierState;
-                        // Collect problematic tiers (non-Valid or missing)
                         let mut issues: Vec<String> = Vec::new();
                         for &tid in crate::domain::sentence::Sentence::WEAVE_TIERS {
                             match s.tiers.get(tid) {
@@ -1614,10 +1711,20 @@ impl Engine {
                 if incomplete.is_empty() {
                     Ok("All sentences are weave-complete!".to_string())
                 } else {
-                    Ok(format!("{} incomplete sentence(s):\n{}", incomplete.len(), incomplete.join("\n")))
+                    let total = incomplete.len();
+                    let shown = match limit {
+                        Some(n) => &incomplete[..n.min(total)],
+                        None => &incomplete,
+                    };
+                    let suffix = if limit.is_some() && total > limit.unwrap_or(0) {
+                        format!("\n  ... and {} more (use 'report sentences incomplete' for full list)", total - limit.unwrap_or(0))
+                    } else {
+                        String::new()
+                    };
+                    Ok(format!("{} incomplete sentence(s):\n{}{}", total, shown.join("\n"), suffix))
                 }
             }
-            AppCommand::ReportSentencesComplete => {
+            AppCommand::ReportSentencesComplete { limit } => {
                 if self.state.document.is_empty() {
                     return Ok("No document loaded.".to_string());
                 }
@@ -1628,7 +1735,17 @@ impl Engine {
                 if complete.is_empty() {
                     Ok("No sentences are weave-complete yet.".to_string())
                 } else {
-                    Ok(format!("{} complete sentence(s):\n{}", complete.len(), complete.join("\n")))
+                    let total = complete.len();
+                    let shown = match limit {
+                        Some(n) => &complete[..n.min(total)],
+                        None => &complete,
+                    };
+                    let suffix = if limit.is_some() && total > limit.unwrap_or(0) {
+                        format!("\n  ... and {} more (use 'report sentences complete' for full list)", total - limit.unwrap_or(0))
+                    } else {
+                        String::new()
+                    };
+                    Ok(format!("{} complete sentence(s):\n{}{}", total, shown.join("\n"), suffix))
                 }
             }
             AppCommand::ReportSentence { start_index, end_index } => {
@@ -1667,7 +1784,16 @@ impl Engine {
                                 let word_count: usize = t.segments.iter()
                                     .map(|s| s.stream.word_count())
                                     .sum();
-                                let p = if ft.len() > 60 { format!("\"{}...\"", &ft[..57]) } else { format!("\"{}\"", ft) };
+                                let p = if ft.len() > 60 {
+                                    // Find a char boundary at or before byte 57
+                                    let mut end = 57.min(ft.len());
+                                    while end > 0 && !ft.is_char_boundary(end) {
+                                        end -= 1;
+                                    }
+                                    format!("\"{}...\"", &ft[..end])
+                                } else {
+                                    format!("\"{}\"", ft)
+                                };
                                 (p, format!("({} words)", word_count))
                             })
                             .unwrap_or_else(|| ("—".to_string(), String::new()));
@@ -1688,6 +1814,7 @@ impl Engine {
             }
             AppCommand::ConfigSet { key, value } => {
                 if let Some(config) = &mut self.state.config {
+                    let result = {
                     let parts: Vec<&str> = key.split('.').collect();
                     if parts.len() == 1 {
                         match parts[0] {
@@ -1706,6 +1833,23 @@ impl Engine {
                                 } else {
                                     config.custom_frequency_list_path = Some(value.clone());
                                     Ok(format!("Updated custom_frequency_list_path to {}", value))
+                                }
+                            }
+                            "youtube_client_secret_file" => {
+                                if value.trim().is_empty() || value == "none" {
+                                    config.youtube_client_secret_file = None;
+                                    Ok("Cleared youtube_client_secret_file".to_string())
+                                } else {
+                                    // Strip surrounding quotes if present
+                                    let v = if (value.starts_with('"') && value.ends_with('"'))
+                                        || (value.starts_with('\'') && value.ends_with('\''))
+                                    {
+                                        value[1..value.len()-1].to_string()
+                                    } else {
+                                        value.clone()
+                                    };
+                                    config.youtube_client_secret_file = Some(v.clone());
+                                    Ok(format!("Updated youtube_client_secret_file to '{}'", v))
                                 }
                             }
                             _ => Err(format!("Unknown root field: {}", parts[0]))
@@ -1824,9 +1968,46 @@ impl Engine {
                         } else {
                             Err(format!("Model '{}' not found", model_name))
                         }
+                    } else if parts.len() == 2 && parts[0] == "copilot" {
+                        let field = parts[1];
+                        // Ensure copilot config exists
+                        if config.copilot.is_none() {
+                            config.copilot = Some(crate::config::CopilotConfig {
+                                model: None,
+                                max_turns: Some(50),
+                            });
+                        }
+                        let cop = config.copilot.as_mut().unwrap();
+                        match field {
+                            "model" => {
+                                if value.trim().is_empty() || value == "none" {
+                                    cop.model = None;
+                                    Ok("Copilot model disabled.".to_string())
+                                } else {
+                                    cop.model = Some(value.clone());
+                                    Ok(format!("Updated copilot.model to '{}'", value))
+                                }
+                            }
+                            "max_turns" => {
+                                if let Ok(v) = value.parse::<u32>() {
+                                    cop.max_turns = Some(v);
+                                    Ok(format!("Updated copilot.max_turns to {}", v))
+                                } else {
+                                    Err("Invalid u32".to_string())
+                                }
+                            }
+                            _ => Err(format!("Unknown copilot field: {}", field)),
+                        }
                     } else {
                         Err("Invalid key format.".to_string())
                     }
+                    };
+                    // Persist successful config changes to disk
+                    if result.is_ok() {
+                        let config_path = PathBuf::from(&config.content_project_dir).join("config.toml");
+                        let _ = crate::config::save_config_to_file(config, &config_path);
+                    }
+                    result
                 } else {
                     Err("Config not loaded".to_string())
                 }
@@ -2256,6 +2437,13 @@ impl Engine {
                     out.push_str("--- Video Config ---\n");
                     out.push_str(&format!("  image_duration:      {}\n", m.video.image_duration));
                     out.push_str(&format!("  frame_rate:          {}\n", m.video.frame_rate));
+                    out.push_str("--- Illustrations Config ---\n");
+                    out.push_str(&format!("  style_prefix:              {}\n", m.illustrations.style_prefix));
+                    out.push_str(&format!("  prompt_model:              {}\n", m.illustrations.prompt_model));
+                    out.push_str(&format!("  image_model:               {}\n", m.illustrations.image_model));
+                    out.push_str(&format!("  image_size:                {}\n", m.illustrations.image_size));
+                    out.push_str(&format!("  sentences_per_illustration: {}\n", m.illustrations.sentences_per_illustration));
+                    out.push_str(&format!("  minimum_count:             {}\n", m.illustrations.minimum_count));
                     Ok(out)
                 })
             }
@@ -2296,6 +2484,22 @@ impl Engine {
                     producer.manifest.tts.voices = voices;
                     producer.manifest.save(&producer.book_dir)?;
                     Ok(format!("Set {} voice(s).", count))
+                })
+            }
+            AppCommand::AvConfigIllustrations { key, value } => {
+                self.av_execute_mut(|producer| {
+                    let ill = &mut producer.manifest.illustrations;
+                    match key.as_str() {
+                        "style_prefix" => ill.style_prefix = value.clone(),
+                        "prompt_model" => ill.prompt_model = value.clone(),
+                        "image_model" => ill.image_model = value.clone(),
+                        "image_size" => ill.image_size = value.clone(),
+                        "sentences_per_illustration" => ill.sentences_per_illustration = value.parse().map_err(|_| "Expected a number".to_string())?,
+                        "minimum_count" => ill.minimum_count = value.parse().map_err(|_| "Expected a number".to_string())?,
+                        _ => return Err(format!("Unknown illustrations config key: '{}'. Valid keys: style_prefix, prompt_model, image_model, image_size, sentences_per_illustration, minimum_count", key)),
+                    }
+                    producer.manifest.save(&producer.book_dir)?;
+                    Ok(format!("Illustrations config '{}' set to '{}'", key, value))
                 })
             }
             AppCommand::AvOpenDir { which } => {
@@ -2453,6 +2657,94 @@ impl Engine {
                 self.state.av_job = Some(job_state);
                 Ok(format!("Started: {} (pid {}). Use 'av cancel' to stop.", label, pid))
             }
+            AppCommand::AvGeneratePrompts => {
+                // Reject if a job is already running
+                if let Some(ref job) = self.state.av_job {
+                    let j = job.lock().unwrap();
+                    if !j.finished {
+                        return Err(format!("AV job already running: {}. Use 'av cancel' to stop it.", j.label));
+                    }
+                }
+
+                let book_dir = self.resolve_av_book_dir()?;
+                let producer = crate::services::av_producer::AvProducer::new(book_dir)?;
+                let project_root = std::env::current_dir()
+                    .map_err(|e| format!("Cannot determine project root: {}", e))?;
+                let api_key = crate::services::secrets::get_google_key()?;
+                if api_key.trim().is_empty() {
+                    return Err("Google API key is empty. Set a valid key:\n  → set key google AIza...".to_string());
+                }
+
+                let book_name = self.state.book_name.clone();
+
+                let child = producer.spawn_prompts(&book_name, &project_root, &api_key)?;
+                let pid = child.id();
+                let label = "Generating illustration prompts".to_string();
+
+                let job_state = std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::app::state::AvJobState {
+                        output_lines: vec![format!("--- {} ---", label)],
+                        cancel_requested: false,
+                        finished: false,
+                        result_message: None,
+                        child_pid: Some(pid),
+                        label: label.clone(),
+                    },
+                ));
+
+                let job_clone = job_state.clone();
+                std::thread::spawn(move || {
+                    av_job_reader(child, job_clone);
+                });
+
+                self.state.av_job = Some(job_state);
+                Ok(format!("Started: {} (pid {}). Use 'av cancel' to stop.", label, pid))
+            }
+            AppCommand::AvGenerateIllustrations => {
+                // Reject if a job is already running
+                if let Some(ref job) = self.state.av_job {
+                    let j = job.lock().unwrap();
+                    if !j.finished {
+                        return Err(format!("AV job already running: {}. Use 'av cancel' to stop it.", j.label));
+                    }
+                }
+
+                let book_dir = self.resolve_av_book_dir()?;
+                let producer = crate::services::av_producer::AvProducer::new(book_dir)?;
+                let project_root = std::env::current_dir()
+                    .map_err(|e| format!("Cannot determine project root: {}", e))?;
+                let api_key = crate::services::secrets::get_google_key()?;
+                if api_key.trim().is_empty() {
+                    return Err("Google API key is empty. Set a valid key:\n  → set key google AIza...".to_string());
+                }
+
+                if !producer.has_prompts() {
+                    return Err("No _prompts.toml found. Run 'av generate prompts' first.".to_string());
+                }
+
+                let child = producer.spawn_illustrations(&project_root, &api_key)?;
+                let pid = child.id();
+                let label = "Generating illustrations".to_string();
+
+                let job_state = std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::app::state::AvJobState {
+                        output_lines: vec![format!("--- {} ---", label)],
+                        cancel_requested: false,
+                        finished: false,
+                        result_message: None,
+                        child_pid: Some(pid),
+                        label: label.clone(),
+                    },
+                ));
+
+                let job_clone = job_state.clone();
+                std::thread::spawn(move || {
+                    av_job_reader(child, job_clone);
+                });
+
+                self.state.av_job = Some(job_state);
+                Ok(format!("Started: {} (pid {}). Use 'av cancel' to stop.", label, pid))
+            }
             AppCommand::AvCancel => {
                 if let Some(ref job) = self.state.av_job {
                     let mut j = job.lock().unwrap();
@@ -2470,6 +2762,24 @@ impl Engine {
                     Ok("Cancel requested. The AV job will stop shortly.".to_string())
                 } else {
                     Ok("No AV job is running.".to_string())
+                }
+            }
+
+            AppCommand::AvLog { tail } => {
+                if let Some(ref job) = self.state.av_job {
+                    let j = job.lock().unwrap();
+                    let lines = &j.output_lines;
+                    let selected: Vec<&str> = match tail {
+                        Some(n) if n < lines.len() => lines[lines.len() - n..].iter().map(|s| s.as_str()).collect(),
+                        _ => lines.iter().map(|s| s.as_str()).collect(),
+                    };
+                    if selected.is_empty() {
+                        Ok("(no output yet)".to_string())
+                    } else {
+                        Ok(selected.join("\n"))
+                    }
+                } else {
+                    Ok("No AV job (current or recent).".to_string())
                 }
             }
 
@@ -2561,6 +2871,186 @@ impl Engine {
                 producer.rebuild_audio(&stem, &project_root)
             }
 
+            // --- YouTube Commands ---
+            AppCommand::AvYoutubeInit => {
+                let book_dir = self.resolve_av_book_dir()?;
+                let yt = crate::services::av_producer::YouTubeConfig::load_or_create(&book_dir)?;
+                let _ = yt; // just ensure it's created
+                Ok(format!("YouTube config created at: {}", book_dir.join(crate::services::av_producer::YOUTUBE_CONFIG_FILENAME).display()))
+            }
+            AppCommand::AvYoutubeAuth => {
+                // Reject if a job is already running
+                if let Some(ref job) = self.state.av_job {
+                    let j = job.lock().unwrap();
+                    if !j.finished {
+                        return Err(format!("AV job already running: {}. Use 'av cancel' to stop it.", j.label));
+                    }
+                }
+
+                let book_dir = self.resolve_av_book_dir()?;
+                let _producer = crate::services::av_producer::AvProducer::new(book_dir)?;
+                let project_root = std::env::current_dir()
+                    .map_err(|e| format!("Cannot determine project root: {}", e))?;
+
+                let child = _producer.spawn_youtube_auth(
+                    &project_root,
+                    self.state.config.as_ref()
+                        .and_then(|c| c.youtube_client_secret_file.as_deref()),
+                )?;
+                let pid = child.id();
+                let label = "YouTube OAuth authentication".to_string();
+
+                let job_state = std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::app::state::AvJobState {
+                        output_lines: vec![format!("--- {} ---", label)],
+                        cancel_requested: false,
+                        finished: false,
+                        result_message: None,
+                        child_pid: Some(pid),
+                        label: label.clone(),
+                    },
+                ));
+
+                let job_clone = job_state.clone();
+                std::thread::spawn(move || {
+                    av_job_reader(child, job_clone);
+                });
+
+                self.state.av_job = Some(job_state);
+                Ok(format!("Started: {} (pid {}). A browser window should open for consent.", label, pid))
+            }
+            AppCommand::AvYoutubeConfigShow => {
+                let book_dir = self.resolve_av_book_dir()?;
+                let yt = crate::services::av_producer::YouTubeConfig::load(&book_dir)?
+                    .ok_or("No _youtube.toml found. Run 'av youtube init' first.")?;
+                let mut out = String::new();
+                out.push_str("--- YouTube Config ---\n");
+                out.push_str(&format!("  title_template:       {}\n", yt.metadata.title_template));
+                out.push_str(&format!("  description_template: {}\n", yt.metadata.description_template.lines().next().unwrap_or("")));
+                out.push_str(&format!("  tags:                 {}\n", yt.metadata.tags.join(", ")));
+                out.push_str(&format!("  category_id:          {}\n", yt.metadata.category_id));
+                out.push_str(&format!("  privacy:              {}\n", yt.metadata.privacy));
+                out.push_str(&format!("  language:             {}\n", yt.metadata.language));
+                out.push_str(&format!("  client_secret_file:   {}\n", if yt.auth.client_secret_file.is_empty() { "(not set)" } else { &yt.auth.client_secret_file }));
+                if !yt.variables.is_empty() {
+                    out.push_str("  variables:\n");
+                    for (k, v) in &yt.variables {
+                        out.push_str(&format!("    {} = {}\n", k, v));
+                    }
+                }
+                if !yt.uploads.is_empty() {
+                    out.push_str(&format!("  uploads:              {} video(s) uploaded\n", yt.uploads.len()));
+                }
+                Ok(out)
+            }
+            AppCommand::AvYoutubeConfig { key, value } => {
+                let book_dir = self.resolve_av_book_dir()?;
+                let mut yt = crate::services::av_producer::YouTubeConfig::load(&book_dir)?
+                    .ok_or("No _youtube.toml found. Run 'av youtube init' first.")?;
+                match key.as_str() {
+                    "title_template" => yt.metadata.title_template = value.clone(),
+                    "description_template" => yt.metadata.description_template = value.clone(),
+                    "tags" => yt.metadata.tags = value.split(',').map(|s| s.trim().to_string()).collect(),
+                    "category_id" => yt.metadata.category_id = value.clone(),
+                    "privacy" => {
+                        if !["public", "unlisted", "private"].contains(&value.as_str()) {
+                            return Err("Privacy must be: public, unlisted, or private".to_string());
+                        }
+                        yt.metadata.privacy = value.clone();
+                    }
+                    "language" => yt.metadata.language = value.clone(),
+                    "client_secret_file" => yt.auth.client_secret_file = value.clone(),
+                    _ => {
+                        // Treat unknown keys as template variables
+                        yt.variables.insert(key.clone(), value.clone());
+                    }
+                }
+                yt.save(&book_dir)?;
+                Ok(format!("YouTube config '{}' set to '{}'", key, value))
+            }
+            AppCommand::AvYoutubeUpload { target } => {
+                // Reject if a job is already running
+                if let Some(ref job) = self.state.av_job {
+                    let j = job.lock().unwrap();
+                    if !j.finished {
+                        return Err(format!("AV job already running: {}. Use 'av cancel' to stop it.", j.label));
+                    }
+                }
+
+                let book_dir = self.resolve_av_book_dir()?;
+                let producer = crate::services::av_producer::AvProducer::new(book_dir.clone())?;
+                let project_root = std::env::current_dir()
+                    .map_err(|e| format!("Cannot determine project root: {}", e))?;
+                let yt = crate::services::av_producer::YouTubeConfig::load(&book_dir)?
+                    .ok_or("No _youtube.toml found. Run 'av youtube init' first.")?;
+
+                let stem = match target {
+                    AvTarget::Stem(ref s) => {
+                        if yt.is_uploaded(s) {
+                            return Err(format!("'{}' already uploaded. Delete the [uploads] entry in _youtube.toml to re-upload.", s));
+                        }
+                        let statuses = producer.scan();
+                        let found = statuses.iter().find(|st| st.stem == *s);
+                        match found {
+                            Some(st) if !st.has_video => return Err(format!("No video file for '{}'. Generate video first.", s)),
+                            None => return Err(format!("Stem '{}' not found in book directory.", s)),
+                            _ => s.clone(),
+                        }
+                    }
+                    AvTarget::Next => {
+                        match producer.next_stem_needing_upload(&yt) {
+                            Some(s) => s,
+                            None => return Ok("All marked videos have been uploaded.".to_string()),
+                        }
+                    }
+                    AvTarget::All => {
+                        match producer.next_stem_needing_upload(&yt) {
+                            Some(s) => s,
+                            None => return Ok("All marked videos have been uploaded.".to_string()),
+                        }
+                    }
+                };
+
+                // Build extra template variables from state
+                let book_name = self.state.book_name.clone();
+                let chapter_name = book_dir.file_name()
+                    .map(|n| n.to_string_lossy().replace('_', " "))
+                    .unwrap_or_default();
+                let extra_vars = format!(
+                    "book_name={},chapter_name={}",
+                    book_name, chapter_name
+                );
+
+                let child = producer.spawn_youtube_upload(
+                    &stem,
+                    &project_root,
+                    &extra_vars,
+                    self.state.config.as_ref()
+                        .and_then(|c| c.youtube_client_secret_file.as_deref()),
+                )?;
+                let pid = child.id();
+                let label = format!("Uploading to YouTube: {}", stem);
+
+                let job_state = std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::app::state::AvJobState {
+                        output_lines: vec![format!("--- {} ---", label)],
+                        cancel_requested: false,
+                        finished: false,
+                        result_message: None,
+                        child_pid: Some(pid),
+                        label: label.clone(),
+                    },
+                ));
+
+                let job_clone = job_state.clone();
+                std::thread::spawn(move || {
+                    av_job_reader(child, job_clone);
+                });
+
+                self.state.av_job = Some(job_state);
+                Ok(format!("Started: {} (pid {}). Use 'av cancel' to stop.", label, pid))
+            }
+
             // --- Chapter Mode Commands ---
             AppCommand::NewChapter { name, start, end } => {
                 self.execute_new_chapter(name, start, end)
@@ -2581,6 +3071,43 @@ impl Engine {
             }
             AppCommand::InitMediaWorkspace => {
                 self.execute_init_media_workspace()
+            }
+
+            AppCommand::CopilotJournal { text } => {
+                let ws_dir = self.state.config.as_ref()
+                    .map(|c| c.content_project_dir.clone())
+                    .unwrap_or_default();
+                if ws_dir.is_empty() {
+                    return Err("No workspace open.".to_string());
+                }
+                crate::services::copilot::append_journal(
+                    std::path::Path::new(&ws_dir),
+                    &text,
+                );
+                Ok(format!("Journal entry added."))
+            }
+
+            AppCommand::CopilotReset => {
+                self.state.copilot_history.clear();
+                self.state.copilot_turns = 0;
+                self.state.copilot_auto_turns = 0;
+                self.state.copilot_running = false;
+                self.state.copilot_awaiting_av = false;
+                self.state.copilot_awaiting_llm_job = false;
+                self.state.copilot_pending_cmds.clear();
+                self.state.copilot_cmd_outputs.clear();
+                self.state.copilot_llm_rx = None;
+                // Delete session file
+                let ws_dir = self.state.config.as_ref()
+                    .map(|c| c.content_project_dir.clone())
+                    .unwrap_or_default();
+                if !ws_dir.is_empty() {
+                    let session_path = std::path::Path::new(&ws_dir)
+                        .join("copilot")
+                        .join("_session.json");
+                    let _ = std::fs::remove_file(&session_path);
+                }
+                Ok("Copilot session reset. History cleared.".to_string())
             }
         }
     }
@@ -2893,6 +3420,7 @@ impl Engine {
                 peak_user_score: (peak_user_score * 10.0).round() / 10.0,
                 total_start_levels,
                 schema_version: "1.0".to_string(),
+                calibration_sentence_count: self.state.calibration_sentence_count,
             },
             levels: trimmed_levels,
         };
@@ -3109,17 +3637,24 @@ impl Engine {
 
         let level_count = lm_file.levels.len();
         self.state.book_map = Some(lm_file.levels);
+        self.state.calibration_sentence_count = lm_file.meta.calibration_sentence_count;
 
         // Update project metadata from the level map if available
         if self.state.book_name.is_empty() {
             self.state.book_name = lm_file.meta.book_name.clone();
         }
 
+        let cal_info = match lm_file.meta.calibration_sentence_count {
+            Some(n) => format!(" (calibrated from {} sentences)", n),
+            None => String::new(),
+        };
+
         Ok(format!(
-            "Imported level map from '{}' — {} levels (peak UL{})",
+            "Imported level map from '{}' — {} levels (peak UL{}){}",
             path,
             level_count,
             lm_file.meta.natural_peak_level,
+            cal_info,
         ))
     }
 
@@ -3877,9 +4412,20 @@ impl Engine {
         let level_count = curriculum_maps.len();
         self.state.book_map = Some(curriculum_maps);
 
+        // Track how many completed sentences were used for calibration
+        let cal_sentence_count = if self.state.chapter_mode && !self.state.chapters.is_empty() {
+            // chapter_sentence_count was computed above in the chapter_mode branch
+            sentences_for_calibration.iter()
+                .filter(|s| !s.id.starts_with("__placeholder_"))
+                .count()
+        } else {
+            self.state.document.len()
+        };
+        self.state.calibration_sentence_count = Some(cal_sentence_count);
+
         Ok(format!(
-            "Calibration complete — {} start-level maps generated and loaded{}.",
-            level_count, chapter_mode_info
+            "Calibration complete — {} start-level maps generated and loaded{} ({} sentences used).",
+            level_count, chapter_mode_info, cal_sentence_count
         ))
     }
 

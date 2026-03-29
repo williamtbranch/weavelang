@@ -81,6 +81,8 @@ pub struct AppState {
     #[serde(default)]
     pub book_map: Option<HashMap<String, JsonCurriculumMap>>,
     #[serde(default)]
+    pub calibration_sentence_count: Option<usize>,
+    #[serde(default)]
     pub book_name: String,
 
     // --- NEW FIELD: Project Languages (Base, Target) ---
@@ -224,6 +226,42 @@ pub struct AppState {
     #[serde(skip)]
     pub copilot_server_info: Option<(String, u16)>,
 
+    // Co-pilot LLM conversation history: Vec<(role, text)> where role is "user" or "assistant".
+    #[serde(skip)]
+    pub copilot_history: Vec<(String, String)>,
+
+    // Co-pilot autonomous mode: when true, the copilot is executing a plan.
+    #[serde(skip)]
+    pub copilot_running: bool,
+
+    // Co-pilot turn counter for the current session (reset on each new session).
+    #[serde(skip)]
+    pub copilot_turns: u32,
+
+    // Co-pilot async LLM response channel (None when idle).
+    #[serde(skip)]
+    pub copilot_llm_rx: Option<Receiver<Result<String, String>>>,
+
+    // Co-pilot auto-continue depth counter (reset each user message).
+    #[serde(skip)]
+    pub copilot_auto_turns: u32,
+
+    // Co-pilot is waiting for a background AV job to finish before continuing.
+    #[serde(skip)]
+    pub copilot_awaiting_av: bool,
+
+    // Co-pilot is waiting for a background LLM generation job to finish.
+    #[serde(skip)]
+    pub copilot_awaiting_llm_job: bool,
+
+    // Remaining CMD: lines to execute after the current LLM job completes.
+    #[serde(skip)]
+    pub copilot_pending_cmds: Vec<String>,
+
+    // Accumulated command outputs for the current copilot turn (before sending back to LLM).
+    #[serde(skip)]
+    pub copilot_cmd_outputs: Vec<String>,
+
     // Media (AV production) tab
     #[serde(skip)]
     pub show_media_tab: bool,
@@ -273,6 +311,7 @@ impl Default for AppState {
             document: Vec::new(),
             selected_range: None,
             book_map: None,
+            calibration_sentence_count: None,
             book_name: String::new(),
             project_languages: ("en".to_string(), "es".to_string()), // Default
             selected_sentence_idx: 0,
@@ -327,6 +366,15 @@ impl Default for AppState {
             selected_tier_id: "basic_target".to_string(),
             llm_followup_queue: VecDeque::new(),
             copilot_server_info: None,
+            copilot_history: Vec::new(),
+            copilot_running: false,
+            copilot_turns: 0,
+            copilot_llm_rx: None,
+            copilot_auto_turns: 0,
+            copilot_awaiting_av: false,
+            copilot_awaiting_llm_job: false,
+            copilot_pending_cmds: Vec::new(),
+            copilot_cmd_outputs: Vec::new(),
             show_media_tab: false,
             av_selected_stem: None,
             av_job: None,

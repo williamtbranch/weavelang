@@ -16,6 +16,17 @@ use crate::services::tier_processor::lang_for_tier;
 use std::sync::mpsc::TryRecvError;
 use std::cmp::min;
 
+/// Truncate verbose command output to a manageable size for copilot history.
+/// Keeps the first `max_chars` characters and appends a truncation notice.
+fn compact_command_output(output: &str, max_chars: usize) -> String {
+    if output.len() <= max_chars {
+        return output.to_string();
+    }
+    let truncated: String = output.chars().take(max_chars).collect();
+    let remaining = output.len() - max_chars;
+    format!("{}... [truncated, {} more chars]", truncated, remaining)
+}
+
 pub struct WeaveLangApp {
     state: AppState,
     current_file_path: Option<PathBuf>,
@@ -140,9 +151,12 @@ impl WeaveLangApp {
         let trimmed = cmd.trim();
         if trimmed.starts_with('$') {
             let msg = trimmed[1..].trim();
-            let reply = format!("[copilot] Received: \"{}\" — AI agent routing is not yet connected. This will be forwarded to an LLM in a future release.", msg);
-            self.terminal_history.push(reply.clone());
-            return reply;
+            if msg.is_empty() {
+                let reply = "[copilot] Usage: $ <message> — send a message to the co-pilot agent.".to_string();
+                self.terminal_history.push(reply.clone());
+                return reply;
+            }
+            return self.handle_copilot_message(msg);
         }
 
         // Intercept `server info` — the relay server details are only known here.
@@ -195,6 +209,11 @@ impl WeaveLangApp {
                 self.dirty = false;
             } else if cmd_lower.starts_with("load project") {
                 self.dirty = false;
+            } else if cmd_lower.starts_with("open workspace") {
+                // Restore copilot session from disk
+                self.load_copilot_session();
+                // After workspace opens, check for pending copilot goal
+                self.check_copilot_goal();
             } else if cmd_lower.starts_with("new project") || cmd_lower.starts_with("close project") {
                 self.dirty = false;
             } else if cmd_lower.starts_with("import json") || cmd_lower.starts_with("import source") {
@@ -783,6 +802,368 @@ impl WeaveLangApp {
         }
     }
 
+    /// Handle a `$`-prefixed copilot message from the terminal.
+    /// Spawns a background thread for the LLM call so the UI stays responsive.
+    /// Results are polled in `update()` via `poll_copilot_llm()`.
+    fn handle_copilot_message(&mut self, user_msg: &str) -> String {
+        use crate::services::copilot;
+
+        // Check if copilot model is configured
+        let model_alias = match self.state.config.as_ref()
+            .and_then(|c| c.copilot.as_ref())
+            .and_then(|cp| cp.model.as_ref())
+            .filter(|m| !m.is_empty())
+        {
+            Some(m) => m.clone(),
+            None => {
+                let reply = "[copilot] No copilot model configured. Set one in Preferences → LLM Settings, or run: config set copilot.model <alias>".to_string();
+                self.terminal_history.push(reply.clone());
+                return reply;
+            }
+        };
+
+        // Check if LLM service is available
+        let llm = match &self.state.llm {
+            Some(l) => l.clone(),
+            None => {
+                let reply = "[copilot] LLM service not available. Check API key configuration.".to_string();
+                self.terminal_history.push(reply.clone());
+                return reply;
+            }
+        };
+
+        // Check turn limit
+        let max_turns = self.state.config.as_ref()
+            .and_then(|c| c.copilot.as_ref())
+            .and_then(|cp| cp.max_turns)
+            .unwrap_or(50);
+
+        if self.state.copilot_turns >= max_turns {
+            let reply = format!("[copilot] Turn limit reached ({}/{}). Start a new session or increase copilot.max_turns.", self.state.copilot_turns, max_turns);
+            self.terminal_history.push(reply.clone());
+            return reply;
+        }
+
+        // Already waiting for a copilot response — don't stack requests
+        if self.state.copilot_llm_rx.is_some() {
+            let reply = "[copilot] Already processing a request. Please wait.".to_string();
+            self.terminal_history.push(reply.clone());
+            return reply;
+        }
+
+        // Copilot is waiting for a background generation/AV job — allow the new message
+        // by discarding any remaining pending commands from the previous turn.
+        if self.state.copilot_awaiting_llm_job || self.state.copilot_awaiting_av {
+            self.terminal_history.push("[copilot] Interrupting current wait to handle your message.".to_string());
+            self.state.copilot_awaiting_llm_job = false;
+            self.state.copilot_awaiting_av = false;
+            self.state.copilot_pending_cmds.clear();
+            // Keep accumulated outputs so far — they'll be part of the next turn context
+            if !self.state.copilot_cmd_outputs.is_empty() {
+                let results_summary = self.state.copilot_cmd_outputs.join("\n");
+                self.state.copilot_cmd_outputs.clear();
+                self.state.copilot_history.push((
+                    "user".to_string(),
+                    format!("[System: partial command results before interruption]\n{}", results_summary),
+                ));
+            }
+        }
+
+        // Build workspace context (reads copilot/ files)
+        let workspace_context = self.state.config.as_ref()
+            .map(|c| {
+                let ws_path = std::path::Path::new(&c.content_project_dir);
+                copilot::build_workspace_context(ws_path)
+            })
+            .unwrap_or_default();
+
+        // Add user message to history
+        self.state.copilot_history.push(("user".to_string(), user_msg.to_string()));
+
+        // Reset auto-continue counter for this new user message
+        self.state.copilot_auto_turns = 0;
+
+        // Spawn background thread for LLM call
+        self.terminal_history.push("[copilot] Thinking...".to_string());
+        let history_snapshot = self.state.copilot_history.clone();
+        let user_msg_owned = user_msg.to_string();
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        std::thread::spawn(move || {
+            let result = copilot::send_copilot_message(
+                &llm,
+                &model_alias,
+                copilot::COPILOT_SYSTEM_PROMPT,
+                &workspace_context,
+                &history_snapshot,
+                &user_msg_owned,
+            );
+            let _ = tx.send(result);
+        });
+
+        self.state.copilot_llm_rx = Some(rx);
+        self.state.copilot_running = true;
+        "[copilot] Thinking...".to_string()
+    }
+
+    /// Spawn a background follow-up LLM call for the auto-continue loop.
+    fn spawn_copilot_followup(&mut self) {
+        use crate::services::copilot;
+
+        let model_alias = match self.state.config.as_ref()
+            .and_then(|c| c.copilot.as_ref())
+            .and_then(|cp| cp.model.as_ref())
+            .filter(|m| !m.is_empty())
+        {
+            Some(m) => m.clone(),
+            None => return,
+        };
+        let llm = match &self.state.llm {
+            Some(l) => l.clone(),
+            None => return,
+        };
+        let workspace_context = self.state.config.as_ref()
+            .map(|c| copilot::build_workspace_context(std::path::Path::new(&c.content_project_dir)))
+            .unwrap_or_default();
+
+        let history_snapshot = self.state.copilot_history.clone();
+        // Use the last user message (the system command-results entry) as the user message
+        let last_user_msg = history_snapshot.iter().rev()
+            .find(|(role, _)| role == "user")
+            .map(|(_, text)| text.clone())
+            .unwrap_or_default();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = copilot::send_copilot_message(
+                &llm,
+                &model_alias,
+                copilot::COPILOT_SYSTEM_PROMPT,
+                &workspace_context,
+                &history_snapshot,
+                &last_user_msg,
+            );
+            let _ = tx.send(result);
+        });
+
+        self.state.copilot_llm_rx = Some(rx);
+    }
+
+    /// Poll the copilot LLM background channel. Called each frame from `update()`.
+    fn poll_copilot_llm(&mut self) {
+        use crate::services::copilot;
+        use std::sync::mpsc::TryRecvError;
+
+        let rx = match &self.state.copilot_llm_rx {
+            Some(r) => r,
+            None => return,
+        };
+
+        let msg = match rx.try_recv() {
+            Ok(v) => v,
+            Err(TryRecvError::Empty) => return, // still waiting
+            Err(TryRecvError::Disconnected) => {
+                self.terminal_history.push("[copilot] LLM channel disconnected.".to_string());
+                self.state.copilot_llm_rx = None;
+                self.state.copilot_running = false;
+                return;
+            }
+        };
+
+        // We have a response — clear the receiver
+        self.state.copilot_llm_rx = None;
+
+        match msg {
+            Ok(reply_text) => {
+                self.state.copilot_turns += 1;
+                self.state.copilot_history.push(("assistant".to_string(), reply_text.clone()));
+
+                // Display the reply
+                for line in reply_text.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("CMD:") {
+                        let cmd = trimmed[4..].trim();
+                        self.terminal_history.push(format!("[copilot] Executing: {}", cmd));
+                    } else if !trimmed.is_empty() {
+                        self.terminal_history.push(format!("[copilot] {}", line));
+                    }
+                }
+
+                // Extract CMD: lines and execute them non-blockingly.
+                // If a command starts a background LLM job, defer remaining commands
+                // and resume when the job completes (instead of blocking with watch_job).
+                let commands = copilot::extract_commands(&reply_text);
+                if !commands.is_empty() {
+                    self.state.copilot_cmd_outputs.clear();
+                    self.state.copilot_pending_cmds = commands;
+                    self.execute_copilot_pending_cmds();
+                    return; // keep copilot_running true; completion handled elsewhere
+                }
+
+                // No commands — copilot turn is done
+                self.finish_copilot_turn();
+            }
+            Err(e) => {
+                self.terminal_history.push(format!("[copilot] Error: {}", e));
+                // Remove the failed user message from history
+                self.state.copilot_history.pop();
+                self.state.copilot_running = false;
+            }
+        }
+
+        // Save session to disk after each completed turn
+        self.save_copilot_session();
+    }
+
+    /// Execute queued copilot CMD: lines one at a time, non-blockingly.
+    /// If a command starts a background LLM job, we pause and set
+    /// `copilot_awaiting_llm_job` so `update()` can resume us when the job finishes.
+    /// `watch_job` commands are skipped (we wait for the job non-blockingly instead).
+    fn execute_copilot_pending_cmds(&mut self) {
+        while let Some(cmd) = self.state.copilot_pending_cmds.first().cloned() {
+            self.state.copilot_pending_cmds.remove(0);
+
+            // Skip watch_job — we handle job completion non-blockingly
+            if cmd.trim() == "watch_job" || cmd.trim() == "job_status" {
+                continue;
+            }
+
+            self.terminal_history.push(format!("[copilot] Executing: {}", cmd));
+            let output = self.execute_terminal_command_from(&cmd, "[copilot]>");
+
+            // Compact the output for history (keep first 500 chars)
+            let compact_output = compact_command_output(&output, 500);
+            self.state.copilot_cmd_outputs.push(format!("Command `{}` → {}", cmd, compact_output));
+
+            // Check if this command started a background LLM job
+            if self.state.llm_results_receiver.is_some() {
+                self.state.copilot_awaiting_llm_job = true;
+                self.terminal_history.push("[copilot] Waiting for generation job to finish...".to_string());
+                return; // pause — update() will resume us when the job completes
+            }
+
+            // Check if this command started an AV job
+            if self.state.av_job.is_some() {
+                self.state.copilot_awaiting_av = true;
+                self.terminal_history.push("[copilot] Waiting for AV job to finish...".to_string());
+                return; // pause — update() will resume us when the AV job completes
+            }
+        }
+
+        // All CMD: lines executed — finish this copilot turn
+        self.finish_copilot_cmd_turn();
+    }
+
+    /// Called when all copilot CMD: lines for the current turn are done.
+    /// Pushes the accumulated results into history and decides whether to auto-continue.
+    fn finish_copilot_cmd_turn(&mut self) {
+        if !self.state.copilot_cmd_outputs.is_empty() {
+            let results_summary = self.state.copilot_cmd_outputs.join("\n");
+            self.state.copilot_cmd_outputs.clear();
+            self.state.copilot_history.push((
+                "user".to_string(),
+                format!("[System: command results]\n{}", results_summary),
+            ));
+
+            // Auto-continue if within limits
+            let max_turns = self.state.config.as_ref()
+                .and_then(|c| c.copilot.as_ref())
+                .and_then(|cp| cp.max_turns)
+                .unwrap_or(50);
+            let max_auto = 5u32;
+
+            if self.state.copilot_auto_turns < max_auto && self.state.copilot_turns < max_turns {
+                self.state.copilot_auto_turns += 1;
+                self.terminal_history.push("[copilot] Thinking...".to_string());
+                self.spawn_copilot_followup();
+                self.save_copilot_session();
+                return; // keep copilot_running true
+            }
+        }
+
+        // Done — no more auto-continue
+        self.finish_copilot_turn();
+    }
+
+    /// Final cleanup when a copilot interaction is fully complete.
+    fn finish_copilot_turn(&mut self) {
+        // If an AV job is still running, park the copilot to resume when it finishes
+        if self.state.av_job.is_some() && !self.state.copilot_history.is_empty() {
+            self.state.copilot_awaiting_av = true;
+            self.terminal_history.push("[copilot] Waiting for AV job to finish...".to_string());
+        }
+        self.state.copilot_running = false;
+        self.save_copilot_session();
+    }
+
+    /// Persist copilot conversation history to disk.
+    fn save_copilot_session(&self) {
+        use crate::services::copilot;
+        if self.state.copilot_history.is_empty() {
+            return;
+        }
+        if let Some(cfg) = &self.state.config {
+            if !cfg.content_project_dir.is_empty() {
+                copilot::save_session(
+                    std::path::Path::new(&cfg.content_project_dir),
+                    &self.state.copilot_history,
+                    self.state.copilot_turns,
+                );
+            }
+        }
+    }
+
+    /// Restore copilot session from disk (called on workspace open).
+    fn load_copilot_session(&mut self) {
+        use crate::services::copilot;
+        if let Some(cfg) = &self.state.config {
+            if !cfg.content_project_dir.is_empty() {
+                let (history, turns) = copilot::load_session(
+                    std::path::Path::new(&cfg.content_project_dir),
+                );
+                if !history.is_empty() {
+                    let count = history.len();
+                    self.state.copilot_history = history;
+                    self.state.copilot_turns = turns;
+                    self.terminal_history.push(format!(
+                        "[copilot] Restored previous session ({} messages, {} turns).",
+                        count, turns
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Check for a pending goal at startup (called once after workspace opens).
+    /// If copilot/_goal.toml has actionable content, notify the user.
+    fn check_copilot_goal(&mut self) {
+        use crate::services::copilot;
+
+        let has_model = self.state.config.as_ref()
+            .and_then(|c| c.copilot.as_ref())
+            .and_then(|cp| cp.model.as_ref())
+            .map(|m| !m.is_empty())
+            .unwrap_or(false);
+
+        if !has_model {
+            return;
+        }
+
+        let has_goal = self.state.config.as_ref()
+            .map(|c| {
+                let ws_path = std::path::Path::new(&c.content_project_dir);
+                copilot::has_pending_goal(ws_path)
+            })
+            .unwrap_or(false);
+
+        if has_goal {
+            self.terminal_history.push("[copilot] Pending goal detected in copilot/_goal.toml. Starting autonomous session...".to_string());
+            self.handle_copilot_message("A goal file is ready. Please read it and begin executing the plan.");
+        } else {
+            self.terminal_history.push("[copilot] No pending goal. Use $ <message> to chat, or edit copilot/_goal.toml to set a production goal.".to_string());
+        }
+    }
+
     /// Cancel any in-flight LLM job and clear the follow-up queue.
     fn cancel_running_llm_job(&mut self) {
         eprintln!("[APP] cancel_running_llm_job called — setting cancel flag");
@@ -790,12 +1171,20 @@ impl WeaveLangApp {
             flag.store(true, std::sync::atomic::Ordering::SeqCst);
         }
         self.state.llm_followup_queue.clear();
+        // Also cancel any in-flight copilot LLM call
+        self.state.copilot_llm_rx = None;
+        self.state.copilot_running = false;
+        self.state.copilot_awaiting_av = false;
+        self.state.copilot_awaiting_llm_job = false;
+        self.state.copilot_pending_cmds.clear();
+        self.state.copilot_cmd_outputs.clear();
     }
 }
 
 impl Drop for WeaveLangApp {
     fn drop(&mut self) {
         eprintln!("[APP] Drop impl fired — cleaning up LLM threads");
+        self.save_copilot_session();
         self.cancel_running_llm_job();
     }
 }
@@ -861,6 +1250,9 @@ impl App for WeaveLangApp {
             self.execute_terminal_command(&cmd);
         }
 
+        // Poll copilot LLM background channel
+        self.poll_copilot_llm();
+
         // Poll background AV job for new output lines
         if let Some(ref job) = self.state.av_job {
             let j = job.lock().unwrap();
@@ -875,10 +1267,31 @@ impl App for WeaveLangApp {
                 }
             }
             let finished = j.finished;
+            let result_msg = if finished { j.result_message.clone() } else { None };
+            let job_label = j.label.clone();
             drop(j);
             if finished {
                 self.state.av_job = None;
                 self.av_job_lines_seen = 0;
+
+                // If copilot was waiting for this AV job, wake it up
+                if self.state.copilot_awaiting_av {
+                    self.state.copilot_awaiting_av = false;
+                    let status = result_msg.as_deref().unwrap_or("AV job finished.");
+                    self.state.copilot_cmd_outputs.push(
+                        format!("AV job completed: {} — {}", job_label, status)
+                    );
+                    self.terminal_history.push("[copilot] AV job done. Resuming...".to_string());
+
+                    if !self.state.copilot_pending_cmds.is_empty() {
+                        // Continue executing remaining copilot CMD: lines
+                        self.execute_copilot_pending_cmds();
+                    } else {
+                        // No more pending cmds — finish the turn (will auto-continue to LLM)
+                        self.state.copilot_auto_turns = 0;
+                        self.finish_copilot_cmd_turn();
+                    }
+                }
             }
         }
 
@@ -1001,6 +1414,21 @@ impl App for WeaveLangApp {
                             remaining,
                         );
                         self.state.pending_terminal_command = Some(next_cmd);
+                    } else if self.state.copilot_awaiting_llm_job {
+                        // Follow-up queue drained and copilot was waiting — resume copilot
+                        self.state.copilot_awaiting_llm_job = false;
+                        let done = self.state.llm_job_done;
+                        let total = self.state.llm_job_total;
+                        let stage = self.state.llm_job_stage.clone();
+                        self.state.copilot_cmd_outputs.push(
+                            format!("LLM job completed. {}/{} items applied (stage: {}).", done, total, stage)
+                        );
+                        self.terminal_history.push(format!(
+                            "[copilot] Generation complete ({}/{} items, stage: {}). Continuing...",
+                            done, total, stage
+                        ));
+                        // Continue executing any remaining copilot CMD: lines
+                        self.execute_copilot_pending_cmds();
                     }
                 } else {
                     // On error, clear the follow-up queue to prevent cascading failures
@@ -1011,6 +1439,16 @@ impl App for WeaveLangApp {
                             " ({} queued follow-up steps cancelled.)",
                             cleared
                         ));
+                    }
+                    // If copilot was waiting, give it the error and let it decide
+                    if self.state.copilot_awaiting_llm_job {
+                        self.state.copilot_awaiting_llm_job = false;
+                        self.state.copilot_cmd_outputs.push(
+                            format!("LLM job failed: {}", self.status_message)
+                        );
+                        // Skip remaining commands, finish the turn so copilot can react
+                        self.state.copilot_pending_cmds.clear();
+                        self.finish_copilot_cmd_turn();
                     }
                 }
             }
@@ -1288,6 +1726,45 @@ impl App for WeaveLangApp {
                                 });
                             });
                         }
+
+                        ui.separator();
+                        ui.heading("Co-pilot Agent");
+                        ui.label("Select which model the $ prefix routes to for co-pilot chat and autonomous goals.");
+                        ui.add_space(4.0);
+
+                        // Ensure copilot config exists in draft
+                        if draft.copilot.is_none() {
+                            draft.copilot = Some(crate::config::CopilotConfig {
+                                model: None,
+                                max_turns: Some(50),
+                            });
+                        }
+                        if let Some(ref mut cop) = draft.copilot {
+                            let model_aliases_cop: Vec<String> = draft.models.keys().cloned().collect();
+                            let mut current = cop.model.clone().unwrap_or_default();
+
+                            ui.horizontal(|ui| {
+                                ui.label("Model:");
+                                egui::ComboBox::from_id_source("copilot_model")
+                                    .selected_text(if current.is_empty() { "(disabled)" } else { &current })
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut current, String::new(), "(disabled)");
+                                        for alias in &model_aliases_cop {
+                                            ui.selectable_value(&mut current, alias.clone(), alias);
+                                        }
+                                    });
+                                ui.label("(?)").on_hover_text("Model alias for the co-pilot agent.\nCommand: config set copilot.model <alias>");
+                            });
+                            cop.model = if current.is_empty() { None } else { Some(current) };
+
+                            let mut mt = cop.max_turns.unwrap_or(50);
+                            ui.horizontal(|ui| {
+                                ui.label("Max Turns:");
+                                ui.add(egui::DragValue::new(&mut mt).clamp_range(1..=500));
+                                ui.label("(?)").on_hover_text("Safety cap: maximum LLM round-trips per session.\nCommand: config set copilot.max_turns <num>");
+                            });
+                            cop.max_turns = Some(mt);
+                        }
                         
                         ui.separator();
                         
@@ -1339,6 +1816,23 @@ impl App for WeaveLangApp {
                                                 pending_commands.push(format!("config set stages.{}.batch_size_in_items {}", k, stage.batch_size_in_items));
                                             }
                                         }
+                                    }
+                                    // Copilot config diff
+                                    let draft_cop = draft.copilot.as_ref();
+                                    let real_cop = real.copilot.as_ref();
+                                    let draft_model = draft_cop.and_then(|c| c.model.as_deref()).unwrap_or("");
+                                    let real_model = real_cop.and_then(|c| c.model.as_deref()).unwrap_or("");
+                                    if draft_model != real_model {
+                                        if draft_model.is_empty() {
+                                            pending_commands.push("config set copilot.model none".to_string());
+                                        } else {
+                                            pending_commands.push(format!("config set copilot.model {}", draft_model));
+                                        }
+                                    }
+                                    let draft_mt = draft_cop.and_then(|c| c.max_turns).unwrap_or(50);
+                                    let real_mt = real_cop.and_then(|c| c.max_turns).unwrap_or(50);
+                                    if draft_mt != real_mt {
+                                        pending_commands.push(format!("config set copilot.max_turns {}", draft_mt));
                                     }
                                 }
                                 self.state.show_llm_settings = false;
