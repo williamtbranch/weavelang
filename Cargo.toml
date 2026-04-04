@@ -50,6 +50,9 @@ tiny_http = "0.12"
 # Open files/directories in system default application
 opener = "0.7"
 
+# CLI line-editing with history
+rustyline = "14"
+
 [dev-dependencies]
 pest = "2.7"       
 pest_derive = "2.7" 

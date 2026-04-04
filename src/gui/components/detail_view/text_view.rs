@@ -316,10 +316,13 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
 
         if is_segment_focused {
             // ── Segment-focused view (Adv / Mod) ─────────────────────────
-            // Always update edit buffers with the latest segment data from engine state
+            // Initialise edit buffers from engine state only if they don't exist yet,
+            // so that in-progress user edits are not overwritten each frame.
             for (seg_id, seg_text, _) in &segment_details {
                 let buf_key = format!("{}_{}_{}", tier_id, seg_id, cur_selected_idx);
-                state.seg_edit_buffers.insert(buf_key, seg_text.clone());
+                if !state.seg_edit_buffers.contains_key(&buf_key) {
+                    state.seg_edit_buffers.insert(buf_key, seg_text.clone());
+                }
             }
 
             let mut seg_commands: Vec<String> = Vec::new();

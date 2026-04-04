@@ -216,6 +216,7 @@ impl Engine {
             | AppCommand::CheckStatus
             | AppCommand::ConfigList
             | AppCommand::Drc
+            | AppCommand::DrcTier { .. }
             | AppCommand::Audit
             | AppCommand::WeaveStatus
             | AppCommand::ReportSentencesIncomplete { .. }
@@ -1611,6 +1612,51 @@ impl Engine {
                     Ok(format!("DRC FAILED — {} violation(s) in {}:\n{}", count, scope_label, report))
                 }
             }
+            AppCommand::DrcTier { tier_id, limit } => {
+                if self.state.document.is_empty() {
+                    return Err("No document loaded.".to_string());
+                }
+                // Validate the tier_id is a known weave tier
+                use crate::domain::sentence::Sentence;
+                if !Sentence::WEAVE_TIERS.contains(&tier_id.as_str()) {
+                    return Err(format!(
+                        "Unknown tier '{}'. Valid tiers: {}",
+                        tier_id,
+                        Sentence::WEAVE_TIERS.join(", ")
+                    ));
+                }
+                // In chapter mode, scope to selected chapter
+                let range: Option<(usize, usize)> = if self.state.chapter_mode {
+                    self.state.selected_chapter_idx.and_then(|idx| {
+                        self.state.chapters.get(idx).map(|ch| (ch.start - 1, ch.end - 1))
+                    })
+                } else {
+                    None
+                };
+                let violations = self.run_drc_tier(&tier_id, range);
+                let tier_alias = crate::app::terminal::tier_display_alias(&tier_id);
+                let scope_label = if range.is_some() {
+                    format!("chapter ({} sentence(s))", range.map(|(s,e)| e - s + 1).unwrap_or(0))
+                } else {
+                    format!("all {} sentence(s)", self.state.document.len())
+                };
+                if violations.is_empty() {
+                    Ok(format!("DRC PASSED — tier '{}' clean across {}.", tier_alias, scope_label))
+                } else {
+                    let total = violations.len();
+                    let (shown, truncated) = match limit {
+                        Some(n) if n < total => (&violations[..n], true),
+                        _ => (&violations[..], false),
+                    };
+                    let report = shown.join("\n");
+                    let suffix = if truncated {
+                        format!("\n  ... and {} more (use 'drc {} all' to see everything)", total - limit.unwrap_or(0), tier_alias)
+                    } else {
+                        String::new()
+                    };
+                    Ok(format!("DRC FAILED — tier '{}': {} violation(s) in {} (showing {}):\n{}{}", tier_alias, total, scope_label, shown.len(), report, suffix))
+                }
+            }
             AppCommand::Audit => {
                 if self.state.document.is_empty() {
                     return Err("No document loaded.".to_string());
@@ -2564,7 +2610,9 @@ impl Engine {
                 };
 
                 // Spawn the child process
-                let child = producer.spawn_audio(&stem, &project_root, &api_key)?;
+                let gcloud_project_id = self.state.config.as_ref()
+                    .and_then(|c| c.gcloud_project_id.as_deref());
+                let child = producer.spawn_audio(&stem, &project_root, &api_key, gcloud_project_id)?;
                 let pid = child.id();
                 let label = format!("Generating audio: {}", stem);
 
@@ -4216,6 +4264,41 @@ impl Engine {
                         "S{} ({}): advanced_target has {} segments but moderate_target has {} (must match)",
                         sn, sid, a, m
                     ));
+                }
+            }
+        }
+
+        violations
+    }
+
+    /// Run DRC filtered to a single tier across all (or a range of) sentences.
+    /// Only checks whether the specified tier exists and is Valid on each sentence.
+    fn run_drc_tier(&self, tier_id: &str, range: Option<(usize, usize)>) -> Vec<String> {
+        use crate::domain::tier::TierState;
+
+        let mut violations: Vec<String> = Vec::new();
+        let (range_start, range_end) = range.unwrap_or((0, self.state.document.len().saturating_sub(1)));
+
+        for (i, sent) in self.state.document.iter().enumerate() {
+            if i < range_start || i > range_end { continue; }
+            let sn = i + 1;
+            let sid = &sent.id;
+
+            match sent.tiers.get(tier_id) {
+                None => {
+                    violations.push(format!("S{} ({}): tier '{}' is missing", sn, sid, tier_id));
+                }
+                Some(tier) => {
+                    if tier.state != TierState::Valid {
+                        let label = match tier.state {
+                            TierState::Dirty => "dirty",
+                            TierState::Stale => "stale",
+                            TierState::Pending => "pending",
+                            TierState::Broken => "BROKEN",
+                            TierState::Valid => unreachable!(),
+                        };
+                        violations.push(format!("S{} ({}): tier '{}' is {}", sn, sid, tier_id, label));
+                    }
                 }
             }
         }

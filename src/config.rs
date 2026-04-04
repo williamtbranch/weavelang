@@ -20,6 +20,8 @@ pub struct Config {
     pub copilot: Option<CopilotConfig>,
     /// Workspace-wide path to YouTube OAuth client_secret JSON file.
     pub youtube_client_secret_file: Option<String>,
+    /// Google Cloud Project ID for Vertex AI authentication.
+    pub gcloud_project_id: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
@@ -127,6 +129,7 @@ impl Default for Config {
             copilot_server_port: None,
             copilot: None,
             youtube_client_secret_file: None,
+            gcloud_project_id: None,
         }
     }
 }

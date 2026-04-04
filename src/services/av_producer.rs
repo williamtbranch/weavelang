@@ -670,6 +670,7 @@ impl AvProducer {
         stem: &str,
         project_root: &Path,
         api_key: &str,
+        gcloud_project_id: Option<&str>,
     ) -> Result<std::process::Child, String> {
         let input_file = self.resolve_text_file(stem);
         if !input_file.exists() {
@@ -710,6 +711,9 @@ impl AvProducer {
         }
         if tts.use_vertex_auth {
             cmd.arg("--use-vertex-auth-for-gemini");
+            if let Some(project_id) = gcloud_project_id {
+                cmd.arg("--gcloud-project").arg(project_id);
+            }
         }
 
         // Chunks go to audio/chunks/<stem>/ for review and rebuild

@@ -1,7 +1,7 @@
 # WeaveLang workspace configuration template.
 # Copy to config.toml (in your workspace directory) and edit as needed.
 # config.toml is gitignored — it contains machine-specific paths.
-# API keys are NEVER stored here; they live in .env only.
+# API keys are stored in the OS credential vault (set key google/anthropic ...).
 
 # --- Core Path Configuration ---
 # Absolute path to your content project directory.
@@ -10,6 +10,9 @@ content_project_dir = "/path/to/your/content/project"
 # Optional: override the frequency list for a specific corpus language.
 # Leave blank to use the built-in default.
 custom_frequency_list_path = ""
+
+# Optional: Google Cloud Project ID for Vertex AI authentication (higher TTS quotas).
+# gcloud_project_id = "your-gcloud-project-id"
 
 # --- Central Model Definitions ---
 [models]

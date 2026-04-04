@@ -1,17 +1,23 @@
 import google.generativeai as genai
 import os
-from dotenv import load_dotenv
 
-# Load .env if you use it
-dotenv_path = '.env'
-if os.path.exists(dotenv_path):
-    load_dotenv(dotenv_path=dotenv_path)
-    print(f"INFO: Attempted to load API key from '{os.path.abspath(dotenv_path)}'.")
+try:
+    import keyring
+except ImportError:
+    keyring = None
 
-api_key_to_use = os.getenv("GOOGLE_API_KEY")
+# Try OS keyring first (matches Rust app), then GOOGLE_API_KEY env var
+api_key_to_use = None
+if keyring:
+    try:
+        api_key_to_use = keyring.get_password("google_api_key.weavelang", "google_api_key")
+    except Exception:
+        pass
+if not api_key_to_use:
+    api_key_to_use = os.getenv("GOOGLE_API_KEY")
 
 if not api_key_to_use:
-    print("ERROR: GOOGLE_API_KEY not found in environment or .env file.")
+    print("ERROR: GOOGLE_API_KEY not found. Set via the app (set key google ...) or GOOGLE_API_KEY env var.")
 else:
     try:
         genai.configure(api_key=api_key_to_use)

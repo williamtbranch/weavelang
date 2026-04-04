@@ -1,4 +1,3 @@
-use std::io::{self, Write};
 // commands module used indirectly through app::terminal
 use weavelang_rust_gui::app::engine::Engine;
 use weavelang_rust_gui::app::server::{self, ServerConfig};
@@ -9,6 +8,8 @@ use weavelang_rust_gui::services::prompt_manager::PromptManager;
 use weavelang_rust_gui::services::llm_logger::LlmLogger;
 use weavelang_rust_gui::simulation::frequency_manager;
 use std::sync::{Arc, Mutex};
+use rustyline::error::ReadlineError;
+use rustyline::DefaultEditor;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -397,31 +398,48 @@ fn run_repl() {
     let state = init_state_with_services();
     let mut engine = Engine::new(state);
 
-    let stdin = io::stdin();
-    let mut stdout = io::stdout();
-    let mut input_buffer = String::new();
+    let mut rl = DefaultEditor::new().expect("Failed to initialise line editor");
+
+    // Load history from previous sessions (ignore if file missing)
+    let history_path = dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("weavelang")
+        .join(".cli_history");
+    if let Some(parent) = history_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = rl.load_history(&history_path);
 
     loop {
-        print!("> ");
-        stdout.flush().unwrap();
-        input_buffer.clear();
-        
-        match stdin.read_line(&mut input_buffer) {
-            Ok(0) => break, // EOF
-            Ok(_) => {
-                let input = input_buffer.trim();
+        match rl.readline("> ") {
+            Ok(line) => {
+                let input = line.trim();
                 if input.is_empty() {
                     continue;
                 }
-                
+                let _ = rl.add_history_entry(input);
+
                 match weavelang_rust_gui::app::terminal::run_terminal_command(&mut engine, input) {
                     Ok(Some(output)) => println!("{}", output),
-                    Ok(None) => std::process::exit(0), // Exit command
+                    Ok(None) => {
+                        let _ = rl.save_history(&history_path);
+                        std::process::exit(0);
+                    }
                     Err(e) => println!("Error: {}", e),
                 }
             }
-            Err(e) => {
-                println!("Error reading input: {}", e);
+            Err(ReadlineError::Interrupted) => {
+                // Ctrl-C — ignore, just show new prompt
+                continue;
+            }
+            Err(ReadlineError::Eof) => {
+                // Ctrl-D — exit
+                let _ = rl.save_history(&history_path);
+                break;
+            }
+            Err(err) => {
+                println!("Error reading input: {}", err);
+                let _ = rl.save_history(&history_path);
                 break;
             }
         }

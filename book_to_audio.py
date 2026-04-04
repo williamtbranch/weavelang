@@ -56,7 +56,6 @@ except (ImportError, MemoryError):
     vertexai = None
     GenerativeModel = None
 from google.api_core import exceptions as api_core_exceptions
-from dotenv import load_dotenv
 from pydub import AudioSegment
 import tomllib
 
@@ -673,7 +672,6 @@ async def main_async():
     
     logging.getLogger().setLevel(args.log_level.upper()); set_library_log_levels(args.log_level)
     logging.info(f"Book to Audio Script Version: {SCRIPT_VERSION}")
-    load_dotenv(dotenv_path=args.tool_root_dir / ".env")
     
     client = None
     if not args.concat_only:
@@ -693,7 +691,7 @@ async def main_async():
                     api_key_to_use = args.api_key or os.getenv("GOOGLE_API_KEY")
                     if not api_key_to_use: logging.critical("Gemini API Key not found."); return
                     client = google_genai.Client(api_key=api_key_to_use)
-                    logging.info("Gemini API (free tier) client configured.")
+                    logging.info("Gemini API client configured via API key.")
             except Exception as e:
                 logging.critical(f"Failed to configure Gemini client. Error: {e}", exc_info=True); return
 

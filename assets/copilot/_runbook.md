@@ -101,6 +101,17 @@ av help                                # AV production command list
 These always reflect the running version of the app, so prefer them over this
 runbook if anything seems out of date.
 
+### Context-Window Discipline
+
+Many commands can produce large output. **Never request unbounded lists.**
+Always prefer small limits to keep your context window lean:
+
+- `drc <tier>` — defaults to 10 violations. Use this default or a small N.
+  Only use `drc <tier> all` when you know the count is small.
+- `report sentences incomplete` — use `report sentences incomplete 5` or similar.
+- When a command reports a large violation/error count, relay the **count** to
+  the user and fix issues in small batches rather than dumping the full list.
+
 ---
 
 ## 3. Pipeline Stages (in order)
@@ -188,7 +199,16 @@ After all stages complete, verify with:
 ```
 report sentences incomplete 5           # check first 5 incomplete (should be none in range)
 drc                                     # run full Design Rule Check
+drc adv                                 # check advanced tier only (first 10 violations)
+drc mod 20                              # check moderate tier only (first 20 violations)
+drc adv all                             # show ALL violations (use sparingly — see note below)
 ```
+
+> **Context-window discipline:** `drc <tier>` defaults to 10 results. Always
+> prefer the default or a small N (e.g. 5–20) to avoid flooding the context
+> window. Only use `all` when you specifically need the full list AND the
+> total count is small. If the total count is large, report the summary
+> (violation count) to the user and fix issues in small batches.
 
 ### 3.4 Calibration & Weaving
 

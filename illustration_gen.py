@@ -19,8 +19,6 @@ import time
 import tomllib
 from pathlib import Path
 
-from dotenv import load_dotenv
-
 try:
     import keyring
 except ImportError:
@@ -110,16 +108,10 @@ def main():
         "--output-dir", type=Path, default=None,
         help="Output directory (default: same as prompts_file parent)"
     )
-    parser.add_argument(
-        "--env", type=Path, default=None,
-        help="Path to .env file"
-    )
     parser.add_argument("--dry-run", action="store_true", help="Show prompts without generating")
     args = parser.parse_args()
 
-    # --- Load API key: try OS keyring first (matches Rust app), then env/.env ---
-    env_path = args.env or Path(__file__).parent / ".env"
-    load_dotenv(dotenv_path=env_path)
+    # --- Load API key: try OS keyring first, then GOOGLE_API_KEY env var ---
     api_key = None
     if keyring:
         try:

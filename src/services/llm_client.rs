@@ -449,73 +449,90 @@ impl GeminiClient {
             }),
         };
 
-        let response = self
-            .client
-            .post(&url)
-            .header(CONTENT_TYPE, "application/json")
-            .json(&request_body)
-            .send()
-            .map_err(|e| format!("Gemini request failed (network): {e}"))?;
+        const MAX_RETRIES: u32 = 3;
+        let mut last_err = String::new();
 
-        let status = response.status();
-        if !status.is_success() {
-            let status_code = status.as_u16();
-            let error_text = response.text().unwrap_or_default();
-            let detail = if let Ok(err_json) = serde_json::from_str::<GeminiResponse>(&error_text) {
-                err_json
-                    .error
-                    .map(|e| e.message)
-                    .unwrap_or(error_text.clone())
-            } else {
-                error_text
-            };
-            let hint = match status_code {
-                400 => " (bad request — check model name in config.toml)",
-                401 | 403 => " (auth error — check 'set key google <key>')",
-                429 => " (rate limit / quota exceeded — wait and retry, or reduce batch size)",
-                404 => " (model not found — check the model name in config.toml)",
-                _ => "",
-            };
-            return Err(format!(
-                "Gemini API Error (HTTP {}): {}{} [model: {}]",
-                status_code, detail, hint, model
-            ));
+        for attempt in 1..=MAX_RETRIES {
+            let response = self
+                .client
+                .post(&url)
+                .header(CONTENT_TYPE, "application/json")
+                .json(&request_body)
+                .send()
+                .map_err(|e| format!("Gemini request failed (network): {e}"))?;
+
+            let status = response.status();
+            if !status.is_success() {
+                let status_code = status.as_u16();
+                let error_text = response.text().unwrap_or_default();
+                let detail = if let Ok(err_json) = serde_json::from_str::<GeminiResponse>(&error_text) {
+                    err_json
+                        .error
+                        .map(|e| e.message)
+                        .unwrap_or(error_text.clone())
+                } else {
+                    error_text
+                };
+                let hint = match status_code {
+                    400 => " (bad request — check model name in config.toml)",
+                    401 | 403 => " (auth error — check 'set key google <key>')",
+                    429 => " (rate limit / quota exceeded — wait and retry, or reduce batch size)",
+                    404 => " (model not found — check the model name in config.toml)",
+                    _ => "",
+                };
+                return Err(format!(
+                    "Gemini API Error (HTTP {}): {}{} [model: {}]",
+                    status_code, detail, hint, model
+                ));
+            }
+
+            let response_text = response
+                .text()
+                .map_err(|e| format!("Failed to read Gemini response: {e}"))?;
+
+            let response_body: GeminiResponse = serde_json::from_str(&response_text)
+                .map_err(|e| format!("Failed to parse Gemini JSON: {e}"))?;
+
+            if let Some(err) = response_body.error {
+                return Err(format!("Gemini API Error: {} [model: {}]", err.message, model));
+            }
+
+            let first_candidate = response_body
+                .candidates
+                .and_then(|c| c.into_iter().next());
+
+            let finish_reason: String = first_candidate
+                .as_ref()
+                .and_then(|c| c.finish_reason.as_deref())
+                .unwrap_or("UNKNOWN")
+                .to_string();
+
+            match first_candidate
+                .and_then(|c| c.content)
+                .and_then(|c| c.parts.into_iter().next())
+                .map(|p| p.text)
+            {
+                Some(text) => {
+                    write_cache(&self.cache_dir, model, system_prompt, user_prompt, &text);
+                    return Ok(text);
+                }
+                None => {
+                    last_err = format!(
+                        "Gemini response contained no content (finishReason: {}, model: {})",
+                        finish_reason, model
+                    );
+                    if attempt < MAX_RETRIES {
+                        eprintln!(
+                            "[llm_client] Empty Gemini response (attempt {}/{}), retrying in 2s…",
+                            attempt, MAX_RETRIES
+                        );
+                        std::thread::sleep(std::time::Duration::from_secs(2));
+                    }
+                }
+            }
         }
 
-        let response_text = response
-            .text()
-            .map_err(|e| format!("Failed to read Gemini response: {e}"))?;
-
-        let response_body: GeminiResponse = serde_json::from_str(&response_text)
-            .map_err(|e| format!("Failed to parse Gemini JSON: {e}"))?;
-
-        if let Some(err) = response_body.error {
-            return Err(format!("Gemini API Error: {} [model: {}]", err.message, model));
-        }
-
-        let first_candidate = response_body
-            .candidates
-            .and_then(|c| c.into_iter().next());
-
-        let finish_reason: String = first_candidate
-            .as_ref()
-            .and_then(|c| c.finish_reason.as_deref())
-            .unwrap_or("UNKNOWN")
-            .to_string();
-
-        let result_text = first_candidate
-            .and_then(|c| c.content)
-            .and_then(|c| c.parts.into_iter().next())
-            .map(|p| p.text)
-            .ok_or_else(|| {
-                format!(
-                    "Gemini response contained no content (finishReason: {}, model: {})",
-                    finish_reason, model
-                )
-            })?;
-
-        write_cache(&self.cache_dir, model, system_prompt, user_prompt, &result_text);
-        Ok(result_text)
+        Err(last_err)
     }
 }
 

@@ -83,7 +83,7 @@ fn resolve_tier_alias(alias: &str) -> String {
 }
 
 /// Compact display alias for a canonical tier ID.
-fn tier_display_alias(tier_id: &str) -> &str {
+pub fn tier_display_alias(tier_id: &str) -> &str {
     match tier_id {
         "advanced_target" => "adv",
         "moderate_target" => "mod",
@@ -492,7 +492,22 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
             }
         },
         "drc" => {
-            Ok(TerminalCommand::App(AppCommand::Drc))
+            if parts.len() > 1 {
+                let tier_id = resolve_tier_alias(parts[1]);
+                // Optional third arg: a number or 'all'
+                let limit: Option<usize> = if parts.len() > 2 {
+                    if parts[2] == "all" {
+                        None
+                    } else {
+                        Some(parts[2].parse::<usize>().map_err(|_| "Usage: drc <tier> [N|all]".to_string())?)
+                    }
+                } else {
+                    Some(10) // default show first 10
+                };
+                Ok(TerminalCommand::App(AppCommand::DrcTier { tier_id, limit }))
+            } else {
+                Ok(TerminalCommand::App(AppCommand::Drc))
+            }
         },
         "audit" => {
             Ok(TerminalCommand::App(AppCommand::Audit))
@@ -1030,6 +1045,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  generate_weave <N|all> - Generate weave text file(s) for level N or all\n");
             out.push_str("  generate_weave <N|all> --force - Generate weave, skip DRC\n");
             out.push_str("  drc                    - Run Design Rule Check on all sentences\n");
+            out.push_str("  drc <tier> [N|all]     - DRC for one tier (default: first 10 violations)\n");
             out.push_str("  calibrate [max_level]  - Run calibration on loaded document (default max: 45)\n");
             out.push_str("  calibrate info         - Show calibration status (sentence count, stability)\n");
             out.push_str("  list pn_lemmas <N>     - List proper noun lemmas for sentence N (1-based)\n");

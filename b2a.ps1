@@ -1,35 +1,6 @@
-# b2a.ps1 (Corrected for Multiple Voice Argument Passing)
-
-# --- START OF HELPER FUNCTION ---
-# (This function is unchanged)
-function Import-EnvFile {
-    param (
-        [string]$Path = ".env"
-    )
-    if (Test-Path $Path) {
-        Get-Content $Path | ForEach-Object {
-            $line = $_.Trim()
-            if ($line -and $line -notmatch "^\s*#") {
-                $parts = $line -split '=', 2
-                if ($parts.Length -eq 2) {
-                    $name = $parts[0].Trim()
-                    $value = $parts[1].Trim()
-                    if (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'"))) {
-                        $value = $value.Substring(1, $value.Length - 2)
-                    }
-                    [System.Environment]::SetEnvironmentVariable($name, $value, "Process")
-                }
-            }
-        }
-    }
-}
-# --- END OF HELPER FUNCTION ---
-
+# b2a.ps1 (Standalone TTS launcher — API keys come from OS keyring or env vars)
 
 Write-Host "Starting Text-to-Speech conversion..."
-
-# --- Load Environment Variables ---
-Import-EnvFile -Path (Join-Path $PSScriptRoot ".env")
 
 
 # --- Configuration ---
@@ -80,12 +51,12 @@ if ($UseVertexAuthForGemini -and $TtsService -eq "gemini") {
     $PythonParams += "--use-vertex-auth-for-gemini"
     $GCloudProjectID = $env:GCLOUD_PROJECT_ID
     if (-not $GCloudProjectID) {
-        Write-Error "GCLOUD_PROJECT_ID not found. Please add it to your .env file."
+        Write-Error "GCLOUD_PROJECT_ID not found. Set the GCLOUD_PROJECT_ID environment variable."
         exit 1
     }
     $PythonParams += "--gcloud-project", $GCloudProjectID
     Write-Host "--- AUTH MODE: Vertex AI (Production Quotas for Gemini) ---" -ForegroundColor Green
-    Write-Host "Using Google Cloud Project: $GCloudProjectID (from .env)"
+    Write-Host "Using Google Cloud Project: $GCloudProjectID"
 }
 
 

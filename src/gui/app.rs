@@ -34,6 +34,9 @@ pub struct WeaveLangApp {
     status_message: String,
     terminal_history: Vec<String>,
     terminal_input: String,
+    command_history: Vec<String>,
+    command_history_idx: Option<usize>,
+    command_history_draft: String,
     current_title: String,
     // Co-pilot relay server
     relay_rx: Option<RelayReceiver>,
@@ -105,6 +108,9 @@ impl WeaveLangApp {
             status_message: format!("Ready. [{}]", status.join(", ")),
             terminal_history: vec!["WeaveLang Terminal initialized.".to_string()],
             terminal_input: String::new(),
+            command_history: Vec::new(),
+            command_history_idx: None,
+            command_history_draft: String::new(),
             current_title: String::new(),
             relay_rx,
             copilot_server_name: copilot_name,
@@ -429,23 +435,61 @@ impl WeaveLangApp {
                         .font(egui::TextStyle::Monospace)
                         .desired_width(ui.available_width() - 50.0)
                 );
-                
-                if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    let cmd = self.terminal_input.clone();
-                    if !cmd.trim().is_empty() {
-                        self.execute_terminal_command(&cmd);
-                        self.terminal_input.clear();
-                        response.request_focus();
+
+                // Up/Down arrow command history navigation
+                if response.has_focus() {
+                    let up = ui.input(|i| i.key_pressed(egui::Key::ArrowUp));
+                    let down = ui.input(|i| i.key_pressed(egui::Key::ArrowDown));
+                    if up && !self.command_history.is_empty() {
+                        match self.command_history_idx {
+                            None => {
+                                // Save current draft, move to most recent
+                                self.command_history_draft = self.terminal_input.clone();
+                                let idx = self.command_history.len() - 1;
+                                self.command_history_idx = Some(idx);
+                                self.terminal_input = self.command_history[idx].clone();
+                            }
+                            Some(idx) if idx > 0 => {
+                                let new_idx = idx - 1;
+                                self.command_history_idx = Some(new_idx);
+                                self.terminal_input = self.command_history[new_idx].clone();
+                            }
+                            _ => {} // already at oldest
+                        }
                     }
+                    if down {
+                        if let Some(idx) = self.command_history_idx {
+                            if idx + 1 < self.command_history.len() {
+                                let new_idx = idx + 1;
+                                self.command_history_idx = Some(new_idx);
+                                self.terminal_input = self.command_history[new_idx].clone();
+                            } else {
+                                // Past most recent → restore draft
+                                self.command_history_idx = None;
+                                self.terminal_input = self.command_history_draft.clone();
+                            }
+                        }
+                    }
+                }
+
+                let submit = |app: &mut Self, refocus: &egui::Response| {
+                    let cmd = app.terminal_input.clone();
+                    if !cmd.trim().is_empty() {
+                        app.command_history.push(cmd.trim().to_string());
+                        app.command_history_idx = None;
+                        app.command_history_draft.clear();
+                        app.execute_terminal_command(&cmd);
+                        app.terminal_input.clear();
+                        refocus.request_focus();
+                    }
+                };
+
+                if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    submit(self, &response);
                 }
                 
                 if ui.button("Run").clicked() {
-                    let cmd = self.terminal_input.clone();
-                    if !cmd.trim().is_empty() {
-                        self.execute_terminal_command(&cmd);
-                        self.terminal_input.clear();
-                        response.request_focus();
-                    }
+                    submit(self, &response);
                 }
             });
         });

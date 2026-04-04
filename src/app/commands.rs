@@ -101,6 +101,8 @@ pub enum AppCommand {
 
     /// Design Rule Check — validate all sentences for weave readiness.
     Drc,
+    /// Design Rule Check filtered to a single tier. `limit` = None means 'all'.
+    DrcTier { tier_id: String, limit: Option<usize> },
 
     /// Structural audit — demote Valid tiers that violate DRC rules.
     /// Can only invalidate, never promote. Respects editor intent.
