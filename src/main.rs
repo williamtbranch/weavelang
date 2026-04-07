@@ -144,8 +144,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let models = initial_config.as_ref()
                     .map(|c| c.models.clone())
                     .unwrap_or_default();
-                let svc = LlmService::new_routing(std::env::current_dir().ok(), models);
-                println!("[INFO] LLM Service initialized (multi-provider routing).");
+                let thinking_budget = initial_config.as_ref()
+                    .and_then(|c| c.pipeline.thinking_budget_tokens);
+                let svc = LlmService::new_routing_with_thinking(std::env::current_dir().ok(), models, thinking_budget);
+                println!("[INFO] LLM Service initialized (multi-provider routing, thinking_budget: {:?}).", thinking_budget);
                 Some(svc)
             };
 

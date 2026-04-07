@@ -165,6 +165,23 @@ pub fn fuse_tokens_from_groups(
 /// ...
 /// VALIDATION: Source Source
 pub fn parse_llm_mapping(raw: &str) -> LLMResponse {
+    // Strip any thinking/usage header injected by the LLM client.
+    // The header ends at "--- END THINKING ---\n"; if present, skip past it.
+    // Also skip standalone "--- USAGE: ... ---" lines.
+    let stripped: std::borrow::Cow<str> = if let Some(pos) = raw.find("--- END THINKING ---") {
+        let after = &raw[pos + "--- END THINKING ---".len()..];
+        std::borrow::Cow::Borrowed(after.trim_start_matches('\n'))
+    } else if raw.starts_with("--- USAGE:") {
+        // No thinking block, but there's a usage line — skip the first line
+        match raw.find('\n') {
+            Some(nl) => std::borrow::Cow::Borrowed(&raw[nl + 1..]),
+            None => std::borrow::Cow::Borrowed(raw),
+        }
+    } else {
+        std::borrow::Cow::Borrowed(raw)
+    };
+    let raw = stripped.as_ref();
+
     let mut mappings = Vec::new();
     let mut validation_text = None;
 
@@ -229,10 +246,46 @@ pub fn parse_llm_mapping(raw: &str) -> LLMResponse {
         }
     }
 
+    // Fix common LLM error: possessives split across two lines
+    // e.g. "Hugson -> {{Hugson}}" + "s -> NO_SUB" => "Hugson's -> {{Hugson}}"
+    let mappings = fix_possessive_splits(mappings);
+
     LLMResponse {
         mappings,
         validation_text,
     }
+}
+
+/// Detects and corrects a common LLM error where possessive nouns are split
+/// across two mapping lines. For example:
+///   Hugson -> {{Hugson}}
+///   s -> NO_SUB
+/// becomes:
+///   Hugson's -> {{Hugson}}
+fn fix_possessive_splits(mappings: Vec<ParsedMapping>) -> Vec<ParsedMapping> {
+    let mut fixed = Vec::with_capacity(mappings.len());
+    let mut i = 0;
+    while i < mappings.len() {
+        if i + 1 < mappings.len() {
+            let next = &mappings[i + 1];
+            if (next.source_text == "s" || next.source_text == "'s") && next.is_no_sub {
+                let mut merged = mappings[i].clone();
+                merged.source_text = format!("{}'s", merged.source_text);
+                eprintln!(
+                    "Auto-fixed possessive split: '{}' + '{}' merged to '{}'",
+                    mappings[i].source_text,
+                    next.source_text,
+                    merged.source_text
+                );
+                fixed.push(merged);
+                i += 2;
+                continue;
+            }
+        }
+        fixed.push(mappings[i].clone());
+        i += 1;
+    }
+    fixed
 }
 
 /// Orchestrates the full process: Parse -> Fuse -> Map
@@ -808,6 +861,69 @@ VALIDATION: El gato negro es grande
         // Entry 1: "negro" (ID 2) -> "black"
         assert_eq!(mapping.entries[1].source_word_id, WordId(2));
         assert_eq!(mapping.entries[1].target_text, "black");
+    }
+
+    #[test]
+    fn test_fix_possessive_split_bare_s() {
+        // LLM splits "Hugson's" into "Hugson" + "s -> NO_SUB"
+        let raw = "Hugson -> {{Hugson}}\ns -> NO_SUB\nstation -> estación";
+        let result = parse_llm_mapping(raw);
+        assert_eq!(result.mappings.len(), 2);
+        assert_eq!(result.mappings[0].source_text, "Hugson's");
+        assert_eq!(result.mappings[0].target_text, "Hugson");
+        assert!(result.mappings[0].is_proper_noun);
+        assert_eq!(result.mappings[1].source_text, "station");
+    }
+
+    #[test]
+    fn test_fix_possessive_split_apostrophe_s() {
+        // LLM splits "Alice's" into "Alice" + "'s -> NO_SUB"
+        let raw = "Alice -> {{Alicia}}\n's -> NO_SUB\nname -> nombre";
+        let result = parse_llm_mapping(raw);
+        assert_eq!(result.mappings.len(), 2);
+        assert_eq!(result.mappings[0].source_text, "Alice's");
+        assert_eq!(result.mappings[0].target_text, "Alicia");
+        assert!(result.mappings[0].is_proper_noun);
+        assert_eq!(result.mappings[1].source_text, "name");
+    }
+
+    #[test]
+    fn test_no_false_positive_possessive_fix() {
+        // "s" with a real translation should NOT be merged
+        let raw = "some -> algún\ns -> ese\nword -> palabra";
+        let result = parse_llm_mapping(raw);
+        assert_eq!(result.mappings.len(), 3);
+        assert_eq!(result.mappings[0].source_text, "some");
+        assert_eq!(result.mappings[1].source_text, "s");
+        assert_eq!(result.mappings[1].target_text, "ese");
+    }
+
+    #[test]
+    fn test_parse_strips_thinking_header() {
+        // Response with usage + thinking header from GeminiClient
+        let raw = "--- USAGE: prompt=500tok  answer=100tok  thinking=800tok  total=1400tok ---\n\
+                    --- THINKING ---\n\
+                    Let me think about how to map dog -> perro correctly...\n\
+                    --- END THINKING ---\n\
+                    The -> El\n\
+                    dog -> perro";
+        let result = parse_llm_mapping(raw);
+        assert_eq!(result.mappings.len(), 2);
+        assert_eq!(result.mappings[0].source_text, "The");
+        assert_eq!(result.mappings[1].source_text, "dog");
+        assert_eq!(result.mappings[1].target_text, "perro");
+    }
+
+    #[test]
+    fn test_parse_strips_usage_only_header() {
+        // Response with only usage line (no thinking)
+        let raw = "--- USAGE: prompt=500tok  answer=100tok  thinking=0tok  total=600tok ---\n\
+                    The -> El\n\
+                    cat -> gato";
+        let result = parse_llm_mapping(raw);
+        assert_eq!(result.mappings.len(), 2);
+        assert_eq!(result.mappings[0].source_text, "The");
+        assert_eq!(result.mappings[1].target_text, "gato");
     }
 }
 

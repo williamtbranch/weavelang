@@ -38,6 +38,9 @@ pub trait LlmProvider: Send + Sync {
 
     /// Update the models configuration map at runtime.
     fn update_models(&mut self, _models: HashMap<String, ModelConfig>) {}
+
+    /// Update the Gemini thinking budget at runtime.
+    fn update_thinking_budget(&mut self, _budget: Option<u32>) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -57,7 +60,19 @@ impl RoutingLlmProvider {
         Self {
             models,
             anthropic: AnthropicClient::new(cache_root.clone()),
-            gemini: GeminiClient::new(cache_root),
+            gemini: GeminiClient::new(cache_root, None),
+        }
+    }
+
+    pub fn new_with_thinking_budget(
+        cache_root: Option<PathBuf>,
+        models: HashMap<String, ModelConfig>,
+        thinking_budget: Option<u32>,
+    ) -> Self {
+        Self {
+            models,
+            anthropic: AnthropicClient::new(cache_root.clone()),
+            gemini: GeminiClient::new(cache_root, thinking_budget),
         }
     }
 }
@@ -90,6 +105,10 @@ impl LlmProvider for RoutingLlmProvider {
 
     fn update_models(&mut self, models: HashMap<String, ModelConfig>) {
         self.models = models;
+    }
+
+    fn update_thinking_budget(&mut self, budget: Option<u32>) {
+        self.gemini.thinking_budget = budget;
     }
 }
 
@@ -390,6 +409,20 @@ struct GeminiThinkingConfig {
 struct GeminiResponse {
     candidates: Option<Vec<GeminiCandidate>>,
     error: Option<GeminiErrorDetail>,
+    #[serde(rename = "usageMetadata")]
+    usage_metadata: Option<GeminiUsageMetadata>,
+}
+
+#[derive(Deserialize, Debug)]
+struct GeminiUsageMetadata {
+    #[serde(rename = "promptTokenCount", default)]
+    prompt_token_count: u32,
+    #[serde(rename = "candidatesTokenCount", default)]
+    candidates_token_count: u32,
+    #[serde(rename = "totalTokenCount", default)]
+    total_token_count: u32,
+    #[serde(rename = "thoughtsTokenCount", default)]
+    thoughts_token_count: u32,
 }
 
 #[derive(Deserialize, Debug)]
@@ -409,10 +442,15 @@ struct GeminiErrorDetail {
 pub struct GeminiClient {
     client: reqwest::blocking::Client,
     cache_dir: Option<PathBuf>,
+    /// Thinking budget for models that support it (Gemini 2.5+).
+    /// - `None` → dynamic thinking (model decides how much to think — recommended default)
+    /// - `Some(0)` → thinking disabled
+    /// - `Some(n)` → explicit budget of n tokens
+    thinking_budget: Option<u32>,
 }
 
 impl GeminiClient {
-    pub fn new(cache_root: Option<PathBuf>) -> Self {
+    pub fn new(cache_root: Option<PathBuf>, thinking_budget: Option<u32>) -> Self {
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(300))
             .build()
@@ -422,7 +460,7 @@ impl GeminiClient {
             let _ = fs::create_dir_all(&dir);
             dir
         });
-        Self { client, cache_dir }
+        Self { client, cache_dir, thinking_budget }
     }
 
     pub fn complete(
@@ -457,10 +495,16 @@ impl GeminiClient {
         let supports_thinking = model_lower.contains("gemini-2.5")
             || model_lower.contains("gemini-3");
 
+        // Thinking config:
+        //   - Non-thinking model → None (omit entirely)
+        //   - Thinking model + self.thinking_budget is None → None (dynamic thinking, model decides)
+        //   - Thinking model + Some(0) → None (thinking disabled / dynamic)
+        //   - Thinking model + Some(n) → explicit budget
         let thinking_config = if supports_thinking {
-            Some(GeminiThinkingConfig {
-                thinking_budget: 1024,
-            })
+            match self.thinking_budget {
+                Some(n) if n > 0 => Some(GeminiThinkingConfig { thinking_budget: n }),
+                _ => None, // dynamic thinking — model decides how much to think
+            }
         } else {
             None
         };
@@ -534,15 +578,20 @@ impl GeminiClient {
                 .text()
                 .map_err(|e| format!("Failed to read Gemini response: {e}"))?;
 
-            // Debug: log raw response structure (first 500 chars) to diagnose thinking
-            eprintln!(
-                "[llm_client DEBUG] model={}, raw response (first 500 chars):\n{}",
-                model,
-                &response_text[..response_text.len().min(500)]
-            );
-
             let response_body: GeminiResponse = serde_json::from_str(&response_text)
                 .map_err(|e| format!("Failed to parse Gemini JSON: {e}"))?;
+
+            // Log usage metadata (token counts including thinking)
+            if let Some(ref usage) = response_body.usage_metadata {
+                eprintln!(
+                    "[Gemini] model={} | prompt={}tok, answer={}tok, thinking={}tok, total={}tok",
+                    model,
+                    usage.prompt_token_count,
+                    usage.candidates_token_count,
+                    usage.thoughts_token_count,
+                    usage.total_token_count,
+                );
+            }
 
             if let Some(err) = response_body.error {
                 return Err(format!("Gemini API Error: {} [model: {}]", err.message, model));
@@ -558,19 +607,17 @@ impl GeminiClient {
                 .unwrap_or("UNKNOWN")
                 .to_string();
 
-            // Collect only non-thought parts (filter out model reasoning/thinking).
-            let answer_text: Option<String> = first_candidate
+            // Separate thinking parts from answer parts
+            let (thinking_text, answer_text): (Option<String>, Option<String>) = first_candidate
                 .and_then(|c| c.content)
                 .map(|c| {
-                    // Debug: log parts info
-                    for (i, p) in c.parts.iter().enumerate() {
-                        eprintln!(
-                            "[llm_client DEBUG] Part {}: thought={}, len={}, first_80={:?}",
-                            i, p.thought, p.text.len(),
-                            &p.text[..p.text.len().min(80)]
-                        );
-                    }
-                    let mut text = c.parts
+                    let thought_parts: String = c.parts.iter()
+                        .filter(|p| p.thought)
+                        .map(|p| p.text.as_str())
+                        .collect::<Vec<_>>()
+                        .join("");
+
+                    let mut answer = c.parts
                         .into_iter()
                         .filter(|p| !p.thought)
                         .map(|p| p.text)
@@ -578,20 +625,42 @@ impl GeminiClient {
                         .join("");
 
                     // Gemma 4 models embed thinking in channel tokens within the text itself.
-                    // Strip everything between <|channel>thought and <channel|> markers.
-                    text = strip_gemma_thinking(&text);
-                    eprintln!(
-                        "[llm_client DEBUG] After strip_gemma_thinking: len={}, first_80={:?}",
-                        text.len(), &text[..text.len().min(80)]
-                    );
-                    text
+                    answer = strip_gemma_thinking(&answer);
+
+                    let thinking = if thought_parts.is_empty() { None } else { Some(thought_parts) };
+                    let answer = if answer.is_empty() { None } else { Some(answer) };
+                    (thinking, answer)
                 })
-                .filter(|s| !s.is_empty());
+                .unwrap_or((None, None));
 
             match answer_text {
                 Some(text) => {
+                    // Build a response string that includes thinking + usage as a
+                    // log-friendly header.  Downstream parsers only look for `->`,
+                    // `MAPPINGS:`, `VALIDATION:` etc., so they naturally skip this.
+                    let mut full_response = String::new();
+
+                    if let Some(ref usage) = response_body.usage_metadata {
+                        full_response.push_str(&format!(
+                            "--- USAGE: prompt={}tok  answer={}tok  thinking={}tok  total={}tok ---\n",
+                            usage.prompt_token_count,
+                            usage.candidates_token_count,
+                            usage.thoughts_token_count,
+                            usage.total_token_count,
+                        ));
+                    }
+
+                    if let Some(ref thought) = thinking_text {
+                        full_response.push_str("--- THINKING ---\n");
+                        full_response.push_str(thought);
+                        full_response.push_str("\n--- END THINKING ---\n");
+                    }
+
+                    full_response.push_str(&text);
+
+                    // Cache only the clean answer (no thinking prefix)
                     write_cache(&self.cache_dir, model, system_prompt, user_prompt, &text);
-                    return Ok(text);
+                    return Ok(full_response);
                 }
                 None => {
                     last_err = format!(
@@ -627,6 +696,22 @@ impl LlmService {
     /// Anthropic and Gemini APIs.  Model aliases are resolved from the config.
     pub fn new_routing(project_root: Option<PathBuf>, models: HashMap<String, ModelConfig>) -> Self {
         let provider = RoutingLlmProvider::new(project_root, models);
+        Self {
+            internal: Arc::new(Mutex::new(Box::new(provider))),
+        }
+    }
+
+    /// Create a new LlmService with an explicit thinking budget for Gemini.
+    /// `thinking_budget`:
+    ///   - `None` → dynamic thinking (model decides — recommended)
+    ///   - `Some(0)` → dynamic thinking
+    ///   - `Some(n)` → explicit budget of n tokens
+    pub fn new_routing_with_thinking(
+        project_root: Option<PathBuf>,
+        models: HashMap<String, ModelConfig>,
+        thinking_budget: Option<u32>,
+    ) -> Self {
+        let provider = RoutingLlmProvider::new_with_thinking_budget(project_root, models, thinking_budget);
         Self {
             internal: Arc::new(Mutex::new(Box::new(provider))),
         }
@@ -669,6 +754,13 @@ impl LlmService {
     pub fn update_models(&self, models: HashMap<String, ModelConfig>) {
         if let Ok(mut guard) = self.internal.lock() {
             guard.update_models(models);
+        }
+    }
+
+    /// Update the Gemini thinking budget at runtime.
+    pub fn update_thinking_budget(&self, budget: Option<u32>) {
+        if let Ok(mut guard) = self.internal.lock() {
+            guard.update_thinking_budget(budget);
         }
     }
 }

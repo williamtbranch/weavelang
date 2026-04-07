@@ -1299,9 +1299,10 @@ impl Engine {
                     std::path::PathBuf::from(&path),
                 ));
 
-                // Sync model definitions to the routing provider
+                // Sync model definitions and thinking budget to the routing provider
                 if let Some(llm) = &self.state.llm {
                     llm.update_models(config.models.clone());
+                    llm.update_thinking_budget(config.pipeline.thinking_budget_tokens);
                 }
 
                 // Hydrate output_dir from config
@@ -2278,10 +2279,16 @@ impl Engine {
                             // only sees words and cannot map ¿, ?, etc.
                             // Replace punctuation with spaces (not remove) to
                             // preserve word boundaries, e.g. "mundo--que" → "mundo que".
+                            // EXCEPTION: Apostrophes are kept because they are
+                            // integral to contractions (I'm, don't) and
+                            // possessives (Hugson's, Alice's), which the prompt
+                            // requires to be treated as atomic units.
                             if is_mapping_stage {
                                 source_text = source_text.chars()
                                     .map(|c| {
-                                        if c.is_ascii_punctuation() || matches!(c, '¿' | '¡' | '«' | '»' | '—' | '…') {
+                                        if c == '\'' || c == '\u{2019}' {
+                                            c // preserve apostrophes and right single quotes
+                                        } else if c.is_ascii_punctuation() || matches!(c, '¿' | '¡' | '«' | '»' | '—' | '…') {
                                             ' '
                                         } else {
                                             c

@@ -122,7 +122,7 @@ impl Default for Config {
                 max_api_retries: 3,
                 max_validation_retries: 3,
                 retry_delay: 7,
-                thinking_budget_tokens: Some(1024),
+                thinking_budget_tokens: None, // None = dynamic thinking (model decides)
             },
             stages,
             copilot_server_name: None,

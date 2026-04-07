@@ -361,12 +361,11 @@ fn init_state_with_services_opt(test_mode_dir: Option<&str>) -> AppState {
         } else {
             // Load config first so we can use model definitions for routing
             let config_path = cwd.join("config.toml");
-            let models = match weavelang_rust_gui::config::load_config_from_file(config_path.to_str().unwrap_or("config.toml")) {
-                Ok(ref cfg) => cfg.models.clone(),
-                Err(_) => std::collections::HashMap::new(),
-            };
-            let s = LlmService::new_routing(Some(cwd.clone()), models);
-            eprintln!("[INFO] LLM Service initialized (multi-provider routing).");
+            let cfg = weavelang_rust_gui::config::load_config_from_file(config_path.to_str().unwrap_or("config.toml")).ok();
+            let models = cfg.as_ref().map(|c| c.models.clone()).unwrap_or_default();
+            let thinking_budget = cfg.as_ref().and_then(|c| c.pipeline.thinking_budget_tokens);
+            let s = LlmService::new_routing_with_thinking(Some(cwd.clone()), models, thinking_budget);
+            eprintln!("[INFO] LLM Service initialized (multi-provider routing, thinking_budget: {:?}).", thinking_budget);
             state.llm = Some(s);
         }
 
