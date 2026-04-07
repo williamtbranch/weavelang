@@ -664,6 +664,9 @@ async def main_async():
     parser.add_argument("--no-concat", action="store_true", help="Skip final audio concatenation.")
     parser.add_argument("--concat-only", action="store_true", help="Skip TTS generation and only concatenate existing chunks.")
     parser.add_argument("--interleave", action="store_true", help="Use multi-speaker TTS for interleaved Speaker 1/2/3 format files.")
+    parser.add_argument("--output-filename", type=str, default=None, help="Override output filename (e.g. stem_V1.wav). Used for volume splits.")
+    parser.add_argument("--chunk-start", type=int, default=None, help="First chunk index (0-based) for volume concat.")
+    parser.add_argument("--chunk-end", type=int, default=None, help="Last chunk index (0-based, inclusive) for volume concat.")
     args = parser.parse_args()
 
     if args.voice_name is None:
@@ -750,6 +753,17 @@ async def main_async():
             except: return -1
 
         sorted_chunks = sorted(chunk_files, key=get_idx)
+
+        # Filter by chunk index range if --chunk-start / --chunk-end provided
+        if args.chunk_start is not None or args.chunk_end is not None:
+            cs = args.chunk_start if args.chunk_start is not None else 0
+            ce = args.chunk_end if args.chunk_end is not None else 999999
+            sorted_chunks = [c for c in sorted_chunks if cs <= get_idx(c) <= ce]
+            logging.info(f"Volume range: chunks {cs}-{ce} → {len(sorted_chunks)} chunks selected")
+
+        if not sorted_chunks:
+            logging.error("No chunks in the specified range."); return
+
         logging.info(f"Concatenating {len(sorted_chunks)} audio chunks...")
         combined_audio = AudioSegment.empty()
         for chunk_path in sorted_chunks:
@@ -758,9 +772,14 @@ async def main_async():
         if len(combined_audio) == 0:
             logging.error("Combined audio is empty. Final file not created."); return
 
-        output_audio_file_path.parent.mkdir(parents=True, exist_ok=True)
-        combined_audio.export(str(output_audio_file_path), format=args.output_audio_format)
-        logging.info(f"Successfully rebuilt audio: {output_audio_file_path}")
+        # Use --output-filename if provided, otherwise default to stem-based name
+        if args.output_filename:
+            final_path = output_audio_dir / args.output_filename
+        else:
+            final_path = output_audio_file_path
+        final_path.parent.mkdir(parents=True, exist_ok=True)
+        combined_audio.export(str(final_path), format=args.output_audio_format)
+        logging.info(f"Successfully rebuilt audio: {final_path}")
         return
     # --- end concat-only mode ---
 

@@ -344,8 +344,18 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
         },
         "run" => {
              if parts.len() > 4 && parts[1] == "generate" {
-                 // run generate <StageName> <start> <end>  (1-based inclusive)
-                 let stage_name = parts[2].to_string();
+                 // run generate <StageName|tier_alias> <start> <end>  (1-based inclusive)
+                 // Accept both full stage names and short tier aliases.
+                 let raw = parts[2];
+                 let stage_name = match raw.to_lowercase().as_str() {
+                     "adv" | "adv_t" | "advanced" | "advanced_target" => "GenerateAdvancedTarget",
+                     "mod" | "mod_t" | "moderate" | "moderate_target" => "GenerateModerateTarget",
+                     "bas_b" | "basic_base"                           => "GenerateBasicBase",
+                     "bas_t" | "basic_target"                         => "GenerateBasicTarget",
+                     "phrase_map" | "fwd_map"                         => "GeneratePhraseMap",
+                     "inv_map" | "inverse_phrase_map"                 => "GenerateInversePhraseMap",
+                     _ => raw,  // pass through as-is (full stage name)
+                 }.to_string();
                  let start_num = parts[3].parse::<usize>().map_err(|_| "Invalid start number")?;
                  let end_num = parts[4].parse::<usize>().map_err(|_| "Invalid end number")?;
                  if start_num == 0 || end_num == 0 {
@@ -1021,7 +1031,8 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  config set <k> <v>     - Set config value\n");
             out.push_str("  config list            - List config\n");
             out.push_str("  export level_map [p]   - Export level map (.lm file)\n");
-            out.push_str("  run generate <S> <s> <e> - Run generation stage (s,e are 1-based)\n");
+            out.push_str("  run generate <stage> <s> <e> - Run generation stage (s,e are 1-based)\n");
+            out.push_str("        stage: adv|mod|bas_b|bas_t|phrase_map|inv_map or full name\n");
             out.push_str("  approve tier <N> <tier> - Approve tier as Valid (lemmatizes if bridge available)\n");
             out.push_str("  show detail            - Show selected sentence details\n");
             out.push_str("  show mapping           - Show mappings for selected sentence/tier (human-readable)\n");
@@ -1090,7 +1101,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  av cancel              - Cancel running AV generation\n");
             out.push_str("  av log [N]             - Show AV job output (last N lines)\n");
             out.push_str("  av chunks <stem>       - Show chunk status for a stem\n");
-            out.push_str("  av rebuild audio <stem> - Rebuild final audio from chunks\n");
+            out.push_str("  av rebuild audio <stem> - Rebuild final audio from chunks (volume-aware)\n");
             out.push_str("  av config show         - Show AV config\n");
             out.push_str("  av help                - Full AV command list\n");
             out.push_str("  exit                   - Exit");
@@ -1110,6 +1121,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  av config show             - Show AV config\n");
             out.push_str("  av config tts <key> <val>  - Set TTS config value\n");
             out.push_str("  av config video <key> <val> - Set video config value\n");
+            out.push_str("       keys: image_duration, frame_rate, max_sentences_per_video\n");
             out.push_str("  av config illustrations <key> <val> - Set illustration config\n");
             out.push_str("  av config voices <v1> ...  - Set voice list\n");
             out.push_str("  av open book-dir|audio-dir|video-dir|illustrations - Open folder\n");
@@ -1118,7 +1130,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  av chunks <stem>           - Show chunk status for a stem\n");
             out.push_str("  av reject chunk <stem> <N> - Mark chunk N as bad (.wav.bad)\n");
             out.push_str("  av restore chunk <stem> <N> - Restore rejected chunk N\n");
-            out.push_str("  av rebuild audio <stem>    - Concatenate good chunks into final audio\n");
+            out.push_str("  av rebuild audio <stem>    - Concatenate good chunks into final audio (volume-aware)\n");
             out.push_str("  av youtube init            - Create default _youtube.toml\n");
             out.push_str("  av youtube auth            - Run OAuth flow (one-time browser consent)\n");
             out.push_str("  av youtube config show     - Show YouTube config\n");

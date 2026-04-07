@@ -2159,7 +2159,14 @@ impl Engine {
                 }
                 
                 let config = self.state.config.as_ref().unwrap();
-                let stage_config = config.get_stage_config(&stage_name).ok_or(format!("Stage '{}' not found in config", stage_name))?;
+                let stage_config = config.get_stage_config(&stage_name).ok_or_else(|| {
+                    let available = config.stages.keys().cloned().collect::<Vec<_>>().join(", ");
+                    format!(
+                        "Stage '{}' not found in config. Available stages: [{}]\n\
+                         You can also use tier aliases: adv, mod, bas_b, bas_t, phrase_map, inv_map",
+                        stage_name, available
+                    )
+                })?;
                 
                 let batch_size = stage_config.batch_size_in_items;
                 let model_alias = stage_config.primary_model.clone();
@@ -2255,7 +2262,7 @@ impl Engine {
                             if let Some(tier) = sent.get_tier(source_tier) {
                                 for (seg_i, seg) in tier.segments.iter().enumerate() {
                                     let seg_id = format!("{}_S{}", sent.id, seg_i + 1);
-                                    let text = seg.full_text();
+                                    let text = seg.full_text().replace("--", " — ");
                                     if !text.trim().is_empty() {
                                         items.push((idx, seg_id, text));
                                     }
@@ -2263,11 +2270,23 @@ impl Engine {
                             }
                         } else {
                             let mut source_text = sent.get_tier(source_tier).map(|t| t.full_text()).unwrap_or_default();
+                            // Normalise bare double-dashes (Gutenberg em-dash
+                            // convention) so the LLM receives proper punctuation
+                            // and doesn't produce merged tokens like "word--word".
+                            source_text = source_text.replace("--", " — ");
                             // For mapping stages, strip punctuation so the LLM
                             // only sees words and cannot map ¿, ?, etc.
+                            // Replace punctuation with spaces (not remove) to
+                            // preserve word boundaries, e.g. "mundo--que" → "mundo que".
                             if is_mapping_stage {
                                 source_text = source_text.chars()
-                                    .filter(|c| !c.is_ascii_punctuation() && !matches!(*c, '¿' | '¡' | '«' | '»' | '—' | '…'))
+                                    .map(|c| {
+                                        if c.is_ascii_punctuation() || matches!(c, '¿' | '¡' | '«' | '»' | '—' | '…') {
+                                            ' '
+                                        } else {
+                                            c
+                                        }
+                                    })
                                     .collect::<String>()
                                     .split_whitespace()
                                     .collect::<Vec<_>>()
@@ -2481,8 +2500,12 @@ impl Engine {
                     out.push_str(&format!("  retry_delay:         {}\n", m.tts.retry_delay));
                     out.push_str(&format!("  concurrent_requests: {}\n", m.tts.concurrent_requests));
                     out.push_str("--- Video Config ---\n");
-                    out.push_str(&format!("  image_duration:      {}\n", m.video.image_duration));
-                    out.push_str(&format!("  frame_rate:          {}\n", m.video.frame_rate));
+                    out.push_str(&format!("  image_duration:           {}\n", m.video.image_duration));
+                    out.push_str(&format!("  frame_rate:               {}\n", m.video.frame_rate));
+                    out.push_str(&format!("  max_sentences_per_video:  {}{}\n",
+                        m.video.max_sentences_per_video,
+                        if m.video.max_sentences_per_video == 0 { " (no limit)" } else { "" }
+                    ));
                     out.push_str("--- Illustrations Config ---\n");
                     out.push_str(&format!("  style_prefix:              {}\n", m.illustrations.style_prefix));
                     out.push_str(&format!("  prompt_model:              {}\n", m.illustrations.prompt_model));
@@ -2518,7 +2541,8 @@ impl Engine {
                     match key.as_str() {
                         "image_duration" => vid.image_duration = value.parse().map_err(|_| "Expected a number".to_string())?,
                         "frame_rate" => vid.frame_rate = value.parse().map_err(|_| "Expected a number".to_string())?,
-                        _ => return Err(format!("Unknown video config key: '{}'. Valid keys: image_duration, frame_rate", key)),
+                        "max_sentences_per_video" => vid.max_sentences_per_video = value.parse().map_err(|_| "Expected a number (0 = no limit)".to_string())?,
+                        _ => return Err(format!("Unknown video config key: '{}'. Valid keys: image_duration, frame_rate, max_sentences_per_video", key)),
                     }
                     producer.manifest.save(&producer.book_dir)?;
                     Ok(format!("Video config '{}' set to '{}'", key, value))
@@ -2682,9 +2706,35 @@ impl Engine {
                     }
                 };
 
-                let child = producer.spawn_video(&stem, &project_root)?;
+                // Check if this stem has volume audio files
+                let vol_files = producer.volume_audio_files(&stem);
+                let (audio_filename, video_label) = if !vol_files.is_empty() {
+                    // Find first volume that doesn't have a corresponding video
+                    let video_dir = producer.video_dir();
+                    let mut found = None;
+                    for (i, af) in vol_files.iter().enumerate() {
+                        let vol_stem = format!("{}_V{}", stem, i + 1);
+                        let video_file = video_dir.join(format!("{}.mp4", vol_stem));
+                        if !video_file.exists() {
+                            found = Some((af.clone(), vol_stem));
+                            break;
+                        }
+                    }
+                    match found {
+                        Some((af, vs)) => (Some(af), vs),
+                        None => return Ok(format!("All {} volume videos already exist for '{}'.", vol_files.len(), stem)),
+                    }
+                } else {
+                    (None, stem.clone())
+                };
+
+                let child = producer.spawn_video_for_audio(
+                    &video_label,
+                    audio_filename.as_deref(),
+                    &project_root,
+                )?;
                 let pid = child.id();
-                let label = format!("Generating video: {}", stem);
+                let label = format!("Generating video: {}", video_label);
 
                 let job_state = std::sync::Arc::new(std::sync::Mutex::new(
                     crate::app::state::AvJobState {
@@ -2916,7 +2966,7 @@ impl Engine {
                 let producer = crate::services::av_producer::AvProducer::new(book_dir)?;
                 let project_root = std::env::current_dir()
                     .map_err(|e| format!("Cannot determine project root: {}", e))?;
-                producer.rebuild_audio(&stem, &project_root)
+                producer.rebuild_audio(&stem, &project_root, self.state.document.len() as u32)
             }
 
             // --- YouTube Commands ---

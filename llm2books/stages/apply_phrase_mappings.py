@@ -4,6 +4,7 @@ import re
 
 from .base import Stage, logger
 from ..phrase_mapper_helpers import refactor_token_stream, parse_proper_nouns
+from ..llm_utils import fix_possessive_splits_in_lines
 from .. import validator
 
 # --- Configuration for the Human-in-the-Loop workflow ---
@@ -60,6 +61,10 @@ class ApplyPhraseMappings(Stage):
                 parsed_map[current_sid] = []
             elif current_sid and "->" in line:
                 parsed_map[current_sid].append(line)
+        
+        # Fix common LLM error: possessives split across two lines
+        for s_id in parsed_map:
+            parsed_map[s_id] = fix_possessive_splits_in_lines(parsed_map[s_id])
         
         # --- NEW VALIDATION LOGIC ---
         # 1. Completeness Check: Ensure all sentences are present

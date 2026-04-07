@@ -2,6 +2,7 @@
 
 use eframe::{egui, App, Frame};
 use std::path::PathBuf;
+use std::time::Instant;
 
 use crate::gui::components;
 use crate::app::state::AppState;
@@ -48,6 +49,10 @@ pub struct WeaveLangApp {
     pending_action_after_save: Option<String>,
     // AV job output tracking
     av_job_lines_seen: usize,
+    // Auto-backup / crash-recovery
+    last_backup_time: Instant,
+    show_restore_prompt: bool,
+    pending_restore_stale_lock: bool,
 }
 
 impl WeaveLangApp {
@@ -119,6 +124,9 @@ impl WeaveLangApp {
             show_close_save_prompt: false,
             pending_action_after_save: None,
             av_job_lines_seen: 0,
+            last_backup_time: Instant::now(),
+            show_restore_prompt: false,
+            pending_restore_stale_lock: false,
         };
 
         let gs = crate::global_settings::GlobalSettings::load();
@@ -213,8 +221,23 @@ impl WeaveLangApp {
             let cmd_lower = trimmed.to_lowercase();
             if cmd_lower.starts_with("save project") {
                 self.dirty = false;
+                // Manual save → delete backup, keep lock
+                if let Some(ref pp) = self.current_file_path {
+                    crate::app::backup::remove_backup(pp);
+                }
+                self.last_backup_time = Instant::now();
             } else if cmd_lower.starts_with("load project") {
                 self.dirty = false;
+                // Check for crash-recovery backup
+                if let Some(ref pp) = self.current_file_path {
+                    if let Some(info) = crate::app::backup::check_recovery(pp) {
+                        self.pending_restore_stale_lock = info.stale_lock;
+                        self.show_restore_prompt = true;
+                    }
+                    // Write fresh lock (we now own this project)
+                    crate::app::backup::write_lock(pp);
+                }
+                self.last_backup_time = Instant::now();
             } else if cmd_lower.starts_with("open workspace") {
                 // Restore copilot session from disk
                 self.load_copilot_session();
@@ -791,6 +814,50 @@ impl WeaveLangApp {
         });
     }
 
+    // ── Auto-backup helpers ────────────────────────────────────────────
+
+    /// Write a backup of the current state to `<project>.backup`.
+    /// No-op if the project is not dirty or has no file path.
+    fn maybe_write_backup(&mut self) {
+        if !self.dirty {
+            return;
+        }
+        if let Some(ref pp) = self.current_file_path {
+            match crate::app::backup::write_backup(&self.state, pp) {
+                Ok(()) => {
+                    self.last_backup_time = Instant::now();
+                    eprintln!("[BACKUP] Auto-backup written to {:?}", crate::app::backup::backup_path(pp));
+                }
+                Err(e) => eprintln!("[BACKUP] {}", e),
+            }
+        }
+    }
+
+    /// Restore state from the `.backup` file, replacing the current state.
+    fn restore_from_backup(&mut self) {
+        let project_path = match self.current_file_path.clone() {
+            Some(p) => p,
+            None => return,
+        };
+        let bp = crate::app::backup::backup_path(&project_path);
+        match crate::app::backup::load_backup(&bp, &self.state) {
+            Ok(restored) => {
+                self.state = restored;
+                self.dirty = true; // so the user will eventually save
+                crate::app::backup::remove_backup(&project_path);
+                self.terminal_history.push("[BACKUP] State restored from backup.".to_string());
+                self.status_message = "Restored from backup — remember to save.".to_string();
+            }
+            Err(e) => {
+                let msg = format!("[BACKUP] Restore failed: {}", e);
+                self.terminal_history.push(msg.clone());
+                self.status_message = msg;
+                // Clean up the unusable backup
+                crate::app::backup::remove_backup(&project_path);
+            }
+        }
+    }
+
     fn import_json(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
             .add_filter("WeaveLang JSON", &["json"])
@@ -1230,6 +1297,10 @@ impl Drop for WeaveLangApp {
         eprintln!("[APP] Drop impl fired — cleaning up LLM threads");
         self.save_copilot_session();
         self.cancel_running_llm_job();
+        // Remove lock file (clean shutdown signal)
+        if let Some(ref pp) = self.current_file_path {
+            crate::app::backup::remove_lock(pp);
+        }
     }
 }
 
@@ -1450,6 +1521,9 @@ impl App for WeaveLangApp {
 
                 // Auto-advance from follow-up queue on successful completion
                 if !had_error {
+                    // Auto-backup on LLM job completion (important checkpoint)
+                    self.maybe_write_backup();
+
                     if let Some(next_cmd) = self.state.llm_followup_queue.pop_front() {
                         let remaining = self.state.llm_followup_queue.len();
                         self.status_message = format!(
@@ -1498,6 +1572,61 @@ impl App for WeaveLangApp {
             }
         }
         
+        // ── Periodic auto-backup (every 10 minutes while dirty) ──────────
+        if self.dirty
+            && self.current_file_path.is_some()
+            && self.last_backup_time.elapsed().as_secs() >= 600
+        {
+            self.maybe_write_backup();
+        }
+
+        // ── Restore-from-Backup prompt dialog ────────────────────────────
+        if self.show_restore_prompt {
+            let mut open = true;
+            let stale = self.pending_restore_stale_lock;
+            egui::Window::new("Restore from Backup?")
+                .collapsible(false)
+                .resizable(false)
+                .open(&mut open)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .id(egui::Id::new("restore_backup_prompt"))
+                .show(ctx, |ui| {
+                    if stale {
+                        ui.label(
+                            "The application was not shut down properly. \
+                             A backup with more recent changes was found.",
+                        );
+                    } else {
+                        ui.label(
+                            "A backup file with more recent changes than the \
+                             saved project was found.",
+                        );
+                    }
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if ui.button("Restore from Backup").clicked() {
+                            self.restore_from_backup();
+                            self.show_restore_prompt = false;
+                        }
+                        if ui.button("Discard Backup").clicked() {
+                            if let Some(ref pp) = self.current_file_path.clone() {
+                                crate::app::backup::remove_backup(pp);
+                            }
+                            self.show_restore_prompt = false;
+                            self.terminal_history
+                                .push("[BACKUP] Backup discarded.".to_string());
+                        }
+                    });
+                });
+            if !open {
+                // Closed via X → treat as discard
+                if let Some(ref pp) = self.current_file_path.clone() {
+                    crate::app::backup::remove_backup(pp);
+                }
+                self.show_restore_prompt = false;
+            }
+        }
+
         // --- Exit Save Prompt Dialog ---
         if self.show_exit_save_prompt {
             let mut open = true;

@@ -144,6 +144,26 @@ fn compute_hash(model: &str, system: &str, user: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
+/// Strip Gemma 4 thinking channel markers from response text.
+/// Gemma 4 models embed reasoning between `<|channel>thought` and `<channel|>` tokens.
+/// This function removes those blocks, returning only the answer portion.
+fn strip_gemma_thinking(text: &str) -> String {
+    // Look for the channel-end marker that terminates thinking
+    if let Some(end_pos) = text.find("<channel|>") {
+        let after = &text[end_pos + "<channel|>".len()..];
+        return after.trim_start().to_string();
+    }
+    // Also handle a variant where thinking is between <|channel>thought ... <channel|>
+    if let Some(start_pos) = text.find("<|channel>thought") {
+        // If there's content before the thinking marker, keep it
+        let before = text[..start_pos].trim_end();
+        if !before.is_empty() {
+            return before.to_string();
+        }
+    }
+    text.to_string()
+}
+
 fn check_cache(cache_dir: &Option<PathBuf>, model: &str, system: &str, user: &str) -> Option<String> {
     let dir = cache_dir.as_ref()?;
     let hash = compute_hash(model, system, user);
@@ -222,7 +242,10 @@ pub struct AnthropicClient {
 
 impl AnthropicClient {
     pub fn new(cache_root: Option<PathBuf>) -> Self {
-        let client = reqwest::blocking::Client::new();
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(300))
+            .build()
+            .expect("Failed to build HTTP client");
         let cache_dir = cache_root.map(|root| {
             let dir = root.join(".llm_cache");
             let _ = fs::create_dir_all(&dir);
@@ -338,7 +361,11 @@ struct GeminiContent {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct GeminiPart {
+    #[serde(default)]
     text: String,
+    /// True when this part contains model thinking/reasoning (not the answer).
+    #[serde(default, skip_serializing)]
+    thought: bool,
     /// Present in thinking-model responses; we ignore it.
     #[serde(rename = "thoughtSignature", default, skip_serializing)]
     _thought_signature: Option<String>,
@@ -386,7 +413,10 @@ pub struct GeminiClient {
 
 impl GeminiClient {
     pub fn new(cache_root: Option<PathBuf>) -> Self {
-        let client = reqwest::blocking::Client::new();
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(300))
+            .build()
+            .expect("Failed to build HTTP client");
         let cache_dir = cache_root.map(|root| {
             let dir = root.join(".llm_cache");
             let _ = fs::create_dir_all(&dir);
@@ -421,11 +451,26 @@ impl GeminiClient {
             model_path, api_key
         );
 
+        // Only enable thinking for models that support it (Gemini 2.5+ series).
+        // Gemma models and older Gemini models do not support thinkingBudget.
+        let model_lower = model.to_lowercase();
+        let supports_thinking = model_lower.contains("gemini-2.5")
+            || model_lower.contains("gemini-3");
+
+        let thinking_config = if supports_thinking {
+            Some(GeminiThinkingConfig {
+                thinking_budget: 1024,
+            })
+        } else {
+            None
+        };
+
         let request_body = GeminiRequest {
             contents: vec![GeminiContent {
                 role: Some("user".to_string()),
                 parts: vec![GeminiPart {
                     text: user_prompt.to_string(),
+                    thought: false,
                     _thought_signature: None,
                 }],
             }],
@@ -436,16 +481,15 @@ impl GeminiClient {
                     role: None,
                     parts: vec![GeminiPart {
                         text: system_prompt.to_string(),
+                        thought: false,
                         _thought_signature: None,
                     }],
                 })
             },
             generation_config: Some(GeminiGenerationConfig {
                 temperature: 0.0,
-                max_output_tokens: 8192,
-                thinking_config: Some(GeminiThinkingConfig {
-                    thinking_budget: 1024,
-                }),
+                max_output_tokens: 32768,
+                thinking_config,
             }),
         };
 
@@ -490,6 +534,13 @@ impl GeminiClient {
                 .text()
                 .map_err(|e| format!("Failed to read Gemini response: {e}"))?;
 
+            // Debug: log raw response structure (first 500 chars) to diagnose thinking
+            eprintln!(
+                "[llm_client DEBUG] model={}, raw response (first 500 chars):\n{}",
+                model,
+                &response_text[..response_text.len().min(500)]
+            );
+
             let response_body: GeminiResponse = serde_json::from_str(&response_text)
                 .map_err(|e| format!("Failed to parse Gemini JSON: {e}"))?;
 
@@ -507,11 +558,37 @@ impl GeminiClient {
                 .unwrap_or("UNKNOWN")
                 .to_string();
 
-            match first_candidate
+            // Collect only non-thought parts (filter out model reasoning/thinking).
+            let answer_text: Option<String> = first_candidate
                 .and_then(|c| c.content)
-                .and_then(|c| c.parts.into_iter().next())
-                .map(|p| p.text)
-            {
+                .map(|c| {
+                    // Debug: log parts info
+                    for (i, p) in c.parts.iter().enumerate() {
+                        eprintln!(
+                            "[llm_client DEBUG] Part {}: thought={}, len={}, first_80={:?}",
+                            i, p.thought, p.text.len(),
+                            &p.text[..p.text.len().min(80)]
+                        );
+                    }
+                    let mut text = c.parts
+                        .into_iter()
+                        .filter(|p| !p.thought)
+                        .map(|p| p.text)
+                        .collect::<Vec<_>>()
+                        .join("");
+
+                    // Gemma 4 models embed thinking in channel tokens within the text itself.
+                    // Strip everything between <|channel>thought and <channel|> markers.
+                    text = strip_gemma_thinking(&text);
+                    eprintln!(
+                        "[llm_client DEBUG] After strip_gemma_thinking: len={}, first_80={:?}",
+                        text.len(), &text[..text.len().min(80)]
+                    );
+                    text
+                })
+                .filter(|s| !s.is_empty());
+
+            match answer_text {
                 Some(text) => {
                     write_cache(&self.cache_dir, model, system_prompt, user_prompt, &text);
                     return Ok(text);

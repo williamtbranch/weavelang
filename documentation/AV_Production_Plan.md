@@ -525,6 +525,45 @@ This replaces the previous manual workflow of spelunking through directories, de
 
 ---
 
+## Phase E: Video Volume Splitting ✅ COMPLETE
+
+YouTube has a 12-hour video limit. Long books (e.g. Pride and Prejudice at ~15 hours) need splitting into multiple volumes. The split happens at the **audio concatenation** layer, not during TTS generation — preserving all existing chunks and avoiding expensive re-generation.
+
+### Config
+```toml
+[video]
+image_duration = 8
+frame_rate = 30
+max_sentences_per_video = 3500    # 0 = no limit (default)
+```
+
+### Volume Calculation
+1. Count total sentences by reading `temp_chunk_NNNN.txt` files (line = sentence)
+2. `N = ceil(total / max_sentences_per_video)` volumes
+3. Distribute chunks equally across N groups (remainder distributed to first groups)
+
+### Workflow
+1. Set limit: `av config video max_sentences_per_video 3500`
+2. Rebuild audio: `av rebuild audio <stem>` → produces `<stem>_V1.wav`, `<stem>_V2.wav`
+3. Generate video: `av generate video <stem>` → picks next volume needing video → `<stem>_V1.mp4`, etc.
+4. Repeat `av generate video <stem>` for each volume
+
+### Files Modified
+- `src/services/av_producer.rs` — `VideoConfig.max_sentences_per_video`, `compute_volume_splits()`, volume-aware `rebuild_audio()`, `scan()` detects `_V*` audio/video files, `volume_audio_files()`, `spawn_video_for_audio()`, `AvFileStatus.volume_count/volumes_with_video`
+- `src/app/engine.rs` — `AvConfigVideo` accepts `max_sentences_per_video`, `AvConfigShow` displays it, `AvGenerateVideo` iterates through volume files
+- `src/app/terminal.rs` — Help text updated
+- `src/gui/components/media_view.rs` — Audio column shows `✓ V2`, Video column shows `1/2` progress, config summary shows max/vol
+- `book_to_audio.py` — `--concat-only` accepts `--output-filename`, `--chunk-start`, `--chunk-end` for volume range selection
+- 4 new unit tests (volume scan, splits with/without limit, manifest roundtrip)
+
+### Design Notes
+- Individual TTS chunk generation is unchanged — no re-generation needed
+- Illustrations cycle independently across each volume video (same set, same cycling)
+- When `max_sentences_per_video = 0`, all behavior is identical to pre-volume code
+- Future enhancement: author-tagged division points to override dumb equal splitting
+
+---
+
 ## Out of Scope (Future Work)
 
 - **Image generation** — illustrations are created externally for now
@@ -532,3 +571,4 @@ This replaces the previous manual workflow of spelunking through directories, de
 - **MP3/FLAC output** — WAV only for now; extensible via `output_format` config
 - **Concurrent file generation** — sequential only; `concurrent_requests` option preserved for future use
 - **YouTube upload integration** — manual upload for now
+- **Smart volume splits** — author-tagged division points at specific sentences

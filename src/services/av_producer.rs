@@ -39,6 +39,10 @@ pub struct TtsConfig {
 pub struct VideoConfig {
     pub image_duration: u32,
     pub frame_rate: u32,
+    /// Maximum sentences per video. 0 = no limit (single video).
+    /// When set, audio rebuild + video generation will split into volumes.
+    #[serde(default)]
+    pub max_sentences_per_video: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,6 +92,7 @@ impl Default for VideoConfig {
         Self {
             image_duration: 8,
             frame_rate: 30,
+            max_sentences_per_video: 0,
         }
     }
 }
@@ -181,6 +186,11 @@ pub struct AvFileStatus {
     pub has_text: bool,
     pub has_audio: bool,
     pub has_video: bool,
+    /// Number of volume audio files detected (e.g. stem_V1.wav, stem_V2.wav).
+    /// 0 means no volumes (single-file mode). >=1 means volume mode.
+    pub volume_count: u32,
+    /// Number of volume video files that exist (out of volume_count).
+    pub volumes_with_video: u32,
 }
 
 /// Status of a single audio chunk within a stem's chunks directory.
@@ -264,14 +274,37 @@ impl AvProducer {
             .map(|stem| {
                 let marked = self.manifest.files.marked.contains(&stem);
                 let has_text = true; // we found the .txt file
-                let has_audio = audio_dir.join(format!("{}.{}", stem, audio_ext)).exists();
-                let has_video = video_dir.join(format!("{}.mp4", stem)).exists();
+                let single_audio = audio_dir.join(format!("{}.{}", stem, audio_ext)).exists();
+
+                // Check for volume audio files: <stem>_V1.wav, <stem>_V2.wav, ...
+                let mut vol_count: u32 = 0;
+                let mut vol_video: u32 = 0;
+                for i in 1u32.. {
+                    let vol_audio = audio_dir.join(format!("{}_V{}.{}", stem, i, audio_ext));
+                    if vol_audio.exists() {
+                        vol_count += 1;
+                        if video_dir.join(format!("{}_V{}.mp4", stem, i)).exists() {
+                            vol_video += 1;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+
+                let has_audio = single_audio || vol_count > 0;
+                let has_video = if vol_count > 0 {
+                    vol_video == vol_count
+                } else {
+                    video_dir.join(format!("{}.mp4", stem)).exists()
+                };
                 AvFileStatus {
                     stem,
                     marked,
                     has_text,
                     has_audio,
                     has_video,
+                    volume_count: vol_count,
+                    volumes_with_video: vol_video,
                 }
             })
             .collect()
@@ -736,13 +769,30 @@ impl AvProducer {
 
     /// Spawn video generation as a child process with piped stdout/stderr.
     /// Returns the Child handle. Caller is responsible for reading output and waiting.
+    ///
+    /// If `audio_filename_override` is provided, uses that file instead of `<stem>.<ext>`.
+    /// This supports volume files like `<stem>_V1.wav`.
     pub fn spawn_video(
         &self,
         stem: &str,
         project_root: &Path,
     ) -> Result<std::process::Child, String> {
+        self.spawn_video_for_audio(stem, None, project_root)
+    }
+
+    /// Spawn video generation for a specific audio file.
+    /// If `audio_filename` is None, uses `<stem>.<ext>`.
+    pub fn spawn_video_for_audio(
+        &self,
+        output_stem: &str,
+        audio_filename: Option<&str>,
+        project_root: &Path,
+    ) -> Result<std::process::Child, String> {
         let audio_ext = &self.manifest.tts.output_format;
-        let audio_file = self.audio_dir().join(format!("{}.{}", stem, audio_ext));
+        let audio_file = match audio_filename {
+            Some(name) => self.audio_dir().join(name),
+            None => self.audio_dir().join(format!("{}.{}", output_stem, audio_ext)),
+        };
         if !audio_file.exists() {
             return Err(format!("Audio file not found: {}. Generate audio first.", audio_file.display()));
         }
@@ -878,10 +928,13 @@ impl AvProducer {
     /// Rebuild final audio by concatenating all good chunks via `book_to_audio.py --concat-only`.
     ///
     /// This is a blocking call (concatenation is fast). No API key needed.
+    /// When `max_sentences_per_video > 0`, splits chunks into volumes producing
+    /// `<stem>_V1.wav`, `<stem>_V2.wav`, etc.  Otherwise produces `<stem>.wav`.
     pub fn rebuild_audio(
         &self,
         stem: &str,
         project_root: &Path,
+        total_sentences: u32,
     ) -> Result<String, String> {
         let chunks_dir = self.chunks_dir(stem);
         if !chunks_dir.exists() {
@@ -912,58 +965,131 @@ impl AvProducer {
         let python_exe = find_python(project_root);
         validate_python(&python_exe)?;
 
-        let output = Command::new(&python_exe)
-            .arg(&script_path)
-            .arg("--concat-only")
-            .arg("--chunks-dir")
-            .arg(&chunks_dir)
-            .arg("--input-file")
-            .arg(&input_file)
-            .arg("--output-dir")
-            .arg(&audio_dir)
-            .arg("--output-audio-format")
-            .arg(&self.manifest.tts.output_format)
-            .env("PYTHONUTF8", "1")
-            .output()
-            .map_err(|e| format!("Failed to spawn book_to_audio.py ({}): {}", python_exe, e))?;
+        let max_s = self.manifest.video.max_sentences_per_video;
+        let volumes = self.compute_volume_splits(stem, max_s, total_sentences);
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        if volumes.len() <= 1 {
+            // Single volume (or no limit) — original behaviour
+            let output = Command::new(&python_exe)
+                .arg(&script_path)
+                .arg("--concat-only")
+                .arg("--chunks-dir").arg(&chunks_dir)
+                .arg("--input-file").arg(&input_file)
+                .arg("--output-dir").arg(&audio_dir)
+                .arg("--output-audio-format").arg(&self.manifest.tts.output_format)
+                .env("PYTHONUTF8", "1")
+                .output()
+                .map_err(|e| format!("Failed to spawn book_to_audio.py ({}): {}", python_exe, e))?;
 
-        if output.status.success() {
-            let audio_file = audio_dir.join(format!(
-                "{}.{}",
-                stem,
-                self.manifest.tts.output_format
-            ));
-            if audio_file.exists() {
-                Ok(format!(
-                    "Audio rebuilt from {} good chunks: {}\n{}",
-                    good,
-                    audio_file.display(),
-                    stderr.trim()
-                ))
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+
+            if output.status.success() {
+                let audio_file = audio_dir.join(format!("{}.{}", stem, self.manifest.tts.output_format));
+                if audio_file.exists() {
+                    Ok(format!("Audio rebuilt from {} good chunks: {}\n{}", good, audio_file.display(), stderr.trim()))
+                } else {
+                    Err(format!("Concat completed but audio file not found: {}\nstdout: {}\nstderr: {}", audio_file.display(), stdout.trim(), stderr.trim()))
+                }
             } else {
-                Err(format!(
-                    "Concat completed but audio file not found: {}\nstdout: {}\nstderr: {}",
-                    audio_file.display(),
-                    stdout.trim(),
-                    stderr.trim()
-                ))
+                let code = output.status.code().map(|c| c.to_string()).unwrap_or_else(|| "unknown".to_string());
+                Err(format!("book_to_audio.py --concat-only exited with code {}.\nstdout: {}\nstderr: {}", code, stdout.trim(), stderr.trim()))
             }
         } else {
-            let code = output
-                .status
-                .code()
-                .map(|c| c.to_string())
-                .unwrap_or_else(|| "unknown".to_string());
-            Err(format!(
-                "book_to_audio.py --concat-only exited with code {}.\nstdout: {}\nstderr: {}",
-                code,
-                stdout.trim(),
-                stderr.trim()
-            ))
+            // Multi-volume: produce <stem>_V1.wav, <stem>_V2.wav, ...
+            let num_vols = volumes.len();
+            let mut results: Vec<String> = Vec::new();
+            for (vol_idx, (chunk_start, chunk_end)) in volumes.iter().enumerate() {
+                let vol_num = vol_idx + 1;
+                let output_filename = format!("{}_V{}.{}", stem, vol_num, self.manifest.tts.output_format);
+                let output = Command::new(&python_exe)
+                    .arg(&script_path)
+                    .arg("--concat-only")
+                    .arg("--chunks-dir").arg(&chunks_dir)
+                    .arg("--input-file").arg(&input_file)
+                    .arg("--output-dir").arg(&audio_dir)
+                    .arg("--output-audio-format").arg(&self.manifest.tts.output_format)
+                    .arg("--output-filename").arg(&output_filename)
+                    .arg("--chunk-start").arg(chunk_start.to_string())
+                    .arg("--chunk-end").arg(chunk_end.to_string())
+                    .env("PYTHONUTF8", "1")
+                    .output()
+                    .map_err(|e| format!("Failed to spawn book_to_audio.py for V{}: {}", vol_num, e))?;
+
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    return Err(format!("Volume {} concat failed:\n{}", vol_num, stderr.trim()));
+                }
+                let audio_file = audio_dir.join(&output_filename);
+                if audio_file.exists() {
+                    results.push(format!("  V{}: {} (chunks {}-{})", vol_num, audio_file.display(), chunk_start, chunk_end));
+                } else {
+                    return Err(format!("Volume {} concat completed but file not found: {}", vol_num, audio_file.display()));
+                }
+            }
+            Ok(format!("Audio rebuilt into {} volumes from {} chunks:\n{}", num_vols, good, results.join("\n")))
         }
+    }
+
+    /// Compute volume splits for a stem based on `max_sentences_per_video`.
+    ///
+    /// Returns a list of (chunk_start, chunk_end) inclusive 0-based index ranges.
+    /// If max == 0 or only 1 volume needed, returns a single range covering all chunks.
+    ///
+    /// `total_sentences` should come from the .wvl project (`document.len()`),
+    /// which is the authoritative sentence count.
+    pub fn compute_volume_splits(&self, stem: &str, max_sentences: u32, total_sentences: u32) -> Vec<(u32, u32)> {
+        let chunks = self.scan_chunks(stem);
+        let good_chunks: Vec<&ChunkStatus> = chunks.iter()
+            .filter(|c| c.has_audio && !c.is_rejected)
+            .collect();
+
+        if good_chunks.is_empty() {
+            return Vec::new();
+        }
+
+        let num_chunks = good_chunks.len() as u32;
+
+        if max_sentences == 0 || total_sentences == 0 || total_sentences <= max_sentences {
+            // Single volume
+            let first = good_chunks.first().unwrap().index;
+            let last = good_chunks.last().unwrap().index;
+            return vec![(first, last)];
+        }
+
+        // Calculate number of volumes needed, distribute chunks equally
+        let num_vols = ((total_sentences as f64) / (max_sentences as f64)).ceil() as u32;
+        let chunks_per_vol = num_chunks / num_vols;
+        let remainder = num_chunks % num_vols;
+
+        let mut splits = Vec::new();
+        let mut offset: u32 = 0;
+        for v in 0..num_vols {
+            let count = chunks_per_vol + if v < remainder { 1 } else { 0 };
+            if count == 0 { break; }
+            let start_idx = good_chunks[offset as usize].index;
+            let end_idx = good_chunks[(offset + count - 1) as usize].index;
+            splits.push((start_idx, end_idx));
+            offset += count;
+        }
+        splits
+    }
+
+    /// List the volume audio filenames for a stem (e.g. ["stem_V1.wav", "stem_V2.wav"]).
+    /// Returns empty vec if no volume audio files exist.
+    pub fn volume_audio_files(&self, stem: &str) -> Vec<String> {
+        let audio_ext = &self.manifest.tts.output_format;
+        let audio_dir = self.audio_dir();
+        let mut files = Vec::new();
+        for i in 1u32.. {
+            let name = format!("{}_V{}.{}", stem, i, audio_ext);
+            if audio_dir.join(&name).exists() {
+                files.push(name);
+            } else {
+                break;
+            }
+        }
+        files
     }
 
     /// Format a status table as a string for terminal output.
@@ -990,8 +1116,12 @@ impl AvProducer {
         for s in statuses {
             let mark = if s.marked { " [x]" } else { " [ ]" };
             let txt = if s.has_text { "  ✓" } else { "  -" };
-            let aud = if s.has_audio { "  ✓" } else if s.marked { "  ✗" } else { "  -" };
-            let vid = if s.has_video { "  ✓" } else if s.marked && s.has_audio { "  ✗" } else { "  -" };
+            let aud = if s.volume_count > 0 {
+                format!(" V{}", s.volume_count)
+            } else if s.has_audio { "  ✓".to_string() } else if s.marked { "  ✗".to_string() } else { "  -".to_string() };
+            let vid = if s.volume_count > 0 {
+                format!("{}/{}", s.volumes_with_video, s.volume_count)
+            } else if s.has_video { "  ✓".to_string() } else if s.marked && s.has_audio { "  ✗".to_string() } else { "  -".to_string() };
             out.push_str(&format!(
                 "{:<width$}  {:>5}  {:>5}  {:>5}  {}\n",
                 s.stem, txt, aud, vid, mark,
@@ -1540,5 +1670,86 @@ mod tests {
         assert!(!super::is_interleave_stem("Book_ULb12"));
         assert!(!super::is_interleave_stem("Book_ULi"));
         assert!(!super::is_interleave_stem("something_else"));
+    }
+
+    #[test]
+    fn scan_detects_volume_audio_files() {
+        let dir = make_temp_dir("volumes");
+        fs::write(dir.join("Book_UL7.txt"), "text").unwrap();
+        fs::create_dir_all(dir.join("audio")).unwrap();
+        fs::write(dir.join("audio").join("Book_UL7_V1.wav"), "audio").unwrap();
+        fs::write(dir.join("audio").join("Book_UL7_V2.wav"), "audio").unwrap();
+        fs::create_dir_all(dir.join("video")).unwrap();
+        fs::write(dir.join("video").join("Book_UL7_V1.mp4"), "video").unwrap();
+
+        let producer = AvProducer::new(dir.clone()).unwrap();
+        let statuses = producer.scan();
+        assert_eq!(statuses.len(), 1);
+        assert!(statuses[0].has_audio);
+        assert!(!statuses[0].has_video); // V2 video missing
+        assert_eq!(statuses[0].volume_count, 2);
+        assert_eq!(statuses[0].volumes_with_video, 1);
+
+        let vol_files = producer.volume_audio_files("Book_UL7");
+        assert_eq!(vol_files.len(), 2);
+        assert_eq!(vol_files[0], "Book_UL7_V1.wav");
+        assert_eq!(vol_files[1], "Book_UL7_V2.wav");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn compute_volume_splits_no_limit() {
+        let dir = make_temp_dir("vol_no_limit");
+        fs::write(dir.join("Book_UL7.txt"), "text").unwrap();
+        let chunks_dir = dir.join("audio").join("chunks").join("Book_UL7");
+        fs::create_dir_all(&chunks_dir).unwrap();
+        for i in 0..4 {
+            fs::write(chunks_dir.join(format!("temp_chunk_{:04}.txt", i)), "line 1\nline 2\n").unwrap();
+            fs::write(chunks_dir.join(format!("temp_chunk_{:04}.wav", i)), "audio").unwrap();
+        }
+
+        let producer = AvProducer::new(dir.clone()).unwrap();
+        // max=0 means no limit → single volume
+        let splits = producer.compute_volume_splits("Book_UL7", 0, 0);
+        assert_eq!(splits.len(), 1);
+        assert_eq!(splits[0], (0, 3));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn compute_volume_splits_with_limit() {
+        let dir = make_temp_dir("vol_with_limit");
+        fs::write(dir.join("Book_UL7.txt"), "text").unwrap();
+        let chunks_dir = dir.join("audio").join("chunks").join("Book_UL7");
+        fs::create_dir_all(&chunks_dir).unwrap();
+        // 4 chunks, each with 3 sentences (12 total)
+        for i in 0..4 {
+            fs::write(chunks_dir.join(format!("temp_chunk_{:04}.txt", i)), "line 1\nline 2\nline 3\n").unwrap();
+            fs::write(chunks_dir.join(format!("temp_chunk_{:04}.wav", i)), "audio").unwrap();
+        }
+
+        let producer = AvProducer::new(dir.clone()).unwrap();
+        // 12 total sentences, max=7 → ceil(12/7) = 2 volumes → 2 chunks each
+        let splits = producer.compute_volume_splits("Book_UL7", 7, 12);
+        assert_eq!(splits.len(), 2);
+        assert_eq!(splits[0], (0, 1));
+        assert_eq!(splits[1], (2, 3));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn max_sentences_per_video_roundtrip() {
+        let dir = make_temp_dir("max_sentences_rt");
+        let mut m = AvManifest::default();
+        m.video.max_sentences_per_video = 3500;
+        m.save(&dir).unwrap();
+
+        let loaded = AvManifest::load(&dir).unwrap().unwrap();
+        assert_eq!(loaded.video.max_sentences_per_video, 3500);
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

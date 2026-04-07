@@ -10,6 +10,46 @@ logger = logging.getLogger("pipeline")
 
 TEMPERATURE_STEPS = [0.1, 0.4, 0.6]
 
+
+def fix_possessive_splits_in_lines(mapping_lines: List[str]) -> List[str]:
+    """
+    Detects and corrects a common LLM error where possessive nouns are split
+    across two mapping lines, e.g.:
+        Hugson -> {{Hugson}}
+        s -> NO_SUB
+    Corrects to:
+        Hugson's -> {{Hugson}}
+    """
+    fixed = []
+    i = 0
+    while i < len(mapping_lines):
+        line = mapping_lines[i]
+        if i + 1 < len(mapping_lines) and '->' in line:
+            next_line = mapping_lines[i + 1]
+            if '->' in next_line:
+                next_parts = next_line.split('->', 1)
+                next_lhs = next_parts[0].strip()
+                next_rhs = next_parts[1].strip() if len(next_parts) == 2 else ""
+                if next_lhs in ("s", "'s") and next_rhs.upper() == "NO_SUB":
+                    parts = line.split('->', 1)
+                    if len(parts) == 2:
+                        lhs = parts[0].strip()
+                        rhs = parts[1].strip()
+                        fixed.append(f"{lhs}'s -> {rhs}")
+                        logger.info(f"      -> Auto-fixed possessive split: '{lhs}' + '{next_lhs}' merged to '{lhs}'s'")
+                        i += 2
+                        continue
+        fixed.append(line)
+        i += 1
+    return fixed
+
+
+def fix_possessive_splits(mapping_text: str) -> str:
+    """String wrapper for fix_possessive_splits_in_lines."""
+    lines = mapping_text.splitlines()
+    fixed = fix_possessive_splits_in_lines(lines)
+    return "\n".join(fixed)
+
 # --- UPDATED CACHE FUNCTION ---
 def create_gemini_cache(model_name: str, system_prompt: str, llm_client: Any = None) -> Optional[Any]:
     """
@@ -191,7 +231,11 @@ def run_llm_batch_job(
             
             llm_logger.log_batch(job_name, log_system_prompt, user_prompt, full_raw_response_for_log, usage_stats=usage_stats)
             
-            if parser_type == 'multi_line': parsed_response = _parse_structured_llm_response(raw_response_text, prompt_ids)
+            if parser_type == 'multi_line':
+                parsed_response = _parse_structured_llm_response(raw_response_text, prompt_ids)
+                # Fix common LLM error: possessives split across two lines
+                for s_id in parsed_response:
+                    parsed_response[s_id] = fix_possessive_splits(parsed_response[s_id])
             else: parsed_response = _parse_singleline_llm_response(raw_response_text)
             
             missing_ids = [pid for pid in prompt_ids if pid not in parsed_response or not parsed_response[pid].strip()]

@@ -372,8 +372,13 @@ fn render_config_summary(ui: &mut egui::Ui, state: &mut AppState) {
                 let vid = &producer.manifest.video;
                 ui.separator();
                 ui.label(format!(
-                    "Video: {}s/image, {} fps",
-                    vid.image_duration, vid.frame_rate
+                    "Video: {}s/image, {} fps{}",
+                    vid.image_duration, vid.frame_rate,
+                    if vid.max_sentences_per_video > 0 {
+                        format!(", max {}/vol", vid.max_sentences_per_video)
+                    } else {
+                        String::new()
+                    }
                 ));
             }
         }
@@ -442,7 +447,7 @@ fn render_status_table(
                         // Text status
                         status_icon(ui, s.has_text, true);
 
-                        // Audio status — check for stale indicator
+                        // Audio status — check for stale indicator + volume info
                         let chunk_stale = s.has_audio && {
                             load_chunk_data(state, &s.stem)
                                 .map(|d| d.stale_audio)
@@ -450,13 +455,32 @@ fn render_status_table(
                         };
                         if chunk_stale {
                             ui.colored_label(egui::Color32::from_rgb(220, 160, 40), "⚠");
+                        } else if s.volume_count > 0 {
+                            ui.colored_label(
+                                egui::Color32::from_rgb(80, 180, 80),
+                                format!("✓ V{}", s.volume_count),
+                            );
                         } else {
                             status_icon(ui, s.has_audio, s.marked);
                         }
 
-                        // Video status
+                        // Video status — volume-aware
                         let video_relevant = s.marked && s.has_audio;
-                        status_icon(ui, s.has_video, video_relevant);
+                        if s.volume_count > 0 && s.has_audio {
+                            if s.volumes_with_video == s.volume_count {
+                                ui.colored_label(
+                                    egui::Color32::from_rgb(80, 180, 80),
+                                    format!("✓ {}/{}", s.volumes_with_video, s.volume_count),
+                                );
+                            } else {
+                                ui.colored_label(
+                                    egui::Color32::from_rgb(200, 80, 80),
+                                    format!("{}/{}", s.volumes_with_video, s.volume_count),
+                                );
+                            }
+                        } else {
+                            status_icon(ui, s.has_video, video_relevant);
+                        }
 
                         // Action button
                         if s.marked {

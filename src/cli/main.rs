@@ -420,8 +420,18 @@ fn run_repl() {
                 let _ = rl.add_history_entry(input);
 
                 match weavelang_rust_gui::app::terminal::run_terminal_command(&mut engine, input) {
-                    Ok(Some(output)) => println!("{}", output),
+                    Ok(Some(output)) => {
+                        println!("{}", output);
+                        // After a successful "load project", check for recovery backup
+                        if input.to_lowercase().starts_with("load project") {
+                            cli_check_recovery(&mut engine, &mut rl);
+                        }
+                    }
                     Ok(None) => {
+                        // Clean exit — remove lock file
+                        if let Some(ref pp) = engine.current_file_path {
+                            weavelang_rust_gui::app::backup::remove_lock(pp);
+                        }
                         let _ = rl.save_history(&history_path);
                         std::process::exit(0);
                     }
@@ -433,15 +443,76 @@ fn run_repl() {
                 continue;
             }
             Err(ReadlineError::Eof) => {
-                // Ctrl-D — exit
+                // Ctrl-D — clean exit
+                if let Some(ref pp) = engine.current_file_path {
+                    weavelang_rust_gui::app::backup::remove_lock(pp);
+                }
                 let _ = rl.save_history(&history_path);
                 break;
             }
             Err(err) => {
                 println!("Error reading input: {}", err);
+                if let Some(ref pp) = engine.current_file_path {
+                    weavelang_rust_gui::app::backup::remove_lock(pp);
+                }
                 let _ = rl.save_history(&history_path);
                 break;
             }
         }
     }
+}
+
+/// After loading a project in CLI mode, check for a crash-recovery backup
+/// and prompt the user interactively.
+fn cli_check_recovery(engine: &mut Engine, rl: &mut DefaultEditor) {
+    let project_path = match &engine.current_file_path {
+        Some(p) => p.clone(),
+        None => return,
+    };
+
+    if let Some(info) = weavelang_rust_gui::app::backup::check_recovery(&project_path) {
+        if info.stale_lock {
+            println!("\n⚠  The application was not shut down properly.");
+        }
+        println!(
+            "A backup with more recent changes was found:\n  {}",
+            info.backup_path.display()
+        );
+        loop {
+            match rl.readline("Restore from backup? [y/n]: ") {
+                Ok(answer) => {
+                    let answer = answer.trim().to_lowercase();
+                    if answer == "y" || answer == "yes" {
+                        match weavelang_rust_gui::app::backup::load_backup(
+                            &info.backup_path,
+                            &engine.state,
+                        ) {
+                            Ok(restored) => {
+                                engine.state = restored;
+                                weavelang_rust_gui::app::backup::remove_backup(&project_path);
+                                println!("State restored from backup. Remember to save.");
+                            }
+                            Err(e) => {
+                                println!("Restore failed: {}", e);
+                                weavelang_rust_gui::app::backup::remove_backup(&project_path);
+                            }
+                        }
+                        break;
+                    } else if answer == "n" || answer == "no" {
+                        weavelang_rust_gui::app::backup::remove_backup(&project_path);
+                        println!("Backup discarded.");
+                        break;
+                    }
+                    println!("Please answer y or n.");
+                }
+                Err(_) => {
+                    // IO error — skip
+                    break;
+                }
+            }
+        }
+    }
+
+    // Write fresh lock (we now own this project)
+    weavelang_rust_gui::app::backup::write_lock(&project_path);
 }

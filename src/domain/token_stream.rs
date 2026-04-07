@@ -688,15 +688,24 @@ mod tests {
 // ------------------------------------------------------------------
 
 impl TokenStream {
-    /// Split Word tokens that contain em-dashes (\u{2014}) or en-dashes
-    /// (\u{2013}) into separate Word-Background-Word sequences so that the
-    /// fusion / mapping algorithms see the sub-words individually.
+    /// Split Word tokens that contain em-dashes (\u{2014}), en-dashes
+    /// (\u{2013}), or double-hyphens (`--`) into separate
+    /// Word-Background-Word sequences so that the fusion / mapping
+    /// algorithms see the sub-words individually.
     fn split_internal_dashes(tokens: Vec<Token>, mut next_id: u64) -> (Vec<Token>, u64) {
         let mut result = Vec::new();
         for token in tokens {
             if let Token::Word(ref w) = token {
-                if w.text.contains('\u{2014}') || w.text.contains('\u{2013}') {
-                    let text = &w.text;
+                // Normalise double-hyphens to em-dash first so the
+                // single-pass char-level split handles everything.
+                let text_owned;
+                let text: &str = if w.text.contains("--") {
+                    text_owned = w.text.replace("--", "\u{2014}");
+                    &text_owned
+                } else {
+                    &w.text
+                };
+                if text.contains('\u{2014}') || text.contains('\u{2013}') {
                     let mut last_end = 0;
                     for (i, c) in text.char_indices() {
                         if c == '\u{2014}' || c == '\u{2013}' {
