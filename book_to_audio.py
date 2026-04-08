@@ -646,7 +646,7 @@ async def main_async():
     parser.add_argument("--output-dir", type=Path, default=None, help="Full path to the output audio directory (overrides config.toml resolution).")
     parser.add_argument("--tool-root-dir", type=Path, default=Path(__file__).resolve().parent)
     parser.add_argument("--tts-service", default=DEFAULT_TTS_SERVICE, choices=["gemini", "vertex"])
-    parser.add_argument("--api-key", help="Google API Key (for Gemini free tier).")
+    # API key must be set via GOOGLE_API_KEY env var (CLI args are visible in process lists).
     parser.add_argument("--model-name", default=DEFAULT_GEMINI_MODEL_NAME)
     parser.add_argument("--tts-prompt-prefix", default=DEFAULT_GEMINI_TTS_PROMPT_PREFIX)
     parser.add_argument("--language-code", default=DEFAULT_VERTEX_LANGUAGE_CODE)
@@ -691,8 +691,8 @@ async def main_async():
                     client = google_genai.Client(project=project_id_to_use, credentials=credentials)
                     logging.info("Gemini client configured for Vertex AI successfully.")
                 else:
-                    api_key_to_use = args.api_key or os.getenv("GOOGLE_API_KEY")
-                    if not api_key_to_use: logging.critical("Gemini API Key not found."); return
+                    api_key_to_use = os.getenv("GOOGLE_API_KEY")
+                    if not api_key_to_use: logging.critical("GOOGLE_API_KEY environment variable not set."); return
                     client = google_genai.Client(api_key=api_key_to_use)
                     logging.info("Gemini API client configured via API key.")
             except Exception as e:

@@ -79,7 +79,6 @@ def create_video_from_audio(
     command = [
         'ffmpeg',
         '-f', 'concat',
-        '-safe', '0',
         '-i', str(manifest_path),
         '-i', str(audio_file),
         '-vf', 'scale=1280:-2',

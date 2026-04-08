@@ -429,7 +429,10 @@ pub fn parse_structured_llm_response(
         .collect::<Vec<_>>()
         .join("|");
 
-    let id_line_re = Regex::new(&format!(r"(?m)^\s*({id_pattern})\s*:")).unwrap();
+    let id_line_re = match Regex::new(&format!(r"(?m)^\s*({id_pattern})\s*:")) {
+        Ok(re) => re,
+        Err(_) => return parsed,
+    };
 
     // Find all ID positions and split manually (no lookahead needed)
     let id_positions: Vec<(usize, String)> = id_line_re

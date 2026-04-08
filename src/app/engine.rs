@@ -192,13 +192,38 @@ impl Engine {
 
     /// Resolve a user-supplied path against the workspace directory.
     /// Absolute paths are returned as-is; relative paths are resolved
-    /// relative to `content_project_dir` (the open workspace).
+    /// relative to `content_project_dir` (the open workspace) and
+    /// canonicalized to prevent `..` traversal outside the workspace.
     fn resolve_path(&self, path: &str) -> PathBuf {
         let p = PathBuf::from(path);
         if p.is_absolute() {
             p
         } else if let Some(cfg) = &self.state.config {
-            cfg.content_project_dir_path().join(path)
+            let base = cfg.content_project_dir_path();
+            let joined = base.join(path);
+            // Canonicalize to resolve any ".." components.  If the path
+            // doesn't exist yet (common for new exports), clean it manually.
+            let resolved = joined.canonicalize().unwrap_or_else(|_| {
+                // Strip ".." components from the logical path
+                let mut clean = PathBuf::new();
+                for component in joined.components() {
+                    match component {
+                        std::path::Component::ParentDir => { clean.pop(); }
+                        c => clean.push(c.as_os_str()),
+                    }
+                }
+                clean
+            });
+            // Ensure the resolved path is still within the workspace.
+            if !resolved.starts_with(&base) {
+                eprintln!(
+                    "[SECURITY] Path '{}' resolves outside workspace '{}'. Clamping to workspace root.",
+                    path, base.display()
+                );
+                base.to_path_buf()
+            } else {
+                resolved
+            }
         } else {
             p
         }
@@ -1321,6 +1346,22 @@ impl Engine {
             }
             AppCommand::LoadProject { path } => {
                 let path_buf = self.resolve_path(&path);
+                // Guard against memory exhaustion from oversized project files (500 MB limit).
+                const MAX_PROJECT_FILE_SIZE: u64 = 500 * 1024 * 1024;
+                match fs::metadata(&path_buf) {
+                    Ok(meta) if meta.len() > MAX_PROJECT_FILE_SIZE => {
+                        return Err(format!(
+                            "Project file is too large ({:.0} MB, limit {} MB): {}",
+                            meta.len() as f64 / (1024.0 * 1024.0),
+                            MAX_PROJECT_FILE_SIZE / (1024 * 1024),
+                            path_buf.display()
+                        ));
+                    }
+                    Err(e) => {
+                        return Err(format!("Cannot read project file '{}': {}", path_buf.display(), e));
+                    }
+                    _ => {}
+                }
                 if let Ok(bytes) = fs::read(&path_buf) {
                     // Try JSON first (new format), fall back to bincode (legacy)
                     let deser_result = serde_json::from_slice::<AppState>(&bytes)
@@ -3718,12 +3759,8 @@ impl Engine {
             .map_err(|e| format!("Failed to write HTML: {}", e))?;
 
         // Open in default browser
-        #[cfg(target_os = "windows")]
-        { let _ = std::process::Command::new("cmd").args(["/C", "start", "", &html_path.to_string_lossy()]).spawn(); }
-        #[cfg(target_os = "macos")]
-        { let _ = std::process::Command::new("open").arg(&html_path).spawn(); }
-        #[cfg(target_os = "linux")]
-        { let _ = std::process::Command::new("xdg-open").arg(&html_path).spawn(); }
+        opener::open(&html_path)
+            .map_err(|e| format!("Failed to open browser: {}", e))?;
 
         Ok(format!("Level map opened in browser ({} levels, {} → {}).",
             sorted_keys.len(),

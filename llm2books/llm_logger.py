@@ -1,9 +1,24 @@
 # llm2books/llm_logger.py
 import logging
+import re
 from pathlib import Path
 from typing import Optional, Dict
 
 logger = logging.getLogger("pipeline")
+
+# Patterns that look like API keys, tokens, or secrets.
+_REDACT_PATTERNS = [
+    re.compile(r'(?i)(api[_-]?key|secret|token|password|authorization|bearer)\s*[:=]\s*\S+'),
+    re.compile(r'\b(sk-[A-Za-z0-9]{20,})\b'),          # Anthropic-style
+    re.compile(r'\b(AIza[A-Za-z0-9_-]{35})\b'),          # Google API key
+    re.compile(r'\b(ghp_[A-Za-z0-9]{36,})\b'),           # GitHub PAT
+]
+
+def _redact(text: str) -> str:
+    """Scrub likely secrets from text before writing to disk."""
+    for pattern in _REDACT_PATTERNS:
+        text = pattern.sub('[REDACTED]', text)
+    return text
 
 class LLMLogger:
     def __init__(self, log_dir: Path):
@@ -20,10 +35,10 @@ class LLMLogger:
                 f.write(f"VALIDATION FAILED: {reason}\n")
                 f.write("-" * 80 + "\n")
                 f.write("Original Text:\n")
-                f.write(original_text + "\n")
+                f.write(_redact(original_text) + "\n")
                 f.write("-" * 80 + "\n")
                 f.write("Corrupted LLM Output:\n")
-                f.write(corrupted_output + "\n")
+                f.write(_redact(corrupted_output) + "\n")
                 f.write("=" * 80 + "\n\n")
         except IOError as e:
             logger.warning(f"Could not write to validation log file {log_file.name}: {e}")
@@ -39,13 +54,13 @@ class LLMLogger:
                     f.write("=" * 80 + "\n")
                     f.write(f"SYSTEM PROMPT for Job: {job_name}\n")
                     f.write("=" * 80 + "\n")
-                    f.write(system_prompt + "\n\n")
+                    f.write(_redact(system_prompt) + "\n\n")
                     self._system_prompts_logged.add(job_name)
                 
                 f.write("-" * 80 + "\n")
                 f.write(f"USER PROMPT for: {job_and_batch_context}\n")
                 f.write("-" * 80 + "\n")
-                f.write(user_prompt + "\n\n")
+                f.write(_redact(user_prompt) + "\n\n")
                 
                 if usage_stats:
                     f.write("-" * 80 + "\n")
@@ -61,6 +76,6 @@ class LLMLogger:
                 f.write("-" * 80 + "\n")
                 f.write(f"LLM RESPONSE for: {job_and_batch_context}\n")
                 f.write("-" * 80 + "\n")
-                f.write(response + "\n\n")
+                f.write(_redact(response) + "\n\n")
         except IOError as e:
             logger.warning(f"Could not write to LLM log file {log_file.name}: {e}")

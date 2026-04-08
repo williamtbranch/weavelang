@@ -62,7 +62,7 @@ impl Default for ServerConfig {
 /// Start the API server on the given port, blocking the current thread.
 /// Returns Ok(()) when the server is shut down gracefully via /api/v1/shutdown.
 pub fn run_server(engine: Arc<Mutex<Engine>>, config: ServerConfig) -> Result<(), String> {
-    let addr = format!("0.0.0.0:{}", config.port);
+    let addr = format!("127.0.0.1:{}", config.port);
     let server = Server::http(&addr).map_err(|e| format!("Failed to bind to {}: {}", addr, e))?;
     
     println!("[SERVER] '{}' listening on http://127.0.0.1:{}", config.name, config.port);
@@ -267,13 +267,24 @@ pub fn build_sentence_summary(index: usize, sentence: &crate::domain::sentence::
     }
 }
 
+/// Standard security headers applied to every response.
+fn security_headers() -> Vec<Header> {
+    vec![
+        Header::from_bytes("Access-Control-Allow-Origin", "http://127.0.0.1").unwrap(),
+        Header::from_bytes("Access-Control-Allow-Methods", "GET, POST").unwrap(),
+        Header::from_bytes("Access-Control-Allow-Headers", "Content-Type").unwrap(),
+        Header::from_bytes("X-Content-Type-Options", "nosniff").unwrap(),
+    ]
+}
+
 pub fn json_response<T: Serialize>(status: u16, body: &T) -> Response<std::io::Cursor<Vec<u8>>> {
     let json = serde_json::to_string_pretty(body).unwrap_or_else(|_| r#"{"error":"serialization failed"}"#.to_string());
     let data = json.into_bytes();
-    let header = Header::from_bytes("Content-Type", "application/json").unwrap();
+    let mut headers = security_headers();
+    headers.push(Header::from_bytes("Content-Type", "application/json").unwrap());
     Response::new(
         StatusCode(status),
-        vec![header],
+        headers,
         std::io::Cursor::new(data.clone()),
         Some(data.len()),
         None,
@@ -282,10 +293,11 @@ pub fn json_response<T: Serialize>(status: u16, body: &T) -> Response<std::io::C
 
 pub fn text_response(status: u16, body: &str) -> Response<std::io::Cursor<Vec<u8>>> {
     let data = body.as_bytes().to_vec();
-    let header = Header::from_bytes("Content-Type", "text/plain; charset=utf-8").unwrap();
+    let mut headers = security_headers();
+    headers.push(Header::from_bytes("Content-Type", "text/plain; charset=utf-8").unwrap());
     Response::new(
         StatusCode(status),
-        vec![header],
+        headers,
         std::io::Cursor::new(data.clone()),
         Some(data.len()),
         None,

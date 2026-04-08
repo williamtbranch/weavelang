@@ -18,6 +18,8 @@ param(
 )
 
 $port = 3030
+# SECURITY: Server binds to 127.0.0.1 only — traffic never leaves the loopback interface.
+# HTTPS is unnecessary on localhost and would require self-signed certificate management.
 $base = "http://127.0.0.1:$port/api/v1"
 
 function Send-Cmd {

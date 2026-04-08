@@ -2,7 +2,7 @@
 
 import argparse
 import sys
-import pickle
+import json
 from collections import Counter
 from pathlib import Path
 import unicodedata
@@ -49,7 +49,7 @@ def normalize_and_clean_lemma(lemma_str: str) -> str:
 OUTPUT_DIR = Path("assets")
 OUTPUT_FILENAME = "es_master_frequency_list.txt"
 SEPARATOR = "\t"
-CHECKPOINT_FILENAME = "_freq_list_checkpoint.pkl" # File to save progress
+CHECKPOINT_FILENAME = "_freq_list_checkpoint.json" # File to save progress
 
 try:
     from tqdm import tqdm
@@ -64,14 +64,14 @@ except ImportError:
 
 
 def save_checkpoint(filepath: Path, file_index: int, counts: Counter):
-    """Saves the current progress to a pickle file."""
+    """Saves the current progress to a JSON file."""
     state = {
         'last_processed_file_index': file_index,
-        'lemma_counts': counts,
+        'lemma_counts': dict(counts),
     }
     try:
-        with open(filepath, 'wb') as f:
-            pickle.dump(state, f)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(state, f)
         # Use .write() for tqdm to avoid breaking the progress bar
         if tqdm:
             tqdm.write(f"      [Checkpoint saved after processing file index {file_index}]")
@@ -80,14 +80,14 @@ def save_checkpoint(filepath: Path, file_index: int, counts: Counter):
             tqdm.write(f"      [WARNING: Could not save checkpoint: {e}]")
 
 def load_checkpoint(filepath: Path) -> tuple[int, Counter]:
-    """Loads progress from a pickle file."""
+    """Loads progress from a JSON file."""
     if filepath.exists():
         try:
-            with open(filepath, 'rb') as f:
-                state = pickle.load(f)
+            with open(filepath, 'r', encoding='utf-8') as f:
+                state = json.load(f)
             print(f"--- Checkpoint found at '{filepath}'. Resuming progress. ---")
             last_index = state.get('last_processed_file_index', -1)
-            counts = state.get('lemma_counts', Counter())
+            counts = Counter(state.get('lemma_counts', {}))
             print(f"Resuming from file index {last_index + 1}. Loaded {len(counts)} existing lemma counts.")
             return last_index, counts
         except Exception as e:

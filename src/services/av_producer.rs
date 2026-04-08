@@ -8,6 +8,28 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Validates that a config string is safe to pass as a subprocess argument.
+/// Allows alphanumeric, hyphens, underscores, dots, and forward slashes.
+fn validate_config_arg(value: &str, field_name: &str) -> Result<(), String> {
+    if value.is_empty() {
+        return Err(format!("TTS config field '{}' is empty", field_name));
+    }
+    if !value.chars().all(|c| c.is_alphanumeric() || "-_./ ".contains(c)) {
+        return Err(format!(
+            "TTS config field '{}' contains invalid characters: '{}'. \
+             Only alphanumeric, hyphens, underscores, dots, slashes, and spaces are allowed.",
+            field_name, value
+        ));
+    }
+    if value.starts_with('-') {
+        return Err(format!(
+            "TTS config field '{}' must not start with a hyphen: '{}'",
+            field_name, value
+        ));
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Manifest types
 // ---------------------------------------------------------------------------
@@ -512,6 +534,14 @@ impl AvProducer {
         let python_exe = find_python(project_root);
         validate_python(&python_exe)?;
         let tts = &self.manifest.tts;
+
+        // Validate config-supplied strings before passing as subprocess arguments.
+        validate_config_arg(&tts.service, "tts.service")?;
+        validate_config_arg(&tts.model, "tts.model")?;
+        validate_config_arg(&tts.output_format, "tts.output_format")?;
+        for v in &tts.voices {
+            validate_config_arg(v, "tts.voices")?;
+        }
 
         let mut cmd = Command::new(&python_exe);
         cmd.arg(&script_path)

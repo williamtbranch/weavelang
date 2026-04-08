@@ -63,11 +63,14 @@ def save_upload_record(toml_path: Path, stem: str, video_id: str):
 
 
 def resolve_template(template: str, variables: dict) -> str:
-    """Resolve {variable} placeholders in a template string."""
-    result = template
-    for key, val in variables.items():
-        result = result.replace(f"{{{key}}}", str(val))
-    return result
+    """Resolve {variable} placeholders in a template string (single-pass, no nested expansion)."""
+    import re
+    def _replacer(match):
+        key = match.group(1)
+        if key in variables:
+            return str(variables[key])
+        return match.group(0)  # leave unknown placeholders as-is
+    return re.sub(r"\{(\w+)\}", _replacer, template)
 
 
 def get_client_secret(config: dict) -> dict:

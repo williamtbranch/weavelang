@@ -82,7 +82,7 @@ fn run_relay_loop(
     relay_tx: mpsc::Sender<PendingRelayRequest>,
     config: RelayConfig,
 ) {
-    let addr = format!("0.0.0.0:{}", config.port);
+    let addr = format!("127.0.0.1:{}", config.port);
     let server = match Server::http(&addr) {
         Ok(s) => s,
         Err(e) => {
@@ -187,15 +187,26 @@ fn run_relay_loop(
 
 // ── HTTP Helpers ───────────────────────────────────────────────────────────
 
+/// Standard security headers applied to every response.
+fn security_headers() -> Vec<Header> {
+    vec![
+        Header::from_bytes("Access-Control-Allow-Origin", "http://127.0.0.1").unwrap(),
+        Header::from_bytes("Access-Control-Allow-Methods", "GET, POST").unwrap(),
+        Header::from_bytes("Access-Control-Allow-Headers", "Content-Type").unwrap(),
+        Header::from_bytes("X-Content-Type-Options", "nosniff").unwrap(),
+    ]
+}
+
 fn make_json_response(
     status: u16,
     json_body: &str,
 ) -> Response<std::io::Cursor<Vec<u8>>> {
     let data = json_body.as_bytes().to_vec();
-    let header = Header::from_bytes("Content-Type", "application/json").unwrap();
+    let mut headers = security_headers();
+    headers.push(Header::from_bytes("Content-Type", "application/json").unwrap());
     Response::new(
         StatusCode(status),
-        vec![header],
+        headers,
         std::io::Cursor::new(data.clone()),
         Some(data.len()),
         None,
@@ -207,11 +218,11 @@ fn make_text_response(
     body: &str,
 ) -> Response<std::io::Cursor<Vec<u8>>> {
     let data = body.as_bytes().to_vec();
-    let header =
-        Header::from_bytes("Content-Type", "text/plain; charset=utf-8").unwrap();
+    let mut headers = security_headers();
+    headers.push(Header::from_bytes("Content-Type", "text/plain; charset=utf-8").unwrap());
     Response::new(
         StatusCode(status),
-        vec![header],
+        headers,
         std::io::Cursor::new(data.clone()),
         Some(data.len()),
         None,
