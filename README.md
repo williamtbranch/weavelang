@@ -4,6 +4,8 @@
 
 WeaveLang takes literary source texts and produces graded, bilingual reading material that smoothly transitions a learner from their native language into a target language. Words and phrases are progressively swapped from the base language (e.g. English) to the target language (e.g. Spanish) as the reader's vocabulary grows, so that by the end of a book the reader is comprehending full target-language prose — without ever needing a dictionary.
 
+**See it in action:** the [WeaveLang YouTube channel](https://www.youtube.com/channel/UCSQM9TJ_ol9fIj-VmOhLPlQ) has sample audiovisual content generated entirely by WeaveLang.
+
 ---
 
 ## What Is the Diglot Weave?
@@ -97,7 +99,7 @@ cargo run -- hunt --canonical-json <path> --max-user-levels 50 \
 | Base Language | Target Language | Status |
 |---------------|-----------------|--------|
 | English | Spanish | Supported |
-| English | Japanese | Supported |
+| English | Japanese | Work Started |
 
 New language pairs can be added by defining entries in `assets/languages.toml` and providing prompt overrides in `assets/prompts/<from>-<to>/`.
 
