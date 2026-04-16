@@ -12,6 +12,7 @@ pub mod profile;
 pub mod profile_io;
 pub mod services;
 pub mod simulation;
+pub mod tool_root;
 pub mod types;
 
 pub use config::Config;

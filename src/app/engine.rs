@@ -190,6 +190,17 @@ impl Engine {
         }
     }
 
+    /// Returns the tool root directory (where `assets/` lives).
+    /// Prefers the stored value; falls back to `std::env::current_dir()`.
+    fn tool_root(&self) -> Result<PathBuf, String> {
+        if let Some(ref root) = self.state.tool_root_dir {
+            Ok(root.clone())
+        } else {
+            std::env::current_dir()
+                .map_err(|e| format!("Cannot determine project root (no tool_root_dir set): {e}"))
+        }
+    }
+
     /// Resolve a user-supplied path against the workspace directory.
     /// Absolute paths are returned as-is; relative paths are resolved
     /// relative to `content_project_dir` (the open workspace) and
@@ -2192,7 +2203,7 @@ impl Engine {
                 Ok(format!("Bridge: {}\nLLM: {}\nConfig: {}\nMode: {}\nDocument: {}",
                     bridge_status, llm_status, config_status, mode_info, doc_info))
             }
-            AppCommand::GenerateStage { stage_name, start_index, end_index } => {
+            AppCommand::GenerateStage { stage_name, start_index, end_index, no_followup } => {
                 if self.state.llm.is_none() || self.state.prompts.is_none() || self.state.logger.is_none() {
                     return Err("LLM pipeline services not ready (prompts or logger missing)".to_string());
                 }
@@ -2272,7 +2283,7 @@ impl Engine {
                                 ));
                             }
                             Some(tier) if tier.state != TierState::Valid
-                                && !(is_mapping_stage && (tier.state == TierState::Pending || tier.state == TierState::Broken)) =>
+                                && !(is_mapping_stage && (tier.state == TierState::Pending || tier.state == TierState::Broken || tier.state == TierState::Dirty)) =>
                             {
                                 let state_label = match tier.state {
                                     TierState::Dirty  => "Dirty (unapproved edits)",
@@ -2320,15 +2331,16 @@ impl Engine {
                             // only sees words and cannot map ¿, ?, etc.
                             // Replace punctuation with spaces (not remove) to
                             // preserve word boundaries, e.g. "mundo--que" → "mundo que".
-                            // EXCEPTION: Apostrophes are kept because they are
-                            // integral to contractions (I'm, don't) and
-                            // possessives (Hugson's, Alice's), which the prompt
-                            // requires to be treated as atomic units.
+                            // EXCEPTION: Apostrophes and hyphens are kept
+                            // because apostrophes are integral to contractions
+                            // (I'm, don't) and possessives (Hugson's, Alice's),
+                            // and hyphens are integral to hyphenated words
+                            // (Ep-pe, twenty-one) which must stay atomic.
                             if is_mapping_stage {
                                 source_text = source_text.chars()
                                     .map(|c| {
-                                        if c == '\'' || c == '\u{2019}' {
-                                            c // preserve apostrophes and right single quotes
+                                        if c == '\'' || c == '\u{2019}' || c == '-' {
+                                            c // preserve apostrophes, right single quotes, and hyphens
                                         } else if c.is_ascii_punctuation() || matches!(c, '¿' | '¡' | '«' | '»' | '—' | '…') {
                                             ' '
                                         } else {
@@ -2361,7 +2373,7 @@ impl Engine {
                 //
                 // BasicBase  → follow-up: PhraseMap only
                 // BasicTarget → follow-up: PhraseMap + InversePhraseMap
-                let needs_auto_mapping = matches!(
+                let needs_auto_mapping = !no_followup && matches!(
                     stage_name.as_str(),
                     "GenerateBasicBase" | "GenerateBasicTarget"
                 );
@@ -2559,6 +2571,7 @@ impl Engine {
                     out.push_str(&format!("  prompt_model:              {}\n", m.illustrations.prompt_model));
                     out.push_str(&format!("  image_model:               {}\n", m.illustrations.image_model));
                     out.push_str(&format!("  image_size:                {}\n", m.illustrations.image_size));
+                    out.push_str(&format!("  image_aspect_ratio:        {}\n", m.illustrations.image_aspect_ratio));
                     out.push_str(&format!("  sentences_per_illustration: {}\n", m.illustrations.sentences_per_illustration));
                     out.push_str(&format!("  minimum_count:             {}\n", m.illustrations.minimum_count));
                     Ok(out)
@@ -2612,9 +2625,10 @@ impl Engine {
                         "prompt_model" => ill.prompt_model = value.clone(),
                         "image_model" => ill.image_model = value.clone(),
                         "image_size" => ill.image_size = value.clone(),
+                        "image_aspect_ratio" => ill.image_aspect_ratio = value.clone(),
                         "sentences_per_illustration" => ill.sentences_per_illustration = value.parse().map_err(|_| "Expected a number".to_string())?,
                         "minimum_count" => ill.minimum_count = value.parse().map_err(|_| "Expected a number".to_string())?,
-                        _ => return Err(format!("Unknown illustrations config key: '{}'. Valid keys: style_prefix, prompt_model, image_model, image_size, sentences_per_illustration, minimum_count", key)),
+                        _ => return Err(format!("Unknown illustrations config key: '{}'. Valid keys: style_prefix, prompt_model, image_model, image_size, image_aspect_ratio, sentences_per_illustration, minimum_count", key)),
                     }
                     producer.manifest.save(&producer.book_dir)?;
                     Ok(format!("Illustrations config '{}' set to '{}'", key, value))
@@ -2648,8 +2662,7 @@ impl Engine {
 
                 let book_dir = self.resolve_av_book_dir()?;
                 let producer = crate::services::av_producer::AvProducer::new(book_dir)?;
-                let project_root = std::env::current_dir()
-                    .map_err(|e| format!("Cannot determine project root: {}", e))?;
+                let project_root = self.tool_root()?;
                 let api_key = crate::services::secrets::get_google_key()?;
                 if api_key.trim().is_empty() {
                     return Err("Google API key is empty. Set a valid key:\n  → set key google AIza...".to_string());
@@ -2719,8 +2732,7 @@ impl Engine {
 
                 let book_dir = self.resolve_av_book_dir()?;
                 let producer = crate::services::av_producer::AvProducer::new(book_dir)?;
-                let project_root = std::env::current_dir()
-                    .map_err(|e| format!("Cannot determine project root: {}", e))?;
+                let project_root = self.tool_root()?;
 
                 if producer.count_illustrations() == 0 {
                     return Err(format!(
@@ -2803,6 +2815,48 @@ impl Engine {
                 self.state.av_job = Some(job_state);
                 Ok(format!("Started: {} (pid {}). Use 'av cancel' to stop.", label, pid))
             }
+            AppCommand::AvGenerateCharacters => {
+                // Reject if a job is already running
+                if let Some(ref job) = self.state.av_job {
+                    let j = job.lock().unwrap();
+                    if !j.finished {
+                        return Err(format!("AV job already running: {}. Use 'av cancel' to stop it.", j.label));
+                    }
+                }
+
+                let book_dir = self.resolve_av_book_dir()?;
+                let producer = crate::services::av_producer::AvProducer::new(book_dir)?;
+                let project_root = self.tool_root()?;
+                let api_key = crate::services::secrets::get_google_key()?;
+                if api_key.trim().is_empty() {
+                    return Err("Google API key is empty. Set a valid key:\n  → set key google AIza...".to_string());
+                }
+
+                let book_name = self.state.book_name.clone();
+
+                let child = producer.spawn_extract_characters(&book_name, &project_root, &api_key)?;
+                let pid = child.id();
+                let label = "Extracting character bible".to_string();
+
+                let job_state = std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::app::state::AvJobState {
+                        output_lines: vec![format!("--- {} ---", label)],
+                        cancel_requested: false,
+                        finished: false,
+                        result_message: None,
+                        child_pid: Some(pid),
+                        label: label.clone(),
+                    },
+                ));
+
+                let job_clone = job_state.clone();
+                std::thread::spawn(move || {
+                    av_job_reader(child, job_clone);
+                });
+
+                self.state.av_job = Some(job_state);
+                Ok(format!("Started: {} (pid {}). Use 'av cancel' to stop.", label, pid))
+            }
             AppCommand::AvGeneratePrompts => {
                 // Reject if a job is already running
                 if let Some(ref job) = self.state.av_job {
@@ -2814,8 +2868,7 @@ impl Engine {
 
                 let book_dir = self.resolve_av_book_dir()?;
                 let producer = crate::services::av_producer::AvProducer::new(book_dir)?;
-                let project_root = std::env::current_dir()
-                    .map_err(|e| format!("Cannot determine project root: {}", e))?;
+                let project_root = self.tool_root()?;
                 let api_key = crate::services::secrets::get_google_key()?;
                 if api_key.trim().is_empty() {
                     return Err("Google API key is empty. Set a valid key:\n  → set key google AIza...".to_string());
@@ -2857,8 +2910,7 @@ impl Engine {
 
                 let book_dir = self.resolve_av_book_dir()?;
                 let producer = crate::services::av_producer::AvProducer::new(book_dir)?;
-                let project_root = std::env::current_dir()
-                    .map_err(|e| format!("Cannot determine project root: {}", e))?;
+                let project_root = self.tool_root()?;
                 let api_key = crate::services::secrets::get_google_key()?;
                 if api_key.trim().is_empty() {
                     return Err("Google API key is empty. Set a valid key:\n  → set key google AIza...".to_string());
@@ -3012,8 +3064,7 @@ impl Engine {
             AppCommand::AvRebuildAudio { stem } => {
                 let book_dir = self.resolve_av_book_dir()?;
                 let producer = crate::services::av_producer::AvProducer::new(book_dir)?;
-                let project_root = std::env::current_dir()
-                    .map_err(|e| format!("Cannot determine project root: {}", e))?;
+                let project_root = self.tool_root()?;
                 producer.rebuild_audio(&stem, &project_root, self.state.document.len() as u32)
             }
 
@@ -3035,8 +3086,7 @@ impl Engine {
 
                 let book_dir = self.resolve_av_book_dir()?;
                 let _producer = crate::services::av_producer::AvProducer::new(book_dir)?;
-                let project_root = std::env::current_dir()
-                    .map_err(|e| format!("Cannot determine project root: {}", e))?;
+                let project_root = self.tool_root()?;
 
                 let child = _producer.spawn_youtube_auth(
                     &project_root,
@@ -3125,8 +3175,7 @@ impl Engine {
 
                 let book_dir = self.resolve_av_book_dir()?;
                 let producer = crate::services::av_producer::AvProducer::new(book_dir.clone())?;
-                let project_root = std::env::current_dir()
-                    .map_err(|e| format!("Cannot determine project root: {}", e))?;
+                let project_root = self.tool_root()?;
                 let yt = crate::services::av_producer::YouTubeConfig::load(&book_dir)?
                     .ok_or("No _youtube.toml found. Run 'av youtube init' first.")?;
 
@@ -3275,7 +3324,7 @@ impl Engine {
             let ch_dir_name = Self::sanitize_name(&ch.name);
             book_dir.join(ch_dir_name)
         } else {
-            book_dir
+            book_dir.join("whole_book")
         };
 
         if !target_dir.exists() {
@@ -3840,15 +3889,11 @@ impl Engine {
             let ch_dir = book_dir.join(&ch_dir_name);
             (ch_dir, Some(ch_dir_name))
         } else {
-            (book_dir.clone(), None)
+            (book_dir.join("whole_book"), None)
         };
 
-        // For chapter mode, put tts files in tts_files/ subdirectory
-        let tts_dir = if chapter_range.is_some() {
-            weave_dir.join("tts_files")
-        } else {
-            weave_dir.clone()
-        };
+        // Put tts files in tts_files/ subdirectory (both chapter and whole-book modes)
+        let tts_dir = weave_dir.join("tts_files");
 
         if !tts_dir.exists() {
             fs::create_dir_all(&tts_dir)

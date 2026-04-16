@@ -48,6 +48,27 @@ REMAINING / OPEN
   Regular workflow should use focused terminal commands. API dumps are for export/analysis only.
 - Always document UTF-8 requirement in copilot.ps1 header and future test scripts.
 - GUI font missing Unicode glyphs — ✓ ✗ and similar symbols render as boxes in egui terminal.
+
+DEPLOYABILITY — Decouple from dev workspace (2026-04)
+═════════════════════════════════════════════════════
+✔ Centralized tool_root resolution (src/tool_root.rs) — CLI --tool-root flag,
+  WEAVELANG_ROOT env var, exe parent dir, cwd fallback.
+✔ Threaded tool_root_dir through main.rs, cli/main.rs, engine.rs, AppState, WeaveLangApp.
+✔ Eliminated all std::env::current_dir() calls from runtime code (except fallback in tool_root()).
+- Fix hardcoded E:\Bill\... paths in PowerShell scripts:
+    - run_corpus_gen.ps1 (line ~30: ContentProjectPath)
+    - run_avd_hunter.ps1 (line ~47: ContentProjectPath)
+    - run_l_level_calibrator.ps1 (line ~51: ContentProjectPath)
+    - b2a.ps1 (line ~7: ToolRootPath, line ~108: BaseAudioDir)
+  → Replace with $PSScriptRoot-based or config.toml lookup.
+- Fix hardcoded path in analyze_cap_level.py (line ~24: DEFAULT_FREQ_LIST)
+  → Use tool_root_dir / "assets" / "frequency_lists" / ... pattern.
+- Update src/bin/level_analyzer.rs — const FILE_PATH uses relative "assets/..."
+  string; should use tool_root resolution.
+- Create install script that copies binary + assets/ + config.toml.example
+  to a target directory and works without the dev workspace.
+- Add CONTRIBUTING.md with build instructions, project structure, and how to
+  pick up issues.
   Either bundle a font with full Unicode coverage (e.g. Noto Sans) or use ASCII fallbacks.
 
 COPILOT AGENT — Runaway Prevention (deferred until after initial testing)
@@ -150,6 +171,57 @@ Phase C — GUI
   [ ] Illustration count + prompt count shown in Media tab summary bar
   [ ] "Gen Prompts" / "Gen Illustrations" buttons per row (follows audio/video pattern)
   [ ] Prompt preview/edit panel (optional, lower priority)
+
+SYNCHRONIZED ILLUSTRATIONS — Sentence-Aware AV Pipeline (2026-04)
+═════════════════════════════════════════════════════════════════
+Goal: Connect illustrations to audio via sentence numbers so that video
+playback shows the correct image for the text being spoken, instead of
+cycling images on a fixed timer.
+
+Phase 0 — whole_book directory commitment
+  [ ] AvProducer stem resolution: whole-book stems resolve from whole_book/
+      (tts_files/, audio/, video/, illustrations/) not book root.
+  [ ] Engine: weave_out files, analysis.txt, etc. for whole-book mode go
+      into whole_book/, not book root.
+  [ ] Chapter mode unchanged — stems resolve from Chapter_N/ as today.
+  [ ] Migrate existing whole-book files in resolve_text_file() to check
+      whole_book/tts_files/ first, then fall back to book root for compat.
+
+Phase 1 — Chunk sentence metadata (book_to_audio.py)
+  [ ] chunk_text() now returns list of (chunk_text, start_sentence, end_sentence)
+      tuples. Sentence numbering is 1-based, derived from double-newline
+      paragraph boundaries (each paragraph = 1 woven sentence).
+  [ ] Write _chunk_map.json alongside _metadata.json in chunks dir:
+      { "chunks": [ {"index": 0, "start_sentence": 1, "end_sentence": 12}, ... ] }
+  [ ] TTS path unchanged — reads from temp_chunk_NNNN.txt files, ignores JSON.
+
+Phase 2 — Illustration sentence mapping (generate_illustration_prompts.py)
+  [ ] Save _illustration_map.json to the same output directory as illustrations:
+      { "illustrations": [
+          {"index": 1, "file": "001.png", "start_sentence": 1, "end_sentence": 100},
+          {"index": 2, "file": "002.png", "start_sentence": 101, "end_sentence": 200},
+          ...
+      ]}
+  [ ] Include book name in LLM prompt for illustration generation so the model
+      has context about which literary work the text fragment comes from.
+      (Book name is already in the stem / filename — extract and pass to prompt.)
+
+Phase 3 — Duration-aware video creation (create_video.py)
+  [ ] Read _chunk_map.json (chunk index → sentence range).
+  [ ] Read _illustration_map.json (image file → sentence range).
+  [ ] For each chunk .wav, get duration via pydub (already a dependency).
+  [ ] Join: for each illustration, sum durations of all chunks whose sentences
+      fall within (or majority-overlap) that illustration's sentence range.
+  [ ] Build FFmpeg concat manifest with variable per-image durations instead
+      of the current fixed image_duration cycling.
+  [ ] Fallback: if mapping files are missing, fall back to current fixed-timer
+      cycling (backwards compatible).
+
+Boundary-crossing rule:
+  When a chunk spans two illustration ranges (e.g. sentences 95-105 crossing
+  the 100/101 boundary), assign the chunk's full duration to whichever image
+  owns the majority of the chunk's sentences. The slight mismatch (~1 sentence)
+  is unnoticeable in practice.
 
 YOUTUBE UPLOAD AUTOMATION
 ═══════════════════════════════════

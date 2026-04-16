@@ -74,6 +74,7 @@ DEFAULT_RETRY_DELAY = 15
 DEFAULT_OUTPUT_AUDIO_FORMAT = "wav"
 TEMP_DIR_NAME = "_tts_temp_chunks"
 METADATA_FILENAME = "_metadata.json"
+CHUNK_MAP_FILENAME = "_chunk_map.json"
 REQUEST_TIMEOUT_SECONDS = 500
 PCM_CHANNELS = 1
 PCM_FRAME_RATE = 24000
@@ -178,23 +179,47 @@ def convert_to_wav(audio_data: bytes, mime_type: str) -> bytes:
     return header + audio_data
 
 
-def chunk_text(full_text: str, max_chars: int) -> list[str]:
-    chunks = []; current_pos = 0; text_len = len(full_text)
-    while current_pos < text_len:
-        end_pos = min(current_pos + max_chars, text_len); chunk = full_text[current_pos:end_pos]
-        if end_pos < text_len:
-            para_break = chunk.rfind('\n\n')
-            if para_break != -1 and para_break > max_chars // 3 : chunk = chunk[:para_break + 2]; end_pos = current_pos + len(chunk)
-            else:
-                sentence_break = -1
-                for sb_marker in ['. ', '! ', '? ', '." ', '!" ', '?" ','.\n', '!\n', '?\n']:
-                    s_idx = chunk.rfind(sb_marker)
-                    if s_idx != -1: potential_break = s_idx + len(sb_marker);
-                    if potential_break > sentence_break: sentence_break = potential_break
-                if sentence_break != -1 and sentence_break > max_chars // 3: chunk = chunk[:sentence_break]; end_pos = current_pos + len(chunk)
-        final_chunk = chunk.strip()
-        if final_chunk: chunks.append(final_chunk)
-        current_pos = end_pos
+def chunk_text(full_text: str, max_chars: int) -> list[tuple[str, int, int]]:
+    """Split text into chunks, using double-newline paragraph boundaries.
+
+    The woven text files use double newlines to separate sentences/paragraphs.
+    We split on those boundaries first, clean each paragraph (collapse internal
+    newlines to spaces), then pack whole paragraphs into chunks up to max_chars.
+    A single paragraph that exceeds max_chars is emitted as its own chunk
+    (the TTS API can handle moderately oversized text).
+
+    Returns a list of (chunk_text, start_sentence, end_sentence) tuples.
+    Sentence numbering is 1-based, where each paragraph = one woven sentence.
+    """
+    # 1. Split into paragraphs on double-newline boundaries
+    raw_paragraphs = re.split(r'\n{2,}', full_text)
+
+    # 2. Clean each paragraph: collapse internal newlines/whitespace to single spaces
+    paragraphs = []
+    for p in raw_paragraphs:
+        cleaned = ' '.join(p.split())  # collapse all whitespace runs to single space
+        if cleaned:
+            paragraphs.append(cleaned)
+
+    # 3. Pack paragraphs into chunks, respecting max_chars, tracking sentence numbers
+    chunks: list[tuple[str, int, int]] = []
+    current_parts: list[str] = []
+    current_len = 0
+    chunk_start_sentence = 1  # 1-based
+    for i, para in enumerate(paragraphs):
+        sentence_num = i + 1  # 1-based
+        para_len = len(para)
+        # If adding this paragraph would exceed max_chars, flush current chunk
+        if current_parts and current_len + para_len + 1 > max_chars:
+            chunks.append((' '.join(current_parts), chunk_start_sentence, sentence_num - 1))
+            current_parts = []
+            current_len = 0
+            chunk_start_sentence = sentence_num
+        current_parts.append(para)
+        current_len += para_len + 1  # +1 for the joining space
+    if current_parts:
+        chunks.append((' '.join(current_parts), chunk_start_sentence, len(paragraphs)))
+
     return chunks
 
 # --- START: MODIFIED FUNCTION (Smart Quota Handling & Multiple Voices) ---
@@ -454,7 +479,8 @@ async def process_book_to_audio_async(
     client: Any,
     output_file_path: Path,
     args: argparse.Namespace,
-    effective_args: argparse.Namespace
+    effective_args: argparse.Namespace,
+    sentence_ranges: list[tuple[int, int]] | None = None
 ):
     semaphore = asyncio.Semaphore(effective_args.concurrent_requests)
     if args.chunks_dir:
@@ -546,6 +572,15 @@ async def process_book_to_audio_async(
         with open(metadata_file_path, 'w') as mf: json.dump(metadata_to_save, mf, indent=4)
         for i, text_content in enumerate(text_chunks_from_file):
             tasks_to_generate.append((i, text_content, ""))
+
+    # Save chunk-to-sentence mapping for illustration synchronization.
+    # Written in all modes (normal, repair, chunks-dir) so the map is always
+    # available for video creation, even after a repair run.
+    if sentence_ranges:
+        chunk_map = {"chunks": [{"index": i, "start_sentence": sr[0], "end_sentence": sr[1]} for i, sr in enumerate(sentence_ranges)]}
+        chunk_map_path = temp_chunk_dir / CHUNK_MAP_FILENAME
+        with open(chunk_map_path, 'w') as cm: json.dump(chunk_map, cm, indent=4)
+        logging.info(f"Chunk-to-sentence map saved: {chunk_map_path}")
 
     if tasks_to_generate:
         logging.info(f"Preparing {len(tasks_to_generate)} chunks for API calls.")
@@ -794,28 +829,19 @@ async def main_async():
         logging.info("Interleave mode: preserving double-newline spacing for TTS.")
         full_text = raw_text.strip()
     else:
-        # Replace any sequence of two or more newlines with a single newline.
-        text_with_single_breaks = re.sub(r'\n{2,}', '\n', raw_text)
-        # Heuristic: For lines that do NOT end in punctuation, the single newline
-        # provides a good pause. For lines that DO, the newline can create an
-        # unnaturally long pause -- replace with a space in those cases.
-        final_text_parts = []
-        for line in text_with_single_breaks.splitlines():
-            stripped_line = line.strip()
-            if stripped_line:
-                if stripped_line.endswith(('.', '!', '?', '"', '”')):
-                    final_text_parts.append(stripped_line)
-                else:
-                    final_text_parts.append(stripped_line + '<PAUSE>')
-        full_text = ' '.join(final_text_parts).replace('<PAUSE>', '\n')
+        # Paragraph-aware chunking: chunk_text splits on double newlines
+        # and cleans each paragraph internally, so pass raw text through.
+        full_text = raw_text.strip()
 
     effective_args = argparse.Namespace(**vars(args))
-    text_chunks = chunk_text(full_text, effective_args.chunk_max_chars)
+    chunk_data = chunk_text(full_text, effective_args.chunk_max_chars)
+    text_chunks = [c[0] for c in chunk_data]
+    sentence_ranges = [(c[1], c[2]) for c in chunk_data]
     start_time = time.time()
     
     # --- NEW: Graceful exit for quota errors ---
     try:
-        await process_book_to_audio_async(text_chunks, client, output_audio_file_path, args, effective_args)
+        await process_book_to_audio_async(text_chunks, client, output_audio_file_path, args, effective_args, sentence_ranges)
     except QuotaExhaustedError:
         logging.info("Process stopped gracefully due to API quota exhaustion. You can resume tomorrow by re-running in --repair-mode.")
         sys.exit(0) # Exit with success code, as this is an expected stop condition.

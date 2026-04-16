@@ -37,10 +37,11 @@ DEFAULT_SENTENCES_PER_ILLUSTRATION = 50
 DEFAULT_MINIMUM_COUNT = 3
 DEFAULT_STYLE = "fairy tale watercolor, storybook illustration, warm lighting"
 DEFAULT_MODEL = "gemini-2.5-flash"
+ILLUSTRATION_MAP_FILENAME = "_illustration_map.json"
 
 SYSTEM_PROMPT = """\
 You are an illustration director for a storybook. Given a segment of story text,
-generate a single image prompt suitable for an AI image generator (Google Imagen).
+generate a single image prompt suitable for an AI image generator.
 
 Rules:
 - Describe a SINGLE scene that captures the key visual moment of the segment.
@@ -49,8 +50,14 @@ Rules:
 - Do NOT reference panel layouts or multiple scenes.
 - Keep the prompt to 2-4 sentences.
 - Focus on visual details that would make a compelling illustration.
-- Maintain consistency: refer to characters by description (e.g. "the young man
-  with brown hair") rather than by name alone.
+- When characters from the CHARACTER BIBLE appear in the scene, ALWAYS use their
+  name AND a brief visual reminder (e.g. "Dorothy, the freckled girl in a blue
+  gingham dress"). This ensures the image generator maintains consistency.
+- Adapt character descriptions to the scene context — if a character has been
+  muddied, disguised, injured, or transformed in the current passage, mention
+  that modification explicitly.
+- Only include characters who are PRESENT in the segment. Do not inject
+  characters who are absent from this part of the story.
 
 Respond with ONLY the image prompt text, nothing else."""
 
@@ -130,16 +137,67 @@ def load_manifest_illustration_config(manifest_path: Path) -> dict:
     return data.get("illustrations", {})
 
 
+def load_characters(characters_path: Path) -> list[dict]:
+    """Load character bible from a _characters.toml file."""
+    if not characters_path.exists():
+        return []
+    with open(characters_path, "rb") as f:
+        data = tomllib.load(f)
+    return data.get("character", [])
+
+
+def format_character_bible(characters: list[dict]) -> str:
+    """Format the character list into a text block for the LLM prompt."""
+    if not characters:
+        return ""
+    lines = ["CHARACTER BIBLE (use these descriptions for visual consistency):"]
+    for ch in characters:
+        name = ch.get("name", "Unknown")
+        desc = ch.get("description", "")
+        aliases = ch.get("aliases", [])
+        alias_str = f' (also referred to as: {", ".join(aliases)})' if aliases else ""
+        lines.append(f"- {name}{alias_str}: {desc}")
+    return "\n".join(lines)
+
+
+def build_scene_context(paragraphs: list[str], seg_start: int, seg_end: int,
+                        context_radius: int = 25) -> str:
+    """Return ~50 sentences of surrounding context (25 before + 25 after the segment)."""
+    before_start = max(0, seg_start - context_radius)
+    after_end = min(len(paragraphs), seg_end + context_radius)
+    before = paragraphs[before_start:seg_start]
+    after = paragraphs[seg_end:after_end]
+    parts = []
+    if before:
+        parts.append("[PRECEDING CONTEXT]\n" + "\n".join(before))
+    if after:
+        parts.append("[FOLLOWING CONTEXT]\n" + "\n".join(after))
+    return "\n\n".join(parts)
+
+
 def generate_prompt_with_gemini(
-    genai_module, model_name: str, segment_text: str, style_prefix: str, index: int, total: int
+    genai_module, model_name: str, segment_text: str, style_prefix: str,
+    index: int, total: int, book_title: str = "",
+    character_bible: str = "", scene_context: str = ""
 ) -> str:
     """Call Gemini to generate an illustration prompt for a text segment."""
-    user_msg = (
-        f"Style direction: {style_prefix}\n\n"
-        f"This is segment {index + 1} of {total} from the story. "
+    book_context = f' from "{book_title}"' if book_title else ""
+
+    parts = [f"Style direction: {style_prefix}\n"]
+    if character_bible:
+        parts.append(character_bible + "\n")
+    parts.append(
+        f"This is segment {index + 1} of {total}{book_context}.\n"
         f"Generate an image prompt for this passage:\n\n"
         f"{segment_text}"
     )
+    if scene_context:
+        parts.append(
+            "\n[SURROUNDING STORY CONTEXT — use this to understand the scene "
+            "but generate a prompt ONLY for the passage above]\n" + scene_context
+        )
+
+    user_msg = "\n".join(parts)
 
     model = genai_module.GenerativeModel(model_name)
     response = model.generate_content(
@@ -211,6 +269,10 @@ def main():
         "--output", type=Path, default=None,
         help="Output path for _prompts.toml (default: <chapter>/illustrations/_prompts.toml)"
     )
+    parser.add_argument(
+        "--characters", type=Path, default=None,
+        help="Path to _characters.toml (default: auto-detect in illustrations dir)"
+    )
     parser.add_argument("--dry-run", action="store_true", help="Show segments without calling LLM")
     args = parser.parse_args()
 
@@ -266,6 +328,20 @@ def main():
     print(f"Model: {model_name}")
     print()
 
+    # --- Load character bible ---
+    characters_path = args.characters
+    if not characters_path:
+        # Auto-detect: look in the illustrations dir
+        illustrations_dir = args.tts_dir.parent / "illustrations"
+        characters_path = illustrations_dir / "_characters.toml"
+    characters = load_characters(characters_path)
+    character_bible = format_character_bible(characters)
+    if characters:
+        print(f"Character bible: {len(characters)} characters loaded from {characters_path}")
+    else:
+        print("No character bible found — prompts will use generic descriptions.")
+    print()
+
     # --- Segment text ---
     segments = segment_text_for_illustrations(story_paragraphs, count)
 
@@ -273,6 +349,8 @@ def main():
         for i, seg in enumerate(segments):
             preview = seg[:200] + "..." if len(seg) > 200 else seg
             print(f"  [{i + 1}/{count}] ({len(seg)} chars): {preview}")
+        if character_bible:
+            print(f"\nCharacter bible:\n{character_bible}")
         print("\nDry run complete. No LLM calls made.")
         return
 
@@ -284,18 +362,23 @@ def main():
     prompts = []
     seg_size = len(story_paragraphs) / count
     for i, segment in enumerate(segments):
-        p_start = int(i * seg_size) + 1  # 1-based
+        p_start = int(i * seg_size)      # 0-based index into story_paragraphs
         p_end = int((i + 1) * seg_size)
-        print(f"  [{i + 1}/{count}] Generating prompt for paragraphs {p_start}-{p_end}...")
+        # Derive a human-readable book title from the chapter name
+        book_title = args.chapter_name.replace("_", " ")
+        # Build surrounding scene context (~50 sentences)
+        scene_context = build_scene_context(story_paragraphs, p_start, p_end)
+        print(f"  [{i + 1}/{count}] Generating prompt for paragraphs {p_start + 1}-{p_end}...")
         prompt_text = generate_prompt_with_gemini(
-            genai, model_name, segment, style, i, count
+            genai, model_name, segment, style, i, count, book_title,
+            character_bible=character_bible, scene_context=scene_context,
         )
         print(f"    -> {prompt_text[:100]}...")
         prompts.append({
             "index": i + 1,
             "text": prompt_text,
             "style": style,
-            "paragraph_start": p_start,
+            "paragraph_start": p_start + 1,  # 1-based for display
             "paragraph_end": p_end,
         })
 
@@ -308,6 +391,24 @@ def main():
     output_path.parent.mkdir(parents=True, exist_ok=True)
     save_prompts_toml(prompts, output_path)
     print(f"\nSaved {len(prompts)} prompts to: {output_path}")
+
+    # --- Save _illustration_map.json for video synchronization ---
+    illustration_map = {
+        "illustrations": [
+            {
+                "index": p["index"],
+                "file": f"{p['index']:03d}.png",
+                "start_sentence": p["paragraph_start"],
+                "end_sentence": p["paragraph_end"],
+            }
+            for p in prompts
+        ]
+    }
+    map_path = output_path.parent / ILLUSTRATION_MAP_FILENAME
+    import json
+    with open(map_path, "w") as f:
+        json.dump(illustration_map, f, indent=4)
+    print(f"Saved illustration map to: {map_path}")
 
 
 if __name__ == "__main__":

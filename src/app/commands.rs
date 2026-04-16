@@ -20,7 +20,7 @@ pub enum AppCommand {
     // Generation (LLM)
     GenerateTier { sentence_id: Option<String>, index: Option<usize>, tier_id: String },
     GenerateMapping { sentence_id: Option<String>, index: Option<usize>, source_tier: String, target_tier: String },
-    GenerateStage { stage_name: String, start_index: usize, end_index: usize },
+    GenerateStage { stage_name: String, start_index: usize, end_index: usize, no_followup: bool },
     CheckStatus,
     ConfigSet { key: String, value: String },
     ConfigList,
@@ -126,6 +126,7 @@ pub enum AppCommand {
     AvClearMarks,
     AvGenerateAudio { target: AvTarget },
     AvGenerateVideo { target: AvTarget },
+    AvGenerateCharacters,
     AvGeneratePrompts,
     AvGenerateIllustrations,
     AvConfigShow,

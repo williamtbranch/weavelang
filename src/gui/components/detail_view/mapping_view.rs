@@ -23,6 +23,8 @@ pub fn render(ui: &mut egui::Ui, mode: DetailView, state: &mut AppState) {
     let mut pending_generate = false;
 
     // 3. Mutable Interaction (Generate Button)
+    let mut pending_regenerate_sentence = false;
+
     if let Some(sentence_mut) = state.get_current_sentence_mut() {
         let _s_id = sentence_mut.id.clone();
         let source_text = sentence_mut
@@ -34,13 +36,22 @@ pub fn render(ui: &mut egui::Ui, mode: DetailView, state: &mut AppState) {
         let tiers_exist = !source_text.is_empty();
 
         if tiers_exist {
-            if ui
-                .button("🧠 Generate Mapping")
-                .on_hover_text("Sends source tier to LLM")
-                .clicked()
-            {
-                pending_generate = true;
-            }
+            ui.horizontal(|ui| {
+                if ui
+                    .button("🧠 Generate Mapping")
+                    .on_hover_text("Sends source tier text to LLM for a new mapping")
+                    .clicked()
+                {
+                    pending_generate = true;
+                }
+                if ui
+                    .button("🔄 Regenerate Sentence")
+                    .on_hover_text("Regenerates the source tier sentence text from upstream, then requires a new mapping")
+                    .clicked()
+                {
+                    pending_regenerate_sentence = true;
+                }
+            });
         } else {
             ui.colored_label(egui::Color32::RED, "Source Tier missing.");
         }
@@ -51,6 +62,18 @@ pub fn render(ui: &mut egui::Ui, mode: DetailView, state: &mut AppState) {
         let stage_name = match mode {
             DetailView::MappingDiglot  => "GeneratePhraseMap",
             DetailView::MappingInverse => "GenerateInversePhraseMap",
+            _                          => return,
+        };
+        state.pending_terminal_command = Some(format!(
+            "run generate {} {} {}",
+            stage_name, cur_selected_idx, cur_selected_idx
+        ));
+    }
+
+    if pending_regenerate_sentence {
+        let stage_name = match mode {
+            DetailView::MappingDiglot  => "GenerateBasicBase",
+            DetailView::MappingInverse => "GenerateBasicTarget",
             _                          => return,
         };
         state.pending_terminal_command = Some(format!(

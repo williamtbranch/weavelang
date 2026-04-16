@@ -7,6 +7,8 @@ use weavelang_rust_gui::services::llm_client::LlmService;
 use weavelang_rust_gui::services::prompt_manager::PromptManager;
 use weavelang_rust_gui::services::llm_logger::LlmLogger;
 use weavelang_rust_gui::simulation::frequency_manager;
+use weavelang_rust_gui::tool_root;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
@@ -332,59 +334,66 @@ fn init_state_with_services() -> AppState {
 fn init_state_with_services_opt(test_mode_dir: Option<&str>) -> AppState {
     let mut state = AppState::default();
 
-    if let Ok(cwd) = std::env::current_dir() {
-        // Load frequency list
-        let freq_list_path = cwd.join("assets/frequency_lists/es_master_frequency_list.txt");
-        if freq_list_path.exists() {
-            if let Err(e) = frequency_manager::load_master_frequency_list(&freq_list_path) {
-                eprintln!("[WARN] Failed to load frequency list: {}", e);
-            }
-        } else {
-            eprintln!("[WARN] Frequency list not found at {:?}", freq_list_path);
+    let tool_root_dir = match tool_root::resolve_tool_root(None) {
+        Ok(root) => root,
+        Err(e) => {
+            eprintln!("[ERROR] {e}");
+            return state;
         }
+    };
 
-        match BridgeService::new(cwd.clone()) {
-            Ok(b) => {
-                eprintln!("[INFO] Python Bridge initialized.");
-                state.bridge = Some(b);
-            }
-            Err(e) => eprintln!("[WARN] Bridge Error: {}", e),
+    // Load frequency list
+    let freq_list_path = tool_root_dir.join("assets/frequency_lists/es_master_frequency_list.txt");
+    if freq_list_path.exists() {
+        if let Err(e) = frequency_manager::load_master_frequency_list(&freq_list_path) {
+            eprintln!("[WARN] Failed to load frequency list: {}", e);
         }
+    } else {
+        eprintln!("[WARN] Frequency list not found at {:?}", freq_list_path);
+    }
 
-        // LLM Service: use MockLlmProvider in test mode, RealLlmProvider otherwise
-        if let Some(test_dir) = test_mode_dir {
-            let responses_dir = std::path::PathBuf::from(test_dir).join("LLM_responses");
-            let mock = weavelang_rust_gui::services::mock_llm::MockLlmProvider::new(responses_dir);
-            let svc = LlmService::from_provider(Box::new(mock));
-            eprintln!("[INFO] LLM Service initialized (TEST MODE: {:?})", test_dir);
-            state.llm = Some(svc);
-        } else {
-            // Load config first so we can use model definitions for routing
-            let config_path = cwd.join("config.toml");
-            let cfg = weavelang_rust_gui::config::load_config_from_file(config_path.to_str().unwrap_or("config.toml")).ok();
-            let models = cfg.as_ref().map(|c| c.models.clone()).unwrap_or_default();
-            let thinking_budget = cfg.as_ref().and_then(|c| c.pipeline.thinking_budget_tokens);
-            let s = LlmService::new_routing_with_thinking(Some(cwd.clone()), models, thinking_budget);
-            eprintln!("[INFO] LLM Service initialized (multi-provider routing, thinking_budget: {:?}).", thinking_budget);
-            state.llm = Some(s);
+    match BridgeService::new(tool_root_dir.clone()) {
+        Ok(b) => {
+            eprintln!("[INFO] Python Bridge initialized.");
+            state.bridge = Some(b);
         }
+        Err(e) => eprintln!("[WARN] Bridge Error: {}", e),
+    }
 
-        state.prompts = Some(PromptManager::new(cwd.clone()));
-        state.logger = Some(LlmLogger::new(cwd.clone()));
-        
-        // Load Config
-        let config_path = cwd.join("config.toml");
-        match weavelang_rust_gui::config::load_config_from_file(config_path.to_str().unwrap_or("config.toml")) {
-            Ok(cfg) => {
-                 eprintln!("[INFO] Config loaded.");
-                 // Sync model config to the routing provider
-                 if let Some(llm) = &state.llm {
-                     llm.update_models(cfg.models.clone());
-                 }
-                 state.config = Some(cfg);
-            }
-            Err(e) => eprintln!("[WARN] Config Load Error: {}", e),
+    // LLM Service: use MockLlmProvider in test mode, RealLlmProvider otherwise
+    if let Some(test_dir) = test_mode_dir {
+        let responses_dir = PathBuf::from(test_dir).join("LLM_responses");
+        let mock = weavelang_rust_gui::services::mock_llm::MockLlmProvider::new(responses_dir);
+        let svc = LlmService::from_provider(Box::new(mock));
+        eprintln!("[INFO] LLM Service initialized (TEST MODE: {:?})", test_dir);
+        state.llm = Some(svc);
+    } else {
+        // Load config first so we can use model definitions for routing
+        let config_path = tool_root_dir.join("config.toml");
+        let cfg = weavelang_rust_gui::config::load_config_from_file(config_path.to_str().unwrap_or("config.toml")).ok();
+        let models = cfg.as_ref().map(|c| c.models.clone()).unwrap_or_default();
+        let thinking_budget = cfg.as_ref().and_then(|c| c.pipeline.thinking_budget_tokens);
+        let s = LlmService::new_routing_with_thinking(Some(tool_root_dir.clone()), models, thinking_budget);
+        eprintln!("[INFO] LLM Service initialized (multi-provider routing, thinking_budget: {:?}).", thinking_budget);
+        state.llm = Some(s);
+    }
+
+    state.tool_root_dir = Some(tool_root_dir.clone());
+    state.prompts = Some(PromptManager::new(tool_root_dir.clone()));
+    state.logger = Some(LlmLogger::new(tool_root_dir.clone()));
+
+    // Load Config
+    let config_path = tool_root_dir.join("config.toml");
+    match weavelang_rust_gui::config::load_config_from_file(config_path.to_str().unwrap_or("config.toml")) {
+        Ok(cfg) => {
+             eprintln!("[INFO] Config loaded.");
+             // Sync model config to the routing provider
+             if let Some(llm) = &state.llm {
+                 llm.update_models(cfg.models.clone());
+             }
+             state.config = Some(cfg);
         }
+        Err(e) => eprintln!("[WARN] Config Load Error: {}", e),
     }
 
     state

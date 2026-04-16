@@ -438,11 +438,18 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
                     .color(egui::Color32::BLACK),
             );
 
-            // "Generate Mapping" button below the sentence label
+            // "Generate Mapping" and "Regenerate Sentence" buttons below the sentence label
             if parent_tier_id.is_some() && prompt_name.is_some() {
-                if ui.button("🧠 Generate Mapping").clicked() {
-                    pending_action = Some("GenerateMapping");
-                }
+                ui.horizontal(|ui| {
+                    if ui.button("🧠 Generate Mapping").clicked() {
+                        pending_action = Some("GenerateMapping");
+                    }
+                    if ui.button("🔄 Regenerate Sentence").on_hover_text(
+                        "Regenerates the sentence text from upstream, then requires a new mapping"
+                    ).clicked() {
+                        pending_action = Some("Regenerate");
+                    }
+                });
             }
             ui.add_space(4.0);
 
@@ -634,8 +641,12 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
             // Dispatch first command
             if let Some(cmd) = map_commands.into_iter().next() {
                 state.pending_terminal_command = Some(cmd);
-                // Clear ALL mapping edit buffers so widget IDs resync with new data next frame
-                state.seg_edit_buffers.clear();
+                // Clear mapping edit buffers for this tier/sentence so widgets resync
+                state.seg_edit_buffers.retain(|k, _| {
+                    // Remove keys matching this sentence index in mapping buffers
+                    !(k.starts_with("ms_") || k.starts_with("mt_") || k.starts_with("mb_"))
+                    || !k.contains(&format!("_{}_", cur_selected_idx))
+                });
                 state.mapping_selected_rows.clear();
             }
         } else {
@@ -680,7 +691,39 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
         ui.centered_and_justified(|ui| {
             ui.vertical_centered(|ui| {
                 ui.label(egui::RichText::new("Tier does not exist.").weak());
-                if let (Some(p_text), Some(_)) = (&parent_text_opt, prompt_name) {
+
+                if is_mapping_focused {
+                    // For mapping-focused tiers (Bas B / Bas T), the engine
+                    // source tier differs from the view parent. Check whether
+                    // the *engine* source exists so we can offer generation.
+                    let engine_source = if tier_id == "basic_target" { "basic_base" } else { "base" };
+                    let engine_source_exists = state.get_current_sentence()
+                        .and_then(|s| s.get_tier(engine_source))
+                        .map(|t| !t.full_text().trim().is_empty())
+                        .unwrap_or(false);
+
+                    if engine_source_exists {
+                        ui.add_space(8.0);
+                        if ui.button("🧠 Generate Tier (Sentence + Mapping)")
+                            .on_hover_text("Generates the sentence via LLM then automatically generates the mapping")
+                            .clicked()
+                        {
+                            pending_action = Some("Regenerate");
+                        }
+                        ui.add_space(4.0);
+                        if ui.button("🧠 Generate Sentence Only")
+                            .on_hover_text("Generates only the sentence; you can then edit and map manually")
+                            .clicked()
+                        {
+                            pending_action = Some("RegenerateSentenceOnly");
+                        }
+                    } else {
+                        ui.label(
+                            egui::RichText::new(format!("Upstream tier '{}' is missing.", engine_source))
+                                .color(egui::Color32::from_rgb(200, 100, 0)),
+                        );
+                    }
+                } else if let (Some(p_text), Some(_)) = (&parent_text_opt, prompt_name) {
                     if !p_text.trim().is_empty()
                         && ui.button("🧠 Generate from Parent").clicked()
                     {
@@ -738,6 +781,17 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
             "run generate {} {} {}",
             map_stage, one_based, one_based
         ));
+    }
+
+    // 4. Handle Generate Sentence Only (no follow-up mapping)
+    if let Some("RegenerateSentenceOnly") = pending_action {
+        if let Some(stage) = stage_for_tier(tier_id) {
+            let one_based = cur_selected_idx + 1;
+            state.pending_terminal_command = Some(format!(
+                "run generate {} {} {} --no-followup",
+                stage, one_based, one_based
+            ));
+        }
     }
 
     // ── LLM History panel ────────────────────────────────────────────────────

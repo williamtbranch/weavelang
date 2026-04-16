@@ -63,8 +63,10 @@ impl WeaveLangApp {
         prompts: Option<PromptManager>,
         logger: Option<LlmLogger>,
         initial_config: Option<crate::config::Config>,
+        tool_root_dir: Option<std::path::PathBuf>,
     ) -> Self {
         let mut state = AppState::default();
+        state.tool_root_dir = tool_root_dir;
         state.bridge = bridge;
         state.llm = llm;
         state.prompts = prompts;
@@ -1464,10 +1466,16 @@ impl App for WeaveLangApp {
                             self.state.last_log = format!("LLM applied {} items.", applied);
                         }
 
-                        // Clear edit buffers so mapping/segment panes re-sync
-                        // with the freshly-updated model data on the next frame.
+                        // Clear edit buffers only for the currently-selected sentence
+                        // so that in-progress edits on other sentences aren't lost.
                         if applied > 0 {
-                            self.state.seg_edit_buffers.clear();
+                            let sel = self.state.selected_sentence_idx;
+                            self.state.seg_edit_buffers.retain(|k, _| {
+                                // Buffer keys contain the sentence index as the second
+                                // underscore-separated component (e.g. "mt_basic_target_42_3").
+                                // Clear only buffers for the selected sentence.
+                                !k.contains(&format!("_{}_", sel))
+                            });
                             self.state.mapping_selected_rows.clear();
                         }
 

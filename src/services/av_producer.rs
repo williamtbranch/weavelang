@@ -73,8 +73,14 @@ pub struct IllustrationsConfig {
     pub prompt_model: String,
     pub image_model: String,
     pub image_size: String,
+    #[serde(default = "default_image_aspect_ratio")]
+    pub image_aspect_ratio: String,
     pub sentences_per_illustration: u32,
     pub minimum_count: u32,
+}
+
+fn default_image_aspect_ratio() -> String {
+    "16:9".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,8 +130,9 @@ impl Default for IllustrationsConfig {
         Self {
             style_prefix: "fairy tale watercolor, storybook illustration, warm lighting".to_string(),
             prompt_model: "gemini-2.5-flash".to_string(),
-            image_model: "imagen-4.0-generate-001".to_string(),
-            image_size: "1792x1024".to_string(),
+            image_model: "gemini-3.1-flash-image-preview".to_string(),
+            image_size: "2K".to_string(),
+            image_aspect_ratio: "16:9".to_string(),
             sentences_per_illustration: 50,
             minimum_count: 3,
         }
@@ -248,6 +255,8 @@ impl AvProducer {
     }
 
     /// Resolve a stem to its text file path, checking tts_files/ as fallback.
+    /// Also checks the parent directory (book root) for backward compatibility
+    /// with files created before the whole_book/ directory commitment.
     fn resolve_text_file(&self, stem: &str) -> PathBuf {
         let direct = self.book_dir.join(format!("{}.txt", stem));
         if direct.exists() {
@@ -256,6 +265,17 @@ impl AvProducer {
         let in_tts = self.book_dir.join("tts_files").join(format!("{}.txt", stem));
         if in_tts.exists() {
             return in_tts;
+        }
+        // Backward compat: check parent directory (book root) for pre-whole_book files
+        if let Some(parent) = self.book_dir.parent() {
+            let in_parent = parent.join(format!("{}.txt", stem));
+            if in_parent.exists() {
+                return in_parent;
+            }
+            let in_parent_tts = parent.join("tts_files").join(format!("{}.txt", stem));
+            if in_parent_tts.exists() {
+                return in_parent_tts;
+            }
         }
         direct // fall back to direct path for error messages
     }
@@ -268,8 +288,14 @@ impl AvProducer {
 
         // Collect all .txt files in the book dir and tts_files/ subdirectory
         // (excluding _ prefixed metadata files)
+        // Also checks parent dir for backward compat with pre-whole_book layout.
         let mut stems: Vec<String> = Vec::new();
-        let dirs_to_scan = [self.book_dir.clone(), self.book_dir.join("tts_files")];
+        let mut dirs_to_scan = vec![self.book_dir.clone(), self.book_dir.join("tts_files")];
+        // Backward compat: also scan parent directory (book root) for old layout
+        if let Some(parent) = self.book_dir.parent() {
+            dirs_to_scan.push(parent.to_path_buf());
+            dirs_to_scan.push(parent.join("tts_files"));
+        }
         for scan_dir in &dirs_to_scan {
             if let Ok(entries) = fs::read_dir(scan_dir) {
                 for entry in entries.flatten() {
@@ -676,8 +702,9 @@ impl AvProducer {
         validate_ffmpeg()?;
         let vid_cfg = &self.manifest.video;
 
-        let output = Command::new(&python_exe)
-            .arg(&script_path)
+        let chunks_dir = self.chunks_dir(stem);
+        let mut cmd = Command::new(&python_exe);
+        cmd.arg(&script_path)
             .arg("--audio-file")
             .arg(&audio_file)
             .arg("--illustrations-dir")
@@ -687,7 +714,11 @@ impl AvProducer {
             .arg("--frame-rate")
             .arg(vid_cfg.frame_rate.to_string())
             .arg("--image-duration")
-            .arg(vid_cfg.image_duration.to_string())
+            .arg(vid_cfg.image_duration.to_string());
+        if chunks_dir.exists() {
+            cmd.arg("--chunks-dir").arg(&chunks_dir);
+        }
+        let output = cmd
             .env("PYTHONUTF8", "1")
             .output()
             .map_err(|e| format!("Failed to spawn create_video.py ({}): {}", python_exe, e))?;
@@ -853,6 +884,11 @@ impl AvProducer {
             .arg("--output-dir").arg(&video_dir)
             .arg("--frame-rate").arg(vid_cfg.frame_rate.to_string())
             .arg("--image-duration").arg(vid_cfg.image_duration.to_string());
+        // Pass chunks dir for sentence-synchronized illustration durations
+        let chunks_dir = self.audio_dir().join("chunks").join(audio_file.file_stem().unwrap_or_default());
+        if chunks_dir.exists() {
+            cmd.arg("--chunks-dir").arg(&chunks_dir);
+        }
         cmd.env("PYTHONUTF8", "1");
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
@@ -902,6 +938,11 @@ impl AvProducer {
             .arg("--style").arg(&ill.style_prefix)
             .arg("--model").arg(&ill.prompt_model)
             .arg("--output").arg(illustrations_dir.join("_prompts.toml"));
+        // Pass character bible if it exists
+        let characters_path = illustrations_dir.join("_characters.toml");
+        if characters_path.exists() {
+            cmd.arg("--characters").arg(&characters_path);
+        }
         cmd.env("GOOGLE_API_KEY", api_key);
         cmd.env("PYTHONUTF8", "1");
         cmd.stdout(std::process::Stdio::piped());
@@ -909,6 +950,53 @@ impl AvProducer {
 
         cmd.spawn()
             .map_err(|e| format!("Failed to spawn generate_illustration_prompts.py ({}): {}", python_exe, e))
+    }
+
+    /// Spawn character extraction as a child process.
+    /// Calls `extract_characters.py` to produce `_characters.toml`.
+    pub fn spawn_extract_characters(
+        &self,
+        book_name: &str,
+        project_root: &Path,
+        api_key: &str,
+    ) -> Result<std::process::Child, String> {
+        let tts_dir = self.book_dir.join("tts_files");
+        if !tts_dir.exists() {
+            return Err(format!("tts_files directory not found: {}", tts_dir.display()));
+        }
+
+        let chapter_name = self.book_dir
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .ok_or("Cannot determine chapter name from book directory.")?;
+
+        let illustrations_dir = self.illustrations_dir();
+        fs::create_dir_all(&illustrations_dir)
+            .map_err(|e| format!("Failed to create illustrations directory: {}", e))?;
+
+        let script_path = project_root.join("extract_characters.py");
+        if !script_path.exists() {
+            return Err(format!("extract_characters.py not found at {}", script_path.display()));
+        }
+
+        let python_exe = find_python(project_root);
+        validate_python(&python_exe)?;
+        let ill = &self.manifest.illustrations;
+
+        let mut cmd = Command::new(&python_exe);
+        cmd.arg(&script_path)
+            .arg(&tts_dir)
+            .arg(&chapter_name)
+            .arg("--book-name").arg(book_name)
+            .arg("--model").arg(&ill.prompt_model)
+            .arg("--output").arg(illustrations_dir.join("_characters.toml"));
+        cmd.env("GOOGLE_API_KEY", api_key);
+        cmd.env("PYTHONUTF8", "1");
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+
+        cmd.spawn()
+            .map_err(|e| format!("Failed to spawn extract_characters.py ({}): {}", python_exe, e))
     }
 
     /// Spawn illustration image generation as a child process.
@@ -939,8 +1027,14 @@ impl AvProducer {
         cmd.arg(&script_path)
             .arg(&prompts_file)
             .arg("--size").arg(&ill.image_size)
+            .arg("--aspect-ratio").arg(&ill.image_aspect_ratio)
             .arg("--model").arg(&ill.image_model)
             .arg("--output-dir").arg(self.illustrations_dir());
+        // Pass character bible if it exists
+        let characters_path = self.illustrations_dir().join("_characters.toml");
+        if characters_path.exists() {
+            cmd.arg("--characters").arg(&characters_path);
+        }
         cmd.env("GOOGLE_API_KEY", api_key);
         cmd.env("PYTHONUTF8", "1");
         cmd.stdout(std::process::Stdio::piped());

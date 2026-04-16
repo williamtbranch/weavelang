@@ -14,11 +14,17 @@ use weavelang_rust_gui::{
     services::prompt_manager::PromptManager,
     services::python_bridge::BridgeService,
     simulation::{avd_hunter, calibrator, frequency_manager},
+    tool_root,
 };
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
+    /// Override the tool root directory (where assets/ lives).
+    /// Falls back to WEAVELANG_ROOT env var, exe parent dir, then cwd.
+    #[arg(long, global = true, value_name = "DIR")]
+    tool_root: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -77,6 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv::dotenv().ok();
 
     let cli = Cli::parse();
+    let tool_root_dir = tool_root::resolve_tool_root(cli.tool_root.as_ref())?;
     let command = cli.command.unwrap_or(Commands::Gui);
 
     match command {
@@ -84,12 +91,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("[INFO] Launching GUI...");
 
             // 1. Try to load config — non-fatal so the GUI starts even without config.toml.
-            //    Priority: CWD/config.toml → last workspace from global settings → None.
+            //    Priority: tool_root/config.toml → last workspace from global settings → None.
             let initial_config = {
-                let cwd_config = config::load_config_from_file("config.toml").ok();
-                if cwd_config.is_some() {
-                    println!("[INFO] Loaded config.toml from current directory.");
-                    cwd_config
+                let root_config_path = tool_root_dir.join("config.toml");
+                let root_config = config::load_config_from_file(root_config_path.to_str().unwrap_or("")).ok();
+                if root_config.is_some() {
+                    println!("[INFO] Loaded config.toml from tool root: {}", tool_root_dir.display());
+                    root_config
                 } else {
                     let gs = GlobalSettings::load();
                     if let Some(ws) = &gs.last_workspace {
@@ -119,25 +127,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
 
             // 3. Load Assets (Frequency List)
-            let freq_list_path = std::env::current_dir()?
+            let freq_list_path = tool_root_dir
                 .join("assets/frequency_lists/es_master_frequency_list.txt");
             if freq_list_path.exists() {
                 let _ = frequency_manager::load_master_frequency_list(&freq_list_path);
             }
 
             // 4. Initialize Services
-            let bridge = match std::env::current_dir() {
-                Ok(cwd) => match BridgeService::new(cwd) {
-                    Ok(b) => {
-                        println!("[INFO] Python Bridge initialized.");
-                        Some(b)
-                    }
-                    Err(e) => {
-                        eprintln!("[WARN] Bridge Error: {e}");
-                        None
-                    }
-                },
-                Err(_) => None,
+            let bridge = match BridgeService::new(tool_root_dir.clone()) {
+                Ok(b) => {
+                    println!("[INFO] Python Bridge initialized.");
+                    Some(b)
+                }
+                Err(e) => {
+                    eprintln!("[WARN] Bridge Error: {e}");
+                    None
+                }
             };
 
             let llm = {
@@ -146,15 +151,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .unwrap_or_default();
                 let thinking_budget = initial_config.as_ref()
                     .and_then(|c| c.pipeline.thinking_budget_tokens);
-                let svc = LlmService::new_routing_with_thinking(std::env::current_dir().ok(), models, thinking_budget);
+                let svc = LlmService::new_routing_with_thinking(Some(tool_root_dir.clone()), models, thinking_budget);
                 println!("[INFO] LLM Service initialized (multi-provider routing, thinking_budget: {:?}).", thinking_budget);
                 Some(svc)
             };
 
-            let prompts = match std::env::current_dir() {
-                Ok(cwd) => Some(PromptManager::new(cwd)),
-                Err(_) => None,
-            };
+            let prompts = Some(PromptManager::new(tool_root_dir.clone()));
 
             let options = NativeOptions {
                 viewport: eframe::egui::ViewportBuilder::default()
@@ -167,7 +169,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eframe::run_native(
                 "WeaveLang Studio",
                 options,
-                Box::new(move |cc| Box::new(WeaveLangApp::new(cc, bridge, llm, prompts, logger, initial_config))),
+                Box::new(move |cc| Box::new(WeaveLangApp::new(cc, bridge, llm, prompts, logger, initial_config, Some(tool_root_dir.clone())))),
             )?;
         }
 
@@ -177,7 +179,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .tool_root_dir
                 .join("assets/frequency_lists/es_master_frequency_list.txt");
             frequency_manager::load_master_frequency_list(&freq_list_path)?;
-            let project_config = config::load_config_from_file("config.toml")?;
+            let config_path = tool_root_dir.join("config.toml");
+            let project_config = config::load_config_from_file(config_path.to_str().unwrap_or("config.toml"))?;
             if let Err(e) = corpus_generator::run_corpus_generation(
                 &project_config,
                 &args.tool_root_dir,
@@ -202,11 +205,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Calibrate(args) => {
             // Quick asset load for calibrate
-            let _ = std::env::current_dir().map(|d| {
-                frequency_manager::load_master_frequency_list(
-                    &d.join("assets/frequency_lists/es_master_frequency_list.txt"),
-                )
-            });
+            let freq_list_path = tool_root_dir
+                .join("assets/frequency_lists/es_master_frequency_list.txt");
+            let _ = frequency_manager::load_master_frequency_list(&freq_list_path);
             if let Err(e) = calibrator::run_unified_calibration(
                 &args.book_json,
                 &args.output_path,

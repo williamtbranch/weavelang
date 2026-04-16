@@ -1,4 +1,5 @@
 import argparse
+import json
 import tomllib
 import subprocess
 import shutil
@@ -12,16 +13,99 @@ DEFAULT_FRAME_RATE = 1
 DEFAULT_IMAGE_DURATION_SECONDS = 60
 TEMP_DIR_NAME = "_temp_ffmpeg_files" # Renamed for clarity
 
+
+def compute_illustration_durations(
+    chunks_dir: Path,
+    illustrations_dir: Path,
+) -> list[tuple[Path, float]] | None:
+    """Compute per-illustration durations from sentence mappings and chunk audio.
+
+    Reads _chunk_map.json (from TTS chunking) and _illustration_map.json (from
+    prompt generation). For each illustration, sums the durations of all audio
+    chunks whose sentences majority-overlap that illustration's sentence range.
+
+    Returns list of (image_path, duration_seconds) or None if mapping files
+    are missing or no usable data is found.
+    """
+    chunk_map_path = chunks_dir / "_chunk_map.json"
+    illust_map_path = illustrations_dir / "_illustration_map.json"
+
+    if not chunk_map_path.exists() or not illust_map_path.exists():
+        return None
+
+    with open(chunk_map_path) as f:
+        chunk_map = json.load(f)
+    with open(illust_map_path) as f:
+        illust_map = json.load(f)
+
+    # Get audio duration for each chunk
+    chunk_durations: dict[int, float] = {}
+    for chunk_info in chunk_map["chunks"]:
+        idx = chunk_info["index"]
+        wav_path = chunks_dir / f"temp_chunk_{idx:04d}.wav"
+        silence_path = chunks_dir / f"temp_chunk_{idx:04d}_silence.wav"
+        audio_path = wav_path if wav_path.exists() else (silence_path if silence_path.exists() else None)
+        if audio_path:
+            try:
+                audio = AudioSegment.from_file(audio_path)
+                chunk_durations[idx] = len(audio) / 1000.0
+            except Exception:
+                chunk_durations[idx] = 0.0
+        else:
+            chunk_durations[idx] = 0.0
+
+    # For each illustration, find chunks that majority-belong to it
+    result: list[tuple[Path, float]] = []
+    for illust in illust_map["illustrations"]:
+        img_file = illust["file"]
+        img_start = illust["start_sentence"]
+        img_end = illust["end_sentence"]
+        img_path = illustrations_dir / img_file
+
+        if not img_path.exists():
+            continue
+
+        total_duration = 0.0
+        for chunk_info in chunk_map["chunks"]:
+            c_idx = chunk_info["index"]
+            c_start = chunk_info["start_sentence"]
+            c_end = chunk_info["end_sentence"]
+
+            # Compute sentence overlap
+            overlap_start = max(c_start, img_start)
+            overlap_end = min(c_end, img_end)
+            if overlap_start > overlap_end:
+                continue  # no overlap
+
+            overlap_count = overlap_end - overlap_start + 1
+            chunk_sentences = c_end - c_start + 1
+
+            # Majority rule: assign full chunk duration if >50% of its sentences
+            # fall within this illustration's range
+            if overlap_count > chunk_sentences / 2:
+                total_duration += chunk_durations.get(c_idx, 0.0)
+
+        if total_duration > 0:
+            result.append((img_path, total_duration))
+
+    return result if result else None
+
 def create_video_from_audio(
     audio_file: Path,
     illustration_files: list[Path],
     output_dir: Path,
     frame_rate: int,
-    image_duration: int
+    image_duration: int,
+    chunks_dir: Path | None = None,
+    illustrations_dir: Path | None = None
 ):
     """
-    Creates a video for a single audio file using a cycling list of illustrations.
-    (V3: Uses a smart concat manifest to avoid file limits and improve performance).
+    Creates a video for a single audio file using illustrations.
+
+    If chunks_dir and illustrations_dir are provided and both contain mapping
+    files (_chunk_map.json / _illustration_map.json), variable per-image
+    durations are computed from actual chunk audio lengths. Otherwise, falls
+    back to fixed image_duration cycling.
     """
     if not illustration_files:
         print(f"  [ERROR] No illustrations found. Cannot create video for '{audio_file.name}'.")
@@ -47,38 +131,49 @@ def create_video_from_audio(
 
     # --- START OF DEFINITIVE FIX ---
 
-    # 3. Generate the SMART manifest file (no longer copying frames)
+    # 3. Generate the manifest file — variable durations if maps available, else fixed cycling
     manifest_path = temp_dir / "manifest.txt"
-    print(f"  -> Creating smart FFmpeg manifest file (this will be very fast)...")
-    
-    num_full_segments = math.floor(audio_duration_seconds / image_duration)
-    remaining_seconds = audio_duration_seconds % image_duration
-    
-    image_cycler = cycle(illustration_files)
 
-    with open(manifest_path, "w", encoding="utf-8") as f:
-        # Write entries for the full 60-second segments
-        for _ in range(num_full_segments):
-            image_path = next(image_cycler)
-            # FFmpeg needs forward slashes and proper quoting for paths with spaces
-            safe_path = str(image_path.resolve()).replace('\\', '/')
-            f.write(f"file '{safe_path}'\n")
-            f.write(f"duration {image_duration}\n")
+    variable_durations = None
+    if chunks_dir and illustrations_dir:
+        variable_durations = compute_illustration_durations(chunks_dir, illustrations_dir)
 
-        # Write the final entry for the remaining duration
-        if remaining_seconds > 0:
-            image_path = next(image_cycler)
-            safe_path = str(image_path.resolve()).replace('\\', '/')
-            f.write(f"file '{safe_path}'\n")
-            f.write(f"duration {remaining_seconds}\n")
+    if variable_durations:
+        print(f"  -> Using sentence-synchronized illustration durations ({len(variable_durations)} images).")
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            for img_path, dur in variable_durations:
+                safe_path = str(img_path.resolve()).replace('\\', '/')
+                f.write(f"file '{safe_path}'\n")
+                f.write(f"duration {dur:.3f}\n")
+        print(f"  -> Manifest generated with {len(variable_durations)} variable-duration entries.")
+    else:
+        print(f"  -> Creating fixed-duration FFmpeg manifest (cycling, {image_duration}s per image)...")
+        num_full_segments = math.floor(audio_duration_seconds / image_duration)
+        remaining_seconds = audio_duration_seconds % image_duration
 
-    print(f"  -> Manifest generated with {num_full_segments + (1 if remaining_seconds > 0 else 0)} entries.")
+        image_cycler = cycle(illustration_files)
+
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            for _ in range(num_full_segments):
+                image_path = next(image_cycler)
+                safe_path = str(image_path.resolve()).replace('\\', '/')
+                f.write(f"file '{safe_path}'\n")
+                f.write(f"duration {image_duration}\n")
+
+            if remaining_seconds > 0:
+                image_path = next(image_cycler)
+                safe_path = str(image_path.resolve()).replace('\\', '/')
+                f.write(f"file '{safe_path}'\n")
+                f.write(f"duration {remaining_seconds}\n")
+
+        print(f"  -> Manifest generated with {num_full_segments + (1 if remaining_seconds > 0 else 0)} entries.")
 
     # 4. Construct and run the FFmpeg command (this is the same as the last version)
     output_video_path = output_dir / f"{audio_file.stem}.mp4"
     command = [
         'ffmpeg',
         '-f', 'concat',
+        '-safe', '0',
         '-i', str(manifest_path),
         '-i', str(audio_file),
         '-vf', 'scale=1280:-2',
@@ -117,6 +212,7 @@ def main():
     parser.add_argument("--audio-file", type=Path, default=None, help="Full path to a single audio file (overrides book_name mode).")
     parser.add_argument("--illustrations-dir", type=Path, default=None, help="Full path to the illustrations directory.")
     parser.add_argument("--output-dir", type=Path, default=None, help="Full path to the video output directory.")
+    parser.add_argument("--chunks-dir", type=Path, default=None, help="Path to TTS chunks directory (for sentence-synchronized durations).")
     parser.add_argument("--frame-rate", type=int, default=DEFAULT_FRAME_RATE, help="Output video frame rate.")
     parser.add_argument("--image-duration", type=int, default=DEFAULT_IMAGE_DURATION_SECONDS, help="Seconds per illustration.")
     args = parser.parse_args()
@@ -142,7 +238,9 @@ def main():
             illustration_files,
             args.output_dir,
             args.frame_rate,
-            args.image_duration
+            args.image_duration,
+            chunks_dir=args.chunks_dir,
+            illustrations_dir=args.illustrations_dir
         )
         print("\n--- Video processed. ---")
 

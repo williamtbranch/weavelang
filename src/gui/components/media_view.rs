@@ -7,6 +7,23 @@ use crate::app::state::AppState;
 use crate::services::av_producer::{AvFileStatus, AvProducer};
 use eframe::egui;
 
+/// Resolve the target directory for AV operations.
+/// In chapter mode returns `<book_dir>/<chapter_name>/`, otherwise `<book_dir>/whole_book/`.
+fn resolve_target_dir(state: &AppState) -> Option<std::path::PathBuf> {
+    let output_dir = state.output_dir.as_ref()?;
+    let book_dir = AvProducer::resolve_book_dir(output_dir, &state.book_name);
+    if state.chapter_mode {
+        let ch_idx = state.selected_chapter_idx?;
+        let ch = state.chapters.get(ch_idx)?;
+        let ch_dir_name = ch.name
+            .replace(|c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != ' ', "")
+            .trim().replace(' ', "_");
+        Some(book_dir.join(ch_dir_name))
+    } else {
+        Some(book_dir.join("whole_book"))
+    }
+}
+
 /// Render the full Media tab content inside the central panel.
 pub fn render(ui: &mut egui::Ui, state: &mut AppState) {
     // Resolve statuses from filesystem on each frame (cheap — just directory listing)
@@ -99,9 +116,8 @@ struct ChunkDetailData {
 }
 
 fn load_chunk_data(state: &AppState, stem: &str) -> Option<ChunkDetailData> {
-    let output_dir = state.output_dir.as_ref()?;
-    let book_dir = AvProducer::resolve_book_dir(output_dir, &state.book_name);
-    let producer = AvProducer::new(book_dir).ok()?;
+    let target_dir = resolve_target_dir(state)?;
+    let producer = AvProducer::new(target_dir).ok()?;
     let chunks = producer.scan_chunks(stem);
     if chunks.is_empty() {
         return Some(ChunkDetailData { chunks, stale_audio: false });
@@ -321,7 +337,7 @@ fn load_statuses(state: &AppState) -> (Vec<AvFileStatus>, bool, usize, Option<St
             );
         }
     } else {
-        book_dir
+        book_dir.join("whole_book")
     };
 
     if !target_dir.exists() {

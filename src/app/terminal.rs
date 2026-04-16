@@ -361,7 +361,8 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
                  if start_num == 0 || end_num == 0 {
                      return Err("Sentence numbers start at 1".to_string());
                  }
-                 Ok(TerminalCommand::App(AppCommand::GenerateStage { stage_name, start_index: start_num - 1, end_index: end_num - 1 }))
+                 let no_followup = parts.get(5).map(|s| *s == "--no-followup").unwrap_or(false);
+                 Ok(TerminalCommand::App(AppCommand::GenerateStage { stage_name, start_index: start_num - 1, end_index: end_num - 1, no_followup }))
              } else {
                  Err("Usage: run generate <StageName> <start> <end>  (1-based)".to_string())
              }
@@ -844,7 +845,7 @@ fn parse_av_command(parts: &[&str]) -> Result<TerminalCommand, String> {
         "clear-marks" => Ok(TerminalCommand::App(AppCommand::AvClearMarks)),
         "generate" => {
             if parts.len() < 2 {
-                return Err("Usage: av generate audio|video|prompts|illustrations [stem|next|all]".to_string());
+                return Err("Usage: av generate audio|video|characters|prompts|illustrations [stem|next|all]".to_string());
             }
             let target = if parts.len() >= 3 {
                 match parts[2] {
@@ -858,9 +859,10 @@ fn parse_av_command(parts: &[&str]) -> Result<TerminalCommand, String> {
             match parts[1] {
                 "audio" => Ok(TerminalCommand::App(AppCommand::AvGenerateAudio { target })),
                 "video" => Ok(TerminalCommand::App(AppCommand::AvGenerateVideo { target })),
+                "characters" => Ok(TerminalCommand::App(AppCommand::AvGenerateCharacters)),
                 "prompts" => Ok(TerminalCommand::App(AppCommand::AvGeneratePrompts)),
                 "illustrations" => Ok(TerminalCommand::App(AppCommand::AvGenerateIllustrations)),
-                _ => Err("Usage: av generate audio|video|prompts|illustrations [stem|next|all]".to_string()),
+                _ => Err("Usage: av generate audio|video|characters|prompts|illustrations [stem|next|all]".to_string()),
             }
         }
         "config" => {
@@ -1097,7 +1099,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("\n--- AV Production ---\n");
             out.push_str("  av status              - Show audio/video file status\n");
             out.push_str("  av mark/unmark <stem>  - Mark/unmark files for AV\n");
-            out.push_str("  av generate audio|video|prompts|illustrations - Generate media\n");
+            out.push_str("  av generate audio|video|characters|prompts|illustrations - Generate media\n");
             out.push_str("  av cancel              - Cancel running AV generation\n");
             out.push_str("  av log [N]             - Show AV job output (last N lines)\n");
             out.push_str("  av chunks <stem>       - Show chunk status for a stem\n");
@@ -1116,6 +1118,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  av clear-marks             - Remove all marks\n");
             out.push_str("  av generate audio [stem|next|all] - Generate audio\n");
             out.push_str("  av generate video [stem|next|all] - Generate video\n");
+            out.push_str("  av generate characters          - Extract character bible from text\n");
             out.push_str("  av generate prompts            - Generate illustration prompts via LLM\n");
             out.push_str("  av generate illustrations       - Generate images from prompts\n");
             out.push_str("  av config show             - Show AV config\n");
@@ -1704,14 +1707,34 @@ pub fn apply_llm_result(
             let target_id = parts[2];
 
             let mut mapping_to_add: Option<TierMapping> = None;
+            let sent_id_for_err = sent.id.clone();
 
             if let Some(source_tier) = sent.get_tier_mut(source_id) {
                 if let Some(segment) = source_tier.segments.first_mut() {
+                    // Re-tokenize the stream from its full text so that any
+                    // previous fusion (from an earlier mapping attempt) is
+                    // undone. This ensures the individual word tokens are
+                    // available for the new LLM groupings to match against.
+                    let original_text = segment.stream.full_text();
+                    let retok_lang = if source_id.contains("target") {
+                        target_lang_code
+                    } else {
+                        lang_code
+                    };
+                    if let Some(br) = bridge {
+                        if let Ok(raw_tokens) = br.tokenize(&original_text, retok_lang) {
+                            segment.stream = crate::domain::token_stream::TokenStream::from_raw_spacy(raw_tokens, &original_text);
+                        }
+                    }
+
+                    // Clone the stream before fusion so we can restore on failure.
+                    let stream_backup = segment.stream.clone();
                     match apply_llm_mapping(&mut segment.stream, actual_text, source_id, target_id) {
                         Ok(m) => mapping_to_add = Some(m),
                         Err(e) => {
-                            eprintln!("Mapping Error on {}: {}", sent.id, e);
-                            // Surface the error in the terminal so the user can see it
+                            eprintln!("Mapping Error on {}: {}", sent_id_for_err, e);
+                            // Restore the stream to its pre-fusion state
+                            segment.stream = stream_backup;
                             if let Some(tier) = sent.tiers.get_mut(source_id) {
                                 tier.state = crate::domain::tier::TierState::Broken;
                             }
@@ -1737,6 +1760,8 @@ pub fn apply_llm_result(
                     if let Some(tier) = sent.get_tier_mut(&source_id_owned) {
                         if tier.state == crate::domain::tier::TierState::Stale
                             || tier.state == crate::domain::tier::TierState::Pending
+                            || tier.state == crate::domain::tier::TierState::Broken
+                            || tier.state == crate::domain::tier::TierState::Dirty
                         {
                             tier.state = crate::domain::tier::TierState::Valid;
                         }

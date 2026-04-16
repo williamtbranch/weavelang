@@ -11,6 +11,7 @@ use crate::config::Config;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::path::PathBuf;
 use std::sync::mpsc::{Receiver};
 use std::sync::{Arc, Mutex};
 
@@ -109,6 +110,8 @@ pub struct AppState {
     pub sim_manual_recipe: VLevelRecipe,
 
     // Services
+    #[serde(skip)]
+    pub tool_root_dir: Option<PathBuf>,
     #[serde(skip)]
     pub bridge: Option<BridgeService>,
     #[serde(skip)]
@@ -330,6 +333,7 @@ impl Default for AppState {
             logger: None,
             config: None,
             draft_config: None,
+            tool_root_dir: None,
             llm_results_receiver: None,
             show_project_settings: false,
             show_llm_settings: false,
