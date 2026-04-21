@@ -127,6 +127,7 @@ The weave algorithm combines all tiers and mappings to produce level-graded text
 - **UL11.txt** — ~25% target function words substituted
 - **UL20.txt** — ~55% target, verb conjugations appear
 - **UL34.txt** — Fully fluent target language (advanced tier)
+- **ULr.txt** — Raw source sentences (base tier), unchanged weave substitutions
 
 The algorithm decides which words to substitute at each level based on the level map (`.lm` file) and word frequency data.
 
@@ -134,6 +135,7 @@ The algorithm decides which words to substitute at each level based on the level
 .\copilot.ps1 cmd "set output_dir ./weave_output"
 .\copilot.ps1 cmd "generate_weave all"     # All levels
 .\copilot.ps1 cmd "generate_weave 11"      # Just UL11
+.\copilot.ps1 cmd "generate_weave r"       # Raw source as ULr
 ```
 
 ---

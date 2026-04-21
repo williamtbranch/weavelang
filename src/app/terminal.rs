@@ -499,7 +499,7 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
                 }
                 Ok(TerminalCommand::App(AppCommand::GenerateWeave { level, force }))
             } else {
-                Err("Usage: generate_weave <level|all|b|m|a|i> [--force]".to_string())
+                Err("Usage: generate_weave <level|all|b|m|a|i|r> [--force]".to_string())
             }
         },
         "drc" => {
@@ -1055,7 +1055,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  job_status             - Non-blocking: show LLM job progress (for copilot polling)\n");
             out.push_str("  import level_map <p>   - Import a .lm level map file\n");
             out.push_str("  set output_dir <p>     - Set output directory for weave files\n");
-            out.push_str("  generate_weave <N|all> - Generate weave text file(s) for level N or all\n");
+            out.push_str("  generate_weave <N|all|b|m|a|i|r> - Generate weave text file(s); r outputs raw source as ULr\n");
             out.push_str("  generate_weave <N|all> --force - Generate weave, skip DRC\n");
             out.push_str("  drc                    - Run Design Rule Check on all sentences\n");
             out.push_str("  drc <tier> [N|all]     - DRC for one tier (default: first 10 violations)\n");

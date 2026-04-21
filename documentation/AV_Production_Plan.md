@@ -51,6 +51,7 @@ All media lives under the book's output directory:
 ```
 
 - **Woven text** files are the source of truth for what _could_ become audio/video.
+- Includes `ULr` output (`<stem>_ULr.txt`) for raw source-language narration/reference exports.
 - **`audio/`** and **`video/`** subdirectories are created on first generation.
 - **`illustrations/`** must be populated externally (image generation is future work). The app checks for its existence before video generation.
 - **`_av_manifest.toml`** tracks which files are marked for AV and stores TTS/video config.

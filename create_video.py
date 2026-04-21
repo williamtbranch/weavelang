@@ -2,7 +2,6 @@ import argparse
 import json
 import tomllib
 import subprocess
-import shutil
 import math
 from pathlib import Path
 from itertools import cycle
@@ -11,7 +10,6 @@ from pydub import AudioSegment
 # --- Configuration (unchanged) ---
 DEFAULT_FRAME_RATE = 1
 DEFAULT_IMAGE_DURATION_SECONDS = 60
-TEMP_DIR_NAME = "_temp_ffmpeg_files" # Renamed for clarity
 
 
 def compute_illustration_durations(
@@ -54,38 +52,67 @@ def compute_illustration_durations(
         else:
             chunk_durations[idx] = 0.0
 
-    # For each illustration, find chunks that majority-belong to it
-    result: list[tuple[Path, float]] = []
-    for illust in illust_map["illustrations"]:
-        img_file = illust["file"]
-        img_start = illust["start_sentence"]
-        img_end = illust["end_sentence"]
-        img_path = illustrations_dir / img_file
+    illustrations = illust_map.get("illustrations", [])
+    if not illustrations:
+        return None
 
+    parsed_illustrations: list[dict] = []
+    duration_by_image: dict[Path, float] = {}
+    for illust in illustrations:
+        img_file = illust["file"]
+        img_path = illustrations_dir / img_file
         if not img_path.exists():
             continue
+        parsed = {
+            "path": img_path,
+            "start": illust["start_sentence"],
+            "end": illust["end_sentence"],
+        }
+        parsed_illustrations.append(parsed)
+        duration_by_image[img_path] = 0.0
 
-        total_duration = 0.0
-        for chunk_info in chunk_map["chunks"]:
-            c_idx = chunk_info["index"]
-            c_start = chunk_info["start_sentence"]
-            c_end = chunk_info["end_sentence"]
+    if not parsed_illustrations:
+        return None
 
-            # Compute sentence overlap
-            overlap_start = max(c_start, img_start)
-            overlap_end = min(c_end, img_end)
+    # Allocate each chunk's duration proportionally by sentence overlap. This
+    # avoids dropping long chunks that straddle multiple illustration ranges.
+    for chunk_info in chunk_map.get("chunks", []):
+        c_idx = chunk_info["index"]
+        c_start = chunk_info["start_sentence"]
+        c_end = chunk_info["end_sentence"]
+        c_duration = chunk_durations.get(c_idx, 0.0)
+
+        if c_duration <= 0.0 or c_end < c_start:
+            continue
+
+        chunk_sentences = c_end - c_start + 1
+        weighted_overlaps: list[tuple[Path, float]] = []
+
+        for ill in parsed_illustrations:
+            overlap_start = max(c_start, ill["start"])
+            overlap_end = min(c_end, ill["end"])
             if overlap_start > overlap_end:
-                continue  # no overlap
-
+                continue
             overlap_count = overlap_end - overlap_start + 1
-            chunk_sentences = c_end - c_start + 1
+            weight = overlap_count / chunk_sentences
+            weighted_overlaps.append((ill["path"], weight))
 
-            # Majority rule: assign full chunk duration if >50% of its sentences
-            # fall within this illustration's range
-            if overlap_count > chunk_sentences / 2:
-                total_duration += chunk_durations.get(c_idx, 0.0)
+        if weighted_overlaps:
+            total_weight = sum(w for _, w in weighted_overlaps)
+            if total_weight > 0.0:
+                for img_path, weight in weighted_overlaps:
+                    duration_by_image[img_path] += c_duration * (weight / total_weight)
+        else:
+            # If a chunk falls outside mapped ranges (common off-by-one at tail),
+            # attach it to the last illustration so audio coverage is preserved.
+            last_img = parsed_illustrations[-1]["path"]
+            duration_by_image[last_img] += c_duration
 
-        if total_duration > 0:
+    result: list[tuple[Path, float]] = []
+    for ill in parsed_illustrations:
+        img_path = ill["path"]
+        total_duration = duration_by_image.get(img_path, 0.0)
+        if total_duration > 0.0:
             result.append((img_path, total_duration))
 
     return result if result else None
@@ -122,76 +149,74 @@ def create_video_from_audio(
         print(f"  [ERROR] Could not read audio file '{audio_file.name}'. Skipping. Error: {e}")
         return
 
-    # 2. Prepare temporary directory (now only for the manifest file)
-    temp_dir = output_dir / TEMP_DIR_NAME
-    if temp_dir.exists():
-        shutil.rmtree(temp_dir)
-    temp_dir.mkdir()
-    print(f"  -> Created temporary directory: {temp_dir}")
-
-    # --- START OF DEFINITIVE FIX ---
-
-    # 3. Generate the manifest file — variable durations if maps available, else fixed cycling
-    manifest_path = temp_dir / "manifest.txt"
-
+    # 2. Build timeline entries for slideshow rendering.
     variable_durations = None
     if chunks_dir and illustrations_dir:
         variable_durations = compute_illustration_durations(chunks_dir, illustrations_dir)
 
     if variable_durations:
         print(f"  -> Using sentence-synchronized illustration durations ({len(variable_durations)} images).")
-        with open(manifest_path, "w", encoding="utf-8") as f:
-            for img_path, dur in variable_durations:
-                safe_path = str(img_path.resolve()).replace('\\', '/')
-                f.write(f"file '{safe_path}'\n")
-                f.write(f"duration {dur:.3f}\n")
-        print(f"  -> Manifest generated with {len(variable_durations)} variable-duration entries.")
+        timeline_entries = [(p, d) for p, d in variable_durations if d > 0.0]
+        total_timeline_duration = sum(d for _, d in timeline_entries)
+        print(
+            f"  -> Timeline prepared with {len(timeline_entries)} variable-duration entries "
+            f"(scheduled {total_timeline_duration:.2f}s)."
+        )
     else:
-        print(f"  -> Creating fixed-duration FFmpeg manifest (cycling, {image_duration}s per image)...")
+        print(f"  -> Creating fixed-duration slideshow timeline (cycling, {image_duration}s per image)...")
         num_full_segments = math.floor(audio_duration_seconds / image_duration)
         remaining_seconds = audio_duration_seconds % image_duration
 
         image_cycler = cycle(illustration_files)
+        timeline_entries: list[tuple[Path, float]] = []
+        for _ in range(num_full_segments):
+            image_path = next(image_cycler)
+            timeline_entries.append((image_path, float(image_duration)))
 
-        with open(manifest_path, "w", encoding="utf-8") as f:
-            for _ in range(num_full_segments):
-                image_path = next(image_cycler)
-                safe_path = str(image_path.resolve()).replace('\\', '/')
-                f.write(f"file '{safe_path}'\n")
-                f.write(f"duration {image_duration}\n")
+        if remaining_seconds > 0:
+            image_path = next(image_cycler)
+            timeline_entries.append((image_path, float(remaining_seconds)))
 
-            if remaining_seconds > 0:
-                image_path = next(image_cycler)
-                safe_path = str(image_path.resolve()).replace('\\', '/')
-                f.write(f"file '{safe_path}'\n")
-                f.write(f"duration {remaining_seconds}\n")
+        print(f"  -> Timeline prepared with {len(timeline_entries)} entries.")
 
-        print(f"  -> Manifest generated with {num_full_segments + (1 if remaining_seconds > 0 else 0)} entries.")
+    if not timeline_entries:
+        print("  [ERROR] No timeline entries with positive duration. Skipping.")
+        return
 
-    # 4. Construct and run the FFmpeg command (this is the same as the last version)
+    # 3. Construct and run the FFmpeg command.
     output_video_path = output_dir / f"{audio_file.stem}.mp4"
-    command = [
-        'ffmpeg',
-        '-f', 'concat',
-        '-safe', '0',
-        '-i', str(manifest_path),
-        '-i', str(audio_file),
-        '-vf', 'scale=1280:-2',
+    command = ['ffmpeg', '-y']
+
+    for image_path, dur in timeline_entries:
+        command.extend(['-loop', '1', '-t', f'{dur:.3f}', '-i', str(image_path)])
+
+    command.extend(['-i', str(audio_file)])
+
+    filter_parts: list[str] = []
+    for i in range(len(timeline_entries)):
+        filter_parts.append(f'[{i}:v]scale=1280:-2,setsar=1[v{i}]')
+    concat_inputs = ''.join(f'[v{i}]' for i in range(len(timeline_entries)))
+    filter_parts.append(f'{concat_inputs}concat=n={len(timeline_entries)}:v=1:a=0[vout]')
+    filter_complex = ';'.join(filter_parts)
+
+    audio_input_index = len(timeline_entries)
+    command.extend([
+        '-filter_complex', filter_complex,
+        '-map', '[vout]',
+        '-map', f'{audio_input_index}:a:0',
         '-c:v', 'libx264',
         '-tune', 'stillimage',
         '-threads', '4',
         '-c:a', 'aac',
         '-b:a', '192k',
         '-pix_fmt', 'yuv420p',
-        '-r', str(frame_rate), # Set output frame rate
+        '-r', str(frame_rate),
+        '-t', f'{audio_duration_seconds:.3f}',
         '-shortest',
         str(output_video_path)
-    ]
-    # --- END OF DEFINITIVE FIX ---
+    ])
 
     print(f"  -> Running FFmpeg command...")
-    # Use -y to automatically overwrite existing output file for convenience
-    command.insert(1, '-y') 
     result = subprocess.run(command, capture_output=True, text=True)
 
     if result.returncode != 0:
@@ -200,10 +225,6 @@ def create_video_from_audio(
         print(result.stderr)
     else:
         print(f"  -> Successfully created video: {output_video_path.name}")
-
-    # 5. Clean up temporary directory (unchanged)
-    shutil.rmtree(temp_dir)
-    print(f"  -> Cleaned up temporary directory.")
 
 
 def main():

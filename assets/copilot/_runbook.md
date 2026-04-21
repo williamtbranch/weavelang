@@ -166,6 +166,9 @@ run `watch_job` after each one to wait for completion before proceeding.
 10. av youtube upload <stem>     ← needs video file + auth
 ```
 
+`generate_weave r` produces `<BookOrChapter>_ULr.txt`, which is the raw source
+sentence stream from the base tier (no weave substitutions).
+
 ### 3.3 LLM Tier Generation
 
 Each sentence needs 6 LLM generation stages run **in order** before it passes DRC.
@@ -227,6 +230,7 @@ avoids wasting time on provisional calibrations that will shift later.
 calibrate info                         # check sentence count & stability of current map
 calibrate [max_level]                  # calibrate AVD levels for the book
 generate_weave <level> [--force]       # produce woven text files
+generate_weave r                        # produce ULr raw source output only
 ```
 
 **Level specifiers:**
@@ -239,6 +243,7 @@ generate_weave <level> [--force]       # produce woven text files
 | `m` | Moderate (basic + moderate) | `ULm<N>` |
 | `a` | Advanced (all tiers) | `ULa<N>` |
 | `i` | Interlinear triplet | `ULi<N>` |
+| `r` | Raw source (base tier text) | `ULr` |
 | `all` | Every level in the level map | multiple files |
 
 **Prerequisites**: All sentences audited, output_dir set, level_map imported.

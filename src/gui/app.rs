@@ -1,6 +1,7 @@
 // src/gui/app.rs
 
 use eframe::{egui, App, Frame};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -53,6 +54,11 @@ pub struct WeaveLangApp {
     last_backup_time: Instant,
     show_restore_prompt: bool,
     pending_restore_stale_lock: bool,
+    // Generate-weave level picker dialog state
+    show_weave_level_dialog: bool,
+    weave_level_selected: BTreeSet<usize>,
+    weave_level_anchor: Option<usize>,
+    weave_level_force: bool,
 }
 
 impl WeaveLangApp {
@@ -129,6 +135,10 @@ impl WeaveLangApp {
             last_backup_time: Instant::now(),
             show_restore_prompt: false,
             pending_restore_stale_lock: false,
+            show_weave_level_dialog: false,
+            weave_level_selected: BTreeSet::new(),
+            weave_level_anchor: None,
+            weave_level_force: false,
         };
 
         let gs = crate::global_settings::GlobalSettings::load();
@@ -287,6 +297,7 @@ impl WeaveLangApp {
             || cmd.starts_with("init mapping")
             || cmd.starts_with("lemmatize")
             || cmd.starts_with("validate")
+                || cmd == "audit"
             || cmd.starts_with("calibrate")
             || cmd.starts_with("import level_map")
     }
@@ -699,7 +710,10 @@ impl WeaveLangApp {
                     ui.close_menu();
                 }
                 if ui.add_enabled(weave_ready, egui::Button::new("Generate Weave (Level)...")).clicked() {
-                    self.execute_terminal_command("generate_weave all");
+                    self.show_weave_level_dialog = true;
+                    self.weave_level_selected.clear();
+                    self.weave_level_anchor = None;
+                    self.weave_level_force = false;
                     ui.close_menu();
                 }
                 if !weave_ready && !self.state.document.is_empty() {
@@ -814,6 +828,62 @@ impl WeaveLangApp {
             ui.separator();
             ui.label(format!("Status: {}", self.status_message));
         });
+    }
+
+    fn weave_level_options(&self) -> Vec<(String, String)> {
+        let mut options: Vec<(String, String)> = Vec::new();
+
+        // Numeric levels from the currently loaded map
+        let mut numeric_levels: Vec<u32> = self
+            .state
+            .book_map
+            .as_ref()
+            .map(|m| {
+                let mut lvls: Vec<u32> = m.keys().filter_map(|k| k.parse::<u32>().ok()).collect();
+                lvls.sort_unstable();
+                lvls.dedup();
+                lvls
+            })
+            .unwrap_or_default();
+
+        // UL0 is valid even when absent from map; show it first.
+        if !numeric_levels.contains(&0) {
+            numeric_levels.insert(0, 0);
+        }
+
+        for lvl in numeric_levels {
+            options.push((lvl.to_string(), format!("UL{}", lvl)));
+        }
+
+        // Special outputs
+        options.push(("b".to_string(), "ULb (basic-heavy)".to_string()));
+        options.push(("m".to_string(), "ULm (moderate-heavy)".to_string()));
+        options.push(("a".to_string(), "ULa (advanced-heavy)".to_string()));
+        options.push(("i".to_string(), "ULi (interlinear)".to_string()));
+        options.push(("r".to_string(), "ULr (raw source)".to_string()));
+
+        options
+    }
+
+    fn run_selected_weave_levels(&mut self, options: &[(String, String)]) {
+        if self.weave_level_selected.is_empty() {
+            self.status_message = "No weave level selected.".to_string();
+            return;
+        }
+
+        let mut selected_indices: Vec<usize> = self.weave_level_selected.iter().copied().collect();
+        selected_indices.sort_unstable();
+
+        for idx in selected_indices {
+            if let Some((arg, _label)) = options.get(idx) {
+                let cmd = if self.weave_level_force {
+                    format!("generate_weave {} --force", arg)
+                } else {
+                    format!("generate_weave {}", arg)
+                };
+                self.execute_terminal_command(&cmd);
+            }
+        }
     }
 
     // ── Auto-backup helpers ────────────────────────────────────────────
@@ -2129,6 +2199,85 @@ impl App for WeaveLangApp {
             ui.separator();
             components::top_bar::render(ui, &mut self.state);
         });
+
+        if self.show_weave_level_dialog {
+            let mut open = true;
+            let options = self.weave_level_options();
+
+            egui::Window::new("Generate Weave Levels")
+                .open(&mut open)
+                .default_width(420.0)
+                .collapsible(false)
+                .show(ctx, |ui| {
+                    ui.label("Select one or more weave outputs.");
+                    ui.label("Click to select, Ctrl-click to toggle, Shift-click for range.");
+                    ui.add_space(6.0);
+
+                    egui::ScrollArea::vertical()
+                        .max_height(280.0)
+                        .show(ui, |ui| {
+                            for (idx, (arg, label)) in options.iter().enumerate() {
+                                let is_selected = self.weave_level_selected.contains(&idx);
+                                let row_label = format!("{:>3}   {}", arg, label);
+                                let resp = ui.selectable_label(is_selected, row_label);
+
+                                if resp.clicked() {
+                                    let mods = ui.ctx().input(|i| i.modifiers);
+                                    if mods.shift {
+                                        let anchor = self.weave_level_anchor.unwrap_or(idx);
+                                        let (start, end) = if anchor <= idx { (anchor, idx) } else { (idx, anchor) };
+                                        if !mods.ctrl {
+                                            self.weave_level_selected.clear();
+                                        }
+                                        for i in start..=end {
+                                            self.weave_level_selected.insert(i);
+                                        }
+                                    } else if mods.ctrl {
+                                        if is_selected {
+                                            self.weave_level_selected.remove(&idx);
+                                        } else {
+                                            self.weave_level_selected.insert(idx);
+                                        }
+                                        self.weave_level_anchor = Some(idx);
+                                    } else {
+                                        self.weave_level_selected.clear();
+                                        self.weave_level_selected.insert(idx);
+                                        self.weave_level_anchor = Some(idx);
+                                    }
+                                }
+                            }
+                        });
+
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Select All").clicked() {
+                            self.weave_level_selected.clear();
+                            for i in 0..options.len() {
+                                self.weave_level_selected.insert(i);
+                            }
+                        }
+                        if ui.button("Clear").clicked() {
+                            self.weave_level_selected.clear();
+                        }
+                        ui.checkbox(&mut self.weave_level_force, "Skip DRC (--force)");
+                    });
+
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Generate Selected").clicked() {
+                            self.run_selected_weave_levels(&options);
+                            self.show_weave_level_dialog = false;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.show_weave_level_dialog = false;
+                        }
+                    });
+                });
+
+            if !open {
+                self.show_weave_level_dialog = false;
+            }
+        }
 
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             components::info_bar::render(ui, &mut self.state);

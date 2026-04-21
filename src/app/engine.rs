@@ -241,40 +241,45 @@ impl Engine {
     }
 
     pub fn execute(&mut self, command: AppCommand) -> Result<String, String> {
-        // Any command that modifies data invalidates the audit.
-        // Read-only commands are explicitly excluded.
-        let is_read_only = matches!(
+        // Only commands that mutate sentence/tier/mapping content should
+        // invalidate audit. Non-content operations (AV, weave export,
+        // calibration/import/export/config/navigation) must keep audit state.
+        let invalidates_audit = matches!(
             &command,
-            AppCommand::SelectSentence { .. }
-            | AppCommand::SelectRange { .. }
-            | AppCommand::SetRightView { .. }
-            | AppCommand::SetLeftView { .. }
-            | AppCommand::CheckStatus
-            | AppCommand::ConfigList
-            | AppCommand::Drc
-            | AppCommand::DrcTier { .. }
-            | AppCommand::Audit
-            | AppCommand::WeaveStatus
-            | AppCommand::ReportSentencesIncomplete { .. }
-            | AppCommand::ReportSentencesComplete { .. }
-            | AppCommand::ReportSentence { .. }
-            | AppCommand::ListPnLemmas { .. }
-            | AppCommand::SelectTier { .. }
-            | AppCommand::KeyStatus
-            | AppCommand::DebugDump { .. }
-            | AppCommand::SaveProject { .. }
-            | AppCommand::MeasureAvd { .. }
-            | AppCommand::MeasureUserScore { .. }
-            | AppCommand::SetOutputDir { .. }
-            | AppCommand::ExportJson { .. }
-            | AppCommand::ExportLevelMap { .. }
-            | AppCommand::ShowLevelMap { .. }
-            | AppCommand::GenerateWeave { .. }
-            | AppCommand::ListChapters
-            | AppCommand::SelectChapter { .. }
-            | AppCommand::SetChapterMode { .. }
+            AppCommand::AddSentence
+            | AppCommand::AddSentenceWithText { .. }
+            | AppCommand::RemoveSentence { .. }
+            | AppCommand::UpdateText { .. }
+            | AppCommand::ApproveEdits { .. }
+            | AppCommand::ApproveTier { .. }
+            | AppCommand::GenerateTier { .. }
+            | AppCommand::GenerateMapping { .. }
+            | AppCommand::GenerateStage { .. }
+            | AppCommand::SetLanguages { .. }
+            | AppCommand::SetBookName { .. }
+            | AppCommand::ImportSource { .. }
+            | AppCommand::ImportJson { .. }
+            | AppCommand::AddPnLemma { .. }
+            | AppCommand::RemovePnLemma { .. }
+            | AppCommand::EditSegment { .. }
+            | AppCommand::AddSegment { .. }
+            | AppCommand::RemoveSegment { .. }
+            | AppCommand::LemmatizeTier { .. }
+            | AppCommand::ValidateTier { .. }
+            | AppCommand::SplitToken { .. }
+            | AppCommand::MergeTokens { .. }
+            | AppCommand::InsertToken { .. }
+            | AppCommand::DeleteToken { .. }
+            | AppCommand::EditWord { .. }
+            | AppCommand::EditBackground { .. }
+            | AppCommand::EditTarget { .. }
+            | AppCommand::EditTargets { .. }
+            | AppCommand::EditText { .. }
+            | AppCommand::AcceptMap
+            | AppCommand::AcceptMapRange { .. }
+            | AppCommand::InitMapping
         );
-        if !is_read_only {
+        if invalidates_audit {
             self.state.audit_passed = false;
         }
 
@@ -4068,7 +4073,31 @@ impl Engine {
             Ok(())
         };
 
-        // --- Dispatch: special modes b/m/a/i, or standard levels / all ---
+        // --- Helper: generate raw source output file (ULr) ---
+        let generate_raw_source = |generated: &mut Vec<String>| -> Result<(), String> {
+            let mut source_parts: Vec<String> = Vec::with_capacity(sentences_for_chapter.len());
+            for sent in sentences_for_chapter.iter() {
+                let source_text = sent
+                    .get_tier("base")
+                    .or_else(|| sent.get_tier("basic_base"))
+                    .map(|t| t.full_text())
+                    .unwrap_or_default();
+                let cleaned = text_generator::clean_text_for_tts(&source_text);
+                source_parts.push(cleaned);
+            }
+
+            let output_text = source_parts.join("\n\n");
+            let suffix = "ULr";
+            let file_name = build_file_name(suffix);
+            let file_path = tts_dir.join(&file_name);
+            fs::write(&file_path, &output_text)
+                .map_err(|e| format!("Failed to write '{}': {}", file_path.display(), e))?;
+
+            generated.push(format!("{} ({} sentences)", suffix, source_parts.len()));
+            Ok(())
+        };
+
+        // --- Dispatch: special modes b/m/a/i/r, or standard levels / all ---
         let is_all = level_arg == "all";
 
         match level_arg {
@@ -4084,6 +4113,9 @@ impl Engine {
             "i" => {
                 generate_interlinear(&mut generated_files)?;
             }
+            "r" => {
+                generate_raw_source(&mut generated_files)?;
+            }
             _ => {
                 // Standard level modes: numeric level or 'all'
                 let levels: Vec<u32> = if is_all {
@@ -4094,7 +4126,7 @@ impl Engine {
                     lvls
                 } else {
                     let lvl = level_arg.parse::<u32>()
-                        .map_err(|_| format!("Invalid level '{}'. Use a number, 'all', 'b', 'm', 'a', or 'i'.", level_arg))?;
+                        .map_err(|_| format!("Invalid level '{}'. Use a number, 'all', 'b', 'm', 'a', 'i', or 'r'.", level_arg))?;
                     vec![lvl]
                 };
 
@@ -4267,6 +4299,7 @@ impl Engine {
                     generate_flat(u32::MAX, u32::MAX, 0, "ULm", &mut generated_files)?;
                     generate_flat(u32::MAX, u32::MAX, u32::MAX, "ULa", &mut generated_files)?;
                     generate_interlinear(&mut generated_files)?;
+                    generate_raw_source(&mut generated_files)?;
                 }
             } // end _ => (standard levels / all)
         } // end match
