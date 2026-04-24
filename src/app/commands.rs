@@ -48,7 +48,15 @@ pub enum AppCommand {
     // Level Map & Weave Generation
     ImportLevelMap { path: String },
     SetOutputDir { path: String },
-    GenerateWeave { level: String, force: bool },
+    GenerateWeave {
+        level: String,
+        force: bool,
+        frontier_enabled_override: Option<bool>,
+        frontier_target_pct_override: Option<f32>,
+        frontier_seed_override: Option<u64>,
+        frontier_test_mode_override: Option<bool>,
+        frontier_familiar_lemma_exclude_count_override: Option<usize>,
+    },
     Calibrate { max_level: Option<u32> },
 
     // API Key Management
@@ -151,6 +159,11 @@ pub enum AppCommand {
 
     // Level Map Inspection
     ShowLevelMap { level: Option<u32> },
+
+    // Frontier Settings
+    SetFrontierEnabled { enabled: bool },
+    SetFrontierPct { pct: f32 },
+    SetFrontierSeed { seed: u64 },
 
     // Chapter Mode
     NewChapter { name: String, start: usize, end: usize },

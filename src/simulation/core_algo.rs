@@ -1,15 +1,43 @@
 // src/simulation/core_algo.rs
+use super::frontier::FrontierEngine;
 use super::numerical_types::{NumericalLearnerProfile, NumericalProcessedSentence, VLevelRecipe};
 use crate::simulation::dictionary::GlobalLemmaDictionary;
 use crate::simulation::frequency_manager;
 use crate::types::json_types::JsonTokenType;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+fn is_lemma_known_for_tier(
+    lemma_id: u32,
+    tier_v_level: u32,
+    dictionary: &GlobalLemmaDictionary,
+    pn_lemma_ids: &[u32],
+    frontier_known_lemmas: Option<&HashSet<u32>>,
+) -> bool {
+    if tier_v_level == u32::MAX {
+        return true;
+    }
+    if pn_lemma_ids.contains(&lemma_id) {
+        return true;
+    }
+    if let Some(frontier_known) = frontier_known_lemmas {
+        if frontier_known.contains(&lemma_id) {
+            return true;
+        }
+    }
+
+    dictionary
+        .get_str(lemma_id)
+        .and_then(|lemma_str| frequency_manager::get_rank_for_lemma(lemma_str))
+        .unwrap_or(u32::MAX)
+        <= tier_v_level
+}
 
 fn are_lemmas_known(
     lemma_ids: &[u32],
     tier_v_level: u32,
     dictionary: &GlobalLemmaDictionary,
     pn_lemma_ids: &[u32],
+    frontier_known_lemmas: Option<&HashSet<u32>>,
 ) -> bool {
     if lemma_ids.is_empty() {
         return true;
@@ -18,17 +46,70 @@ fn are_lemmas_known(
         return true;
     }
     lemma_ids.iter().all(|&id| {
-        // Proper-noun lemmas are always treated as known.
-        if pn_lemma_ids.contains(&id) {
-            return true;
-        }
-        dictionary
-            .get_str(id)
-            .and_then(|lemma_str| frequency_manager::get_rank_for_lemma(lemma_str))
-            // Missing from freq list → treat as max rank (unknown), matching
-            // the Python pipeline which uses freq_map.get(lemma, max_rank).
-            .unwrap_or(u32::MAX) <= tier_v_level
+        is_lemma_known_for_tier(
+            id,
+            tier_v_level,
+            dictionary,
+            pn_lemma_ids,
+            frontier_known_lemmas,
+        )
     })
+}
+
+fn collect_unknown_lemma_token_weights_for_sentence(
+    n_sentence: &NumericalProcessedSentence,
+    dictionary: &GlobalLemmaDictionary,
+    v_levels: &VLevelRecipe,
+    pn_ids: &[u32],
+) -> HashMap<u32, usize> {
+    let mut weights: HashMap<u32, usize> = HashMap::new();
+
+    for (_, lemmas, _, _, spa_wc) in &n_sentence.basic_inverse_diglot_map_numerical {
+        let token_weight = (*spa_wc).max(1);
+        for &lemma_id in lemmas {
+            if !is_lemma_known_for_tier(lemma_id, v_levels.bas, dictionary, pn_ids, None) {
+                *weights.entry(lemma_id).or_insert(0) += token_weight;
+            }
+        }
+    }
+
+    for seg_map in &n_sentence.basic_diglot_map_numerical {
+        for entry in &seg_map.entries {
+            let token_weight = entry.eng_word_count.max(1);
+            for &lemma_id in &entry.spa_lemma_ids {
+                if !is_lemma_known_for_tier(lemma_id, v_levels.bas, dictionary, pn_ids, None) {
+                    *weights.entry(lemma_id).or_insert(0) += token_weight;
+                }
+            }
+        }
+    }
+
+    if weights.is_empty() {
+        for &lemma_id in &n_sentence.basic_target_lemma_ids {
+            if !is_lemma_known_for_tier(lemma_id, v_levels.bas, dictionary, pn_ids, None) {
+                *weights.entry(lemma_id).or_insert(0) += 1;
+            }
+        }
+    }
+
+    weights
+}
+
+fn build_sentence_frontier_set(
+    n_sentence: &NumericalProcessedSentence,
+    dictionary: &GlobalLemmaDictionary,
+    v_levels: &VLevelRecipe,
+    pn_ids: &[u32],
+    frontier_engine: Option<&mut FrontierEngine>,
+) -> HashSet<u32> {
+    let Some(engine) = frontier_engine else {
+        return HashSet::new();
+    };
+
+    let unknown_weights =
+        collect_unknown_lemma_token_weights_for_sentence(n_sentence, dictionary, v_levels, pn_ids);
+
+    engine.pick_sentence_frontier_lemmas(&unknown_weights)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
@@ -61,6 +142,7 @@ fn try_build_advanced_weave(
     dictionary: &GlobalLemmaDictionary,
     v_levels: &VLevelRecipe,
     pn_ids: &[u32],
+    frontier_known_lemmas: Option<&HashSet<u32>>,
 ) -> Option<ChosenLevelOutput> {
     if n_sentence.adv_segment_bundles_numerical.is_empty() {
         return None;
@@ -69,11 +151,23 @@ fn try_build_advanced_weave(
     let mut l0_collected_lemma_ids: Vec<u32> = Vec::new();
     let mut spanish_words = 0;
     for bundle in &n_sentence.adv_segment_bundles_numerical {
-        if are_lemmas_known(&bundle.adv_lemma_ids, v_levels.adv, dictionary, pn_ids) {
+        if are_lemmas_known(
+            &bundle.adv_lemma_ids,
+            v_levels.adv,
+            dictionary,
+            pn_ids,
+            frontier_known_lemmas,
+        ) {
             l0_candidate_choices.push(L0SegmentChoice::Adv(bundle.adv_text_original.clone()));
             l0_collected_lemma_ids.extend(&bundle.adv_lemma_ids);
             spanish_words += bundle.adv_text_original.split_whitespace().count();
-        } else if are_lemmas_known(&bundle.mod_lemma_ids, v_levels.mod_v, dictionary, pn_ids) {
+        } else if are_lemmas_known(
+            &bundle.mod_lemma_ids,
+            v_levels.mod_v,
+            dictionary,
+            pn_ids,
+            frontier_known_lemmas,
+        ) {
             l0_candidate_choices.push(L0SegmentChoice::Mod(bundle.mod_text_original.clone()));
             l0_collected_lemma_ids.extend(&bundle.mod_lemma_ids);
             spanish_words += bundle.mod_text_original.split_whitespace().count();
@@ -90,22 +184,55 @@ fn try_build_advanced_weave(
         english_word_count: 0,
     })
 }
+
 pub fn determine_and_annotate_sentence_expression(
     n_sentence: &mut NumericalProcessedSentence,
-    _profile: &NumericalLearnerProfile, // We mark this as unused for now to be explicit
+    profile: &NumericalLearnerProfile,
+    dictionary: &GlobalLemmaDictionary,
+    v_levels: &VLevelRecipe,
+    inverse_diglot_threshold: f32,
+) -> ChosenLevelOutput {
+    determine_and_annotate_sentence_expression_with_frontier(
+        n_sentence,
+        profile,
+        dictionary,
+        v_levels,
+        inverse_diglot_threshold,
+        None,
+    )
+}
+
+pub fn determine_and_annotate_sentence_expression_with_frontier(
+    n_sentence: &mut NumericalProcessedSentence,
+    _profile: &NumericalLearnerProfile,
     dictionary: &GlobalLemmaDictionary,
     v_levels: &VLevelRecipe,
     _inverse_diglot_threshold: f32,
+    frontier_engine: Option<&mut FrontierEngine>,
 ) -> ChosenLevelOutput {
     let pn_ids = &n_sentence.proper_noun_lemma_ids;
+    let frontier_known_lemmas =
+        build_sentence_frontier_set(n_sentence, dictionary, v_levels, pn_ids, frontier_engine);
 
     // --- 1. Try to build the L0 Weave ---
-    if let Some(l0_output) = try_build_advanced_weave(n_sentence, dictionary, v_levels, pn_ids) {
+    if let Some(l0_output) = try_build_advanced_weave(
+        n_sentence,
+        dictionary,
+        v_levels,
+        pn_ids,
+        Some(&frontier_known_lemmas),
+    ) {
         return l0_output;
     }
 
     // --- 2. If L0 fails, try the full L1 BasicTarget tier ---
-    if are_lemmas_known(&n_sentence.basic_target_lemma_ids, v_levels.bas, dictionary, pn_ids) {
+    if are_lemmas_known(
+        &n_sentence.basic_target_lemma_ids,
+        v_levels.bas,
+        dictionary,
+        pn_ids,
+        Some(&frontier_known_lemmas),
+    ) {
         let full_text = n_sentence
             .basic_target_tier_tokenized
             .iter()
@@ -127,30 +254,26 @@ pub fn determine_and_annotate_sentence_expression(
     let mut can_render_inverse_diglot = true;
     let inv_diglot_map = &n_sentence.basic_inverse_diglot_map_numerical;
 
-    // Skip InverseDiglot entirely when the inverse map is empty — there
-    // is nothing to substitute and we would just echo the basic_target
-    // unchanged.  Fall through to BasicBaseDiglot instead.
     if inv_diglot_map.is_empty() {
         can_render_inverse_diglot = false;
     }
 
-    let total_word_instances: usize = inv_diglot_map
-        .iter()
-        .map(|(_, _, _, _, spa_wc)| spa_wc)
-        .sum();
+    let total_word_instances: usize = inv_diglot_map.iter().map(|(_, _, _, _, spa_wc)| spa_wc).sum();
 
     if can_render_inverse_diglot {
         for (_, lemmas, sub, _, _spa_wc) in inv_diglot_map.iter() {
-            // Proper-noun lemmas are skipped by are_lemmas_known via the
-            // pn_ids set, so they automatically count as known.
-            if are_lemmas_known(lemmas, v_levels.bas, dictionary, pn_ids) {
-                // We need to calculate how many words this group represents to add to our known tally
+            if are_lemmas_known(
+                lemmas,
+                v_levels.bas,
+                dictionary,
+                pn_ids,
+                Some(&frontier_known_lemmas),
+            ) {
                 let corresponding_entry = inv_diglot_map.iter().find(|(_, l, _, _, _)| l == lemmas);
                 if let Some((_, _, _, _, spa_wc_val)) = corresponding_entry {
                     known_word_instances += spa_wc_val;
                 }
             } else if *sub == "NO_SUB" {
-                // If a NO_SUB group's lemmas are unknown, the whole sentence is impossible.
                 can_render_inverse_diglot = false;
                 break;
             }
@@ -181,7 +304,13 @@ pub fn determine_and_annotate_sentence_expression(
                     continue;
                 }
                 if let Some((_, lemmas, sub, eng_wc, spa_wc)) = inv_diglot_map.get(map_idx) {
-                    if are_lemmas_known(lemmas, v_levels.bas, dictionary, pn_ids) {
+                    if are_lemmas_known(
+                        lemmas,
+                        v_levels.bas,
+                        dictionary,
+                        pn_ids,
+                        Some(&frontier_known_lemmas),
+                    ) {
                         final_parts.push(token.value.clone());
                         collected_lemmas.extend(lemmas.iter().cloned());
                         spanish_words += spa_wc;
@@ -190,8 +319,6 @@ pub fn determine_and_annotate_sentence_expression(
                         english_words += eng_wc;
                     }
                 } else {
-                    // No map entry for this word position — keep the
-                    // original target-language word.
                     final_parts.push(token.value.clone());
                     spanish_words += 1;
                 }
@@ -235,22 +362,22 @@ pub fn determine_and_annotate_sentence_expression(
             if entry.viable
                 && entry.exact_spa_form_original != "NO_SUB"
                 && (entry.is_base_token_pn
-                    || are_lemmas_known(&entry.spa_lemma_ids, v_levels.bas, dictionary, pn_ids))
+                    || are_lemmas_known(
+                        &entry.spa_lemma_ids,
+                        v_levels.bas,
+                        dictionary,
+                        pn_ids,
+                        Some(&frontier_known_lemmas),
+                    ))
             {
-                // Substitution: completely replace the English token with
-                // the Spanish form.  token.value is intentionally discarded.
                 final_parts.push(entry.exact_spa_form_original.clone());
                 l1_collected_lemma_ids.extend(&entry.spa_lemma_ids);
                 spanish_words += entry.eng_word_count;
             } else {
-                // Diglot entry exists but substitution conditions not met.
-                // Use the stored English form from the entry rather than
-                // token.value, which may have been corrupted by fusion.
                 final_parts.push(entry.eng_word_original.clone());
                 english_words += entry.eng_word_count;
             }
         } else {
-            // No diglot entry for this token — keep original English.
             final_parts.push(token.value.clone());
             english_words += token.value.split_whitespace().count();
         }

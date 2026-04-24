@@ -86,6 +86,18 @@ pub struct AppState {
     #[serde(default)]
     pub book_name: String,
 
+    // Frontier (context diffusion) settings persisted in .wvl
+    #[serde(default)]
+    pub frontier_enabled: bool,
+    #[serde(default = "default_frontier_target_pct")]
+    pub frontier_target_pct: f32,
+    #[serde(default = "default_frontier_seed")]
+    pub frontier_seed: u64,
+    #[serde(default)]
+    pub frontier_test_mode: bool,
+    #[serde(default = "default_frontier_familiar_lemma_exclude_count")]
+    pub frontier_familiar_lemma_exclude_count: usize,
+
     // --- NEW FIELD: Project Languages (Base, Target) ---
     #[serde(default = "default_languages")]
     pub project_languages: (String, String),
@@ -307,6 +319,15 @@ fn default_sim_user_level() -> u32 {
 fn default_sim_manual_recipe() -> VLevelRecipe {
     VLevelRecipe { bas: 500, mod_v: 0, adv: 0 }
 }
+fn default_frontier_target_pct() -> f32 {
+    5.0
+}
+fn default_frontier_seed() -> u64 {
+    777
+}
+fn default_frontier_familiar_lemma_exclude_count() -> usize {
+    100
+}
 
 impl Default for AppState {
     fn default() -> Self {
@@ -316,6 +337,11 @@ impl Default for AppState {
             book_map: None,
             calibration_sentence_count: None,
             book_name: String::new(),
+            frontier_enabled: true,
+            frontier_target_pct: 5.0,
+            frontier_seed: 777,
+            frontier_test_mode: false,
+            frontier_familiar_lemma_exclude_count: 100,
             project_languages: ("en".to_string(), "es".to_string()), // Default
             selected_sentence_idx: 0,
             left_view: TierView::AdvancedTarget,

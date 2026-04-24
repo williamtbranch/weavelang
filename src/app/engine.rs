@@ -1576,7 +1576,15 @@ impl Engine {
 
                 Ok(format!("Output directory set to '{}'", resolved))
             }
-            AppCommand::GenerateWeave { level, force } => {
+            AppCommand::GenerateWeave {
+                level,
+                force,
+                frontier_enabled_override,
+                frontier_target_pct_override,
+                frontier_seed_override,
+                frontier_test_mode_override,
+                frontier_familiar_lemma_exclude_count_override,
+            } => {
                 // Guard: all sentences must be weave-ready
                 if self.state.document.is_empty() {
                     return Err("No document loaded.".to_string());
@@ -1639,7 +1647,19 @@ impl Engine {
                     }
                 }
 
-                self.execute_generate_weave(&level, chapter_range)
+                let frontier_config = crate::corpus_generator::FrontierRunConfig {
+                    enabled: frontier_enabled_override.unwrap_or(self.state.frontier_enabled),
+                    target_pct: frontier_target_pct_override
+                        .unwrap_or(self.state.frontier_target_pct),
+                    seed: frontier_seed_override.unwrap_or(self.state.frontier_seed),
+                    test_mode: frontier_test_mode_override
+                        .unwrap_or(self.state.frontier_test_mode),
+                    familiar_lemma_exclude_count:
+                        frontier_familiar_lemma_exclude_count_override
+                            .unwrap_or(self.state.frontier_familiar_lemma_exclude_count),
+                };
+
+                self.execute_generate_weave(&level, chapter_range, frontier_config)
             }
             AppCommand::Calibrate { max_level } => {
                 self.execute_calibrate(max_level)
@@ -3269,6 +3289,18 @@ impl Engine {
                 let mode_str = if enabled { "Chapter" } else { "Book" };
                 Ok(format!("Mode set to {}.", mode_str))
             }
+            AppCommand::SetFrontierEnabled { enabled } => {
+                self.state.frontier_enabled = enabled;
+                Ok(format!("Frontier {}.", if enabled { "enabled" } else { "disabled" }))
+            }
+            AppCommand::SetFrontierPct { pct } => {
+                self.state.frontier_target_pct = pct;
+                Ok(format!("Frontier target set to {}%.", pct))
+            }
+            AppCommand::SetFrontierSeed { seed } => {
+                self.state.frontier_seed = seed;
+                Ok(format!("Frontier seed set to {}.", seed))
+            }
             AppCommand::InitMediaWorkspace => {
                 self.execute_init_media_workspace()
             }
@@ -3854,7 +3886,12 @@ impl Engine {
         ))
     }
 
-    fn execute_generate_weave(&self, level_arg: &str, chapter_range: Option<(usize, usize)>) -> Result<String, String> {
+    fn execute_generate_weave(
+        &self,
+        level_arg: &str,
+        chapter_range: Option<(usize, usize)>,
+        frontier_config: crate::corpus_generator::FrontierRunConfig,
+    ) -> Result<String, String> {
         use crate::domain::bridge::domain_sentences_to_json_chapter;
         use crate::simulation::dictionary::GlobalLemmaDictionary;
         use crate::simulation::metrics::TextMetrics;
@@ -3955,6 +3992,20 @@ impl Engine {
             }
         };
 
+        // Deterministic seed mixing for frontier boundary runs.
+        let compose_frontier_seed = |level_value: u32, boundary_index: usize| -> u64 {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+
+            let mut hasher = DefaultHasher::new();
+            self.state.book_name.hash(&mut hasher);
+            chapter_name_sanitized.hash(&mut hasher);
+            level_value.hash(&mut hasher);
+            boundary_index.hash(&mut hasher);
+            let mix = hasher.finish();
+            frontier_config.seed ^ mix
+        };
+
         // --- Helper: generate a flat-recipe output file ---
         let generate_flat = |bas: u32, mod_v: u32, adv: u32, suffix: &str,
                              generated: &mut Vec<String>| -> Result<(), String> {
@@ -4004,6 +4055,9 @@ impl Engine {
                 avd_score,
                 Some(recipe_obj.clone()),
                 Some(recipe_obj),
+                None,
+                None,
+                Some(&frontier_config),
                 None,
                 None,
             ).map_err(|e| format!("Failed to write analysis: {}", e))?;
@@ -4065,6 +4119,9 @@ impl Engine {
                 avd_score,
                 Some(recipe_obj.clone()),
                 Some(recipe_obj),
+                None,
+                None,
+                Some(&frontier_config),
                 None,
                 None,
             ).map_err(|e| format!("Failed to write analysis: {}", e))?;
@@ -4138,9 +4195,44 @@ impl Engine {
                 continue;
             }
 
-            let level_key = level.to_string();
-            let cm = book_map.get(&level_key)
-                .ok_or(format!("No recipe found for level {}", level))?;
+            // Level-shift for frontier mode: use recipe from level-1.
+            // Level 1 + frontier → synthetic 0,0,0 recipe (all base language as starting point).
+            // Level N>1 + frontier → look up recipe from level N-1.
+            // Frontier disabled → use requested level as-is.
+            let cm_owned_shift: Option<crate::types::json_types::JsonCurriculumMap> =
+                if frontier_config.enabled && *level == 1 {
+                    Some(crate::types::json_types::JsonCurriculumMap {
+                        end_level: 1.0,
+                        map: vec![crate::types::json_types::JsonCurriculumMapEntry {
+                            level: 0.0,
+                            start_sentence_idx: 0,
+                            recipe: crate::simulation::numerical_types::VLevelRecipe {
+                                bas: 0, mod_v: 0, adv: 0,
+                            },
+                            l_level_recipe: Default::default(),
+                            target_avd: 0.0,
+                            actual_avd: 0.0,
+                        }],
+                    })
+                } else {
+                    None
+                };
+            let cm: &crate::types::json_types::JsonCurriculumMap =
+                if let Some(ref owned) = cm_owned_shift {
+                    owned
+                } else if frontier_config.enabled && *level > 1 {
+                    let shifted_key = (*level - 1).to_string();
+                    book_map.get(&shifted_key)
+                        .ok_or(format!(
+                            "No recipe found for shifted level {} (frontier mode, requested level {})",
+                            level - 1,
+                            level
+                        ))?
+                } else {
+                    let level_key = level.to_string();
+                    book_map.get(&level_key)
+                        .ok_or(format!("No recipe found for level {}", level))?
+                };
             if cm.map.is_empty() {
                 return Err(format!("Empty curriculum map for level {}", level));
             }
@@ -4152,11 +4244,52 @@ impl Engine {
             // its position in the book.  In full-book mode, step through
             // the progressive recipe map as before.
             let mut full_result = corpus_generator::BookGenerationResult::default();
+            let mut boundary_prepass_metrics: Vec<corpus_generator::BoundaryPrepassMetrics> =
+                Vec::new();
+            let mut boundary_frontier_diags: Vec<corpus_generator::FrontierDiagnostics> =
+                Vec::new();
 
             if chapter_range.is_some() {
                 // Chapter mode: single recipe for the whole chapter.
                 let recipe = &first_entry.recipe;
-                let result = corpus_generator::generate_book_instance(
+                if frontier_config.enabled {
+                    let (total_tokens, unknown_tokens) =
+                        corpus_generator::compute_prepass_metrics_for_slice(
+                            &numerical_chapter,
+                            &json_chapter,
+                            &dictionary,
+                            recipe.bas,
+                            recipe.mod_v,
+                            recipe.adv,
+                            0.5,
+                        )
+                        .map_err(|e| format!("Pre-pass failed for level {}: {}", level, e))?;
+                    boundary_prepass_metrics.push(corpus_generator::BoundaryPrepassMetrics {
+                        boundary_index: 1,
+                        sentence_start_1_based: 1,
+                        sentence_end_1_based_inclusive: numerical_chapter
+                            .sentences_numerical
+                            .len(),
+                        total_tokens,
+                        unknown_tokens,
+                    });
+                }
+
+                let frontier_slice_cfg = if frontier_config.enabled {
+                    let m = boundary_prepass_metrics.first().cloned().ok_or_else(|| {
+                        format!("Missing pre-pass metrics for level {} chapter run", level)
+                    })?;
+                    Some(corpus_generator::FrontierSliceConfig {
+                        target_pct: frontier_config.target_pct,
+                        expected_unknown_pct: m.expected_unknown_pct(),
+                        total_tokens: m.total_tokens,
+                        seed: compose_frontier_seed(*level, 1),
+                    })
+                } else {
+                    None
+                };
+
+                let result = corpus_generator::generate_book_instance_with_frontier(
                     &numerical_chapter,
                     &json_chapter,
                     &dictionary,
@@ -4165,8 +4298,12 @@ impl Engine {
                     recipe.adv,
                     0.5,
                     false,
+                    frontier_slice_cfg.as_ref(),
                 ).map_err(|e| format!("Generation failed for level {}: {}", level, e))?;
 
+                if let Some(d) = result.frontier_diagnostics.clone() {
+                    boundary_frontier_diags.push(d);
+                }
                 full_result.final_text_parts = result.final_text_parts;
                 full_result.all_output_lemma_instances = result.all_output_lemma_instances;
                 full_result.total_target_words = result.total_target_words;
@@ -4221,7 +4358,47 @@ impl Engine {
                     })
                     .collect();
 
-                let slice_result = corpus_generator::generate_book_instance(
+                if frontier_config.enabled {
+                    let (total_tokens, unknown_tokens) =
+                        corpus_generator::compute_prepass_metrics_for_slice(
+                            &numerical_slice,
+                            &json_slice,
+                            &dictionary,
+                            entry.recipe.bas,
+                            entry.recipe.mod_v,
+                            entry.recipe.adv,
+                            0.5,
+                        )
+                        .map_err(|e| format!("Pre-pass failed for level {}: {}", level, e))?;
+                    boundary_prepass_metrics.push(corpus_generator::BoundaryPrepassMetrics {
+                        boundary_index: i + 1,
+                        sentence_start_1_based: rel_start + 1,
+                        sentence_end_1_based_inclusive: rel_end,
+                        total_tokens,
+                        unknown_tokens,
+                    });
+                }
+
+                let frontier_slice_cfg = if frontier_config.enabled {
+                    let expected_unknown_pct = boundary_prepass_metrics
+                        .last()
+                        .map(|m| m.expected_unknown_pct())
+                        .unwrap_or(0.0);
+                    let total_tokens = boundary_prepass_metrics
+                        .last()
+                        .map(|m| m.total_tokens)
+                        .unwrap_or(0);
+                    Some(corpus_generator::FrontierSliceConfig {
+                        target_pct: frontier_config.target_pct,
+                        expected_unknown_pct,
+                        total_tokens,
+                        seed: compose_frontier_seed(*level, i + 1),
+                    })
+                } else {
+                    None
+                };
+
+                let slice_result = corpus_generator::generate_book_instance_with_frontier(
                     &numerical_slice,
                     &json_slice,
                     &dictionary,
@@ -4230,8 +4407,12 @@ impl Engine {
                     entry.recipe.adv,
                     0.5, // inverse_diglot_threshold
                     false, // debug_markers
+                    frontier_slice_cfg.as_ref(),
                 ).map_err(|e| format!("Generation failed for level {}: {}", level, e))?;
 
+                if let Some(d) = slice_result.frontier_diagnostics.clone() {
+                    boundary_frontier_diags.push(d);
+                }
                 full_result.final_text_parts.extend(slice_result.final_text_parts);
                 full_result.all_output_lemma_instances.extend(slice_result.all_output_lemma_instances);
                 full_result.total_target_words += slice_result.total_target_words;
@@ -4287,9 +4468,46 @@ impl Engine {
                 last_entry.map(|e| e.recipe.clone()),
                 Some(first_entry.l_level_recipe.clone()),
                 last_entry.map(|e| e.l_level_recipe.clone()),
+                Some(&frontier_config),
+                if boundary_prepass_metrics.is_empty() {
+                    None
+                } else {
+                    Some(&boundary_prepass_metrics)
+                },
+                if boundary_frontier_diags.is_empty() {
+                    None
+                } else {
+                    Some(&boundary_frontier_diags)
+                },
             ).map_err(|e| format!("Failed to write analysis: {}", e))?;
 
             generated_files.push(format!("{} ({} sentences)", level_suffix, full_result.final_text_parts.len()));
+
+            if !boundary_frontier_diags.is_empty() {
+                for (i, d) in boundary_frontier_diags.iter().enumerate() {
+                    let realized_pct = if d.total_tokens > 0 {
+                        (d.emitted_frontier_tokens as f32 / d.total_tokens as f32) * 100.0
+                    } else {
+                        0.0
+                    };
+                    let b_label = if boundary_frontier_diags.len() == 1 {
+                        String::new()
+                    } else {
+                        format!("B#{:02} ", i + 1)
+                    };
+                    generated_files.push(format!(
+                        "  [frontier] {}target={:.1}% realized={:.1}% emitted={}/{} tokens deck={} pass={} steered={}",
+                        b_label,
+                        d.target_pct,
+                        realized_pct,
+                        d.emitted_frontier_tokens,
+                        d.target_frontier_tokens,
+                        d.deck_size,
+                        d.pass_count,
+                        d.steering_adjustment_count,
+                    ));
+                }
+            }
         }
 
                 // When generating 'all', also produce UL0 and the 4 special outputs

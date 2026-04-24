@@ -6,6 +6,7 @@ use crate::simulation::numerical_types::LLevelRecipe;
 use crate::simulation::{
     core_algo::{self, L0SegmentChoice, OutputLevel},
     dictionary::GlobalLemmaDictionary,
+    frontier::{FrontierConfig as FrontierEngineConfig, FrontierEngine},
     frequency_manager,
     numerical_types::{NumericalChapter, NumericalLearnerProfile, VLevelRecipe},
     preprocessor, text_generator,
@@ -34,6 +35,54 @@ pub struct BookGenerationResult {
     pub level_stats: HashMap<OutputLevel, usize>,
     pub segment_stats: HashMap<SegmentType, usize>,
     pub final_text_parts: Vec<String>,
+    pub frontier_diagnostics: Option<FrontierDiagnostics>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FrontierRunConfig {
+    pub enabled: bool,
+    pub target_pct: f32,
+    pub seed: u64,
+    pub test_mode: bool,
+    pub familiar_lemma_exclude_count: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct BoundaryPrepassMetrics {
+    pub boundary_index: usize,
+    pub sentence_start_1_based: usize,
+    pub sentence_end_1_based_inclusive: usize,
+    pub total_tokens: usize,
+    pub unknown_tokens: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct FrontierDiagnostics {
+    pub target_pct: f32,
+    pub total_tokens: usize,
+    pub target_frontier_tokens: usize,
+    pub emitted_frontier_tokens: usize,
+    pub deck_size: usize,
+    pub pass_count: usize,
+    pub steering_adjustment_count: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct FrontierSliceConfig {
+    pub target_pct: f32,
+    pub expected_unknown_pct: f32,
+    pub total_tokens: usize,
+    pub seed: u64,
+}
+
+impl BoundaryPrepassMetrics {
+    pub fn expected_unknown_pct(&self) -> f32 {
+        if self.total_tokens == 0 {
+            0.0
+        } else {
+            (self.unknown_tokens as f32 / self.total_tokens as f32) * 100.0
+        }
+    }
 }
 
 // MODIFIED: 'sim_v' parameter removed from the function signature.
@@ -46,6 +95,30 @@ pub fn generate_book_instance(
     adv_v: u32,
     inverse_diglot_threshold: f32,
     debug_markers: bool,
+) -> Result<BookGenerationResult, Box<dyn Error>> {
+    generate_book_instance_with_frontier(
+        numerical_chapter,
+        json_chapter,
+        dictionary,
+        bas_v,
+        mod_v,
+        adv_v,
+        inverse_diglot_threshold,
+        debug_markers,
+        None,
+    )
+}
+
+pub fn generate_book_instance_with_frontier(
+    numerical_chapter: &NumericalChapter,
+    json_chapter: &JsonChapter,
+    dictionary: &GlobalLemmaDictionary,
+    bas_v: u32,
+    mod_v: u32,
+    adv_v: u32,
+    inverse_diglot_threshold: f32,
+    debug_markers: bool,
+    frontier_slice: Option<&FrontierSliceConfig>,
 ) -> Result<BookGenerationResult, Box<dyn Error>> {
     let mut result = BookGenerationResult::default();
 
@@ -66,14 +139,24 @@ pub fn generate_book_instance(
         adv: adv_v,
     };
 
+    let mut frontier_engine: Option<FrontierEngine> = frontier_slice.map(|slice| {
+        FrontierEngine::new(FrontierEngineConfig {
+            target_pct: slice.target_pct,
+            expected_unknown_pct: slice.expected_unknown_pct,
+            total_tokens: slice.total_tokens,
+            seed: slice.seed,
+        })
+    });
+
     for n_sentence in &numerical_chapter.sentences_numerical {
         let mut n_sentence_clone = n_sentence.clone();
-        let output = core_algo::determine_and_annotate_sentence_expression(
+        let output = core_algo::determine_and_annotate_sentence_expression_with_frontier(
             &mut n_sentence_clone,
             &profile,
             dictionary,
             &v_levels,
             inverse_diglot_threshold,
+            frontier_engine.as_mut(),
         );
         for &lemma_id in &output.lemma_ids {
             if let Some(lemma_str) = dictionary.get_str(lemma_id) {
@@ -137,7 +220,46 @@ pub fn generate_book_instance(
         }
     }
 
+    result.frontier_diagnostics = if let (Some(ref engine), Some(slice)) = (&frontier_engine, frontier_slice) {
+        Some(FrontierDiagnostics {
+            target_pct: slice.target_pct,
+            total_tokens: slice.total_tokens,
+            target_frontier_tokens: engine.target_frontier_tokens(),
+            emitted_frontier_tokens: engine.emitted_frontier_tokens(),
+            deck_size: engine.deck_size(),
+            pass_count: engine.pass_count(),
+            steering_adjustment_count: engine.steering_adjustment_count(),
+        })
+    } else {
+        None
+    };
+
     Ok(result)
+}
+
+pub fn compute_prepass_metrics_for_slice(
+    numerical_chapter: &NumericalChapter,
+    json_chapter: &JsonChapter,
+    dictionary: &GlobalLemmaDictionary,
+    bas_v: u32,
+    mod_v: u32,
+    adv_v: u32,
+    inverse_diglot_threshold: f32,
+) -> Result<(usize, usize), Box<dyn Error>> {
+    let prepass_result = generate_book_instance(
+        numerical_chapter,
+        json_chapter,
+        dictionary,
+        bas_v,
+        mod_v,
+        adv_v,
+        inverse_diglot_threshold,
+        false,
+    )?;
+
+    let total_tokens = prepass_result.total_target_words + prepass_result.total_base_words;
+    let unknown_tokens = prepass_result.total_base_words;
+    Ok((total_tokens, unknown_tokens))
 }
 
 pub fn log_analysis_to_file(
@@ -149,6 +271,9 @@ pub fn log_analysis_to_file(
     end_v_recipe: Option<VLevelRecipe>,
     start_l_recipe: Option<LLevelRecipe>,
     end_l_recipe: Option<LLevelRecipe>,
+    frontier_config: Option<&FrontierRunConfig>,
+    boundary_prepass_metrics: Option<&[BoundaryPrepassMetrics]>,
+    frontier_diagnostics_per_boundary: Option<&[FrontierDiagnostics]>,
 ) -> Result<(), std::io::Error> {
     let mut file = OpenOptions::new()
         .create(true)
@@ -211,6 +336,58 @@ pub fn log_analysis_to_file(
     writeln!(file, "    -------------------------")?;
     writeln!(file, "    Total Output Words:  {total_output_words:>5}")?;
     writeln!(file, "    Base Lang Pct:       {base_lang_pct:>5.2}%")?;
+
+    if let Some(cfg) = frontier_config {
+        writeln!(file, "\n  Frontier Settings:")?;
+        writeln!(file, "    Enabled:             {}", cfg.enabled)?;
+        writeln!(file, "    Target Pct:          {:>5.2}%", cfg.target_pct)?;
+        writeln!(file, "    Seed:                {}", cfg.seed)?;
+        writeln!(file, "    Test Mode:           {}", cfg.test_mode)?;
+        writeln!(
+            file,
+            "    Familiar Exclude N:  {}",
+            cfg.familiar_lemma_exclude_count
+        )?;
+    }
+
+    if let Some(boundaries) = boundary_prepass_metrics {
+        if !boundaries.is_empty() {
+            writeln!(file, "\n  Per-Boundary Pre-Pass Calibration:")?;
+            for (i, b) in boundaries.iter().enumerate() {
+                let low_sample = if b.total_tokens < 100 { " [LOW SAMPLE]" } else { "" };
+                writeln!(
+                    file,
+                    "    B#{:02} S{}-S{} | total={} unknown={} expected_unknown={:.2}%{}",
+                    b.boundary_index,
+                    b.sentence_start_1_based,
+                    b.sentence_end_1_based_inclusive,
+                    b.total_tokens,
+                    b.unknown_tokens,
+                    b.expected_unknown_pct(),
+                    low_sample,
+                )?;
+                if let Some(diags) = frontier_diagnostics_per_boundary.and_then(|v| v.get(i)) {
+                    let realized_pct = if diags.total_tokens > 0 {
+                        (diags.emitted_frontier_tokens as f32 / diags.total_tokens as f32) * 100.0
+                    } else {
+                        0.0
+                    };
+                    writeln!(
+                        file,
+                        "    B#{:02} Frontier | target={:.2}% realized={:.2}% emitted={}/{} deck={}/pass={} steered={}",
+                        b.boundary_index,
+                        diags.target_pct,
+                        realized_pct,
+                        diags.emitted_frontier_tokens,
+                        diags.target_frontier_tokens,
+                        diags.deck_size,
+                        diags.pass_count,
+                        diags.steering_adjustment_count,
+                    )?;
+                }
+            }
+        }
+    }
 
     let total_sentences = result.level_stats.values().sum::<usize>();
     if total_sentences > 0 {
@@ -514,6 +691,9 @@ pub fn run_corpus_generation(
             end_v_recipe,
             start_l_recipe,
             end_l_recipe,
+            None,
+            None,
+            None,
         )?;
         // --- MODIFIED SECTION END ---
     }

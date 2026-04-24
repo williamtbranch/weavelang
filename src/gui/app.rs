@@ -59,6 +59,9 @@ pub struct WeaveLangApp {
     weave_level_selected: BTreeSet<usize>,
     weave_level_anchor: Option<usize>,
     weave_level_force: bool,
+    weave_level_frontier: bool,
+    weave_level_frontier_pct: f32,
+    weave_level_frontier_seed: u64,
 }
 
 impl WeaveLangApp {
@@ -139,6 +142,9 @@ impl WeaveLangApp {
             weave_level_selected: BTreeSet::new(),
             weave_level_anchor: None,
             weave_level_force: false,
+            weave_level_frontier: true,
+            weave_level_frontier_pct: 5.0,
+            weave_level_frontier_seed: 777,
         };
 
         let gs = crate::global_settings::GlobalSettings::load();
@@ -714,6 +720,9 @@ impl WeaveLangApp {
                     self.weave_level_selected.clear();
                     self.weave_level_anchor = None;
                     self.weave_level_force = false;
+                    self.weave_level_frontier = true;
+                    self.weave_level_frontier_pct = 5.0;
+                    self.weave_level_frontier_seed = 777;
                     ui.close_menu();
                 }
                 if !weave_ready && !self.state.document.is_empty() {
@@ -876,11 +885,21 @@ impl WeaveLangApp {
 
         for idx in selected_indices {
             if let Some((arg, _label)) = options.get(idx) {
-                let cmd = if self.weave_level_force {
-                    format!("generate_weave {} --force", arg)
+                let mut flags = String::new();
+                if self.weave_level_force {
+                    flags.push_str(" --force");
+                }
+                if !self.weave_level_frontier {
+                    flags.push_str(" --no-frontier");
                 } else {
-                    format!("generate_weave {}", arg)
-                };
+                    if (self.weave_level_frontier_pct - 5.0).abs() > 0.001 {
+                        flags.push_str(&format!(" --frontier-pct {}", self.weave_level_frontier_pct));
+                    }
+                    if self.weave_level_frontier_seed != 777 {
+                        flags.push_str(&format!(" --frontier-seed {}", self.weave_level_frontier_seed));
+                    }
+                }
+                let cmd = format!("generate_weave {}{}", arg, flags);
                 self.execute_terminal_command(&cmd);
             }
         }
@@ -2261,6 +2280,26 @@ impl App for WeaveLangApp {
                         }
                         ui.checkbox(&mut self.weave_level_force, "Skip DRC (--force)");
                     });
+
+                    ui.add_space(6.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut self.weave_level_frontier, "Frontier filter");
+                        if self.weave_level_frontier {
+                            ui.label("Target %:");
+                            ui.add(egui::DragValue::new(&mut self.weave_level_frontier_pct)
+                                .speed(0.1)
+                                .clamp_range(0.1_f32..=50.0_f32)
+                                .suffix("%"));
+                            ui.label("Seed:");
+                            ui.add(egui::DragValue::new(&mut self.weave_level_frontier_seed)
+                                .speed(1.0)
+                                .clamp_range(0_u64..=9_999_999_u64));
+                        }
+                    });
+                    ui.add_space(4.0);
+                    ui.separator();
 
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {

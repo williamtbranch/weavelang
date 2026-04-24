@@ -416,8 +416,20 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
                     "false" | "off" | "0" => Ok(TerminalCommand::App(AppCommand::SetChapterMode { enabled: false })),
                     _ => Err("Usage: set chapter_mode true|false".to_string()),
                 }
+            } else if parts.len() > 2 && parts[1] == "frontier" {
+                match parts[2] {
+                    "true" | "on" | "1" => Ok(TerminalCommand::App(AppCommand::SetFrontierEnabled { enabled: true })),
+                    "false" | "off" | "0" => Ok(TerminalCommand::App(AppCommand::SetFrontierEnabled { enabled: false })),
+                    _ => Err("Usage: set frontier on|off".to_string()),
+                }
+            } else if parts.len() > 2 && parts[1] == "frontier_pct" {
+                let pct = parts[2].parse::<f32>().map_err(|_| format!("Invalid pct '{}'. Use a number.", parts[2]))?;
+                Ok(TerminalCommand::App(AppCommand::SetFrontierPct { pct }))
+            } else if parts.len() > 2 && parts[1] == "frontier_seed" {
+                let seed = parts[2].parse::<u64>().map_err(|_| format!("Invalid seed '{}'. Use a number.", parts[2]))?;
+                Ok(TerminalCommand::App(AppCommand::SetFrontierSeed { seed }))
             } else {
-                Err("Usage: set right_view <v> | set left_view <v> | set output_dir <p> | set key <anthropic|google> <value> | set languages <source> <target> | set book_name <name> | set chapter_mode true|false".to_string())
+                Err("Usage: set right_view <v> | set left_view <v> | set output_dir <p> | set key <anthropic|google> <value> | set languages <source> <target> | set book_name <name> | set chapter_mode true|false | set frontier on|off | set frontier_pct <n> | set frontier_seed <n>".to_string())
             }
         },
         "show" => {
@@ -490,17 +502,102 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
             }
         },
         "generate_weave" => {
-            if parts.len() > 1 {
-                let mut level = parts[1].to_string();
-                let force = parts.iter().any(|p| *p == "--force");
-                // If --force was the level arg, look for the real level
-                if level == "--force" && parts.len() > 2 {
-                    level = parts[2].to_string();
-                }
-                Ok(TerminalCommand::App(AppCommand::GenerateWeave { level, force }))
-            } else {
-                Err("Usage: generate_weave <level|all|b|m|a|i|r> [--force]".to_string())
+            if parts.len() <= 1 {
+                return Err("Usage: generate_weave <level|all|b|m|a|i|r> [--force] [--frontier|--no-frontier] [--frontier-pct N] [--frontier-seed N] [--frontier-test|--no-frontier-test] [--frontier-familiar-n N]".to_string());
             }
+
+            let mut level: Option<String> = None;
+            let mut force = false;
+            let mut frontier_enabled_override: Option<bool> = None;
+            let mut frontier_target_pct_override: Option<f32> = None;
+            let mut frontier_seed_override: Option<u64> = None;
+            let mut frontier_test_mode_override: Option<bool> = None;
+            let mut frontier_familiar_lemma_exclude_count_override: Option<usize> = None;
+
+            let mut i = 1;
+            while i < parts.len() {
+                match parts[i] {
+                    "--force" => {
+                        force = true;
+                        i += 1;
+                    }
+                    "--frontier" => {
+                        frontier_enabled_override = Some(true);
+                        i += 1;
+                    }
+                    "--no-frontier" => {
+                        frontier_enabled_override = Some(false);
+                        i += 1;
+                    }
+                    "--frontier-test" => {
+                        frontier_test_mode_override = Some(true);
+                        i += 1;
+                    }
+                    "--no-frontier-test" => {
+                        frontier_test_mode_override = Some(false);
+                        i += 1;
+                    }
+                    "--frontier-pct" => {
+                        if i + 1 >= parts.len() {
+                            return Err("Missing value for --frontier-pct".to_string());
+                        }
+                        frontier_target_pct_override = Some(
+                            parts[i + 1]
+                                .parse::<f32>()
+                                .map_err(|_| "Invalid number for --frontier-pct")?,
+                        );
+                        i += 2;
+                    }
+                    "--frontier-seed" => {
+                        if i + 1 >= parts.len() {
+                            return Err("Missing value for --frontier-seed".to_string());
+                        }
+                        frontier_seed_override = Some(
+                            parts[i + 1]
+                                .parse::<u64>()
+                                .map_err(|_| "Invalid integer for --frontier-seed")?,
+                        );
+                        i += 2;
+                    }
+                    "--frontier-familiar-n" => {
+                        if i + 1 >= parts.len() {
+                            return Err("Missing value for --frontier-familiar-n".to_string());
+                        }
+                        frontier_familiar_lemma_exclude_count_override = Some(
+                            parts[i + 1]
+                                .parse::<usize>()
+                                .map_err(|_| "Invalid integer for --frontier-familiar-n")?,
+                        );
+                        i += 2;
+                    }
+                    arg if arg.starts_with("--") => {
+                        return Err(format!("Unknown generate_weave flag '{}'.", arg));
+                    }
+                    arg => {
+                        if level.is_none() {
+                            level = Some(arg.to_string());
+                            i += 1;
+                        } else {
+                            return Err(format!("Unexpected argument '{}'.", arg));
+                        }
+                    }
+                }
+            }
+
+            let level = level.ok_or_else(|| {
+                "Missing level argument. Usage: generate_weave <level|all|b|m|a|i|r> [flags]"
+                    .to_string()
+            })?;
+
+            Ok(TerminalCommand::App(AppCommand::GenerateWeave {
+                level,
+                force,
+                frontier_enabled_override,
+                frontier_target_pct_override,
+                frontier_seed_override,
+                frontier_test_mode_override,
+                frontier_familiar_lemma_exclude_count_override,
+            }))
         },
         "drc" => {
             if parts.len() > 1 {
@@ -1057,6 +1154,8 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  set output_dir <p>     - Set output directory for weave files\n");
             out.push_str("  generate_weave <N|all|b|m|a|i|r> - Generate weave text file(s); r outputs raw source as ULr\n");
             out.push_str("  generate_weave <N|all> --force - Generate weave, skip DRC\n");
+            out.push_str("  generate_weave ... [--frontier|--no-frontier] [--frontier-pct N] [--frontier-seed N]\n");
+            out.push_str("                    [--frontier-test|--no-frontier-test] [--frontier-familiar-n N]\n");
             out.push_str("  drc                    - Run Design Rule Check on all sentences\n");
             out.push_str("  drc <tier> [N|all]     - DRC for one tier (default: first 10 violations)\n");
             out.push_str("  calibrate [max_level]  - Run calibration on loaded document (default max: 45)\n");

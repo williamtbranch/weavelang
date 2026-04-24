@@ -264,3 +264,90 @@ FULL PIPELINE AUTOMATION (future)
   [ ] av generate pipeline <stem> — chains: audio → prompts → illustrations → video → upload
   [ ] av generate pipeline all — batch version, sequential per stem
   [ ] Each step checks filesystem prerequisites (same pattern as existing av commands)
+
+CONTEXT DIFFUSION FRONTIER FILTER (2026-04)
+════════════════════════════════════════════
+Goal: expose a controlled absolute fraction of out-of-level target-language tokens
+while preserving deterministic output and sentence-level lemma consistency.
+
+Phase 1 — Config and CLI wiring
+  [x] Add feature toggle (weave_out flag): frontier on/off
+  [x] Add config value: frontier_target_pct (default 5.0)
+  [x] Add config value: frontier_seed (default 777) in .wvl
+  [x] Add optional test-mode values:
+      - frontier_test_mode (bool)
+      - frontier_familiar_lemma_exclude_count (default 100)
+  [ ] Ensure frontier-off path is byte-for-byte compatible with current behavior
+
+Phase 2 — Per-boundary pre-pass calibration
+  [x] Implement full pre-pass per level_map boundary (not global, not sampled)
+  [x] Collect per-boundary metrics:
+      - total_tokens
+      - unknown_tokens
+      - expected_unknown_pct
+  [x] Surface per-boundary calibration metrics in analysis output
+  [x] Add low-sample warning when boundary token count is small
+
+Phase 3 — Deterministic frontier engine
+  [x] Implement FrontierEngine struct (Rust) with deterministic RNG stream (rand crate)
+  [x] Seed composition includes:
+      - frontier_seed
+      - file/stem id
+      - boundary index (or equivalent stable segment id)
+  [x] Replace custom reseed ideas with continuous deterministic RNG stream
+  [x] Implement deck logic with floor:
+      - deck_size = max(300, 3 * expected_unknown_pct_int)
+      - pass_count from derived unknown-domain pass rate
+  [x] Implement reshuffle using same RNG stream when deck is consumed
+
+Phase 4 — Sentence-scoped lemma decision path (core_algo integration)
+  [x] Before sentence render, collect unknown lemma set for sentence
+  [x] Build sentence frontier pass list (lemma subset)
+  [x] Known decision path becomes: known_by_level OR known_by_sentence_frontier
+  [x] Enforce hard invariant: same lemma cannot be mixed across expression modes
+      within the same sentence
+  [x] Ensure engine reset on:
+      - new output file/stem
+      - level boundary transition inside same file
+
+Phase 5 — Budget steering toward absolute target
+  [x] Track per-boundary frontier token budget:
+      - target_frontier_tokens = round(total_tokens * frontier_target_pct)
+  [x] Track emitted_frontier_tokens while weaving
+  [x] Add bounded consume-ahead steering bias based on unknown token mass per lemma
+      (token-weighted, not lemma-uniform)
+  [x] Keep steering bounded so distribution remains natural (no hard forcing)
+
+Phase 6 — Level alignment rule
+  [x] Implement frontier level-shift lookup:
+      - requested level L uses level-map recipe L-1 when frontier is enabled
+  [x] L=1 edge case uses baseline all-unknown recipe 0,0,0
+  [x] Confirm no shift when frontier is disabled
+
+Phase 7 — Diagnostics and reporting
+  [x] Add analysis fields per boundary:
+      - requested_frontier_pct
+      - realized_frontier_pct
+      - expected_unknown_pct
+      - total_tokens / unknown_tokens / frontier_tokens
+      - deck_size / pass_count
+      - steering_adjustment_count
+  [x] Add one-line summary in terminal/status output for quick verification
+
+Phase 8 — Validation and acceptance testing (statistical)
+  [x] Add repeatability test: same inputs + same level + same seed => identical output
+  [x] Add level-change test: same inputs + adjacent level => frontier distribution differs
+  [x] Add sentence consistency test: no mixed expression for same lemma in one sentence
+  [x] Add boundary reset test: calibration/engine resets at level boundary changes
+
+  [ ] Primary A/B acceptance test:
+      - Run A: frontier OFF at level L
+      - Run B: frontier ON at level L+1 (level-shift alignment active)
+      - Compare realized target-language token percent
+      - Expected bump: approximately +5 percentage points (set tolerance band)
+
+  [ ] Dogfooding test profile:
+      - Near-zero known-set baseline
+      - Exclude first N familiar lemmas (default 100) from frontier eligibility
+      - Generate TTS samples at 3%, 4%, 5%
+      - Human-rate comprehensibility and pick default

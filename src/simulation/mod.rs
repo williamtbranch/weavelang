@@ -8,6 +8,7 @@ pub mod metrics;
 pub mod numerical_types;
 pub mod preprocessor;
 pub mod text_generator;
+pub mod frontier;
 
 #[cfg(test)]
 mod tests;
