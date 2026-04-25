@@ -1584,6 +1584,8 @@ impl Engine {
                 frontier_seed_override,
                 frontier_test_mode_override,
                 frontier_familiar_lemma_exclude_count_override,
+                sf_step,
+                sf_start_level,
             } => {
                 // Guard: all sentences must be weave-ready
                 if self.state.document.is_empty() {
@@ -1658,6 +1660,14 @@ impl Engine {
                         frontier_familiar_lemma_exclude_count_override
                             .unwrap_or(self.state.frontier_familiar_lemma_exclude_count),
                 };
+
+                if level == "sf" {
+                    return self.execute_generate_study_format(
+                        sf_step.unwrap_or(2),
+                        sf_start_level.unwrap_or(16),
+                        chapter_range,
+                    );
+                }
 
                 self.execute_generate_weave(&level, chapter_range, frontier_config)
             }
@@ -3883,6 +3893,220 @@ impl Engine {
             level_count,
             lm_file.meta.natural_peak_level,
             cal_info,
+        ))
+    }
+
+    fn execute_generate_study_format(
+        &self,
+        step: u32,
+        start_level: u32,
+        chapter_range: Option<(usize, usize)>,
+    ) -> Result<String, String> {
+        use crate::domain::bridge::domain_sentences_to_json_chapter;
+        use crate::simulation::dictionary::GlobalLemmaDictionary;
+        use crate::simulation::preprocessor;
+        use crate::corpus_generator;
+        use crate::simulation::text_generator;
+
+        if self.state.document.is_empty() {
+            return Err("No document loaded.".to_string());
+        }
+        if !self.state.audit_passed {
+            return Err("Please run 'audit' on the project before outputting woven text.".to_string());
+        }
+
+        let output_dir = self.state.output_dir.as_ref()
+            .ok_or("Output directory not set. Use 'set output_dir <path>' first.")?;
+        let output_path = PathBuf::from(output_dir);
+
+        let book_dir = if self.state.book_name.is_empty() {
+            output_path.clone()
+        } else {
+            let sanitized = self.state.book_name.replace(
+                |c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != ' ', "");
+            let dir_name = sanitized.trim().replace(' ', "_");
+            output_path.join(&dir_name)
+        };
+
+        let (weave_dir, chapter_name_sanitized) = if let Some((ch_start, ch_end)) = chapter_range {
+            let ch_name = self.state.chapters.iter()
+                .find(|c| c.start == ch_start && c.end == ch_end)
+                .map(|c| c.name.clone())
+                .unwrap_or_else(|| format!("ch_{}-{}", ch_start, ch_end));
+            let ch_dir_name = Self::sanitize_name(&ch_name);
+            let ch_dir = book_dir.join(&ch_dir_name);
+            (ch_dir, Some(ch_dir_name))
+        } else {
+            (book_dir.join("whole_book"), None)
+        };
+
+        let tts_dir = weave_dir.join("tts_files");
+        if !tts_dir.exists() {
+            fs::create_dir_all(&tts_dir)
+                .map_err(|e| format!("Failed to create output directory '{}': {}", tts_dir.display(), e))?;
+        }
+
+        let book_map = self.state.book_map.as_ref()
+            .ok_or("No level map loaded. Use 'import level_map <path>' first.")?;
+
+        // Collect and sort all numeric levels in the book_map
+        let mut all_levels: Vec<u32> = book_map.keys()
+            .filter_map(|k| k.parse::<u32>().ok())
+            .collect();
+        all_levels.sort();
+
+        let peak_level = all_levels.last().copied().unwrap_or(0);
+
+        // Build the list of study levels: step through the numeric space starting
+        // at start_level, keeping only levels that actually exist in the map.
+        // Always include peak_level at the end if it isn't already there.
+        let mut study_levels: Vec<u32> = Vec::new();
+        if peak_level >= start_level {
+            let mut lvl = start_level;
+            while lvl <= peak_level {
+                if book_map.contains_key(&lvl.to_string()) {
+                    study_levels.push(lvl);
+                }
+                lvl = lvl.saturating_add(step);
+                if step == 0 { break; } // guard against infinite loop if step is 0
+            }
+            // Always include the peak
+            if study_levels.last().copied() != Some(peak_level)
+                && book_map.contains_key(&peak_level.to_string())
+            {
+                study_levels.push(peak_level);
+            }
+        }
+        // If peak is below start_level, study_levels stays empty and we output
+        // only the source text (no crash, just a notice in the result).
+
+        // Build filename helper
+        let build_file_name = |suffix: &str| -> String {
+            if self.state.book_name.is_empty() {
+                match &chapter_name_sanitized {
+                    Some(ch) => format!("{}_{}.txt", ch, suffix),
+                    None => format!("{}.txt", suffix),
+                }
+            } else {
+                let sanitized = self.state.book_name.replace(
+                    |c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != ' ', "");
+                let prefix = sanitized.trim().replace(' ', "_");
+                match &chapter_name_sanitized {
+                    Some(ch) => format!("{}_{}_{}.txt", prefix, ch, suffix),
+                    None => format!("{}_{}.txt", prefix, suffix),
+                }
+            }
+        };
+
+        // Determine the sentence slice for this chapter / whole-book
+        let sentences_for_chapter: &[crate::domain::sentence::Sentence] =
+            if let Some((cs, ce)) = chapter_range {
+                let s0 = cs.saturating_sub(1);
+                let e0 = (ce.saturating_sub(1)).min(self.state.document.len().saturating_sub(1));
+                &self.state.document[s0..=e0]
+            } else {
+                &self.state.document
+            };
+
+        // Build JSON + numerical chapter (frontier always OFF for study format)
+        let (base_lang, target_lang) = &self.state.project_languages;
+        let json_chapter = domain_sentences_to_json_chapter(
+            sentences_for_chapter,
+            &self.state.book_name,
+            base_lang,
+            target_lang,
+            self.state.book_map.as_ref(),
+        );
+        let mut dictionary = GlobalLemmaDictionary::new();
+        let (numerical_chapter, _) =
+            preprocessor::json_chapter_to_numerical(&json_chapter, &mut dictionary);
+
+        let sentence_count = numerical_chapter.sentences_numerical.len();
+
+        // Collect per-sentence source text (base tier → basic_base tier fallback)
+        let source_texts: Vec<String> = sentences_for_chapter.iter()
+            .map(|s| {
+                let raw = s.get_tier("base")
+                    .or_else(|| s.get_tier("basic_base"))
+                    .map(|t| t.full_text())
+                    .unwrap_or_default();
+                text_generator::clean_text_for_tts(&raw)
+            })
+            .collect();
+
+        // Generate per-sentence texts for each study level (frontier OFF)
+        // level_parts[i] = Vec<String> with one entry per sentence
+        let mut level_parts: Vec<(u32, Vec<String>)> = Vec::with_capacity(study_levels.len());
+        for &lvl in &study_levels {
+            let cm = book_map.get(&lvl.to_string())
+                .ok_or(format!("No recipe found for level {}", lvl))?;
+            if cm.map.is_empty() {
+                return Err(format!("Empty curriculum map for level {}", lvl));
+            }
+            let recipe = &cm.map[0].recipe;
+
+            let result = corpus_generator::generate_book_instance(
+                &numerical_chapter,
+                &json_chapter,
+                &dictionary,
+                recipe.bas,
+                recipe.mod_v,
+                recipe.adv,
+                0.5,
+                false,
+            ).map_err(|e| format!("Generation failed for level {}: {}", lvl, e))?;
+
+            let cleaned: Vec<String> = result.final_text_parts.iter()
+                .map(|p| text_generator::clean_text_for_tts(p))
+                .collect();
+            level_parts.push((lvl, cleaned));
+        }
+
+        // Build the output: for each sentence, emit source then any level
+        // whose text differs from the previously-included text for that sentence.
+        let mut output_blocks: Vec<String> = Vec::with_capacity(sentence_count);
+
+        for sent_idx in 0..sentence_count {
+            let source = source_texts.get(sent_idx).cloned().unwrap_or_default();
+            let mut block: Vec<String> = vec![source.clone()];
+            let mut prev = source;
+
+            for (_, texts) in &level_parts {
+                if let Some(lvl_text) = texts.get(sent_idx) {
+                    if *lvl_text != prev {
+                        block.push(lvl_text.clone());
+                        prev = lvl_text.clone();
+                    }
+                }
+            }
+
+            output_blocks.push(block.join("\n\n"));
+        }
+
+        let output_text = output_blocks.join("\n\n");
+        let file_name = build_file_name("ULsf");
+        let file_path = tts_dir.join(&file_name);
+        fs::write(&file_path, &output_text)
+            .map_err(|e| format!("Failed to write '{}': {}", file_path.display(), e))?;
+
+        let level_info = if study_levels.is_empty() {
+            format!(
+                "No levels at or above start_level {} (peak is UL{}); only source text written.",
+                start_level, peak_level
+            )
+        } else {
+            format!(
+                "levels {}-{} (step {}, {} checkpoints)",
+                study_levels.first().unwrap(),
+                study_levels.last().unwrap(),
+                step,
+                study_levels.len(),
+            )
+        };
+
+        Ok(format!(
+            "Study format written: {} — {} sentences, {}",
+            file_name, sentence_count, level_info
         ))
     }
 

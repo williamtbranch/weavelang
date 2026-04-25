@@ -71,10 +71,11 @@ def generate_character_ref(client, model: str, character: dict,
                 model=model,
                 contents=[prompt],
             )
-            for part in response.parts:
-                if part.inline_data is not None:
-                    raw = part.inline_data.data
-                    return _ensure_png(raw)
+            for candidate in response.candidates:
+                for part in candidate.content.parts:
+                    if part.inline_data is not None:
+                        raw = part.inline_data.data
+                        return _ensure_png(raw)
             raise RuntimeError("Gemini returned no image for character reference")
         except Exception as e:
             if attempt < MAX_RETRIES - 1:
@@ -159,10 +160,11 @@ def generate_image(client, model: str, prompt_text: str, style: str,
                 model=model,
                 contents=contents,
             )
-            for part in response.parts:
-                if part.inline_data is not None:
-                    raw = part.inline_data.data
-                    return _ensure_png(raw)
+            for candidate in response.candidates:
+                for part in candidate.content.parts:
+                    if part.inline_data is not None:
+                        raw = part.inline_data.data
+                        return _ensure_png(raw)
             raise RuntimeError("Gemini returned no image")
         except Exception as e:
             if attempt < MAX_RETRIES - 1:

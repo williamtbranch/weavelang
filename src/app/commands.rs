@@ -56,6 +56,10 @@ pub enum AppCommand {
         frontier_seed_override: Option<u64>,
         frontier_test_mode_override: Option<bool>,
         frontier_familiar_lemma_exclude_count_override: Option<usize>,
+        /// Study-format step size (only used when level == "sf")
+        sf_step: Option<u32>,
+        /// Study-format start level (only used when level == "sf")
+        sf_start_level: Option<u32>,
     },
     Calibrate { max_level: Option<u32> },
 

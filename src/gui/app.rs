@@ -62,6 +62,9 @@ pub struct WeaveLangApp {
     weave_level_frontier: bool,
     weave_level_frontier_pct: f32,
     weave_level_frontier_seed: u64,
+    // Study-format specific controls
+    weave_sf_step: u32,
+    weave_sf_start_level: u32,
 }
 
 impl WeaveLangApp {
@@ -145,6 +148,8 @@ impl WeaveLangApp {
             weave_level_frontier: true,
             weave_level_frontier_pct: 5.0,
             weave_level_frontier_seed: 777,
+            weave_sf_step: 2,
+            weave_sf_start_level: 16,
         };
 
         let gs = crate::global_settings::GlobalSettings::load();
@@ -723,6 +728,8 @@ impl WeaveLangApp {
                     self.weave_level_frontier = true;
                     self.weave_level_frontier_pct = 5.0;
                     self.weave_level_frontier_seed = 777;
+                    self.weave_sf_step = 2;
+                    self.weave_sf_start_level = 16;
                     ui.close_menu();
                 }
                 if !weave_ready && !self.state.document.is_empty() {
@@ -870,6 +877,7 @@ impl WeaveLangApp {
         options.push(("a".to_string(), "ULa (advanced-heavy)".to_string()));
         options.push(("i".to_string(), "ULi (interlinear)".to_string()));
         options.push(("r".to_string(), "ULr (raw source)".to_string()));
+        options.push(("sf".to_string(), "ULsf (study format)".to_string()));
 
         options
     }
@@ -886,17 +894,30 @@ impl WeaveLangApp {
         for idx in selected_indices {
             if let Some((arg, _label)) = options.get(idx) {
                 let mut flags = String::new();
-                if self.weave_level_force {
-                    flags.push_str(" --force");
-                }
-                if !self.weave_level_frontier {
-                    flags.push_str(" --no-frontier");
-                } else {
-                    if (self.weave_level_frontier_pct - 5.0).abs() > 0.001 {
-                        flags.push_str(&format!(" --frontier-pct {}", self.weave_level_frontier_pct));
+                if arg == "sf" {
+                    // Study format: frontier is always off; use sf-specific flags
+                    if self.weave_sf_step != 2 {
+                        flags.push_str(&format!(" --sf-step {}", self.weave_sf_step));
                     }
-                    if self.weave_level_frontier_seed != 777 {
-                        flags.push_str(&format!(" --frontier-seed {}", self.weave_level_frontier_seed));
+                    if self.weave_sf_start_level != 16 {
+                        flags.push_str(&format!(" --sf-start {}", self.weave_sf_start_level));
+                    }
+                    if self.weave_level_force {
+                        flags.push_str(" --force");
+                    }
+                } else {
+                    if self.weave_level_force {
+                        flags.push_str(" --force");
+                    }
+                    if !self.weave_level_frontier {
+                        flags.push_str(" --no-frontier");
+                    } else {
+                        if (self.weave_level_frontier_pct - 5.0).abs() > 0.001 {
+                            flags.push_str(&format!(" --frontier-pct {}", self.weave_level_frontier_pct));
+                        }
+                        if self.weave_level_frontier_seed != 777 {
+                            flags.push_str(&format!(" --frontier-seed {}", self.weave_level_frontier_seed));
+                        }
                     }
                 }
                 let cmd = format!("generate_weave {}{}", arg, flags);
@@ -2283,21 +2304,45 @@ impl App for WeaveLangApp {
 
                     ui.add_space(6.0);
                     ui.separator();
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        ui.checkbox(&mut self.weave_level_frontier, "Frontier filter");
-                        if self.weave_level_frontier {
-                            ui.label("Target %:");
-                            ui.add(egui::DragValue::new(&mut self.weave_level_frontier_pct)
-                                .speed(0.1)
-                                .clamp_range(0.1_f32..=50.0_f32)
-                                .suffix("%"));
-                            ui.label("Seed:");
-                            ui.add(egui::DragValue::new(&mut self.weave_level_frontier_seed)
+                    // Study-format controls — only shown when sf is selected
+                    let sf_selected = options.iter().enumerate()
+                        .any(|(i, (arg, _))| arg == "sf" && self.weave_level_selected.contains(&i));
+                    if sf_selected {
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.label("SF Step:");
+                            ui.add(egui::DragValue::new(&mut self.weave_sf_step)
                                 .speed(1.0)
-                                .clamp_range(0_u64..=9_999_999_u64));
-                        }
+                                .clamp_range(1_u32..=10_u32));
+                            ui.label("SF Start Level:");
+                            ui.add(egui::DragValue::new(&mut self.weave_sf_start_level)
+                                .speed(1.0)
+                                .clamp_range(0_u32..=50_u32));
+                        });
+                        ui.label(egui::RichText::new("(Frontier is always off for study format)").weak().italics());
+                    }
+
+                    // Frontier controls — hidden when only sf is selected
+                    let only_sf = !self.weave_level_selected.is_empty() && self.weave_level_selected.iter().all(|&i| {
+                        options.get(i).map_or(false, |(arg, _)| arg == "sf")
                     });
+                    if !only_sf {
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.checkbox(&mut self.weave_level_frontier, "Frontier filter");
+                            if self.weave_level_frontier {
+                                ui.label("Target %:");
+                                ui.add(egui::DragValue::new(&mut self.weave_level_frontier_pct)
+                                    .speed(0.1)
+                                    .clamp_range(0.1_f32..=50.0_f32)
+                                    .suffix("%"));
+                                ui.label("Seed:");
+                                ui.add(egui::DragValue::new(&mut self.weave_level_frontier_seed)
+                                    .speed(1.0)
+                                    .clamp_range(0_u64..=9_999_999_u64));
+                            }
+                        });
+                    }
                     ui.add_space(4.0);
                     ui.separator();
 

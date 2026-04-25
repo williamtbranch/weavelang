@@ -503,7 +503,7 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
         },
         "generate_weave" => {
             if parts.len() <= 1 {
-                return Err("Usage: generate_weave <level|all|b|m|a|i|r> [--force] [--frontier|--no-frontier] [--frontier-pct N] [--frontier-seed N] [--frontier-test|--no-frontier-test] [--frontier-familiar-n N]".to_string());
+                return Err("Usage: generate_weave <level|all|b|m|a|i|r|sf> [--force] [--frontier|--no-frontier] [--frontier-pct N] [--frontier-seed N] [--frontier-test|--no-frontier-test] [--frontier-familiar-n N] [--sf-step N] [--sf-start N]".to_string());
             }
 
             let mut level: Option<String> = None;
@@ -513,6 +513,8 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
             let mut frontier_seed_override: Option<u64> = None;
             let mut frontier_test_mode_override: Option<bool> = None;
             let mut frontier_familiar_lemma_exclude_count_override: Option<usize> = None;
+            let mut sf_step: Option<u32> = None;
+            let mut sf_start_level: Option<u32> = None;
 
             let mut i = 1;
             while i < parts.len() {
@@ -570,6 +572,28 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
                         );
                         i += 2;
                     }
+                    "--sf-step" => {
+                        if i + 1 >= parts.len() {
+                            return Err("Missing value for --sf-step".to_string());
+                        }
+                        sf_step = Some(
+                            parts[i + 1]
+                                .parse::<u32>()
+                                .map_err(|_| "Invalid integer for --sf-step")?,
+                        );
+                        i += 2;
+                    }
+                    "--sf-start" => {
+                        if i + 1 >= parts.len() {
+                            return Err("Missing value for --sf-start".to_string());
+                        }
+                        sf_start_level = Some(
+                            parts[i + 1]
+                                .parse::<u32>()
+                                .map_err(|_| "Invalid integer for --sf-start")?,
+                        );
+                        i += 2;
+                    }
                     arg if arg.starts_with("--") => {
                         return Err(format!("Unknown generate_weave flag '{}'.", arg));
                     }
@@ -585,7 +609,7 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
             }
 
             let level = level.ok_or_else(|| {
-                "Missing level argument. Usage: generate_weave <level|all|b|m|a|i|r> [flags]"
+                "Missing level argument. Usage: generate_weave <level|all|b|m|a|i|r|sf> [flags]"
                     .to_string()
             })?;
 
@@ -597,6 +621,8 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
                 frontier_seed_override,
                 frontier_test_mode_override,
                 frontier_familiar_lemma_exclude_count_override,
+                sf_step,
+                sf_start_level,
             }))
         },
         "drc" => {
@@ -1110,6 +1136,8 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
         TerminalCommand::Exit => return None,
         TerminalCommand::Help => {
             out.push_str("Available commands:\n");
+            out.push_str("  clear                  - Clear terminal history\n");
+            out.push_str("  status                 - Show project status summary\n");
             out.push_str("  new project <name>     - Create a new empty project\n");
             out.push_str("  close project          - Close the current project\n");
             out.push_str("  set languages <s> <t>  - Set source and target languages (e.g. en es)\n");
@@ -1123,12 +1151,18 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  add sentence [text]    - Add empty sentence, or with initial base text\n");
             out.push_str("  remove sentence <N>    - Remove sentence N (1-based)\n");
             out.push_str("  edit <text>            - Replace selected sentence/tier text\n");
+            out.push_str("  update text <N> <tier> <text> - Directly update tier text for sentence N\n");
             out.push_str("  import source <path>   - Import source text file\n");
+            out.push_str("  import json <path>     - Import a WeaveLang JSON file\n");
             out.push_str("  open workspace <path>  - Open (or create) a workspace directory\n");
             out.push_str("  load project <path>    - Load a .wvl file\n");
             out.push_str("  save project [path]    - Save project\n");
             out.push_str("  config set <k> <v>     - Set config value\n");
             out.push_str("  config list            - List config\n");
+            out.push_str("  config add_model <alias>          - Add a new model alias\n");
+            out.push_str("  config remove_model <alias>       - Remove a model alias\n");
+            out.push_str("  config rename_model <old> <new>   - Rename a model alias\n");
+            out.push_str("  export json <path>     - Export project as JSON\n");
             out.push_str("  export level_map [p]   - Export level map (.lm file)\n");
             out.push_str("  run generate <stage> <s> <e> - Run generation stage (s,e are 1-based)\n");
             out.push_str("        stage: adv|mod|bas_b|bas_t|phrase_map|inv_map or full name\n");
@@ -1136,6 +1170,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  show detail            - Show selected sentence details\n");
             out.push_str("  show mapping           - Show mappings for selected sentence/tier (human-readable)\n");
             out.push_str("  show tokens            - Show tokenized words with indices for selected sentence/tier\n");
+            out.push_str("  show level_map [level] - Show level map (optionally a single level)\n");
             out.push_str("  print [tier]           - Print current tier view (or specified tier without switching)\n");
             out.push_str("  weave status           - Check if document is ready for weave\n");
             out.push_str("  report sentences incomplete - List sentences not ready for weave\n");
@@ -1146,16 +1181,20 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  measure_user_score <p> - Measure estimated user level of a plain text file\n");
             out.push_str("  debug_dump <s> <e> [p] - Dump debug state for sentences s..e to file or stdout\n");
             out.push_str("  set key <p> <value>    - Store API key in OS keychain (anthropic|google)\n");
+            out.push_str("  set frontier on|off    - Enable/disable frontier filter globally\n");
+            out.push_str("  set frontier_pct <n>   - Set frontier target percentage\n");
+            out.push_str("  set frontier_seed <n>  - Set frontier RNG seed\n");
             out.push_str("  delete key <p>         - Remove key from OS keychain\n");
             out.push_str("  key status             - Show which API keys are configured\n");
             out.push_str("  watch_job              - Block until current LLM job completes\n");
             out.push_str("  job_status             - Non-blocking: show LLM job progress (for copilot polling)\n");
             out.push_str("  import level_map <p>   - Import a .lm level map file\n");
             out.push_str("  set output_dir <p>     - Set output directory for weave files\n");
-            out.push_str("  generate_weave <N|all|b|m|a|i|r> - Generate weave text file(s); r outputs raw source as ULr\n");
+            out.push_str("  generate_weave <N|all|b|m|a|i|r|sf> - Generate weave text file(s); r=raw source, sf=study format\n");
             out.push_str("  generate_weave <N|all> --force - Generate weave, skip DRC\n");
             out.push_str("  generate_weave ... [--frontier|--no-frontier] [--frontier-pct N] [--frontier-seed N]\n");
             out.push_str("                    [--frontier-test|--no-frontier-test] [--frontier-familiar-n N]\n");
+            out.push_str("  generate_weave sf [--sf-step N] [--sf-start N] - Study format (default step=2, start=16)\n");
             out.push_str("  drc                    - Run Design Rule Check on all sentences\n");
             out.push_str("  drc <tier> [N|all]     - DRC for one tier (default: first 10 violations)\n");
             out.push_str("  calibrate [max_level]  - Run calibration on loaded document (default max: 45)\n");
@@ -1175,6 +1214,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  merge <N>-<M>          - Merge words N through M into one\n");
             out.push_str("  insert <N>             - Insert empty word at position N\n");
             out.push_str("  delete <N>             - Delete word at position N\n");
+            out.push_str("  edit_word <N> <text>   - Edit source word text at position N\n");
             out.push_str("  edit_b <N> \"<text>\"    - Edit background token before word N\n");
             out.push_str("  edit_target <N> <text>  - Edit mapping target for word N\n");
             out.push_str("  edit_targets N:t N:t .. - Batch edit mapping targets (e.g. 1:La 2:vieja)\n");
@@ -1198,12 +1238,16 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("\n--- AV Production ---\n");
             out.push_str("  av status              - Show audio/video file status\n");
             out.push_str("  av mark/unmark <stem>  - Mark/unmark files for AV\n");
+            out.push_str("  av mark-all            - Mark all woven text files\n");
+            out.push_str("  av clear-marks         - Remove all marks\n");
             out.push_str("  av generate audio|video|characters|prompts|illustrations - Generate media\n");
             out.push_str("  av cancel              - Cancel running AV generation\n");
             out.push_str("  av log [N]             - Show AV job output (last N lines)\n");
             out.push_str("  av chunks <stem>       - Show chunk status for a stem\n");
             out.push_str("  av rebuild audio <stem> - Rebuild final audio from chunks (volume-aware)\n");
             out.push_str("  av config show         - Show AV config\n");
+            out.push_str("  av open book-dir|audio-dir|video-dir - Open a directory in file explorer\n");
+            out.push_str("  av youtube init|auth|upload - YouTube integration\n");
             out.push_str("  av help                - Full AV command list\n");
             out.push_str("  exit                   - Exit");
         },
@@ -1221,6 +1265,17 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  av generate prompts            - Generate illustration prompts via LLM\n");
             out.push_str("  av generate illustrations       - Generate images from prompts\n");
             out.push_str("  av config show             - Show AV config\n");
+            out.push_str("  av config tts <key> <value>     - Set a TTS config value\n");
+            out.push_str("  av config video <key> <value>   - Set a video config value\n");
+            out.push_str("  av config voices <v1> [v2 ...]  - Set TTS voice list\n");
+            out.push_str("  av config illustrations <k> <v> - Set an illustrations config value\n");
+            out.push_str("  av open book-dir|audio-dir|video-dir - Open a directory in file explorer\n");
+            out.push_str("  av reject chunk <stem> <index>  - Reject a TTS chunk (flag for redo)\n");
+            out.push_str("  av restore chunk <stem> <index> - Restore a previously rejected chunk\n");
+            out.push_str("  av youtube init                 - Create YouTube config\n");
+            out.push_str("  av youtube auth                 - Authenticate with YouTube\n");
+            out.push_str("  av youtube config show|<k> <v>  - Show or set YouTube config\n");
+            out.push_str("  av youtube upload [stem|next|all] - Upload video(s) to YouTube\n");
             out.push_str("  av config tts <key> <val>  - Set TTS config value\n");
             out.push_str("  av config video <key> <val> - Set video config value\n");
             out.push_str("       keys: image_duration, frame_rate, max_sentences_per_video\n");

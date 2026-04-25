@@ -2,6 +2,7 @@
 .env.local
 __pycache__
 target
+PR
 mono.in
 mono.out
 .vscode

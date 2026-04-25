@@ -64,7 +64,7 @@ DEFAULT_TTS_SERVICE = "gemini"
 DEFAULT_GEMINI_MODEL_NAME = "models/gemini-2.5-pro-preview-tts"
 DEFAULT_GEMINI_VOICE_NAME = "Schedar"
 #DEFAULT_GEMINI_TTS_PROMPT_PREFIX = "You have a Mexican Spanish accent. You are performing a story from classic public domain literature from Project Gutenberg. Read the text in a clear, engaging, and natural way, as if narrating an audiobook. Use appropriate intonation and pacing to bring the story to life. Do not add any commentary or information that is not in the text. Just read the text as it is written."
-DEFAULT_GEMINI_TTS_PROMPT_PREFIX = "You are performing a story from classic public domain literature from Project Gutenberg. Read the text in a clear, engaging, and natural way, as if narrating an audiobook. You have a Mexican Spanish accent. Use appropriate intonation and pacing to bring the story to life. Do not read too quickly as this is for Spanish Students."
+DEFAULT_GEMINI_TTS_PROMPT_PREFIX = "You are performing a story from classic public domain literature from Project Gutenberg. Be upbeat. Read the text in a clear, engaging, and natural conversational way, as if narrating an audiobook. You have a Mexican Spanish accent. Use smooth phrasing and light energy. Avoid slow word-by-word delivery. Do not add any commentary or information that is not in the text."
 DEFAULT_VERTEX_VOICE_NAME = "en-US-Standard-C"
 DEFAULT_VERTEX_LANGUAGE_CODE = "en-US"
 DEFAULT_CHUNK_MAX_CHARS = 750
@@ -248,7 +248,7 @@ async def generate_audio_chunk_async(
                     api_call_description = f"Chunk {chunk_index + 1} (Attempt {attempt + 1}/{effective_args.max_api_retries})"
                     if effective_args.tts_service == "gemini":
                         if not google_genai or not genai_types: raise RuntimeError("Gemini API library not available.")
-                        full_prompt = f"{effective_args.tts_prompt_prefix}\n\n{text_chunk}"
+                        full_prompt = f"{effective_args.tts_prompt_prefix}\n\nRead the following text exactly as written. Do not add, remove, or change any words:\n\n{text_chunk}"
                         api_config = genai_types.GenerateContentConfig(
                             response_modalities=["audio"],
                             speech_config=genai_types.SpeechConfig(
@@ -346,7 +346,7 @@ async def generate_interleave_audio_chunk_async(
                 try:
                     api_call_description = f"Chunk {chunk_index + 1} (Attempt {attempt + 1}/{effective_args.max_api_retries})"
 
-                    prompt_text = f"{effective_args.tts_prompt_prefix}\n\n{text_chunk}"
+                    prompt_text = f"{effective_args.tts_prompt_prefix}\n\nRead the following text exactly as written. Do not add, remove, or change any words:\n\n{text_chunk}"
                     contents = [
                         genai_types.Content(
                             role="user",
