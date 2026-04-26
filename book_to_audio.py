@@ -15,6 +15,7 @@ import time
 import importlib.metadata
 import json
 import re
+import hashlib
 from typing import Any
 import sys # <-- NEW: For sys.exit()
 
@@ -75,6 +76,9 @@ DEFAULT_OUTPUT_AUDIO_FORMAT = "wav"
 TEMP_DIR_NAME = "_tts_temp_chunks"
 METADATA_FILENAME = "_metadata.json"
 CHUNK_MAP_FILENAME = "_chunk_map.json"
+SF_ALIGNMENT_MAP_FILENAME = "_sf_alignment_map.json"
+SF_ALIGNMENT_MAP_VERSION = 1
+SF_CHUNK_META_FILENAME = "_sf_chunk_meta.json"
 REQUEST_TIMEOUT_SECONDS = 500
 PCM_CHANNELS = 1
 PCM_FRAME_RATE = 24000
@@ -98,6 +102,33 @@ def save_raw_pcm_to_wav(filename: Path, pcm_data: bytes, channels: int, rate: in
 def is_interleave_file(filename: str) -> bool:
     """Return True if the filename matches the ULi interleave pattern (e.g. name_ULi34.txt)."""
     return bool(re.search(r'ULi\d+', filename))
+
+
+def split_paragraphs(text: str) -> list[str]:
+    """Split text into cleaned paragraphs on double-newline boundaries.
+    This is the canonical sentence boundary used for SF alignment."""
+    raw = re.split(r'\n{2,}', text)
+    return [' '.join(p.split()) for p in raw if p.strip()]
+
+
+def compute_source_hash(paragraphs: list[str]) -> str:
+    """Compute a stable hash over paragraph structure (not content).
+    Detects sentence insertions/deletions without being sensitive to
+    per-level word changes."""
+    sig = "|".join(str(len(p)) for p in paragraphs)
+    return "sha256:" + hashlib.sha256(sig.encode('utf-8')).hexdigest()
+
+
+def rechunk_by_alignment_map(paragraphs: list[str], chunks_from_map: list[dict]) -> list[tuple[str, int, int]]:
+    """Rebuild text chunks from saved sentence ranges.
+    Ensures all levels use identical chunk boundaries regardless of character widths."""
+    result = []
+    for chunk_def in chunks_from_map:
+        start = chunk_def['start_sentence']  # 1-based
+        end = chunk_def['end_sentence']       # 1-based, inclusive
+        chunk_paras = paragraphs[start - 1:end]
+        result.append((' '.join(chunk_paras), start, end))
+    return result
 
 
 def chunk_interleave_text(full_text: str, max_chars: int) -> list[str]:
@@ -480,7 +511,8 @@ async def process_book_to_audio_async(
     output_file_path: Path,
     args: argparse.Namespace,
     effective_args: argparse.Namespace,
-    sentence_ranges: list[tuple[int, int]] | None = None
+    sentence_ranges: list[tuple[int, int]] | None = None,
+    alignment_map_data: dict | None = None,
 ):
     semaphore = asyncio.Semaphore(effective_args.concurrent_requests)
     if args.chunks_dir:
@@ -572,6 +604,20 @@ async def process_book_to_audio_async(
         with open(metadata_file_path, 'w') as mf: json.dump(metadata_to_save, mf, indent=4)
         for i, text_content in enumerate(text_chunks_from_file):
             tasks_to_generate.append((i, text_content, ""))
+
+    # Write per-level SF chunk metadata into this level's chunk dir.
+    # Written in all modes so repair runs also stamp the meta file.
+    if alignment_map_data:
+        sf_chunk_meta = {
+            "alignment_source_hash": alignment_map_data.get("source_hash", ""),
+            "chunk_max_chars": alignment_map_data.get("chunk_max_chars", 0),
+            "sentence_count": alignment_map_data.get("sentence_count", 0),
+            "chunk_count": len(alignment_map_data.get("chunks", [])),
+        }
+        sf_meta_path = temp_chunk_dir / SF_CHUNK_META_FILENAME
+        with open(sf_meta_path, 'w', encoding='utf-8') as f:
+            json.dump(sf_chunk_meta, f, indent=4)
+        logging.info(f"SF chunk metadata written: {sf_meta_path}")
 
     # Save chunk-to-sentence mapping for illustration synchronization.
     # Written in all modes (normal, repair, chunks-dir) so the map is always
@@ -702,6 +748,7 @@ async def main_async():
     parser.add_argument("--output-filename", type=str, default=None, help="Override output filename (e.g. stem_V1.wav). Used for volume splits.")
     parser.add_argument("--chunk-start", type=int, default=None, help="First chunk index (0-based) for volume concat.")
     parser.add_argument("--chunk-end", type=int, default=None, help="Last chunk index (0-based, inclusive) for volume concat.")
+    parser.add_argument("--force-realign", action="store_true", help="Force recreation of _sf_alignment_map.json even if audio chunks already exist. DESTRUCTIVE: invalidates cross-level SF compatibility.")
     args = parser.parse_args()
 
     if args.voice_name is None:
@@ -837,11 +884,92 @@ async def main_async():
     chunk_data = chunk_text(full_text, effective_args.chunk_max_chars)
     text_chunks = [c[0] for c in chunk_data]
     sentence_ranges = [(c[1], c[2]) for c in chunk_data]
+
+    # --- SF alignment map logic (non-interleave only) ---
+    alignment_map_data: dict | None = None
+    if not getattr(args, 'interleave', False) and not args.concat_only:
+        alignment_map_path = output_audio_dir / SF_ALIGNMENT_MAP_FILENAME
+        paragraphs = split_paragraphs(full_text)
+        source_hash = compute_source_hash(paragraphs)
+
+        if not alignment_map_path.exists():
+            # First run: create the canonical alignment map
+            alignment_map_data = {
+                "version": SF_ALIGNMENT_MAP_VERSION,
+                "chunk_max_chars": effective_args.chunk_max_chars,
+                "source_hash": source_hash,
+                "sentence_count": len(paragraphs),
+                "chunks": [
+                    {"index": i, "start_sentence": s, "end_sentence": e}
+                    for i, (s, e) in enumerate(sentence_ranges)
+                ],
+            }
+            alignment_map_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(alignment_map_path, 'w', encoding='utf-8') as f:
+                json.dump(alignment_map_data, f, indent=4)
+            logging.info(f"SF alignment map created: {alignment_map_path} ({len(sentence_ranges)} chunks, {len(paragraphs)} sentences)")
+        else:
+            # Subsequent runs: load and validate
+            if args.force_realign:
+                # Check if any chunk audio exists before allowing forced realign
+                chunks_root = output_audio_dir / "chunks"
+                audio_exists = any(
+                    wav.exists()
+                    for d in (chunks_root.iterdir() if chunks_root.exists() else [])
+                    if d.is_dir()
+                    for wav in d.glob("temp_chunk_*.wav")
+                )
+                if audio_exists:
+                    logging.warning(
+                        "--force-realign: deleting existing _sf_alignment_map.json. "
+                        "Existing level audio chunks are now incompatible with the new alignment. "
+                        "Regenerate all affected levels before running SF assembly."
+                    )
+                alignment_map_path.unlink(missing_ok=True)
+                # Recreate
+                alignment_map_data = {
+                    "version": SF_ALIGNMENT_MAP_VERSION,
+                    "chunk_max_chars": effective_args.chunk_max_chars,
+                    "source_hash": source_hash,
+                    "sentence_count": len(paragraphs),
+                    "chunks": [
+                        {"index": i, "start_sentence": s, "end_sentence": e}
+                        for i, (s, e) in enumerate(sentence_ranges)
+                    ],
+                }
+                alignment_map_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(alignment_map_path, 'w', encoding='utf-8') as f:
+                    json.dump(alignment_map_data, f, indent=4)
+                logging.info(f"SF alignment map recreated (--force-realign): {alignment_map_path}")
+            else:
+                with open(alignment_map_path, 'r', encoding='utf-8') as f:
+                    alignment_map_data = json.load(f)
+            saved_hash = alignment_map_data.get("source_hash", "")
+            saved_chars = alignment_map_data.get("chunk_max_chars", 0)
+            saved_count = alignment_map_data.get("sentence_count", 0)
+            if saved_hash != source_hash:
+                logging.warning(
+                    f"SF alignment map source_hash mismatch! Saved={saved_hash[:20]}... Current={source_hash[:20]}... "
+                    f"Sentence count: saved={saved_count}, current={len(paragraphs)}. "
+                    "Continuing with existing map — audio may be misaligned if sentence count changed."
+                )
+            if saved_chars != effective_args.chunk_max_chars:
+                logging.warning(
+                    f"SF alignment map chunk_max_chars mismatch: saved={saved_chars}, current={effective_args.chunk_max_chars}. "
+                    "Using saved boundaries from existing map."
+                )
+            # Rechunk text using saved boundaries so all levels have identical splits
+            rechunked = rechunk_by_alignment_map(paragraphs, alignment_map_data["chunks"])
+            text_chunks = [c[0] for c in rechunked]
+            sentence_ranges = [(c[1], c[2]) for c in rechunked]
+            logging.info(f"SF alignment map loaded: {alignment_map_path} ({len(text_chunks)} chunks)")
+    # --- end SF alignment map logic ---
+
     start_time = time.time()
     
     # --- NEW: Graceful exit for quota errors ---
     try:
-        await process_book_to_audio_async(text_chunks, client, output_audio_file_path, args, effective_args, sentence_ranges)
+        await process_book_to_audio_async(text_chunks, client, output_audio_file_path, args, effective_args, sentence_ranges, alignment_map_data)
     except QuotaExhaustedError:
         logging.info("Process stopped gracefully due to API quota exhaustion. You can resume tomorrow by re-running in --repair-mode.")
         sys.exit(0) # Exit with success code, as this is an expected stop condition.

@@ -49,6 +49,72 @@ REMAINING / OPEN
 - Always document UTF-8 requirement in copilot.ps1 header and future test scripts.
 - GUI font missing Unicode glyphs — ✓ ✗ and similar symbols render as boxes in egui terminal.
 
+STUDY FORMAT (SF) V2 — ALIGNED AUDIO INTERLACE
+════════════════════════════════════════════════
+Context:
+  SF should no longer be generated as direct repeated TTS text. It should be assembled
+  from already-produced per-level audio using shared chunk boundaries.
+
+Phase 1 — Alignment index contract
+  [ ] Define _sf_alignment_map.json schema (version, chunk_max_chars, source_hash, sentence_count, chunks[]).
+  [ ] Choose canonical location per mode:
+      - chapter mode: Chapter_N/...
+      - whole_book mode: whole_book/...
+  [ ] Add Rust/py helpers to read/write/validate _sf_alignment_map.json.
+  [ ] Add source hash generation (based on source sentences used for chunking).
+  [ ] Define per-level _sf_chunk_meta.json schema (alignment signature, sentence_count, chunk_count, chunk_max_chars).
+
+Phase 2 — Deterministic chunk boundary generation
+  [ ] Apply existing chunking algorithm to source/base sentence stream only.
+  [ ] Persist sentence ranges per chunk (start_sentence/end_sentence).
+  [ ] Store chunk_max_chars used to create the map.
+  [ ] Auto-generate _sf_alignment_map.json on first TTS audio run when it does not exist.
+  [ ] Subsequent level runs read and reuse existing _sf_alignment_map.json.
+  [ ] Derive and write _sf_chunk_meta.json into each level chunk directory at audio generation time.
+
+Phase 3 — Rewrite guardrails
+  [ ] If alignment JSON exists and any chunk audio already exists, block silent overwrite.
+  [ ] Emit explicit warning when chunk_max_chars differs from existing alignment.
+  [ ] Add force flag path for intentional rebuilds (document destructive implications).
+
+Phase 4 — Per-level chunk compatibility
+  [ ] Require each SF level to have chunk audio compatible with canonical alignment index.
+  [ ] Validate per-level metadata file equality against canonical mapping fields.
+  [ ] Validate expected chunk count per level before SF assembly.
+  [ ] Report missing stems/chunks in a single preflight error summary.
+
+Phase 5 — Manifest-driven SF level mapping
+  [ ] Add [study_format] section in AV manifest.
+  [ ] Support explicit level list in output order.
+  [ ] Remove start/step as SF selection mechanism in v2; manifest is authoritative.
+  [ ] Default manifest template: source=r and levels 16,19,22,25,28,31,34.
+  [ ] require_all_audio=true by default; strict-only behavior for v2.
+
+Phase 6 — SF assembly output
+  [ ] Build SF by interlacing chunk audio in order: source/base then mapped levels.
+  [ ] Concatenate interlaced chunks to final ULsf audio file.
+  [ ] Insert pacing gaps with defaults: 150 ms between level variants, 350 ms between chunk groups.
+  [ ] Emit ULsf text reference by concatenating chunk text in the same playback order.
+  [ ] Note in docs: ULsf text is reference-only (audio is not synthesized from ULsf text).
+
+Phase 7 — UX/commands
+  [ ] Add command: sf status / sf preflight (show readiness, missing levels, chunk mismatches).
+  [ ] Add command: sf build <stem|next|all> (manifest-driven assembly).
+  [ ] Expose SF plan summary in av status.
+  [ ] Add GUI support for SF config/plan and run button in Media tab.
+
+Phase 8 — Migration and compatibility
+  [ ] Detect legacy chapters without canonical alignment and label as non-SF-compatible.
+  [ ] Add guided message: regenerate listed levels with alignment enabled.
+  [ ] Keep old ULsf generation path behind explicit legacy flag during transition (optional).
+
+Acceptance criteria:
+  [ ] Given aligned level audio, SF build creates deterministic ULsf audio without calling TTS.
+  [ ] Mixed level gaps (example 17,20,23,25,27,...) assemble correctly via manifest mapping.
+  [ ] Rebuild warnings prevent accidental alignment drift after audio exists.
+  [ ] Preflight reports all missing artifacts before any concatenation starts.
+  [ ] SF build fails hard when configured levels are missing or incompatible.
+
 DEPLOYABILITY — Decouple from dev workspace (2026-04)
 ═════════════════════════════════════════════════════
 ✔ Centralized tool_root resolution (src/tool_root.rs) — CLI --tool-root flag,
@@ -210,8 +276,8 @@ Phase 3 — Duration-aware video creation (create_video.py)
   [ ] Read _chunk_map.json (chunk index → sentence range).
   [ ] Read _illustration_map.json (image file → sentence range).
   [ ] For each chunk .wav, get duration via pydub (already a dependency).
-  [ ] Join: for each illustration, sum durations of all chunks whose sentences
-      fall within (or majority-overlap) that illustration's sentence range.
+  [ ] Join: for each illustration, sum durations of chunk groups mapped to that illustration range.
+  [ ] Include SF pacing gap durations in timing totals so image timing stays aligned (150 ms intra-level, 350 ms inter-chunk defaults unless manifest overrides).
   [ ] Build FFmpeg concat manifest with variable per-image durations instead
       of the current fixed image_duration cycling.
   [ ] Fallback: if mapping files are missing, fall back to current fixed-timer

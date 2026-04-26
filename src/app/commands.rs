@@ -161,6 +161,10 @@ pub enum AppCommand {
     AvYoutubeConfig { key: String, value: String },
     AvYoutubeUpload { target: AvTarget },
 
+    // Study Format
+    AvSfPreflight { stem: Option<String> },
+    AvSfBuild { target: AvTarget },
+
     // Level Map Inspection
     ShowLevelMap { level: Option<u32> },
 

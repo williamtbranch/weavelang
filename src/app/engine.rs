@@ -2783,7 +2783,20 @@ impl Engine {
                         match found {
                             Some(st) if !st.has_audio => return Err(format!("No audio file for '{}'. Generate audio first.", s)),
                             Some(st) if st.has_video => return Err(format!("Video already exists for '{}'. Delete it first to regenerate.", s)),
-                            None => return Err(format!("Stem '{}' not found in book directory.", s)),
+                            None => {
+                                // Virtual stems (e.g. ULsf) have no text file so won't appear
+                                // in scan(). Allow them if the audio file exists directly.
+                                let ext = &producer.manifest.tts.output_format;
+                                let audio_path = producer.audio_dir().join(format!("{}.{}", s, ext));
+                                let video_path = producer.video_dir().join(format!("{}.mp4", s));
+                                if !audio_path.exists() {
+                                    return Err(format!("Stem '{}' not found in book directory and no audio file at {}.", s, audio_path.display()));
+                                }
+                                if video_path.exists() {
+                                    return Err(format!("Video already exists for '{}'. Delete it first to regenerate.", s));
+                                }
+                                s.clone()
+                            }
                             _ => s.clone(),
                         }
                     }
@@ -3279,6 +3292,59 @@ impl Engine {
 
                 self.state.av_job = Some(job_state);
                 Ok(format!("Started: {} (pid {}). Use 'av cancel' to stop.", label, pid))
+            }
+
+            // --- Study Format Commands ---
+            AppCommand::AvSfPreflight { stem } => {
+                let book_dir = self.resolve_av_book_dir()?;
+                let producer = crate::services::av_producer::AvProducer::new(book_dir.clone())?;
+                let book_name = match stem {
+                    Some(ref s) => s.clone(),
+                    None => self.state.book_name.clone(),
+                };
+                producer.sf_preflight(&book_name).map_err(|e| e)
+            }
+
+            AppCommand::AvSfBuild { target } => {
+                // Reject if a job is already running
+                if let Some(ref job) = self.state.av_job {
+                    let j = job.lock().unwrap();
+                    if !j.finished {
+                        return Err(format!("AV job already running: {}. Use 'av cancel' to stop it.", j.label));
+                    }
+                }
+
+                let book_dir = self.resolve_av_book_dir()?;
+                let producer = crate::services::av_producer::AvProducer::new(book_dir.clone())?;
+                let project_root = self.tool_root()?;
+
+                let book_name = match target {
+                    AvTarget::Stem(ref s) => s.clone(),
+                    AvTarget::Next | AvTarget::All => self.state.book_name.clone(),
+                };
+
+                let child = producer.spawn_sf_build(&book_name, &project_root)?;
+                let pid = child.id();
+                let label = format!("SF build: {}", book_name);
+
+                let job_state = std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::app::state::AvJobState {
+                        output_lines: vec![format!("--- {} ---", label)],
+                        cancel_requested: false,
+                        finished: false,
+                        result_message: None,
+                        child_pid: Some(pid),
+                        label: label.clone(),
+                    },
+                ));
+
+                let job_clone = job_state.clone();
+                std::thread::spawn(move || {
+                    av_job_reader(child, job_clone);
+                });
+
+                self.state.av_job = Some(job_state);
+                Ok(format!("Started: {} (pid {}). Use 'av log' to monitor.", label, pid))
             }
 
             // --- Chapter Mode Commands ---

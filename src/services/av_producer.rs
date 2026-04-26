@@ -34,6 +34,11 @@ fn validate_config_arg(value: &str, field_name: &str) -> Result<(), String> {
 // Manifest types
 // ---------------------------------------------------------------------------
 
+/// Filename for the canonical SF sentence-to-chunk alignment map.
+pub const SF_ALIGNMENT_MAP_FILENAME: &str = "_sf_alignment_map.json";
+/// Filename for per-level chunk metadata.
+pub const SF_CHUNK_META_FILENAME: &str = "_sf_chunk_meta.json";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AvManifest {
     pub tts: TtsConfig,
@@ -41,6 +46,8 @@ pub struct AvManifest {
     #[serde(default)]
     pub illustrations: IllustrationsConfig,
     pub files: FilesConfig,
+    #[serde(default)]
+    pub study_format: StudyFormatConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,6 +152,48 @@ impl Default for FilesConfig {
     }
 }
 
+/// Study-format audio assembly configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StudyFormatConfig {
+    /// Whether SF assembly is enabled for this book/chapter.
+    #[serde(default = "default_sf_enabled")]
+    pub enabled: bool,
+    /// Stem suffix for the source-language level (e.g. "r" for ULr raw source).
+    #[serde(default = "default_sf_source_level")]
+    pub source_level: String,
+    /// Ordered list of level suffixes to interlace (e.g. ["16","19","22",...]).
+    /// These must have corresponding audio chunk directories already produced.
+    #[serde(default = "default_sf_levels")]
+    pub levels: Vec<String>,
+    /// Gap in milliseconds between level variants within one chunk group.
+    #[serde(default = "default_sf_gap_intra")]
+    pub gap_intra_ms: u32,
+    /// Gap in milliseconds between chunk groups.
+    #[serde(default = "default_sf_gap_inter")]
+    pub gap_inter_ms: u32,
+}
+
+fn default_sf_enabled() -> bool { true }
+fn default_sf_source_level() -> String { "r".to_string() }
+fn default_sf_levels() -> Vec<String> {
+    ["16","19","22","25","28","31","34"]
+        .iter().map(|s| s.to_string()).collect()
+}
+fn default_sf_gap_intra() -> u32 { 150 }
+fn default_sf_gap_inter() -> u32 { 350 }
+
+impl Default for StudyFormatConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_sf_enabled(),
+            source_level: default_sf_source_level(),
+            levels: default_sf_levels(),
+            gap_intra_ms: default_sf_gap_intra(),
+            gap_inter_ms: default_sf_gap_inter(),
+        }
+    }
+}
+
 impl Default for AvManifest {
     fn default() -> Self {
         Self {
@@ -152,6 +201,7 @@ impl Default for AvManifest {
             video: VideoConfig::default(),
             illustrations: IllustrationsConfig::default(),
             files: FilesConfig::default(),
+            study_format: StudyFormatConfig::default(),
         }
     }
 }
@@ -1492,6 +1542,130 @@ impl AvProducer {
             .filter(|s| s.marked && s.has_video && !yt_config.is_uploaded(&s.stem))
             .map(|s| s.stem.clone())
             .collect()
+    }
+
+    /// Return the SF alignment map path for this book/chapter directory.
+    pub fn sf_alignment_map_path(&self) -> PathBuf {
+        self.audio_dir().join(crate::services::av_producer::SF_ALIGNMENT_MAP_FILENAME)
+    }
+
+    /// Check SF assembly readiness. Returns a human-readable status report.
+    /// `book_name` is used to build candidate stem names (e.g. MobyDick_ULr).
+    pub fn sf_preflight(&self, book_name: &str) -> Result<String, String> {
+        let sf = &self.manifest.study_format;
+        if !sf.enabled {
+            return Ok("[study_format] enabled=false — SF is disabled in manifest.".to_string());
+        }
+        let alignment_path = self.sf_alignment_map_path();
+        let mut lines: Vec<String> = Vec::new();
+
+        // Alignment map
+        if alignment_path.exists() {
+            lines.push(format!("  [OK] Alignment map: {}", alignment_path.display()));
+        } else {
+            lines.push(format!("  [MISSING] Alignment map not found: {}", alignment_path.display()));
+            lines.push("       → Run audio generation for any level once to create it.".to_string());
+        }
+
+        // Source level
+        let source_suffix = format!("UL{}", sf.source_level);
+        let source_stem = self.find_stem_by_suffix(book_name, &source_suffix);
+        match &source_stem {
+            Some(stem) => {
+                let meta = self.chunks_dir(stem).join(SF_CHUNK_META_FILENAME);
+                if meta.exists() {
+                    lines.push(format!("  [OK] Source ({}): chunks + meta present", stem));
+                } else {
+                    lines.push(format!("  [WARN] Source ({}): chunks exist but _sf_chunk_meta.json missing", stem));
+                }
+            }
+            None => lines.push(format!("  [MISSING] Source level '{}' — no matching chunk dir", source_suffix)),
+        }
+
+        // Each level
+        let mut all_present = source_stem.is_some() && alignment_path.exists();
+        for level in &sf.levels {
+            let suffix = format!("UL{}", level);
+            match self.find_stem_by_suffix(book_name, &suffix) {
+                Some(stem) => {
+                    let meta = self.chunks_dir(&stem).join(SF_CHUNK_META_FILENAME);
+                    if meta.exists() {
+                        lines.push(format!("  [OK] Level {} ({}): ready", level, stem));
+                    } else {
+                        lines.push(format!("  [WARN] Level {} ({}): chunks exist but _sf_chunk_meta.json missing", level, stem));
+                    }
+                }
+                None => {
+                    lines.push(format!("  [MISSING] Level {} — no matching chunk dir for suffix '{}'", level, suffix));
+                    all_present = false;
+                }
+            }
+        }
+
+        let header = if all_present {
+            "SF preflight: READY".to_string()
+        } else {
+            "SF preflight: NOT READY (fix missing items above)".to_string()
+        };
+        Ok(format!("{}\n{}", header, lines.join("\n")))
+    }
+
+    /// Find the chunk-dir stem whose name ends with the given UL suffix (case-sensitive).
+    /// Scans `audio/chunks/` for matching directories.
+    fn find_stem_by_suffix(&self, book_name: &str, suffix: &str) -> Option<String> {
+        let chunks_root = self.audio_dir().join("chunks");
+        if !chunks_root.exists() {
+            return None;
+        }
+        // Prefer an exact match of the form <book_name><suffix>
+        let preferred = format!("{}{}", book_name, suffix);
+        let preferred_dir = chunks_root.join(&preferred);
+        if preferred_dir.exists() && preferred_dir.is_dir() {
+            return Some(preferred);
+        }
+        // Fallback: scan for any dir ending with the suffix
+        if let Ok(entries) = fs::read_dir(&chunks_root) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.ends_with(suffix) && entry.path().is_dir() {
+                    return Some(name);
+                }
+            }
+        }
+        None
+    }
+
+    /// Spawn the SF assembly Python script as a child process.
+    pub fn spawn_sf_build(
+        &self,
+        book_name: &str,
+        project_root: &Path,
+    ) -> Result<std::process::Child, String> {
+        let sf = &self.manifest.study_format;
+        if !sf.enabled {
+            return Err("[study_format] enabled=false — SF is disabled in manifest.".to_string());
+        }
+        let script_path = project_root.join("sf_assemble.py");
+        if !script_path.exists() {
+            return Err(format!("sf_assemble.py not found at {}", script_path.display()));
+        }
+        let python_exe = find_python(project_root);
+        validate_python(&python_exe)?;
+
+        let mut cmd = std::process::Command::new(&python_exe);
+        cmd.arg(&script_path)
+            .arg("--book-dir").arg(&self.book_dir)
+            .arg("--book-name").arg(book_name)
+            .arg("--source-level").arg(&sf.source_level)
+            .arg("--levels").arg(sf.levels.join(","))
+            .arg("--gap-intra-ms").arg(sf.gap_intra_ms.to_string())
+            .arg("--gap-inter-ms").arg(sf.gap_inter_ms.to_string())
+            .arg("--output-format").arg(&self.manifest.tts.output_format);
+        cmd.env("PYTHONUTF8", "1");
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+        cmd.spawn()
+            .map_err(|e| format!("Failed to spawn sf_assemble.py ({}): {}", python_exe, e))
     }
 }
 

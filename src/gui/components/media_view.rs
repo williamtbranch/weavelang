@@ -4,8 +4,24 @@
 // buttons, and config display. All mutations go through pending_terminal_command.
 
 use crate::app::state::AppState;
-use crate::services::av_producer::{AvFileStatus, AvProducer};
+use crate::services::av_producer::{
+    AvFileStatus,
+    AvProducer,
+    SF_ALIGNMENT_MAP_FILENAME,
+    SF_CHUNK_META_FILENAME,
+};
 use eframe::egui;
+
+struct SfCardStatus {
+    enabled: bool,
+    source_level: String,
+    levels: Vec<String>,
+    sf_stem: String,
+    sf_audio_exists: bool,
+    sf_video_exists: bool,
+    missing_items: Vec<String>,
+    missing_meta_count: usize,
+}
 
 /// Resolve the target directory for AV operations.
 /// In chapter mode returns `<book_dir>/<chapter_name>/`, otherwise `<book_dir>/whole_book/`.
@@ -189,6 +205,8 @@ fn render_main_panel(
     if manifest_ok {
         render_config_summary(ui, state);
         ui.separator();
+        render_sf_card(ui, state, illustrations);
+        ui.separator();
     }
 
     // --- File status table (fills all remaining vertical space) ---
@@ -200,6 +218,171 @@ fn render_main_panel(
             .unwrap_or(false);
         render_status_table(ui, state, statuses, illustrations, job_active);
     }
+}
+
+fn render_sf_card(ui: &mut egui::Ui, state: &mut AppState, illustrations: usize) {
+    let job_running = state.av_job.as_ref()
+        .map(|j| !j.lock().unwrap().finished)
+        .unwrap_or(false);
+
+    let sf_status = load_sf_card_status(state);
+    let Some(sf) = sf_status else {
+        return;
+    };
+
+    egui::Frame::group(ui.style()).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.strong("Study Format");
+            if sf.enabled {
+                ui.colored_label(egui::Color32::from_rgb(80, 180, 80), "enabled");
+            } else {
+                ui.colored_label(egui::Color32::from_rgb(180, 120, 60), "disabled");
+            }
+            ui.separator();
+            ui.label(format!("source: UL{}", sf.source_level));
+            ui.separator();
+            ui.label(format!("levels: {}", sf.levels.join(", ")));
+            ui.separator();
+            ui.label(format!("stem: {}", sf.sf_stem));
+        });
+
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            status_icon(ui, sf.sf_audio_exists, true);
+            ui.label("SF audio");
+            ui.separator();
+            status_icon(ui, sf.sf_video_exists, sf.sf_audio_exists);
+            ui.label("SF video");
+            ui.separator();
+
+            let prereq_ok = sf.enabled && sf.missing_items.is_empty();
+            if prereq_ok {
+                ui.colored_label(egui::Color32::from_rgb(80, 180, 80), "Ready to build");
+            } else {
+                ui.colored_label(egui::Color32::from_rgb(200, 80, 80), "Prereqs missing");
+            }
+        });
+
+        if !sf.missing_items.is_empty() {
+            ui.add_space(2.0);
+            for miss in sf.missing_items.iter().take(4) {
+                ui.colored_label(egui::Color32::from_rgb(200, 80, 80), format!("- {}", miss));
+            }
+            if sf.missing_items.len() > 4 {
+                ui.colored_label(
+                    egui::Color32::from_rgb(200, 80, 80),
+                    format!("- ... and {} more", sf.missing_items.len() - 4),
+                );
+            }
+        }
+
+        if sf.missing_meta_count > 0 {
+            ui.colored_label(
+                egui::Color32::from_rgb(180, 140, 60),
+                format!("Warning: {} chunk set(s) missing _sf_chunk_meta.json", sf.missing_meta_count),
+            );
+        }
+
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            if ui.small_button("Preflight").clicked() {
+                state.pending_terminal_command = Some("av sf preflight".to_string());
+            }
+
+            let can_build = sf.enabled && sf.missing_items.is_empty() && !sf.sf_audio_exists && !job_running;
+            if ui.add_enabled(can_build, egui::Button::new("Build SF Audio")).clicked() {
+                state.pending_terminal_command = Some("av sf build next".to_string());
+            }
+
+            let can_video = sf.sf_audio_exists && !sf.sf_video_exists && illustrations > 0 && !job_running;
+            if ui.add_enabled(can_video, egui::Button::new("Gen SF Video")).clicked() {
+                state.pending_terminal_command = Some(format!("av generate video {}", sf.sf_stem));
+            }
+
+            if sf.sf_audio_exists && sf.sf_video_exists {
+                ui.colored_label(egui::Color32::from_rgb(80, 180, 80), "Done");
+            } else if sf.sf_audio_exists && !sf.sf_video_exists && illustrations == 0 {
+                ui.colored_label(egui::Color32::from_rgb(180, 140, 60), "Need illustrations");
+            }
+        });
+    });
+}
+
+fn load_sf_card_status(state: &AppState) -> Option<SfCardStatus> {
+    let target_dir = resolve_target_dir(state)?;
+    let producer = AvProducer::new(target_dir).ok()?;
+
+    let sf_cfg = &producer.manifest.study_format;
+    let tts_ext = producer.manifest.tts.output_format.clone();
+    let sf_stem = format!("{}ULsf", state.book_name);
+
+    let audio_dir = producer.audio_dir();
+    let chunks_root = audio_dir.join("chunks");
+    let alignment_path = audio_dir.join(SF_ALIGNMENT_MAP_FILENAME);
+
+    let mut missing_items = Vec::new();
+    if !alignment_path.exists() {
+        missing_items.push(format!("Missing {}", SF_ALIGNMENT_MAP_FILENAME));
+    }
+
+    let mut missing_meta_count = 0usize;
+
+    let mut all_suffixes = Vec::with_capacity(sf_cfg.levels.len() + 1);
+    all_suffixes.push(sf_cfg.source_level.clone());
+    all_suffixes.extend(sf_cfg.levels.iter().cloned());
+
+    for suffix in &all_suffixes {
+        let chunk_dir = find_chunk_dir_for_level(&chunks_root, &state.book_name, suffix);
+        match chunk_dir {
+            Some(dir) => {
+                let meta_path = dir.join(SF_CHUNK_META_FILENAME);
+                if !meta_path.exists() {
+                    missing_meta_count += 1;
+                }
+            }
+            None => {
+                missing_items.push(format!("Missing chunk dir for UL{}", suffix));
+            }
+        }
+    }
+
+    let sf_audio_exists = audio_dir.join(format!("{}.{}", sf_stem, tts_ext)).exists();
+    let sf_video_exists = producer.video_dir().join(format!("{}.mp4", sf_stem)).exists();
+
+    Some(SfCardStatus {
+        enabled: sf_cfg.enabled,
+        source_level: sf_cfg.source_level.clone(),
+        levels: sf_cfg.levels.clone(),
+        sf_stem,
+        sf_audio_exists,
+        sf_video_exists,
+        missing_items,
+        missing_meta_count,
+    })
+}
+
+fn find_chunk_dir_for_level(chunks_root: &std::path::Path, book_name: &str, level_suffix: &str) -> Option<std::path::PathBuf> {
+    if !chunks_root.exists() {
+        return None;
+    }
+
+    let suffix = format!("UL{}", level_suffix);
+    let preferred = chunks_root.join(format!("{}{}", book_name, suffix));
+    if preferred.is_dir() {
+        return Some(preferred);
+    }
+
+    std::fs::read_dir(chunks_root)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| {
+            p.is_dir()
+                && p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.ends_with(&suffix))
+                    .unwrap_or(false)
+        })
 }
 
 // ---------------------------------------------------------------------------

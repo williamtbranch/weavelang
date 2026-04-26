@@ -12,6 +12,47 @@ DEFAULT_FRAME_RATE = 1
 DEFAULT_IMAGE_DURATION_SECONDS = 60
 
 
+def compute_illustration_durations_proportional(
+    illustrations_dir: Path,
+    audio_duration_seconds: float,
+) -> list[tuple[Path, float]] | None:
+    """Compute per-illustration durations by proportional sentence count.
+
+    Used when a _chunk_map.json is unavailable (e.g. assembled SF audio).
+    Distributes the total audio duration across illustrations in proportion to
+    the number of sentences each illustration covers.
+
+    Returns list of (image_path, duration_seconds) or None if mapping is missing.
+    """
+    illust_map_path = illustrations_dir / "_illustration_map.json"
+    if not illust_map_path.exists():
+        return None
+
+    with open(illust_map_path) as f:
+        illust_map = json.load(f)
+
+    illustrations = illust_map.get("illustrations", [])
+    if not illustrations:
+        return None
+
+    entries: list[tuple[Path, int]] = []
+    for illust in illustrations:
+        img_path = illustrations_dir / illust["file"]
+        if not img_path.exists():
+            continue
+        sentence_count = illust["end_sentence"] - illust["start_sentence"] + 1
+        entries.append((img_path, sentence_count))
+
+    if not entries:
+        return None
+
+    total_sentences = sum(c for _, c in entries)
+    if total_sentences == 0:
+        return None
+
+    return [(p, audio_duration_seconds * (c / total_sentences)) for p, c in entries]
+
+
 def compute_illustration_durations(
     chunks_dir: Path,
     illustrations_dir: Path,
@@ -154,6 +195,11 @@ def create_video_from_audio(
     if chunks_dir and illustrations_dir:
         variable_durations = compute_illustration_durations(chunks_dir, illustrations_dir)
 
+    if variable_durations is None and illustrations_dir is not None:
+        variable_durations = compute_illustration_durations_proportional(illustrations_dir, audio_duration_seconds)
+        if variable_durations:
+            print(f"  -> No chunk map found; using sentence-proportional illustration durations ({len(variable_durations)} images).")
+
     if variable_durations:
         print(f"  -> Using sentence-synchronized illustration durations ({len(variable_durations)} images).")
         timeline_entries = [(p, d) for p, d in variable_durations if d > 0.0]
@@ -185,25 +231,29 @@ def create_video_from_audio(
 
     # 3. Construct and run the FFmpeg command.
     output_video_path = output_dir / f"{audio_file.stem}.mp4"
-    command = ['ffmpeg', '-y']
 
-    for image_path, dur in timeline_entries:
-        command.extend(['-loop', '1', '-t', f'{dur:.3f}', '-i', str(image_path)])
+    # Write a concat demuxer file so the FFmpeg command line stays short
+    # regardless of how many image entries are in the timeline (avoids
+    # WinError 206 "filename or extension is too long" on large SF files).
+    concat_list_path = output_dir / f"{audio_file.stem}_concat_list.txt"
+    with concat_list_path.open('w', encoding='utf-8') as cf:
+        for image_path, dur in timeline_entries:
+            # ffconcat paths must use forward slashes and be escaped
+            safe_path = str(image_path).replace('\\', '/').replace("'", "\\'")
+            cf.write(f"file '{safe_path}'\n")
+            cf.write(f"duration {dur:.3f}\n")
+        # Repeat last frame so the final image duration is honoured
+        if timeline_entries:
+            safe_path = str(timeline_entries[-1][0]).replace('\\', '/').replace("'", "\\'")
+            cf.write(f"file '{safe_path}'\n")
 
-    command.extend(['-i', str(audio_file)])
-
-    filter_parts: list[str] = []
-    for i in range(len(timeline_entries)):
-        filter_parts.append(f'[{i}:v]scale=1280:-2,setsar=1[v{i}]')
-    concat_inputs = ''.join(f'[v{i}]' for i in range(len(timeline_entries)))
-    filter_parts.append(f'{concat_inputs}concat=n={len(timeline_entries)}:v=1:a=0[vout]')
-    filter_complex = ';'.join(filter_parts)
-
-    audio_input_index = len(timeline_entries)
-    command.extend([
-        '-filter_complex', filter_complex,
-        '-map', '[vout]',
-        '-map', f'{audio_input_index}:a:0',
+    command = [
+        'ffmpeg', '-y',
+        '-f', 'concat', '-safe', '0', '-i', str(concat_list_path),
+        '-i', str(audio_file),
+        '-vf', 'scale=1280:-2,setsar=1',
+        '-map', '0:v:0',
+        '-map', '1:a:0',
         '-c:v', 'libx264',
         '-tune', 'stillimage',
         '-threads', '4',
@@ -214,10 +264,16 @@ def create_video_from_audio(
         '-t', f'{audio_duration_seconds:.3f}',
         '-shortest',
         str(output_video_path)
-    ])
+    ]
 
-    print(f"  -> Running FFmpeg command...")
+    print(f"  -> Running FFmpeg command (concat demuxer, {len(timeline_entries)} entries)...")
     result = subprocess.run(command, capture_output=True, text=True)
+
+    # Remove the temporary concat list regardless of outcome
+    try:
+        concat_list_path.unlink(missing_ok=True)
+    except Exception:
+        pass
 
     if result.returncode != 0:
         print(f"  [ERROR] FFmpeg failed for '{audio_file.name}'.")

@@ -1120,6 +1120,26 @@ fn parse_av_command(parts: &[&str]) -> Result<TerminalCommand, String> {
                 _ => Err("Usage: av youtube init|auth|config|upload".to_string()),
             }
         }
+        "sf" => {
+            if parts.len() < 2 {
+                return Err("Usage: av sf preflight [stem] | av sf build [stem|next|all]".to_string());
+            }
+            match parts[1] {
+                "preflight" => {
+                    let stem = parts.get(2).map(|s| s.to_string());
+                    Ok(TerminalCommand::App(AppCommand::AvSfPreflight { stem }))
+                }
+                "build" => {
+                    let target = match parts.get(2).copied() {
+                        None | Some("next") => AvTarget::Next,
+                        Some("all") => AvTarget::All,
+                        Some(stem) => AvTarget::Stem(stem.to_string()),
+                    };
+                    Ok(TerminalCommand::App(AppCommand::AvSfBuild { target }))
+                }
+                _ => Err("Usage: av sf preflight [stem] | av sf build [stem|next|all]".to_string()),
+            }
+        }
         "help" => {
             Ok(TerminalCommand::AvHelp)
         }
@@ -1248,6 +1268,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  av config show         - Show AV config\n");
             out.push_str("  av open book-dir|audio-dir|video-dir - Open a directory in file explorer\n");
             out.push_str("  av youtube init|auth|upload - YouTube integration\n");
+            out.push_str("  av sf preflight|build [stem] - Study-format audio assembly\n");
             out.push_str("  av help                - Full AV command list\n");
             out.push_str("  exit                   - Exit");
         },
@@ -1293,6 +1314,8 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  av youtube config show     - Show YouTube config\n");
             out.push_str("  av youtube config <k> <v>  - Set YouTube config value\n");
             out.push_str("  av youtube upload [stem|next|all] - Upload video to YouTube\n");
+            out.push_str("  av sf preflight [stem]     - Check SF assembly readiness\n");
+            out.push_str("  av sf build [stem|next|all] - Assemble study-format audio (sf_assemble.py)\n");
             out.push_str("  av help                    - This help text\n");
             out.push_str("\nPrerequisites:\n");
             out.push_str("  Audio:  Python + Google API key (set key google AIza...)\n");
