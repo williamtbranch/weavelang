@@ -539,6 +539,67 @@ pub fn validate_parsed_response(parsed_data: &HashMap<String, String>) -> Result
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Friendly-lemma shielding
+// ---------------------------------------------------------------------------
+
+/// Apply friendly-lemma shielding to a candidate lemma list.
+///
+/// "Friendly" lemmas are author-marked words that, when present in a
+/// `MappingEntry.target_lemmas` candidate set, must be the *only* lemmas
+/// kept — so a lesson-target word can never be substituted away by a
+/// non-friendly synonym during weave.
+///
+/// Rules:
+/// 1. If `enabled` is false, return `lemmas` unchanged.
+/// 2. If `friendly_set` is empty, return `lemmas` unchanged.
+/// 3. Compute the intersection of `lemmas` (mapped through `key_for_lemma`)
+///    with `friendly_set`. If empty, return `lemmas` unchanged.
+/// 4. Otherwise drop every non-friendly lemma; if multiple friendly lemmas
+///    remain, keep only the one with the lowest frequency rank
+///    (`rank_for_wlemma` returning `None` is treated as `u32::MAX`).
+///    Ties are broken by original order in `lemmas`.
+///
+/// `friendly_set` entries and the output of `key_for_lemma` are expected
+/// to be in the same key space (typically wlemma stems — see
+/// `documentation/Wlemma_Migration_Plan.md`).
+pub fn apply_friendly_shielding<F, G>(
+    lemmas: Vec<String>,
+    friendly_set: &std::collections::HashSet<String>,
+    enabled: bool,
+    rank_for_wlemma: F,
+    key_for_lemma: G,
+) -> Vec<String>
+where
+    F: Fn(&str) -> Option<u32>,
+    G: Fn(&str) -> String,
+{
+    if !enabled || friendly_set.is_empty() || lemmas.is_empty() {
+        return lemmas;
+    }
+    let friendly_indices: Vec<usize> = lemmas
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| friendly_set.contains(&key_for_lemma(l)))
+        .map(|(i, _)| i)
+        .collect();
+    if friendly_indices.is_empty() {
+        return lemmas;
+    }
+    if friendly_indices.len() == 1 {
+        return vec![lemmas[friendly_indices[0]].clone()];
+    }
+    // Multiple friendly hits: pick lowest rank, ties → earliest index.
+    let best = friendly_indices
+        .into_iter()
+        .min_by_key(|&i| {
+            let rank = rank_for_wlemma(&key_for_lemma(&lemmas[i])).unwrap_or(u32::MAX);
+            (rank, i)
+        })
+        .unwrap();
+    vec![lemmas[best].clone()]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -927,6 +988,123 @@ VALIDATION: El gato negro es grande
         assert_eq!(result.mappings.len(), 2);
         assert_eq!(result.mappings[0].source_text, "The");
         assert_eq!(result.mappings[1].target_text, "gato");
+    }
+
+    // -----------------------------------------------------------------
+    // Friendly-lemma shielding
+    // -----------------------------------------------------------------
+
+    fn fset(items: &[&str]) -> std::collections::HashSet<String> {
+        items.iter().map(|s| s.to_lowercase()).collect()
+    }
+
+    /// No overlap with friendly set — list returned unchanged.
+    #[test]
+    fn shielding_no_overlap_passthrough() {
+        let lemmas = vec!["mother".to_string(), "mom".to_string()];
+        let friendly = fset(&["dog", "cat"]);
+        let out = apply_friendly_shielding(lemmas.clone(), &friendly, true, |_| None, |l| l.to_lowercase());
+        assert_eq!(out, lemmas);
+    }
+
+    /// Single friendly hit — only that lemma survives.
+    #[test]
+    fn shielding_single_overlap_keeps_only_friendly() {
+        let lemmas = vec![
+            "madre".to_string(),
+            "mama".to_string(),
+            "progenitora".to_string(),
+        ];
+        let friendly = fset(&["madre"]);
+        let out = apply_friendly_shielding(lemmas, &friendly, true, |_| None, |l| l.to_lowercase());
+        assert_eq!(out, vec!["madre".to_string()]);
+    }
+
+    /// Multiple friendly hits — pick the lowest rank.
+    #[test]
+    fn shielding_multi_overlap_picks_lowest_rank() {
+        let lemmas = vec!["amigo".to_string(), "compa".to_string(), "ruido".to_string()];
+        let friendly = fset(&["amigo", "compa"]);
+        let ranks = |l: &str| -> Option<u32> {
+            match l {
+                "amigo" => Some(50),
+                "compa" => Some(20),
+                _ => None,
+            }
+        };
+        let out = apply_friendly_shielding(lemmas, &friendly, true, ranks, |l| l.to_lowercase());
+        assert_eq!(out, vec!["compa".to_string()]);
+    }
+
+    /// Missing rank treated as u32::MAX → ranked candidate wins over unranked.
+    #[test]
+    fn shielding_missing_rank_treated_as_max() {
+        let lemmas = vec!["alpha".to_string(), "beta".to_string()];
+        let friendly = fset(&["alpha", "beta"]);
+        let ranks = |l: &str| -> Option<u32> {
+            match l {
+                "beta" => Some(100),
+                _ => None,
+            }
+        };
+        let out = apply_friendly_shielding(lemmas, &friendly, true, ranks, |l| l.to_lowercase());
+        assert_eq!(out, vec!["beta".to_string()]);
+    }
+
+    /// All friendly, all unranked → first-index wins (tie-break).
+    #[test]
+    fn shielding_tie_break_uses_earliest_index() {
+        let lemmas = vec!["a".to_string(), "b".to_string()];
+        let friendly = fset(&["a", "b"]);
+        let out = apply_friendly_shielding(lemmas, &friendly, true, |_| None, |l| l.to_lowercase());
+        assert_eq!(out, vec!["a".to_string()]);
+    }
+
+    /// Disabled flag → bypass.
+    #[test]
+    fn shielding_disabled_passthrough() {
+        let lemmas = vec!["madre".to_string(), "mama".to_string()];
+        let friendly = fset(&["madre"]);
+        let out = apply_friendly_shielding(lemmas.clone(), &friendly, false, |_| None, |l| l.to_lowercase());
+        assert_eq!(out, lemmas);
+    }
+
+    /// Empty friendly set → bypass (regardless of enabled flag).
+    #[test]
+    fn shielding_empty_friendly_set_passthrough() {
+        let lemmas = vec!["madre".to_string()];
+        let friendly: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let out = apply_friendly_shielding(lemmas.clone(), &friendly, true, |_| None, |l| l.to_lowercase());
+        assert_eq!(out, lemmas);
+    }
+
+    /// Case-folded comparison — friendly entries match upper/lower variants.
+    #[test]
+    fn shielding_is_case_insensitive() {
+        let lemmas = vec!["Madre".to_string(), "Mama".to_string()];
+        let friendly = fset(&["madre"]);
+        let out = apply_friendly_shielding(lemmas, &friendly, true, |_| None, |l| l.to_lowercase());
+        assert_eq!(out, vec!["Madre".to_string()]);
+    }
+
+    /// TT6 (Phase 5): with wlemma keys, a friendly entry stored as the
+    /// base-form stem (`niñ`) shields a hallucinated inflected candidate
+    /// (`niños`). Pre-migration this missed because the friendly set was
+    /// case-folded only — `friendly_set.contains("niños") == false`.
+    #[test]
+    fn shielding_with_wlemma_keys_matches_inflected_candidate() {
+        // Friendly set keyed by Spanish-snowball stems.
+        use crate::domain::stemmer::Stemmer;
+        let stemmer = crate::domain::stemmer::SpanishSnowball::new();
+        let friendly: std::collections::HashSet<String> = ["niño", "amigo"]
+            .iter()
+            .map(|w| stemmer.stem(&w.to_lowercase()))
+            .collect();
+        // spaCy hallucinated: the candidate lemma is the surface form.
+        let lemmas = vec!["niños".to_string(), "progenitora".to_string()];
+        let key = |l: &str| stemmer.stem(&l.trim().to_lowercase());
+        let out = apply_friendly_shielding(lemmas, &friendly, true, |_| None, key);
+        assert_eq!(out, vec!["niños".to_string()]);
     }
 }
 

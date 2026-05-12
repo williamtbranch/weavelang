@@ -34,6 +34,20 @@ pub struct Sentence {
     /// tier re-generation reintroduces the lemmas.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub proper_noun_lemmas: Vec<String>,
+    /// In-memory only: when true, this sentence belongs to a project where
+    /// source language == target language (e.g. Spanish-source Spanish-target).
+    /// The basic-branch dependency direction reverses in that mode:
+    ///   English-source: basic_base → basic_target
+    ///   Spanish-source: basic_target → basic_base
+    /// Engine/loader is responsible for setting this after import or load.
+    #[serde(skip)]
+    pub source_is_target: bool,
+    /// In-memory only: when true, the project is in *simple mode*. Weave
+    /// completeness only requires the basic branch (`base`, `basic_base`,
+    /// `basic_target`) plus both diglot mappings — `advanced_target` and
+    /// `moderate_target` are never produced and must not block weave-ready.
+    #[serde(skip)]
+    pub simple_mode: bool,
 }
 
 impl Sentence {
@@ -43,7 +57,23 @@ impl Sentence {
             tiers: HashMap::new(),
             mappings: Vec::new(),
             proper_noun_lemmas: Vec::new(),
+            source_is_target: false,
+            simple_mode: false,
         }
+    }
+
+    /// Set the in-memory `source_is_target` flag. Engine calls this after
+    /// import/load to propagate the project-level mode into each sentence
+    /// so dependency-aware staleness propagation works correctly.
+    pub fn set_source_is_target(&mut self, v: bool) {
+        self.source_is_target = v;
+    }
+
+    /// Set the in-memory `simple_mode` flag. Engine calls this after
+    /// import/load and on flag toggles so weave-completeness skips the
+    /// unused advanced/moderate tiers.
+    pub fn set_simple_mode(&mut self, v: bool) {
+        self.simple_mode = v;
     }
 
     pub fn add_tier(&mut self, tier: Tier) {
@@ -263,22 +293,44 @@ impl Sentence {
         self.propagate_stale(tier_id);
     }
 
-    /// Propagate "Stale" state to dependents based on the tier graph:
-    /// Path A: Base -> Advanced -> Moderate
-    /// Path B: Base -> Basic Base -> Basic Target
+    /// Propagate "Stale" state to dependents based on the tier graph.
+    ///
+    /// English-source (default):
+    ///   base → advanced_target → moderate_target
+    ///   base → basic_base       → basic_target
+    ///
+    /// Spanish-source (`source_is_target == true`):
+    ///   base → advanced_target → moderate_target
+    ///   base → basic_target    → basic_base
     fn propagate_stale(&mut self, tier_id: &str) {
-        match tier_id {
-            "base" => {
-                self.mark_tier_stale("advanced_target");
-                self.mark_tier_stale("basic_base");
+        if self.source_is_target {
+            match tier_id {
+                "base" => {
+                    self.mark_tier_stale("advanced_target");
+                    self.mark_tier_stale("basic_target");
+                }
+                "advanced_target" => {
+                    self.mark_tier_stale("moderate_target");
+                }
+                "basic_target" => {
+                    self.mark_tier_stale("basic_base");
+                }
+                _ => {}
             }
-            "advanced_target" => {
-                self.mark_tier_stale("moderate_target");
+        } else {
+            match tier_id {
+                "base" => {
+                    self.mark_tier_stale("advanced_target");
+                    self.mark_tier_stale("basic_base");
+                }
+                "advanced_target" => {
+                    self.mark_tier_stale("moderate_target");
+                }
+                "basic_base" => {
+                    self.mark_tier_stale("basic_target");
+                }
+                _ => {}
             }
-            "basic_base" => {
-                self.mark_tier_stale("basic_target");
-            }
-            _ => {}
         }
     }
 
@@ -289,10 +341,18 @@ impl Sentence {
                 tier.state = TierState::Stale;
 
                 // Recurse: if this tier becomes stale, its children also become stale
-                match tier_id {
-                    "advanced_target" => self.mark_tier_stale("moderate_target"),
-                    "basic_base" => self.mark_tier_stale("basic_target"),
-                    _ => {}
+                if self.source_is_target {
+                    match tier_id {
+                        "advanced_target" => self.mark_tier_stale("moderate_target"),
+                        "basic_target" => self.mark_tier_stale("basic_base"),
+                        _ => {}
+                    }
+                } else {
+                    match tier_id {
+                        "advanced_target" => self.mark_tier_stale("moderate_target"),
+                        "basic_base" => self.mark_tier_stale("basic_target"),
+                        _ => {}
+                    }
                 }
             }
         }
@@ -392,7 +452,16 @@ impl Sentence {
         let mut has_any_non_base = false;
         let mut all_tiers_complete = true;
 
-        for &tid in Self::WEAVE_TIERS {
+        // In simple mode the project never produces advanced/moderate tiers,
+        // so they must not gate weave readiness. Limit the required-tier
+        // set accordingly.
+        let required_tiers: &[&str] = if self.simple_mode {
+            &["base", "basic_target", "basic_base"]
+        } else {
+            Self::WEAVE_TIERS
+        };
+
+        for &tid in required_tiers {
             match self.tier_completeness(tid) {
                 Completeness::Complete => {
                     if tid != "base" {
@@ -562,6 +631,7 @@ mod tests {
             is_viable: true,
             is_proper_noun: false,
             target_lemmas: vec!["texto".into()],
+            target_wlemmas: Vec::new(),
         });
         s.add_mapping(fwd);
 
@@ -572,6 +642,7 @@ mod tests {
             is_viable: true,
             is_proper_noun: false,
             target_lemmas: vec!["text".into()],
+            target_wlemmas: Vec::new(),
         });
         s.add_mapping(inv);
 
@@ -589,5 +660,52 @@ mod tests {
 
         s.update_tier_text("base", "Edited.".into()); // Dirty state
         assert_eq!(s.tier_completeness("base"), Completeness::Incomplete);
+    }
+
+    #[test]
+    fn propagate_stale_english_source_default() {
+        // English-source: editing basic_base marks basic_target stale,
+        // but editing basic_target does NOT mark basic_base stale.
+        let mut s = Sentence::new("S1".into());
+        assert!(!s.source_is_target);
+        for tid in &["base", "basic_base", "basic_target"] {
+            s.update_tier_text_as_clean(tid, format!("v0 {}", tid));
+        }
+        // Edit basic_target → basic_base remains clean.
+        s.update_tier_text_as_clean("basic_target", "v1".into());
+        assert_eq!(s.get_tier("basic_base").unwrap().state, TierState::Valid);
+
+        // Reset and edit basic_base → basic_target goes stale.
+        s.update_tier_text_as_clean("basic_target", "v2".into());
+        s.update_tier_text_as_clean("basic_base", "v2".into());
+        assert_eq!(s.get_tier("basic_target").unwrap().state, TierState::Stale);
+    }
+
+    #[test]
+    fn propagate_stale_spanish_source_reverses_basic_branch() {
+        // Spanish-source: basic_target is the parent, basic_base the child.
+        // Editing basic_target should mark basic_base stale; editing
+        // basic_base should NOT mark basic_target stale.
+        let mut s = Sentence::new("S1".into());
+        s.set_source_is_target(true);
+        for tid in &["base", "basic_target", "basic_base"] {
+            s.update_tier_text_as_clean(tid, format!("v0 {}", tid));
+        }
+        // basic_base is now Valid (was set last). Edit basic_target → basic_base stale.
+        s.update_tier_text_as_clean("basic_target", "v1".into());
+        assert_eq!(
+            s.get_tier("basic_base").unwrap().state,
+            TierState::Stale,
+            "basic_base should be Stale after basic_target re-generation in source_is_target mode"
+        );
+
+        // Re-validate basic_base, then edit basic_base — basic_target must stay clean.
+        s.update_tier_text_as_clean("basic_base", "v2".into());
+        s.update_tier_text_as_clean("basic_base", "v3".into());
+        assert_eq!(
+            s.get_tier("basic_target").unwrap().state,
+            TierState::Valid,
+            "basic_target must remain clean when basic_base is regenerated downstream"
+        );
     }
 }

@@ -138,7 +138,7 @@ pub fn run_hunt(
 
         let mut new_lemmas_found: HashSet<String> = HashSet::new();
         for lemma_str in &lemmas {
-            if let Some(rank) = frequency_manager::get_rank_for_lemma(lemma_str) {
+            if let Some(rank) = frequency_manager::rank_of_lemma_string(lemma_str) {
                 if rank > previous_v_level {
                     new_lemmas_found.insert(format!("'{lemma_str}' (Rank: {rank})"));
                 }

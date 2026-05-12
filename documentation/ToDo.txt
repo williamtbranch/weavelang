@@ -417,3 +417,149 @@ Phase 8 — Validation and acceptance testing (statistical)
       - Exclude first N familiar lemmas (default 100) from frontier eligibility
       - Generate TTS samples at 3%, 4%, 5%
       - Human-rate comprehensibility and pick default
+
+FRIENDLY LEMMAS / SPANISH-SOURCE / SIMPLE MODE  (2026-04-30)
+═════════════════════════════════════════════════════════════
+See: documentation/Friendly_Lemmas_and_Simple_Mode_Plan.md
+
+Phase A — Data model and persistence
+  [x] AppState: add friendly_lemmas: Vec<String> (serde default empty)
+  [x] AppState: add friendly_shielding_enabled: bool (default true)
+  [x] AppState: add simple_mode: bool (default false)
+  [x] AppState: add level_map_embedded: bool (default false)
+  [x] source_is_target is DERIVED (not persisted) — recompute on language change
+  [x] Verify .wvl files written before this change still load (defaults)
+  [x] Helper: ProjectFlagsSummary struct + render() with derived
+      teaching_mode_active label, used by terminal `flags` and GUI pane
+
+Phase B — Source-text directive parser
+  [x] Define %%META key: value%% syntax in src/parsing/source_parser.rs
+  [x] Pre-scan emits SourceMeta { source_lang, target_lang, simple_mode,
+      frontier_enabled, friendly_lemmas, friendly_shielding, book_name,
+      lm_entries, lesson_progression-derived }
+  [x] %%CHAPTER_MARKER%% lines continue to be ignored (regression test)
+  [x] teaching_mode: on → expanded by parser to simple_mode=on +
+      frontier_enabled=off + assert friendly_shielding_enabled=on
+  [x] lm_entry directive: absolute (bas=N) and relative (bas=+N), optional from=Sk
+  [x] lesson_progression + lesson_marker expansion to lm_entry list
+  [x] Reject lm_entry / lesson_progression when simple_mode=off
+  [x] Apply SourceMeta to AppState in ImportSource handler (engine.rs)
+      (incl. embedded level-map build into book_map + level_map_embedded=true)
+  [x] Unit tests: each key, multiple friendly_lemma, unknown-key warning,
+      teaching_mode expansion, lm_entry abs+rel, progression+markers,
+      lm_entry rejection when simple_mode=off
+
+Phase C — Friendly-lemma shielding
+  [x] Add apply_friendly_shielding() in src/domain/mapping_logic.rs
+  [x] Hook in lemmatize_mapping_targets (engine.rs) before
+      writing entry.target_lemmas (both forward + inverse branches)
+  [x] Skip when friendly_shielding_enabled=false
+  [x] Frequency-rank accessor: uses frequency_manager::get_rank_for_lemma
+  [x] Re-run shielding on edit_target / re-lemmatize paths (via
+      apply_llm_result + ApproveTier callsites threading state)
+  [x] Unit tests: no overlap, single overlap, multi-overlap picks lowest rank,
+      missing rank treated as u32::MAX, shielding-off bypass,
+      empty friendly set bypass, case-insensitive, tie-break earliest index
+  [ ] Lemma-normalization on set_friendly_lemma (lowercase, trim, warn on mismatch)
+      — deferred to Phase F (terminal command)
+
+Phase D — Spanish-source dependency graph
+  [x] tier_graph helper: derive (tier_id, depends_on, prompt_track) from
+      project_languages + source_is_target
+      (src/services/tier_graph.rs — stage_dispatch + lang_for_tier)
+  [x] Update PromptManager:
+      - new advanced_segment_es prompt (segmentation only, echo verbatim)
+      - new basic_target_simplify_es prompt (es → simplified es)
+      - new basic_base_translate prompt (es → en)
+  [x] lang_for_tier: report target lang for adv/mod/basic_target,
+      base/learner lang for basic_base, regardless of source direction
+      (basic_base hardcoded "en" in source_is_target mode — TODO learner_lang field)
+  [x] base tier in source_is_target mode: keeps source text verbatim
+      (no transformation needed; advanced_target prompt simply echoes)
+  [x] engine.rs ImportSource stage dispatch routed through stage_dispatch
+  [x] Unit tests: english/spanish chains, segmentation_only flag,
+      mode-invariant stages, lang_for_tier per mode
+      (identity edge) so existing UI keeps working
+  [ ] Spanish-source fixture project + integration test through approve_tier
+      on all four tiers, ending in a clean DRC
+
+  Phase D follow-ups (deferred):
+  [ ] Honor StageResolution.segmentation_only in llm_worker — skip the LLM
+      round-trip and copy source text directly into the target tier instead
+      of relying on the verbatim-echo prompt (saves tokens; pipeline already
+      correct without this).
+  [ ] Migrate callers of tier_processor::lang_for_tier (3-arg legacy) to
+      tier_graph::lang_for_tier (4-arg, source-direction aware) so
+      Spanish-source basic_base lemmas resolve to "en" instead of "es".
+      Five known callsites in terminal.rs and gui/app.rs.
+
+Phase E — Simple Mode
+  [x] generate_weave: filter level list to basic_target/basic_base sources
+      when state.simple_mode (skips levels with mod_v>0 or adv>0;
+      rejects 'm'/'a' flat modes)
+  [x] run_drc: skip rules 1-3 for advanced_target/moderate_target and
+      skip rule 6 (segment count match) when simple_mode
+  [x] AV manifest validator: AvManifest::validate_for_simple_mode rejects
+      ULm/ULa marked stems
+  [x] Title bar: append "[simple mode]" when on
+  [ ] Tests: simple_mode on/off matrix for generate_weave all and run_drc
+
+Phase F — User interface
+  [x] Terminal: `flags` command — print Project Flags pane (read-only)
+  [x] Terminal: `set_friendly_lemma <lemma>` / `unset_friendly_lemma <lemma>`
+      / `clear_friendly_lemmas`
+  [x] Terminal: `set simple_mode on|off`
+  [x] Terminal: `set friendly_shielding on|off`
+  [x] Terminal: `set teaching_mode on|off` (preset bundle; off is no-op)
+  [x] Terminal: `set source_language <code>` / `set target_language <code>`
+      (empty-string sentinel passes through SetLanguages; source_is_target
+      auto-derives via state.source_is_target() — no persistence change)
+  [x] GUI: Project Flags pane (Preferences → Project Flags...)
+      - source / target / source_is_target derived label
+      - Teaching Mode: on / custom-off derived label + "Apply preset" button
+      - simple_mode toggle
+      - friendly_shielding toggle
+      - friendly_lemmas editable list (add / remove / clear all)
+      - frontier_enabled status line (read-only label when teaching_mode active)
+      - book_name + level_map source displayed
+  [x] GUI toggles emit corresponding terminal commands via execute_terminal_command
+  [x] eframe window title: append "[simple mode]" when on (already done in Phase E)
+
+Phase H — Embedded level map + teaching_mode preset
+  [x] Parser → LevelMapFile builder: single "1" key, one entry per
+      resolved lm_entry, mod_v=adv=0, level=1.0
+  [x] Import flow sets state.level_map_embedded = true when lm_entries present
+  [x] calibrate: error out when level_map_embedded == true
+  [x] Terminal: `strip_level_map` command (clears map + flag)
+  [x] Tests:
+      - lm_entry absolute vs relative produce identical maps (parser tests)
+      - lesson_progression + N markers produce N+1 entries (parser tests)
+      - calibrate rejects with expected error when embedded (engine phase_h_tests)
+      - strip_level_map clears the flag (engine phase_h_tests)
+      - teaching_mode preset + manual frontier toggle → "off (custom)" (engine phase_h_tests)
+      - .wvl round-trip preserves level_map_embedded flag (engine phase_h_tests)
+
+Phase G — Documentation
+  [x] Update Project_Documentation_V8.md (§§8.1-8.8 appended) with
+      source_is_target tier table, friendly shielding rule, simple mode
+      effects, teaching_mode preset, directive syntax, project flags pane,
+      authoring guide, backward compatibility
+  [x] Update Data_Flow_Diagrams.md: V8.1 English-source ladder (§4),
+      Spanish-source reversed graph (§5), simple_mode + shielding flow (§6),
+      embedded level map flow (§7)
+  [x] "Authoring lessons" quick guide added as §8.7 of Project_Documentation_V8.md
+
+Open questions to resolve during implementation
+  [ ] Frequency-rank lookup precondition (require level_map for shielding?)
+  [ ] Re-shielding hooks: confirm lemmatize_mapping_targets is the only
+      writer of entry.target_lemmas
+  [ ] AV-manifest behaviour when simple_mode flips on AFTER adv/mod audio
+      already built — keep audio, exclude from sf, warn in av status
+  [ ] Schema-version bump on .wvl file (optional)
+
+Acceptance
+  [ ] Lesson file with source_language=es + simple_mode=on + friendly_lemma=de
+      imports cleanly, weaves only basic_*, never substitutes "de" away
+  [ ] English-source projects with no directives are byte-for-byte unchanged
+  [ ] Flags pane + title bar both reflect simple_mode immediately
+  [ ] DRC violations on adv/mod do NOT block weave when simple_mode is on

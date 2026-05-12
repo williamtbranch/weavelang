@@ -381,6 +381,7 @@ where
         raw_text: &str,
         book_name: &str,
         bridge_service: &crate::services::python_bridge::BridgeService,
+        lang_code: &str,
     ) -> Result<JsonChapter, String> {
         // We'll call the public `segment` and `tokenize` methods on the BridgeService,
         // which internally lock the Python bridge process.
@@ -390,11 +391,13 @@ where
         let cleaned_book_text = crate::services::gutenberg_cleaner::GutenbergCleaner::clean_text(raw_text);
 
         // Delegate to the handler-based helper so tests can exercise importer behavior
+        let lang_owned = lang_code.to_string();
+        let lang_seg = lang_owned.clone();
         return crate::services::importer::import_from_cleaned_with_handlers(
             &cleaned_book_text,
             book_name,
-            |txt| bridge_service.segment(txt, "en"),
-            |txt| bridge_service.tokenize(txt, "en"),
+            move |txt| bridge_service.segment(txt, &lang_seg),
+            move |txt| bridge_service.tokenize(txt, &lang_owned),
         );
     }
 

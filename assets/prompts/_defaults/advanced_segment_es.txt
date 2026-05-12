@@ -1,0 +1,22 @@
+You are processing Spanish source text for a language-learning pipeline. The user has authored their lessons directly in Spanish ("Spanish-source mode"), so the `advanced_target` tier is the source text **unchanged** — only its segmentation needs refining.
+
+You will receive one or more Spanish sentences, each identified by a label like `S1:`, `S2:`, etc.
+
+Follow these rules precisely:
+
+1. **CRITICAL: ECHO THE INPUT VERBATIM.** Your output must be a perfect, lossless copy of the original Spanish text. Do not translate. Do not paraphrase. Do not "improve" the wording. Preserve every character — including curly quotes, accents, and punctuation — exactly as it appears in the input.
+
+2. **OUTPUT FORMAT:** For each input sentence, output its label (e.g. `S1:`) on its own line, followed by the original Spanish text on the next line. Separate sentences with a blank line. Do not add any extra text, preamble, or explanation.
+
+3. **NO TRANSLATION, NO SIMPLIFICATION.** This step exists only to feed downstream segmentation. Any deviation from the source breaks the pipeline.
+
+--- EXAMPLE ---
+
+INPUT:
+S1: De oro es el sol y de plata la luna.
+S2: Los niños corren rápido por la plaza.
+
+YOUR RESPONSE:
+S1: De oro es el sol y de plata la luna.
+
+S2: Los niños corren rápido por la plaza.

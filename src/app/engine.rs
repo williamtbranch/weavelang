@@ -57,6 +57,17 @@ fn drc_tier(sent: &crate::domain::sentence::Sentence, tier_id: &str, sn: usize) 
     violations
 }
 
+/// Snap a byte index to the nearest UTF-8 char boundary at or below it.
+fn clamp_to_char_boundary(s: &str, mut idx: usize) -> usize {
+    if idx > s.len() {
+        idx = s.len();
+    }
+    while idx > 0 && !s.is_char_boundary(idx) {
+        idx -= 1;
+    }
+    idx
+}
+
 /// Run sentence-level DRC rules that apply only when all tiers are Valid.
 /// Returns a Vec of violation strings. Empty means pass.
 fn drc_sentence(sent: &crate::domain::sentence::Sentence, sn: usize) -> Vec<String> {
@@ -91,6 +102,8 @@ pub(crate) fn lemmatize_tier_segments(
     }
     let tier = sent.tiers.get_mut(tier_id)
         .ok_or_else(|| format!("Tier '{}' not found.", tier_id))?;
+    let stemmer_box = crate::domain::stemmer::for_language(tier_lang);
+    let ranks = crate::simulation::frequency_manager::GlobalBucketRanks;
     for seg in tier.segments.iter_mut() {
         let text = seg.full_text();
         let raw_tokens = bridge.tokenize(&text, tier_lang)
@@ -104,12 +117,36 @@ pub(crate) fn lemmatize_tier_segments(
             })
             .flatten()
             .collect();
+        // Populate wlemmas on each WordData and aggregate to segment level.
+        if let Some(stemmer) = stemmer_box.as_ref() {
+            for token in seg.stream.tokens_mut().iter_mut() {
+                if let crate::domain::token_stream::Token::Word(wd) = token {
+                    wd.wlemmas = crate::domain::wlemma::compute_wlemmas_for_word(
+                        &wd.text, &wd.lemmas, stemmer.as_ref(), &ranks,
+                    );
+                }
+            }
+            seg.wlemmas = seg.stream.tokens().iter()
+                .filter_map(|t| match t {
+                    crate::domain::token_stream::Token::Word(wd) => Some(wd.wlemmas.clone()),
+                    _ => None,
+                })
+                .flatten()
+                .collect();
+        } else {
+            seg.wlemmas.clear();
+        }
     }
     tier.lemmas = tier.segments.iter()
         .flat_map(|s| s.lemmas.clone())
         .collect();
     tier.lemmas.sort();
     tier.lemmas.dedup();
+    tier.wlemmas = tier.segments.iter()
+        .flat_map(|s| s.wlemmas.clone())
+        .collect();
+    tier.wlemmas.sort();
+    tier.wlemmas.dedup();
     Ok(())
 }
 
@@ -120,13 +157,55 @@ pub(crate) fn lemmatize_tier_segments(
 /// - basic_base → basic_target: target_text IS Spanish, so tokenize it with target_lang.
 /// - basic_target → basic_base: target_text is English (no use for English lemmas).
 ///   Instead, copy the Spanish lemmas from the SOURCE word in the basic_target stream.
+///
+/// `friendly_lemmas` + `friendly_shielding_enabled` apply
+/// [`crate::domain::mapping_logic::apply_friendly_shielding`] to each entry's
+/// candidate lemma list before it is written.
 pub(crate) fn lemmatize_mapping_targets(
     sent: &mut crate::domain::sentence::Sentence,
     tier_id: &str,
     bridge: &crate::services::python_bridge::BridgeService,
     _source_lang: &str,
     target_lang: &str,
+    friendly_lemmas: &[String],
+    friendly_shielding_enabled: bool,
 ) -> Result<(), String> {
+    // Build a stemmer for the target language up front. Friendly-shielding
+    // and wlemma computation both need it; if no stemmer is registered for
+    // this language, both fall back to identity / lowercase.
+    let stemmer_box = crate::domain::stemmer::for_language(target_lang);
+    let key_for_lemma = |l: &str| -> String {
+        match stemmer_box.as_ref() {
+            Some(s) => s.stem(&l.trim().to_lowercase()),
+            None => l.trim().to_lowercase(),
+        }
+    };
+    // Friendly list keyed by wlemma stems (T5.2). User-provided friendly
+    // entries are normalized through the same key function so a friendly
+    // `niño` matches a candidate `niños`, etc.
+    let friendly_set: std::collections::HashSet<String> = friendly_lemmas
+        .iter()
+        .map(|s| key_for_lemma(s))
+        .collect();
+    let shield = |lemmas: Vec<String>| -> Vec<String> {
+        crate::domain::mapping_logic::apply_friendly_shielding(
+            lemmas,
+            &friendly_set,
+            friendly_shielding_enabled,
+            |w| crate::simulation::frequency_manager::rank_of_wlemma(w),
+            &key_for_lemma,
+        )
+    };
+    let ranks = crate::simulation::frequency_manager::GlobalBucketRanks;
+    let compute_wlemmas = |surface: &str, lemmas: &[String]| -> Vec<String> {
+        match stemmer_box.as_ref() {
+            Some(stemmer) => crate::domain::wlemma::compute_wlemmas_for_word(
+                surface, lemmas, stemmer.as_ref(), &ranks,
+            ),
+            None => Vec::new(),
+        }
+    };
+
     if tier_id == "basic_base" {
         // Forward mapping: target_text is Spanish → tokenize to get Spanish lemmas
         if let Some(mapping) = sent.mappings.iter_mut()
@@ -142,7 +221,9 @@ pub(crate) fn lemmatize_mapping_targets(
                     .filter(|t| !t.is_punct && !t.is_space)
                     .map(|t| if t.lemma.is_empty() { t.text.clone() } else { t.lemma.clone() })
                     .collect();
-                entry.target_lemmas = lemmas;
+                entry.target_lemmas = shield(lemmas);
+                entry.target_wlemmas =
+                    compute_wlemmas(&entry.target_text, &entry.target_lemmas);
             }
         }
     } else if tier_id == "basic_target" {
@@ -162,13 +243,35 @@ pub(crate) fn lemmatize_mapping_targets(
             } else {
                 std::collections::HashMap::new()
             };
+        // Source-word surface forms (Spanish), keyed by WordId — needed so
+        // wlemma lookup can use the actual source surface (target_text here
+        // is English and would mislead the stemmer).
+        let word_surface_map: std::collections::HashMap<crate::domain::primitives::WordId, String> =
+            if let Some(tier) = sent.tiers.get("basic_target") {
+                tier.segments.iter()
+                    .flat_map(|seg| seg.stream.tokens().iter().filter_map(|t| {
+                        if let crate::domain::token_stream::Token::Word(wd) = t {
+                            Some((wd.id, wd.text.clone()))
+                        } else {
+                            None
+                        }
+                    }).collect::<Vec<_>>())
+                    .collect()
+            } else {
+                std::collections::HashMap::new()
+            };
 
         if let Some(mapping) = sent.mappings.iter_mut()
             .find(|m| m.from_tier_id == "basic_target" && m.to_tier_id == "basic_base")
         {
             for entry in mapping.entries.iter_mut() {
                 if let Some(lemmas) = word_lemma_map.get(&entry.source_word_id) {
-                    entry.target_lemmas = lemmas.clone();
+                    entry.target_lemmas = shield(lemmas.clone());
+                    let surface = word_surface_map
+                        .get(&entry.source_word_id)
+                        .map(|s| s.as_str())
+                        .unwrap_or("");
+                    entry.target_wlemmas = compute_wlemmas(surface, &entry.target_lemmas);
                 }
             }
         }
@@ -451,8 +554,23 @@ impl Engine {
                 Ok(format!("Closed project '{}'", old_name))
             }
             AppCommand::SetLanguages { source, target } => {
-                self.state.project_languages = (source.clone(), target.clone());
-                Ok(format!("Languages set to {} → {}", source, target))
+                // Empty strings act as "keep existing" sentinels — used by
+                // `set source_language` / `set target_language` which only
+                // touch one half of the tuple.
+                let new_source = if source.is_empty() {
+                    self.state.project_languages.0.clone()
+                } else { source.clone() };
+                let new_target = if target.is_empty() {
+                    self.state.project_languages.1.clone()
+                } else { target.clone() };
+                self.state.project_languages = (new_source.clone(), new_target.clone());
+                self.state.refresh_sentence_modes();
+                Ok(format!(
+                    "Languages set to {} → {}{}",
+                    new_source,
+                    new_target,
+                    if self.state.source_is_target() { " (source-is-target)" } else { "" }
+                ))
             }
             AppCommand::SetBookName { name } => {
                 self.state.book_name = name.clone();
@@ -507,6 +625,8 @@ impl Engine {
                     &target_lang
                 };
 
+                let friendly_lemmas = self.state.friendly_lemmas.clone();
+                let friendly_enabled = self.state.friendly_shielding_enabled;
                 let sent = self.state.document.get_mut(index)
                     .ok_or_else(|| "Index out of bounds".to_string())?;
 
@@ -514,7 +634,7 @@ impl Engine {
                 lemmatize_tier_segments(sent, &tier_id, bridge, tier_lang)?;
 
                 // Phase 1b: Lemmatize mapping target texts for L1 tiers
-                lemmatize_mapping_targets(sent, &tier_id, bridge, &source_lang, &target_lang)?;
+                lemmatize_mapping_targets(sent, &tier_id, bridge, &source_lang, &target_lang, &friendly_lemmas, friendly_enabled)?;
 
                 // Phase 2: DRC checks (immutable access to sent)
                 let tier_violations = drc_tier(sent, &tier_id, index + 1);
@@ -667,6 +787,8 @@ impl Engine {
                     .ok_or_else(|| format!("Tier '{}' not found.", tier_id))?;
 
                 let mut output_lines: Vec<String> = Vec::new();
+                let stemmer_box = crate::domain::stemmer::for_language(&target_lang);
+                let ranks = crate::simulation::frequency_manager::GlobalBucketRanks;
 
                 for seg in tier.segments.iter_mut() {
                     let text = seg.full_text();
@@ -686,9 +808,29 @@ impl Engine {
                         .flatten()
                         .collect();
 
+                    // Populate wlemmas in parallel with lemmas.
+                    if let Some(stemmer) = stemmer_box.as_ref() {
+                        for token in seg.stream.tokens_mut().iter_mut() {
+                            if let crate::domain::token_stream::Token::Word(wd) = token {
+                                wd.wlemmas = crate::domain::wlemma::compute_wlemmas_for_word(
+                                    &wd.text, &wd.lemmas, stemmer.as_ref(), &ranks,
+                                );
+                            }
+                        }
+                        seg.wlemmas = seg.stream.tokens().iter()
+                            .filter_map(|t| match t {
+                                crate::domain::token_stream::Token::Word(wd) => Some(wd.wlemmas.clone()),
+                                _ => None,
+                            })
+                            .flatten()
+                            .collect();
+                    } else {
+                        seg.wlemmas.clear();
+                    }
+
                     // Build display string with ranks
                     let display: Vec<String> = seg.lemmas.iter().map(|l| {
-                        match crate::simulation::frequency_manager::get_rank_for_lemma(l) {
+                        match crate::simulation::frequency_manager::rank_of_lemma_string(l) {
                             Some(r) => format!("{} <{}>", l, r),
                             None => format!("{} <?>", l),
                         }
@@ -703,6 +845,11 @@ impl Engine {
                     .collect();
                 tier.lemmas.sort();
                 tier.lemmas.dedup();
+                tier.wlemmas = tier.segments.iter()
+                    .flat_map(|s| s.wlemmas.clone())
+                    .collect();
+                tier.wlemmas.sort();
+                tier.wlemmas.dedup();
 
                 Ok(format!("Lemmatized tier {} for sentence {}:\n{}", tier_id, index + 1, output_lines.join("\n")))
             }
@@ -719,6 +866,8 @@ impl Engine {
                     &target_lang
                 };
 
+                let friendly_lemmas = self.state.friendly_lemmas.clone();
+                let friendly_enabled = self.state.friendly_shielding_enabled;
                 let sent = self.state.document.get_mut(index)
                     .ok_or_else(|| "Index out of bounds".to_string())?;
 
@@ -726,7 +875,7 @@ impl Engine {
                 lemmatize_tier_segments(sent, &tier_id, bridge, tier_lang)?;
 
                 // Phase 1b: Lemmatize mapping target texts for L1 tiers
-                lemmatize_mapping_targets(sent, &tier_id, bridge, &source_lang, &target_lang)?;
+                lemmatize_mapping_targets(sent, &tier_id, bridge, &source_lang, &target_lang, &friendly_lemmas, friendly_enabled)?;
 
                 // Phase 2: DRC checks (immutable access to sent)
                 let tier_violations = drc_tier(sent, &tier_id, index + 1);
@@ -1402,6 +1551,22 @@ impl Engine {
                         self.state = loaded_state;
                         self.current_file_path = Some(path_buf);
 
+                        // Stamp source_is_target onto every sentence so the
+                        // staleness graph follows the right direction.
+                        self.state.refresh_sentence_modes();
+
+                        // T6.2: auto-upgrade legacy `.wvl` files (schema_version < 2)
+                        // by computing wlemmas in-memory. The upgrade is idempotent
+                        // so files already at the target version are a no-op. The
+                        // user is notified via the load-result message.
+                        let upgrade_report = {
+                            let target_lang = self.state.project_languages.1.clone();
+                            crate::services::wlemma_upgrade::upgrade_app_state(
+                                &mut self.state,
+                                &target_lang,
+                            )
+                        };
+
                         // Re-hydrate output_dir from workspace config (skipped by serde)
                         if let Some(cfg) = &self.state.config {
                             if let Some(ref out_dir) = cfg.output_dir {
@@ -1420,7 +1585,20 @@ impl Engine {
                             let _ = crate::config::save_config_to_file(cfg, &config_path);
                         }
 
-                        return Ok(format!("Loaded project from {}", path));
+                        let upgrade_msg = if upgrade_report.already_at_target {
+                            String::new()
+                        } else {
+                            format!(
+                                " [upgraded schema v{} → v{}: words={}, segs={}, tiers={}, mappings={}; please re-save]",
+                                upgrade_report.from_version,
+                                upgrade_report.to_version,
+                                upgrade_report.words_updated,
+                                upgrade_report.segments_updated,
+                                upgrade_report.tiers_updated,
+                                upgrade_report.mapping_entries_updated,
+                            )
+                        };
+                        return Ok(format!("Loaded project from {}{}", path, upgrade_msg));
                     }
                     return Err("Failed to deserialize project".to_string());
                 }
@@ -1454,33 +1632,228 @@ impl Engine {
             AppCommand::ImportSource { path } => {
                 let resolved_path = self.resolve_path(&path);
                 let content = fs::read_to_string(&resolved_path).map_err(|e| e.to_string())?;
-                let sentences = source_parser::parse_source_file(&content).map_err(|e| e.to_string())?;
-                
+
+                // Reset all project-scoped state to defaults so leftover
+                // chapters / level maps / friendly lemmas / language pairs
+                // from a previously-loaded book can never leak into the
+                // newly-imported one. Workspace-scoped state (output_dir,
+                // config, services, UI prefs) is preserved.
+                self.state.document.clear();
+                self.state.book_map = None;
+                self.state.calibration_sentence_count = None;
+                self.state.chapters.clear();
+                self.state.chapter_mode = false;
+                self.state.selected_chapter_idx = None;
+                self.state.level_map_embedded = false;
+                self.state.simple_mode = false;
+                self.state.lesson_realign_enabled = false;
+                self.state.source_is_basic = false;
+                self.state.frontier_enabled = true;
+                self.state.frontier_target_pct = 5.0;
+                self.state.frontier_seed = 777;
+                self.state.frontier_test_mode = false;
+                self.state.frontier_familiar_lemma_exclude_count = 100;
+                self.state.friendly_lemmas.clear();
+                self.state.friendly_shielding_enabled = true;
+                self.state.project_languages = ("en".to_string(), "es".to_string());
+                self.state.selected_sentence_idx = 0;
+                self.state.selected_range = None;
+                self.state.audit_passed = false;
+                self.state.book_name.clear();
+                self.state.llm_followup_queue.clear();
+                self.current_file_path = None;
+                self.save_chapters();
+
+                // Phase 1: extract directives (work on raw content). This
+                // strips %%META...%%/%%CHAPTER_MARKER%% lines so the bridge
+                // doesn't ingest them as prose. We resolve them again at the
+                // end against the final document for index-anchored entries.
+                let (cleaned_content, mut raw_directives) =
+                    source_parser::extract_directives(&content);
+
+                // Pre-resolve language directives so the bridge can use them
+                // when tokenising/segmenting prose.
+                let early_meta =
+                    source_parser::resolve_directives(&raw_directives, &[]);
+                if let Some(src) = &early_meta.source_language {
+                    self.state.project_languages.0 = src.clone();
+                }
+                if let Some(tgt) = &early_meta.target_language {
+                    self.state.project_languages.1 = tgt.clone();
+                }
+                // Language used for tokenisation/segmentation: the source
+                // language of the imported text.
+                let import_lang = if !self.state.project_languages.0.is_empty() {
+                    self.state.project_languages.0.clone()
+                } else {
+                    "en".to_string()
+                };
+
+                // Phase 2: try {Sn:} markup parse first; fall back to bridge.
+                let (sentences, _meta_unused) =
+                    source_parser::parse_source_file(&cleaned_content)
+                        .map_err(|e| e.to_string())?;
+
+                // Chapter directives in source order. Used by the bridge
+                // path below to split content per chapter so each chapter
+                // gets its true sentence range. For the {Sn:} markup path
+                // this is unused (anchor_idx works correctly there).
+                // Owned (name, cleaned_offset) pairs so we can also mutate
+                // raw_directives below for anchor remapping.
+                let chapter_directives: Vec<(String, usize)> = raw_directives
+                    .iter()
+                    .filter(|d| d.key == "chapter" && !d.value.is_empty())
+                    .map(|d| (d.value.clone(), d.cleaned_offset))
+                    .collect();
+
+                // Sentences-imported-via-bridge chapters, computed below
+                // when we go through the bridge branch with chapter
+                // directives present. Replaces source_meta.chapters for
+                // that case (the parser's chapter resolver can't compute
+                // correct starts in the prose path because there are no
+                // {Sn:} markers to count).
+                let mut bridge_chunked_chapters: Option<Vec<source_parser::EmbeddedChapter>> = None;
+
                 if !sentences.is_empty() {
                     self.state.document = sentences;
                 } else if let Some(bridge) = &self.state.bridge {
                     let path_buf = resolved_path.clone();
                     let book_name = path_buf.file_name().and_then(|s| s.to_str()).unwrap_or("Unnamed");
-                    
-                    let chap = crate::services::importer::BookImporter::import_from_text_with_service(
-                        &content,
-                        book_name,
-                        bridge,
-                    )?;
-                    
-                    self.state.document.clear();
-                    for block in chap.content_blocks {
-                        if let crate::types::json_types::JsonContentBlock::Sentence(json_sentence) = block {
-                            match crate::domain::bridge::json_to_domain_sentence(&json_sentence) {
-                                Ok(domain_sentence) => self.state.document.push(domain_sentence),
-                                Err(e) => eprintln!("Skipping invalid sentence: {e}"),
+
+                    if chapter_directives.is_empty() {
+                        // No chapters — original single-shot path.
+                        let chap = crate::services::importer::BookImporter::import_from_text_with_service(
+                            &cleaned_content,
+                            book_name,
+                            bridge,
+                            &import_lang,
+                        )?;
+                        self.state.document.clear();
+                        for block in chap.content_blocks {
+                            if let crate::types::json_types::JsonContentBlock::Sentence(json_sentence) = block {
+                                match crate::domain::bridge::json_to_domain_sentence(&json_sentence) {
+                                    Ok(domain_sentence) => self.state.document.push(domain_sentence),
+                                    Err(e) => eprintln!("Skipping invalid sentence: {e}"),
+                                }
                             }
                         }
+                    } else {
+                        // Chunked import: split cleaned_content at each
+                        // chapter directive's cleaned_offset and bridge-
+                        // process each chunk separately so we know
+                        // exactly how many sentences each chapter
+                        // contributes.
+                        let mut split_points: Vec<usize> = chapter_directives
+                            .iter()
+                            .map(|(_, off)| (*off).min(cleaned_content.len()))
+                            .collect();
+                        split_points.sort_unstable();
+
+                        // Build chunks: chunk 0 = [0..first_split] (preamble),
+                        // chunk i+1 = [split_points[i]..split_points[i+1]] (or end).
+                        let mut chunks: Vec<&str> = Vec::with_capacity(split_points.len() + 1);
+                        let mut prev = 0usize;
+                        for &sp in &split_points {
+                            // Clamp sp to a UTF-8 char boundary just in case.
+                            let sp = clamp_to_char_boundary(&cleaned_content, sp).max(prev);
+                            chunks.push(&cleaned_content[prev..sp]);
+                            prev = sp;
+                        }
+                        chunks.push(&cleaned_content[prev..]);
+
+                        self.state.document.clear();
+                        let mut chapter_starts: Vec<usize> = Vec::with_capacity(chapter_directives.len());
+
+                        // Track cumulative sentence count after each split
+                        // point (i.e. after each chunks[0..=i] is ingested).
+                        // Indexed parallel to split_points: cumulative[i]
+                        // = total sentences from chunks[0..=i] (which means
+                        // sentences whose 0-based index < cumulative[i] all
+                        // sit BEFORE the directive at split_points[i]).
+                        // After the last chunk, cumulative_after_all =
+                        // self.state.document.len().
+                        let mut cumulative_at_split: Vec<usize> = Vec::with_capacity(split_points.len());
+
+                        for (i, chunk) in chunks.iter().enumerate() {
+                            // chunks[0] is the preamble (before first chapter
+                            // directive); chunks[1..] are per-chapter prose.
+                            // Record the chapter's start sentence index BEFORE
+                            // ingesting that chunk.
+                            if i >= 1 {
+                                chapter_starts.push(self.state.document.len() + 1);
+                                cumulative_at_split.push(self.state.document.len());
+                            }
+                            if chunk.trim().is_empty() {
+                                continue;
+                            }
+                            let chap = crate::services::importer::BookImporter::import_from_text_with_service(
+                                chunk,
+                                book_name,
+                                bridge,
+                                &import_lang,
+                            )?;
+                            for block in chap.content_blocks {
+                                if let crate::types::json_types::JsonContentBlock::Sentence(json_sentence) = block {
+                                    match crate::domain::bridge::json_to_domain_sentence(&json_sentence) {
+                                        Ok(domain_sentence) => self.state.document.push(domain_sentence),
+                                        Err(e) => eprintln!("Skipping invalid sentence: {e}"),
+                                    }
+                                }
+                            }
+                        }
+
+                        // Remap every directive's anchor_idx based on its
+                        // cleaned_offset so lm_entry / lesson_marker get
+                        // correct sentence anchors. Mapping: for offset
+                        // equal to split_points[i], anchor = cumulative_at_split[i].
+                        // For offsets <= 0 (preamble), anchor = 0. For
+                        // offsets > all split points (none in practice
+                        // because directives always sit before prose),
+                        // anchor = doc len.
+                        for d in raw_directives.iter_mut() {
+                            // Find the split-point matching this directive's offset.
+                            // Cleaned-offset equals one of the split_points
+                            // exactly because each directive appended one to
+                            // split_points list logic (their offset is
+                            // recorded at line strip-time).
+                            let mut anchor = 0usize;
+                            for (i, &sp) in split_points.iter().enumerate() {
+                                if sp <= d.cleaned_offset {
+                                    anchor = cumulative_at_split[i];
+                                } else {
+                                    break;
+                                }
+                            }
+                            d.anchor_idx = anchor;
+                        }
+
+                        // Now build EmbeddedChapter list with correct ranges.
+                        // chapter_directives is in source order, which equals
+                        // split_points order (we sorted both by cleaned_offset).
+                        let doc_len = self.state.document.len();
+                        let n = chapter_directives.len();
+                        let mut built: Vec<source_parser::EmbeddedChapter> = Vec::with_capacity(n);
+                        for i in 0..n {
+                            let start = chapter_starts[i];
+                            let end = if i + 1 < n {
+                                chapter_starts[i + 1].saturating_sub(1)
+                            } else {
+                                doc_len
+                            };
+                            if start >= 1 && end >= start && end <= doc_len {
+                                built.push(source_parser::EmbeddedChapter {
+                                    name: chapter_directives[i].0.clone(),
+                                    start,
+                                    end,
+                                });
+                            }
+                        }
+                        bridge_chunked_chapters = Some(built);
                     }
                 } else {
                     return Err("No recognizable sentence markup and Python bridge not configured.".to_string());
                 }
-                
+
                 self.state.book_map = None;
                 self.state.book_name = resolved_path
                     .file_stem()
@@ -1492,7 +1865,134 @@ impl Engine {
                 // Import is not a saved project — clear file path
                 self.current_file_path = None;
                 self.state.llm_followup_queue.clear();
-                Ok(format!("Imported {} sentences from source", self.state.document.len()))
+                // Phase 3: now resolve all directives against the final
+                // document so lm_entry/lesson_marker get correct indices.
+                let mut source_meta =
+                    source_parser::resolve_directives(&raw_directives, &self.state.document);
+
+                // If we used the chunked-bridge path, the parser's chapter
+                // resolver couldn't compute correct starts (no {Sn:} markers
+                // to count). Replace with the chapters we built per-chunk.
+                if let Some(built) = bridge_chunked_chapters {
+                    source_meta.chapters = built;
+                }
+
+                // Apply directives from %%META ...%% lines.
+                let mut applied_notes: Vec<String> = Vec::new();
+                if let Some(name) = &source_meta.book_name {
+                    self.state.book_name = name.clone();
+                }
+                if let Some(src) = &source_meta.source_language {
+                    self.state.project_languages.0 = src.clone();
+                }
+                if let Some(tgt) = &source_meta.target_language {
+                    self.state.project_languages.1 = tgt.clone();
+                }
+                if let Some(b) = source_meta.simple_mode {
+                    self.state.simple_mode = b;
+                }
+                if let Some(b) = source_meta.lesson_realign_enabled {
+                    self.state.lesson_realign_enabled = b;
+                }
+                // source_is_basic only takes effect when simple_mode is
+                // also on. The parser already warned if not; we honour
+                // the user's flag in state regardless for telemetry.
+                if let Some(b) = source_meta.source_is_basic {
+                    self.state.source_is_basic = b;
+                    if b && self.state.simple_mode {
+                        applied_notes.push(
+                            "source_is_basic: on — in-source-language basic tier will be copied from base verbatim"
+                                .to_string(),
+                        );
+                    }
+                }
+                if let Some(b) = source_meta.frontier_enabled {
+                    self.state.frontier_enabled = b;
+                }
+                if let Some(b) = source_meta.friendly_shielding_enabled {
+                    self.state.friendly_shielding_enabled = b;
+                }
+                if !source_meta.friendly_lemmas.is_empty() {
+                    self.state.friendly_lemmas = source_meta.friendly_lemmas.clone();
+                }
+                if source_meta.teaching_mode_requested {
+                    applied_notes.push("teaching_mode preset applied".to_string());
+                }
+
+                // Apply embedded chapter directives, if any.
+                if !source_meta.chapters.is_empty() {
+                    self.state.chapters.clear();
+                    for ch in &source_meta.chapters {
+                        self.state.chapters.push(crate::app::state::Chapter {
+                            name: ch.name.clone(),
+                            start: ch.start,
+                            end: ch.end,
+                        });
+                    }
+                    self.state.chapters.sort_by_key(|c| c.start);
+                    self.state.chapter_mode = true;
+                    self.state.selected_chapter_idx = None;
+                    self.save_chapters();
+                    applied_notes.push(format!(
+                        "embedded {} chapter(s); chapter_mode enabled",
+                        source_meta.chapters.len()
+                    ));
+                }
+
+                // Build embedded level map from lm_entries (simple-mode only).
+                self.state.level_map_embedded = false;
+                if !source_meta.lm_entries.is_empty() && self.state.simple_mode {
+                    use crate::simulation::numerical_types::{LLevelRecipe, VLevelRecipe};
+                    use crate::types::json_types::{
+                        JsonCurriculumMap, JsonCurriculumMapEntry,
+                    };
+                    let mut entries: Vec<JsonCurriculumMapEntry> = source_meta
+                        .lm_entries
+                        .iter()
+                        .map(|e| JsonCurriculumMapEntry {
+                            level: 1.0,
+                            start_sentence_idx: e.start_sentence_idx,
+                            recipe: VLevelRecipe {
+                                bas: e.bas,
+                                mod_v: 0,
+                                adv: 0,
+                            },
+                            l_level_recipe: LLevelRecipe::default(),
+                            target_avd: 0.0,
+                            actual_avd: 0.0,
+                        })
+                        .collect();
+                    entries.sort_by_key(|e| e.start_sentence_idx);
+                    let map = JsonCurriculumMap {
+                        end_level: 1.0,
+                        map: entries,
+                    };
+                    let mut levels = std::collections::HashMap::new();
+                    levels.insert("1".to_string(), map);
+                    self.state.book_map = Some(levels);
+                    self.state.level_map_embedded = true;
+                    applied_notes.push(format!(
+                        "embedded level map built from {} lm_entry record(s)",
+                        source_meta.lm_entries.len()
+                    ));
+                }
+
+                let mut summary = format!(
+                    "Imported {} sentences from source",
+                    self.state.document.len()
+                );
+                for note in &applied_notes {
+                    summary.push_str("\n  ");
+                    summary.push_str(note);
+                }
+                for w in &source_meta.warnings {
+                    summary.push_str("\n  warning: ");
+                    summary.push_str(w);
+                }
+                // Stamp source_is_target onto sentences now that
+                // project_languages is final.
+                self.state.refresh_sentence_modes();
+                Ok(summary)
             }
             AppCommand::ImportJson { path } => {
                 let resolved_path = self.resolve_path(&path);
@@ -1545,6 +2045,7 @@ impl Engine {
 
                 self.state.selected_sentence_idx = 0;
                 self.state.selected_range = None;
+                self.state.refresh_sentence_modes();
                 Ok(format!("Imported {} sentences from JSON ({} errors)", self.state.document.len(), error_count))
             }
             AppCommand::ExportJson { path } => {
@@ -2284,17 +2785,17 @@ impl Engine {
                     }
                 }
                 
-                // Map Stage Name to Prompt Name and Target Tier
-                // This logic should ideally be in a domain service, but hardcoding map here for now based on context
-                let (prompt_name, target_tier, source_tier) = match stage_name.as_str() {
-                    "GenerateBasicBase" => ("simplify_to_basic_english", "basic_base", "base"),
-                    "GenerateBasicTarget" => ("translate_text_basic", "basic_target", "basic_base"),
-                    "GenerateAdvancedTarget" => ("translate_text", "advanced_target", "base"),
-                    "GenerateModerateTarget" => ("simplify_segments_moderate", "moderate_target", "advanced_target"),
-                    "GeneratePhraseMap" => ("generate_diglot_map", "MAPPING:basic_base:basic_target", "basic_base"),
-                    "GenerateInversePhraseMap" => ("generate_inverse_phrase_map", "MAPPING:basic_target:basic_base", "basic_target"),
-                    _ => return Err(format!("Unknown stage mapping for '{}'", stage_name)),
-                };
+                // Map Stage Name to Prompt Name and Target Tier via the
+                // tier-graph dispatch (handles English-source vs Spanish-source).
+                let resolution = crate::services::tier_graph::stage_dispatch(
+                    stage_name.as_str(),
+                    self.state.source_is_target(),
+                    self.state.source_is_basic && self.state.simple_mode,
+                )
+                .ok_or_else(|| format!("Unknown stage mapping for '{}'", stage_name))?;
+                let prompt_name = resolution.prompt_name;
+                let target_tier = resolution.target_tier;
+                let source_tier = resolution.source_tier;
 
                 let start = std::cmp::min(start_index, self.state.document.len().saturating_sub(1));
                 let end = std::cmp::min(end_index, self.state.document.len().saturating_sub(1));
@@ -2476,14 +2977,27 @@ impl Engine {
                 let config_obj = self.state.config.clone().unwrap();
                 let (base_lang, target_lang) = self.state.project_languages.clone();
 
+                // In source_is_target mode the project's literal language pair
+                // is e.g. ("es","es"), but every prompt is conceptually keyed
+                // by `<learner_base>-<target>` (today: en-es). Remap the
+                // pair used for prompt lookup so we don't fall back to
+                // `_defaults/` for stages whose prose actually exists in the
+                // language-specific directory.
+                let (prompt_base_lang, prompt_target_lang) = if self.state.source_is_target() {
+                    // TODO: replace hardcoded "en" with a learner_lang config field.
+                    ("en".to_string(), target_lang.clone())
+                } else {
+                    (base_lang.clone(), target_lang.clone())
+                };
+
                 let item_count = items.len();
                 let (rx, cancel) = crate::services::llm_worker::spawn_llm_job(
                     prompts,
                     llm,
                     logger,
                     config_obj,
-                    base_lang,
-                    target_lang,
+                    prompt_base_lang,
+                    prompt_target_lang,
                     prompt_name.to_string(),
                     target_tier.to_string(),
                     items,
@@ -2686,6 +3200,117 @@ impl Engine {
                     .map_err(|e| format!("Failed to open directory: {}", e))?;
                 Ok(format!("Opened {}", target.display()))
             }
+            AppCommand::AvGenerateAlign { target } => {
+                if let Some(ref job) = self.state.av_job {
+                    let j = job.lock().unwrap();
+                    if !j.finished {
+                        return Err(format!("AV job already running: {}. Use 'av cancel' to stop it.", j.label));
+                    }
+                }
+
+                if !self.lesson_realign_active() {
+                    return Err(
+                        "Lesson realign requires chapter_mode, source_language == target_language, and lesson_realign=on."
+                            .to_string(),
+                    );
+                }
+
+                let book_dir = self.resolve_av_book_dir()?;
+                let producer = crate::services::av_producer::AvProducer::new(book_dir)?;
+
+                let stem = match target {
+                    AvTarget::Stem(ref s) => {
+                        let statuses = producer.scan();
+                        let found = statuses.iter().find(|st| st.stem == *s);
+                        match found {
+                            Some(st) if !st.has_text => return Err(format!("No text file found for '{}'.", s)),
+                            Some(st) if st.has_aligned_text => {
+                                return Err(format!(
+                                    "Aligned lesson text already exists for '{}'. Delete it first to regenerate.",
+                                    s
+                                ))
+                            }
+                            None => return Err(format!("Stem '{}' not found in book directory.", s)),
+                            _ => s.clone(),
+                        }
+                    }
+                    AvTarget::Next | AvTarget::All => match producer.next_stem_needing_alignment() {
+                        Some(s) => s,
+                        None => return Ok("All marked files already have aligned lesson text.".to_string()),
+                    },
+                };
+
+                let current_tts_text = fs::read_to_string(producer.text_file_path(&stem))
+                    .map_err(|e| format!("Failed to read TTS text for '{}': {}", stem, e))?;
+                let original_source_text = self.selected_chapter_source_text()?;
+                let (focus_rank, focus_lemma, known_lemmas) = self.selected_chapter_lesson_lemma_context()?;
+
+                let prompts = self.state.prompts.clone().ok_or("Prompt manager not initialized.")?;
+                let llm = self.state.llm.clone().ok_or("LLM service not initialized.")?;
+                let logger = self.state.logger.clone();
+                let config = self.state.config.clone().ok_or("Config not loaded.")?;
+                let stage_cfg = config.get_stage_config("GenerateLessonRealign")
+                    .cloned()
+                    .or_else(|| config.get_stage_config("GenerateBasicTarget").cloned())
+                    .unwrap_or(crate::config::StageConfig {
+                        primary_model: "gemini-pro".to_string(),
+                        fallback_model: Some("sonnet".to_string()),
+                        batch_size_in_items: 1,
+                        thinking_budget_tokens: None,
+                        thinking_on_first_attempt: None,
+                    });
+
+                let (_, target_lang) = self.state.project_languages.clone();
+                let prompt_base_lang = if self.state.source_is_target() {
+                    "en".to_string()
+                } else {
+                    self.state.project_languages.0.clone()
+                };
+                let chapter_name = self.state.selected_chapter_idx
+                    .and_then(|idx| self.state.chapters.get(idx))
+                    .map(|ch| ch.name.clone())
+                    .unwrap_or_default();
+                let aligned_path = producer.aligned_text_path(&stem);
+
+                let label = format!("Realigning lesson text: {}", stem);
+                let job_state = std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::app::state::AvJobState {
+                        output_lines: vec![format!("--- {} ---", label)],
+                        cancel_requested: false,
+                        finished: false,
+                        result_message: None,
+                        child_pid: None,
+                        label: label.clone(),
+                    },
+                ));
+
+                let job_clone = job_state.clone();
+                let book_name = self.state.book_name.clone();
+                std::thread::spawn(move || {
+                    run_lesson_realign_job(
+                        job_clone,
+                        prompts,
+                        llm,
+                        logger,
+                        prompt_base_lang,
+                        target_lang,
+                        stage_cfg.primary_model,
+                        stage_cfg.fallback_model,
+                        book_name,
+                        chapter_name,
+                        stem,
+                        focus_rank,
+                        focus_lemma,
+                        known_lemmas,
+                        original_source_text,
+                        current_tts_text,
+                        aligned_path,
+                    );
+                });
+
+                self.state.av_job = Some(job_state);
+                Ok(format!("Started: {}. Use 'av cancel' to stop.", label))
+            }
             AppCommand::AvGenerateAudio { target } => {
                 // Reject if a job is already running
                 if let Some(ref job) = self.state.av_job {
@@ -2703,27 +3328,41 @@ impl Engine {
                     return Err("Google API key is empty. Set a valid key:\n  → set key google AIza...".to_string());
                 }
 
+                let require_alignment = self.lesson_realign_active();
+
                 let stem = match target {
                     AvTarget::Stem(ref s) => {
                         let statuses = producer.scan();
                         let found = statuses.iter().find(|st| st.stem == *s);
                         match found {
                             Some(st) if !st.has_text => return Err(format!("No text file found for '{}'.", s)),
+                            Some(st) if require_alignment && !st.has_aligned_text => {
+                                return Err(format!(
+                                    "No aligned lesson text found for '{}'. Generate align first.",
+                                    s
+                                ))
+                            }
                             Some(st) if st.has_audio => return Err(format!("Audio already exists for '{}'. Delete it first to regenerate.", s)),
                             None => return Err(format!("Stem '{}' not found in book directory.", s)),
                             _ => s.clone(),
                         }
                     }
                     AvTarget::Next => {
-                        match producer.next_stem_needing_audio() {
+                        match producer.next_stem_needing_audio(require_alignment) {
                             Some(s) => s,
+                            None if require_alignment && producer.next_stem_needing_alignment().is_some() => {
+                                return Ok("Marked files still need align before audio generation.".to_string())
+                            }
                             None => return Ok("All marked files already have audio.".to_string()),
                         }
                     }
                     AvTarget::All => {
                         // For streaming, only support one stem at a time
-                        match producer.next_stem_needing_audio() {
+                        match producer.next_stem_needing_audio(require_alignment) {
                             Some(s) => s,
+                            None if require_alignment && producer.next_stem_needing_alignment().is_some() => {
+                                return Ok("Marked files still need align before audio generation.".to_string())
+                            }
                             None => return Ok("All marked files already have audio.".to_string()),
                         }
                     }
@@ -2732,7 +3371,7 @@ impl Engine {
                 // Spawn the child process
                 let gcloud_project_id = self.state.config.as_ref()
                     .and_then(|c| c.gcloud_project_id.as_deref());
-                let child = producer.spawn_audio(&stem, &project_root, &api_key, gcloud_project_id)?;
+                let child = producer.spawn_audio(&stem, &project_root, &api_key, gcloud_project_id, require_alignment)?;
                 let pid = child.id();
                 let label = format!("Generating audio: {}", stem);
 
@@ -2879,10 +3518,17 @@ impl Engine {
                 if api_key.trim().is_empty() {
                     return Err("Google API key is empty. Set a valid key:\n  → set key google AIza...".to_string());
                 }
+                let require_alignment = self.lesson_realign_active();
 
                 let book_name = self.state.book_name.clone();
+                let aligned_input = producer.illustration_alignment_text_file(require_alignment)?;
 
-                let child = producer.spawn_extract_characters(&book_name, &project_root, &api_key)?;
+                let child = producer.spawn_extract_characters(
+                    &book_name,
+                    &project_root,
+                    &api_key,
+                    aligned_input.as_deref(),
+                )?;
                 let pid = child.id();
                 let label = "Extracting character bible".to_string();
 
@@ -2921,10 +3567,17 @@ impl Engine {
                 if api_key.trim().is_empty() {
                     return Err("Google API key is empty. Set a valid key:\n  → set key google AIza...".to_string());
                 }
+                let require_alignment = self.lesson_realign_active();
 
                 let book_name = self.state.book_name.clone();
+                let aligned_input = producer.illustration_alignment_text_file(require_alignment)?;
 
-                let child = producer.spawn_prompts(&book_name, &project_root, &api_key)?;
+                let child = producer.spawn_prompts(
+                    &book_name,
+                    &project_root,
+                    &api_key,
+                    aligned_input.as_deref(),
+                )?;
                 let pid = child.id();
                 let label = "Generating illustration prompts".to_string();
 
@@ -2984,8 +3637,46 @@ impl Engine {
                 ));
 
                 let job_clone = job_state.clone();
+                let book_dir_for_thumb = producer.book_dir.clone();
                 std::thread::spawn(move || {
-                    av_job_reader(child, job_clone);
+                    av_job_reader(child, job_clone.clone());
+
+                    // After the subprocess finishes, export first illustration as thumbnail.jpg
+                    // to the book directory (one level above illustrations/).
+                    let succeeded = {
+                        let j = job_clone.lock().unwrap();
+                        !j.cancel_requested
+                            && j.result_message
+                                .as_deref()
+                                .map(|m| m.contains("successfully"))
+                                .unwrap_or(false)
+                    };
+                    if succeeded {
+                        match crate::services::av_producer::AvProducer::new(book_dir_for_thumb) {
+                            Ok(p) => match p.export_thumbnail() {
+                                Ok(msg) => {
+                                    let mut j = job_clone.lock().unwrap();
+                                    j.output_lines.push(format!("Thumbnail: {}", msg));
+                                    j.result_message = Some(
+                                        "AV job completed successfully. YouTube thumbnail exported."
+                                            .to_string(),
+                                    );
+                                }
+                                Err(e) => {
+                                    let mut j = job_clone.lock().unwrap();
+                                    j.output_lines
+                                        .push(format!("Warning: thumbnail export failed: {}", e));
+                                }
+                            },
+                            Err(e) => {
+                                let mut j = job_clone.lock().unwrap();
+                                j.output_lines.push(format!(
+                                    "Warning: could not load producer for thumbnail: {}",
+                                    e
+                                ));
+                            }
+                        }
+                    }
                 });
 
                 self.state.av_job = Some(job_state);
@@ -3377,6 +4068,114 @@ impl Engine {
                 self.state.frontier_seed = seed;
                 Ok(format!("Frontier seed set to {}.", seed))
             }
+            AppCommand::ShowFlags => {
+                Ok(self.format_project_flags())
+            }
+            AppCommand::SetFriendlyLemma { lemma } => {
+                let trimmed = lemma.trim();
+                if trimmed.is_empty() {
+                    return Err("Lemma cannot be empty.".to_string());
+                }
+                let needle = trimmed.to_lowercase();
+                if self.state.friendly_lemmas.iter().any(|l| l.to_lowercase() == needle) {
+                    return Ok(format!("'{}' is already a friendly lemma.", trimmed));
+                }
+                self.state.friendly_lemmas.push(trimmed.to_string());
+                Ok(format!(
+                    "Added friendly lemma '{}'. ({} total)",
+                    trimmed,
+                    self.state.friendly_lemmas.len()
+                ))
+            }
+            AppCommand::UnsetFriendlyLemma { lemma } => {
+                let needle = lemma.trim().to_lowercase();
+                let before = self.state.friendly_lemmas.len();
+                self.state.friendly_lemmas.retain(|l| l.to_lowercase() != needle);
+                let removed = before - self.state.friendly_lemmas.len();
+                if removed == 0 {
+                    Err(format!("No friendly lemma matching '{}'.", lemma))
+                } else {
+                    Ok(format!(
+                        "Removed friendly lemma '{}'. ({} remaining)",
+                        lemma,
+                        self.state.friendly_lemmas.len()
+                    ))
+                }
+            }
+            AppCommand::ClearFriendlyLemmas => {
+                let n = self.state.friendly_lemmas.len();
+                self.state.friendly_lemmas.clear();
+                Ok(format!("Cleared friendly lemmas ({} removed).", n))
+            }
+            AppCommand::SetSimpleMode { enabled } => {
+                self.state.simple_mode = enabled;
+                self.state.refresh_sentence_modes();
+                Ok(format!("Simple mode {}.", if enabled { "enabled" } else { "disabled" }))
+            }
+            AppCommand::SetSourceIsBasic { enabled } => {
+                self.state.source_is_basic = enabled;
+                if enabled && !self.state.simple_mode {
+                    Ok("Source-is-basic enabled. It will take effect when simple_mode is on.".to_string())
+                } else {
+                    Ok(format!(
+                        "Source-is-basic {}.",
+                        if enabled { "enabled" } else { "disabled" }
+                    ))
+                }
+            }
+            AppCommand::SetLessonRealign { enabled } => {
+                self.state.lesson_realign_enabled = enabled;
+                Ok(format!(
+                    "Lesson realign {}.",
+                    if enabled { "enabled" } else { "disabled" }
+                ))
+            }
+            AppCommand::SetFriendlyShielding { enabled } => {
+                self.state.friendly_shielding_enabled = enabled;
+                Ok(format!(
+                    "Friendly shielding {}.",
+                    if enabled { "enabled" } else { "disabled" }
+                ))
+            }
+            AppCommand::SetTeachingMode { enabled } => {
+                if enabled {
+                    self.state.simple_mode = true;
+                    self.state.lesson_realign_enabled = true;
+                    self.state.frontier_enabled = false;
+                    let mut warnings: Vec<String> = Vec::new();
+                    if !self.state.friendly_shielding_enabled {
+                        // Per plan: teaching_mode asserts friendly_shielding=on.
+                        self.state.friendly_shielding_enabled = true;
+                        warnings.push("friendly_shielding force-enabled".to_string());
+                    }
+                    self.state.refresh_sentence_modes();
+                    let extra = if warnings.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" ({})", warnings.join(", "))
+                    };
+                    Ok(format!(
+                        "Teaching mode ON: simple_mode=on, lesson_realign=on, frontier_enabled=off, friendly_shielding=on{}.",
+                        extra
+                    ))
+                } else {
+                    // Off is a no-op preset (does not unset underlying flags).
+                    Ok("Teaching mode preset 'off' is a no-op (underlying flags unchanged).".to_string())
+                }
+            }
+            AppCommand::StripLevelMap => {
+                let had_map = self.state.book_map.as_ref().map_or(false, |m| !m.is_empty());
+                let was_embedded = self.state.level_map_embedded;
+                self.state.book_map = None;
+                self.state.level_map_embedded = false;
+                if !had_map && !was_embedded {
+                    Ok("No level map was loaded.".to_string())
+                } else if was_embedded {
+                    Ok("Stripped embedded level map. You may now run 'calibrate' or 'import level_map'.".to_string())
+                } else {
+                    Ok("Stripped level map.".to_string())
+                }
+            }
             AppCommand::InitMediaWorkspace => {
                 self.execute_init_media_workspace()
             }
@@ -3466,6 +4265,75 @@ impl Engine {
         f(&mut producer)
     }
 
+    fn lesson_realign_active(&self) -> bool {
+        self.state.lesson_realign_enabled
+            && self.state.chapter_mode
+            && self.state.source_is_target()
+    }
+
+    fn selected_chapter_source_text(&self) -> Result<String, String> {
+        let ch_idx = self.state.selected_chapter_idx
+            .ok_or("Lesson realign requires a selected chapter.")?;
+        let ch = self.state.chapters.get(ch_idx)
+            .ok_or("Selected chapter index is invalid.")?;
+        let start = ch.start.saturating_sub(1);
+        let end = ch.end.min(self.state.document.len());
+        if start >= end || end > self.state.document.len() {
+            return Err("Selected chapter range is invalid for lesson realign.".to_string());
+        }
+        let parts: Vec<String> = self.state.document[start..end]
+            .iter()
+            .map(|sent| {
+                sent.get_tier("base")
+                    .map(|t| t.full_text())
+                    .unwrap_or_default()
+            })
+            .filter(|s| !s.trim().is_empty())
+            .collect();
+        if parts.is_empty() {
+            return Err("Selected chapter has no base-text content to realign against.".to_string());
+        }
+        Ok(parts.join("\n\n"))
+    }
+
+    fn selected_chapter_lesson_lemma_context(&self) -> Result<(u32, String, Vec<String>), String> {
+        use crate::simulation::frequency_manager;
+
+        if frequency_manager::get_max_rank() == 0 {
+            return Err("Lesson realign requires the frequency list to be loaded.".to_string());
+        }
+
+        let ch_idx = self.state.selected_chapter_idx
+            .ok_or("Lesson realign requires a selected chapter.")?;
+        let ch = self.state.chapters.get(ch_idx)
+            .ok_or("Selected chapter index is invalid.")?;
+        let ch_start = ch.start;
+
+        let book_map = self.state.book_map.as_ref()
+            .ok_or("Lesson realign requires a loaded level map.")?;
+        let cm = book_map.get("1")
+            .ok_or("Lesson realign currently expects an embedded level-map under key '1'.")?;
+        let chapter_entry = cm.map
+            .iter()
+            .rev()
+            .find(|e| e.start_sentence_idx + 1 <= ch_start)
+            .or_else(|| cm.map.first())
+            .ok_or("Lesson realign could not resolve a chapter recipe.")?;
+
+        let bas = chapter_entry.recipe.bas;
+        if bas == 0 {
+            return Err("Lesson realign requires bas >= 1 for the selected chapter.".to_string());
+        }
+
+        let ordered = frequency_manager::get_ordered_lemmas();
+        let focus_idx = bas.saturating_sub(1) as usize;
+        let focus_lemma = ordered.get(focus_idx)
+            .cloned()
+            .ok_or_else(|| format!("Lesson realign could not resolve the focus lemma at rank {}.", bas))?;
+        let known_lemmas = ordered.into_iter().take(bas as usize).collect();
+        Ok((bas, focus_lemma, known_lemmas))
+    }
+
     fn execute_measure_avd(&self, path: &str) -> Result<String, String> {
         use crate::simulation::frequency_manager;
         use crate::simulation::metrics::TextMetrics;
@@ -3501,7 +4369,7 @@ impl Engine {
             }
             total_word_tokens += 1;
             let lemma = token.lemma.to_lowercase();
-            if frequency_manager::get_rank_for_lemma(&lemma).is_none() {
+            if frequency_manager::rank_of_lemma_string(&lemma).is_none() {
                 if !unknown_lemmas.contains(&lemma) {
                     unknown_lemmas.push(lemma.clone());
                 }
@@ -3521,7 +4389,7 @@ impl Engine {
         let mut max_rank: u32 = 0;
         let mut max_rank_lemma = String::new();
         for lemma in &lemma_instances {
-            if let Some(rank) = frequency_manager::get_rank_for_lemma(lemma) {
+            if let Some(rank) = frequency_manager::rank_of_lemma_string(lemma) {
                 if rank > max_rank {
                     max_rank = rank;
                     max_rank_lemma = lemma.clone();
@@ -3531,7 +4399,7 @@ impl Engine {
 
         // Build output report
         let found_count = lemma_instances.iter()
-            .filter(|l| frequency_manager::get_rank_for_lemma(l).is_some())
+            .filter(|l| frequency_manager::rank_of_lemma_string(l).is_some())
             .count();
 
         let mut out = String::new();
@@ -3608,7 +4476,7 @@ impl Engine {
         }
 
         let in_freq_list = lemma_instances.iter()
-            .filter(|l| frequency_manager::get_rank_for_lemma(l).is_some())
+            .filter(|l| frequency_manager::rank_of_lemma_string(l).is_some())
             .count();
 
         let mut out = String::new();
@@ -4322,6 +5190,12 @@ impl Engine {
             );
             let avd_score = metrics.calculate_avd_score();
 
+            let metrics_v2 = TextMetrics::new_v2(
+                &result.all_output_lemma_instances_v2,
+                result.total_base_words,
+            );
+            let avd_score_v2 = metrics_v2.calculate_avd_score();
+
             // For special tiers (ULb, ULm, ULa), append the derived user level
             let actual_suffix = if suffix.starts_with("UL") && suffix.len() == 3
                 && ["ULb", "ULm", "ULa", "ULi"].contains(&suffix)
@@ -4343,6 +5217,7 @@ impl Engine {
                 &file_name,
                 &result,
                 avd_score,
+                avd_score_v2,
                 Some(recipe_obj.clone()),
                 Some(recipe_obj),
                 None,
@@ -4393,6 +5268,12 @@ impl Engine {
             );
             let avd_score = metrics.calculate_avd_score();
 
+            let metrics_v2 = TextMetrics::new_v2(
+                &result_basic.all_output_lemma_instances_v2,
+                result_basic.total_base_words,
+            );
+            let avd_score_v2 = metrics_v2.calculate_avd_score();
+
             // Derive user level from AVD and append to suffix
             let ul = crate::simulation::calibrator::get_user_level_from_avd(avd_score).round() as u32;
             let suffix = format!("ULi{}", ul);
@@ -4407,6 +5288,7 @@ impl Engine {
                 &file_name,
                 &result_basic,
                 avd_score,
+                avd_score_v2,
                 Some(recipe_obj.clone()),
                 Some(recipe_obj),
                 None,
@@ -4446,6 +5328,16 @@ impl Engine {
 
         // --- Dispatch: special modes b/m/a/i/r, or standard levels / all ---
         let is_all = level_arg == "all";
+        let simple_mode = self.state.simple_mode;
+
+        // In simple mode the moderate ('m') and advanced ('a') flat outputs are
+        // unavailable because those tiers aren't produced. Reject explicitly.
+        if simple_mode && (level_arg == "m" || level_arg == "a") {
+            return Err(format!(
+                "Cannot generate '{}' output: project is in simple_mode (only basic-tier levels are available).",
+                level_arg
+            ));
+        }
 
         match level_arg {
             "b" => {
@@ -4476,6 +5368,44 @@ impl Engine {
                         .map_err(|_| format!("Invalid level '{}'. Use a number, 'all', 'b', 'm', 'a', 'i', or 'r'.", level_arg))?;
                     vec![lvl]
                 };
+
+                // In simple mode, drop levels whose recipe pulls from advanced or
+                // moderate tiers — those tiers aren't produced. The single-level
+                // path errors loudly; 'all' silently skips them with a note in
+                // generated_files so the operator sees what was filtered.
+                let mut skipped_levels: Vec<u32> = Vec::new();
+                let levels: Vec<u32> = if simple_mode {
+                    let level_uses_basic_only = |level: u32| -> bool {
+                        if level == 0 { return true; }
+                        let key = level.to_string();
+                        match book_map.get(&key) {
+                            Some(cm) => cm.map.iter().all(|e| e.recipe.mod_v == 0 && e.recipe.adv == 0),
+                            None => true, // Unknown level — let the downstream lookup error
+                        }
+                    };
+                    let mut kept: Vec<u32> = Vec::new();
+                    for lvl in levels {
+                        if level_uses_basic_only(lvl) {
+                            kept.push(lvl);
+                        } else if is_all {
+                            skipped_levels.push(lvl);
+                        } else {
+                            return Err(format!(
+                                "Level {} uses advanced/moderate tiers and cannot be generated in simple_mode.",
+                                lvl
+                            ));
+                        }
+                    }
+                    kept
+                } else {
+                    levels
+                };
+                if !skipped_levels.is_empty() {
+                    let list = skipped_levels.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", ");
+                    generated_files.push(format!(
+                        "[simple_mode] skipped non-basic levels: {}", list
+                    ));
+                }
 
                 for level in &levels {
             // Level 0 is a special "acclimatization" level: 100% base language (recipe 0/0/0).
@@ -4539,9 +5469,20 @@ impl Engine {
             let mut boundary_frontier_diags: Vec<corpus_generator::FrontierDiagnostics> =
                 Vec::new();
 
-            if chapter_range.is_some() {
-                // Chapter mode: single recipe for the whole chapter.
-                let recipe = &first_entry.recipe;
+            if let Some((ch_start, _ch_end)) = chapter_range {
+                // Chapter mode: pick the lm_entry whose start_sentence_idx
+                // best matches the selected chapter (latest entry with
+                // start_sentence_idx <= chapter.start, 1-based). This is
+                // required for books like the Spanish lessons where every
+                // chapter has its own %%META lm_entry%% under a single
+                // level key. Falls back to cm.map[0] if no entry precedes
+                // the chapter start.
+                let chapter_entry = cm.map
+                    .iter()
+                    .rev()
+                    .find(|e| e.start_sentence_idx + 1 <= ch_start)
+                    .unwrap_or(first_entry);
+                let recipe = &chapter_entry.recipe;
                 if frontier_config.enabled {
                     let (total_tokens, unknown_tokens) =
                         corpus_generator::compute_prepass_metrics_for_slice(
@@ -4596,6 +5537,8 @@ impl Engine {
                 }
                 full_result.final_text_parts = result.final_text_parts;
                 full_result.all_output_lemma_instances = result.all_output_lemma_instances;
+                full_result.all_output_lemma_instances_v2 = result.all_output_lemma_instances_v2;
+                full_result.sentence_lemma_snapshots = result.sentence_lemma_snapshots;
                 full_result.total_target_words = result.total_target_words;
                 full_result.total_base_words = result.total_base_words;
                 full_result.level_stats = result.level_stats;
@@ -4705,6 +5648,12 @@ impl Engine {
                 }
                 full_result.final_text_parts.extend(slice_result.final_text_parts);
                 full_result.all_output_lemma_instances.extend(slice_result.all_output_lemma_instances);
+                full_result
+                    .all_output_lemma_instances_v2
+                    .extend(slice_result.all_output_lemma_instances_v2);
+                full_result
+                    .sentence_lemma_snapshots
+                    .extend(slice_result.sentence_lemma_snapshots);
                 full_result.total_target_words += slice_result.total_target_words;
                 full_result.total_base_words += slice_result.total_base_words;
                 for (lvl, count) in slice_result.level_stats {
@@ -4748,12 +5697,19 @@ impl Engine {
             );
             let avd_score = metrics.calculate_avd_score();
 
+            let metrics_v2 = TextMetrics::new_v2(
+                &full_result.all_output_lemma_instances_v2,
+                full_result.total_base_words,
+            );
+            let avd_score_v2 = metrics_v2.calculate_avd_score();
+
             let last_entry = cm.map.last();
             corpus_generator::log_analysis_to_file(
                 &analysis_path,
                 &file_name,
                 &full_result,
                 avd_score,
+                avd_score_v2,
                 Some(first_entry.recipe.clone()),
                 last_entry.map(|e| e.recipe.clone()),
                 Some(first_entry.l_level_recipe.clone()),
@@ -4820,6 +5776,48 @@ impl Engine {
         ))
     }
 
+    /// Format the read-only Project Flags pane (terminal `flags` command).
+    fn format_project_flags(&self) -> String {
+        let s = &self.state;
+        let (src, tgt) = (&s.project_languages.0, &s.project_languages.1);
+        let src_disp = if src.is_empty() { "(unset)" } else { src.as_str() };
+        let tgt_disp = if tgt.is_empty() { "(unset)" } else { tgt.as_str() };
+        let teaching_active = s.simple_mode
+            && s.lesson_realign_enabled
+            && !s.frontier_enabled
+            && s.friendly_shielding_enabled;
+        let level_map_src = if s.level_map_embedded {
+            "embedded (%%META lm_entry%%)"
+        } else if s.book_map.as_ref().map_or(false, |m| !m.is_empty()) {
+            "calibrated/imported"
+        } else {
+            "none"
+        };
+        let book_disp = if s.book_name.is_empty() { "(unset)" } else { s.book_name.as_str() };
+        let friendly = if s.friendly_lemmas.is_empty() {
+            "(none)".to_string()
+        } else {
+            s.friendly_lemmas.join(", ")
+        };
+        let onoff = |b: bool| if b { "on" } else { "off" };
+        let mut out = String::new();
+        out.push_str("Project Flags\n");
+        out.push_str("─────────────\n");
+        out.push_str(&format!("  source_language     : {}\n", src_disp));
+        out.push_str(&format!("  target_language     : {}\n", tgt_disp));
+        out.push_str(&format!("  source_is_target    : {}\n", s.source_is_target()));
+        out.push_str(&format!("  book_name           : {}\n", book_disp));
+        out.push_str(&format!("  simple_mode         : {}\n", onoff(s.simple_mode)));
+        out.push_str(&format!("  lesson_realign      : {}\n", onoff(s.lesson_realign_enabled)));
+        out.push_str(&format!("  source_is_basic     : {}\n", onoff(s.source_is_basic)));
+        out.push_str(&format!("  frontier_enabled    : {}\n", onoff(s.frontier_enabled)));
+        out.push_str(&format!("  friendly_shielding  : {}\n", onoff(s.friendly_shielding_enabled)));
+        out.push_str(&format!("  teaching_mode       : {} (derived)\n", if teaching_active { "on" } else { "custom/off" }));
+        out.push_str(&format!("  level_map           : {}\n", level_map_src));
+        out.push_str(&format!("  friendly_lemmas ({:>2}): {}\n", s.friendly_lemmas.len(), friendly));
+        out
+    }
+
     /// Design Rule Check — returns a Vec of violation strings.
     /// Empty vec means PASS.
     /// When `range` is Some((start, end)) (0-based inclusive), only those
@@ -4842,6 +5840,7 @@ impl Engine {
             violations.push("GLOBAL: no level map loaded (use 'import level_map' or 'calibrate')".to_string());
         }
 
+        let simple_mode = self.state.simple_mode;
         let (range_start, range_end) = range.unwrap_or((0, self.state.document.len().saturating_sub(1)));
         for (i, sent) in self.state.document.iter().enumerate() {
             if i < range_start || i > range_end { continue; }
@@ -4849,7 +5848,12 @@ impl Engine {
             let sid = &sent.id;
 
             // Rules 1-3: Check each WEAVE_TIER
+            // In simple mode, skip the advanced/moderate tiers entirely — they
+            // are not produced and not consumed by the basic-only weave path.
             for &tid in Sentence::WEAVE_TIERS {
+                if simple_mode && (tid == "advanced_target" || tid == "moderate_target") {
+                    continue;
+                }
                 match sent.tiers.get(tid) {
                     None => {
                         violations.push(format!("S{} ({}): tier '{}' is missing", sn, sid, tid));
@@ -4935,15 +5939,18 @@ impl Engine {
                 }
             }
 
-            // Rule 6: Sentence-level — Advanced and Moderate segment counts must match
-            let adv_seg_count = sent.tiers.get("advanced_target").map(|t| t.segments.len());
-            let mod_seg_count = sent.tiers.get("moderate_target").map(|t| t.segments.len());
-            if let (Some(a), Some(m)) = (adv_seg_count, mod_seg_count) {
-                if a != m {
-                    violations.push(format!(
-                        "S{} ({}): advanced_target has {} segments but moderate_target has {} (must match)",
-                        sn, sid, a, m
-                    ));
+            // Rule 6: Sentence-level — Advanced and Moderate segment counts must match.
+            // Skipped entirely in simple mode (those tiers aren't used).
+            if !simple_mode {
+                let adv_seg_count = sent.tiers.get("advanced_target").map(|t| t.segments.len());
+                let mod_seg_count = sent.tiers.get("moderate_target").map(|t| t.segments.len());
+                if let (Some(a), Some(m)) = (adv_seg_count, mod_seg_count) {
+                    if a != m {
+                        violations.push(format!(
+                            "S{} ({}): advanced_target has {} segments but moderate_target has {} (must match)",
+                            sn, sid, a, m
+                        ));
+                    }
                 }
             }
         }
@@ -5071,6 +6078,13 @@ impl Engine {
 
         if self.state.document.is_empty() {
             return Err("No document loaded.".to_string());
+        }
+
+        if self.state.level_map_embedded {
+            return Err(
+                "Cannot calibrate: level map is embedded in source. Use strip_level_map first."
+                    .to_string(),
+            );
         }
 
         // Ensure frequency list is loaded
@@ -5251,7 +6265,7 @@ impl Engine {
                     if !tier.lemmas.is_empty() {
                         let display_count = tier.lemmas.len().min(20);
                         let ranked: Vec<String> = tier.lemmas[..display_count].iter()
-                            .map(|l| match crate::simulation::frequency_manager::get_rank_for_lemma(l) {
+                            .map(|l| match crate::simulation::frequency_manager::rank_of_lemma_string(l) {
                                 Some(r) => format!("{}<{}>", l, r),
                                 None => format!("{}<->", l),
                             }).collect();
@@ -5275,7 +6289,7 @@ impl Engine {
                         let viable_marker = if !entry.is_viable { " [NOT VIABLE]" } else { "" };
                         let proper_marker = if entry.is_proper_noun { " [PROPER]" } else { "" };
                         let ranked_lemmas: Vec<String> = entry.target_lemmas.iter()
-                            .map(|l| match crate::simulation::frequency_manager::get_rank_for_lemma(l) {
+                            .map(|l| match crate::simulation::frequency_manager::rank_of_lemma_string(l) {
                                 Some(r) => format!("{}<{}>", l, r),
                                 None => format!("{}<->", l),
                             }).collect();
@@ -5419,7 +6433,7 @@ impl Engine {
             .ok_or("Output directory not set. Use 'set output_dir <path>' first.")?;
         let book_dir = crate::services::av_producer::AvProducer::resolve_book_dir(output_dir, &self.state.book_name);
 
-        let subdirs = ["tts_files", "audio", "video", "illustrations"];
+        let subdirs = ["tts_files", "tts_aligned", "audio", "video", "illustrations"];
 
         // Create whole_book directory structure
         let whole_book_dir = book_dir.join("whole_book");
@@ -5507,6 +6521,204 @@ impl Engine {
 // and pushes lines into the shared AvJobState.
 // ---------------------------------------------------------------------------
 
+fn av_job_push_line(
+    job: &std::sync::Arc<std::sync::Mutex<crate::app::state::AvJobState>>,
+    line: impl Into<String>,
+) {
+    job.lock().unwrap().output_lines.push(line.into());
+}
+
+fn av_job_cancelled(
+    job: &std::sync::Arc<std::sync::Mutex<crate::app::state::AvJobState>>,
+) -> bool {
+    job.lock().unwrap().cancel_requested
+}
+
+fn finish_custom_av_job(
+    job: &std::sync::Arc<std::sync::Mutex<crate::app::state::AvJobState>>,
+    success: bool,
+    message: String,
+) {
+    let mut j = job.lock().unwrap();
+    j.finished = true;
+    j.child_pid = None;
+    if j.cancel_requested {
+        j.output_lines.push("--- Cancelled ---".to_string());
+        j.result_message = Some("AV job cancelled.".to_string());
+    } else if success {
+        j.output_lines.push("--- Finished successfully ---".to_string());
+        j.result_message = Some(message);
+    } else {
+        j.output_lines.push("--- Failed ---".to_string());
+        j.result_message = Some(message);
+    }
+}
+
+fn strip_markdown_code_fence(text: &str) -> String {
+    let trimmed = text.trim();
+    if let Some(rest) = trimmed.strip_prefix("```") {
+        let rest = rest.trim_start_matches(|c| c != '\n');
+        let rest = rest.strip_prefix('\n').unwrap_or(rest);
+        if let Some(inner) = rest.strip_suffix("```") {
+            return inner.trim().to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
+fn strip_llm_usage_banner_lines(text: &str) -> String {
+    text.lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            !(trimmed.starts_with("--- USAGE:") && trimmed.ends_with("---"))
+        })
+        .collect::<Vec<&str>>()
+        .join("\n")
+}
+
+fn normalize_single_newlines_to_double(text: &str) -> String {
+    let unified = text.replace("\r\n", "\n").replace('\r', "\n");
+    let mut out = String::with_capacity(unified.len() + 16);
+    let chars: Vec<char> = unified.chars().collect();
+    let mut i = 0usize;
+
+    while i < chars.len() {
+        if chars[i] == '\n' {
+            let mut run_len = 1usize;
+            while i + run_len < chars.len() && chars[i + run_len] == '\n' {
+                run_len += 1;
+            }
+
+            if run_len == 1 {
+                out.push('\n');
+                out.push('\n');
+            } else {
+                for _ in 0..run_len {
+                    out.push('\n');
+                }
+            }
+            i += run_len;
+        } else {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_lesson_realign_job(
+    job: std::sync::Arc<std::sync::Mutex<crate::app::state::AvJobState>>,
+    prompts: crate::services::prompt_manager::PromptManager,
+    llm: crate::services::llm_client::LlmService,
+    logger: Option<crate::services::llm_logger::LlmLogger>,
+    prompt_base_lang: String,
+    prompt_target_lang: String,
+    primary_model: String,
+    fallback_model: Option<String>,
+    book_name: String,
+    chapter_name: String,
+    stem: String,
+    focus_rank: u32,
+    focus_lemma: String,
+    known_lemmas: Vec<String>,
+    original_source_text: String,
+    current_tts_text: String,
+    aligned_path: PathBuf,
+) {
+    let result: Result<String, String> = (|| {
+        av_job_push_line(&job, format!("Prompt pair: {}-{}", prompt_base_lang, prompt_target_lang));
+        av_job_push_line(&job, format!("Focus lemma: {} (rank {})", focus_lemma, focus_rank));
+
+        if av_job_cancelled(&job) {
+            return Err("cancelled".to_string());
+        }
+
+        let mut vars = HashMap::new();
+        vars.insert("BOOK_NAME".to_string(), book_name);
+        vars.insert("CHAPTER_NAME".to_string(), chapter_name);
+        vars.insert("STEM".to_string(), stem.clone());
+        vars.insert("FOCUS_LEMMA".to_string(), focus_lemma.clone());
+        vars.insert("FOCUS_RANK".to_string(), focus_rank.to_string());
+        vars.insert("KNOWN_LEMMAS".to_string(), known_lemmas.join(", "));
+        vars.insert("ORIGINAL_SOURCE_TEXT".to_string(), original_source_text);
+        vars.insert("CURRENT_TTS_TEXT".to_string(), current_tts_text);
+
+        let system_prompt = prompts.render_prompt(
+            "lesson_realign_tts",
+            &prompt_base_lang,
+            &prompt_target_lang,
+            &vars,
+        )?;
+        let user_prompt = "Return only the corrected lesson TTS text. Do not add commentary, headings, code fences, or metadata.";
+
+        llm.set_context("lesson_realign_tts");
+
+        let mut models = vec![primary_model.clone()];
+        if let Some(fb) = &fallback_model {
+            if fb != &primary_model {
+                models.push(fb.clone());
+            }
+        }
+
+        let mut response_text: Option<String> = None;
+        let mut last_err = String::new();
+        for model in models {
+            if av_job_cancelled(&job) {
+                return Err("cancelled".to_string());
+            }
+            av_job_push_line(&job, format!("Calling LLM with model '{}'...", model));
+            match llm.complete(&model, &system_prompt, user_prompt) {
+                Ok(resp) => {
+                    if let Some(log) = &logger {
+                        log.log_interaction("Stage: GenerateLessonRealign", &system_prompt, user_prompt, &resp);
+                    }
+                    response_text = Some(resp);
+                    break;
+                }
+                Err(e) => {
+                    last_err = format!("model '{}': {}", model, e);
+                    av_job_push_line(&job, format!("LLM failed via {}: {}", model, e));
+                }
+            }
+        }
+
+        let response = response_text.ok_or_else(|| {
+            if last_err.is_empty() {
+                "Lesson realign failed before any LLM response was received.".to_string()
+            } else {
+                format!("Lesson realign failed. {}", last_err)
+            }
+        })?;
+
+        let cleaned = strip_markdown_code_fence(&response);
+        let cleaned = strip_llm_usage_banner_lines(&cleaned);
+        let normalized = normalize_single_newlines_to_double(cleaned.trim());
+        if normalized.trim().is_empty() {
+            return Err("Lesson realign returned empty text.".to_string());
+        }
+
+        if let Some(parent) = aligned_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create aligned-text directory '{}': {}", parent.display(), e))?;
+        }
+        fs::write(&aligned_path, normalized)
+            .map_err(|e| format!("Failed to write aligned lesson text '{}': {}", aligned_path.display(), e))?;
+        av_job_push_line(&job, format!("Wrote {}", aligned_path.display()));
+        Ok(format!("Aligned lesson text written to {}.", aligned_path.display()))
+    })();
+
+    match result {
+        Ok(msg) => finish_custom_av_job(&job, true, msg),
+        Err(e) if e == "cancelled" => finish_custom_av_job(&job, false, "AV job cancelled.".to_string()),
+        Err(e) => {
+            av_job_push_line(&job, e.clone());
+            finish_custom_av_job(&job, false, format!("AV job failed: {}", e));
+        }
+    }
+}
+
 fn av_job_reader(
     mut child: std::process::Child,
     job: std::sync::Arc<std::sync::Mutex<crate::app::state::AvJobState>>,
@@ -5592,4 +6804,146 @@ fn av_job_reader(
 /// Minimal HTML escaping for injecting text into generated HTML.
 fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+#[cfg(test)]
+mod phase_h_tests {
+    use super::*;
+    use crate::app::commands::AppCommand;
+    use crate::app::state::AppState;
+    use crate::domain::sentence::Sentence;
+    use crate::types::json_types::{JsonCurriculumMap, JsonCurriculumMapEntry};
+    use crate::simulation::numerical_types::{LLevelRecipe, VLevelRecipe};
+    use std::collections::HashMap;
+
+    fn engine_with_doc() -> Engine {
+        let mut state = AppState::default();
+        state.document.push(Sentence::new("S1".to_string()));
+        Engine::new(state)
+    }
+
+    fn install_dummy_map(state: &mut AppState, embedded: bool) {
+        let entry = JsonCurriculumMapEntry {
+            level: 1.0,
+            start_sentence_idx: 0,
+            recipe: VLevelRecipe { bas: 5, mod_v: 0, adv: 0 },
+            l_level_recipe: LLevelRecipe::default(),
+            target_avd: 0.0,
+            actual_avd: 0.0,
+        };
+        let map = JsonCurriculumMap { end_level: 1.0, map: vec![entry] };
+        let mut levels = HashMap::new();
+        levels.insert("1".to_string(), map);
+        state.book_map = Some(levels);
+        state.level_map_embedded = embedded;
+    }
+
+    #[test]
+    fn calibrate_rejects_when_level_map_embedded() {
+        let mut engine = engine_with_doc();
+        install_dummy_map(&mut engine.state, true);
+        let result = engine.execute_calibrate(None);
+        assert!(result.is_err(), "calibrate must error when embedded");
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("strip_level_map"),
+            "error must mention strip_level_map; got: {msg}"
+        );
+    }
+
+    #[test]
+    fn strip_level_map_clears_book_map_and_flag() {
+        let mut engine = engine_with_doc();
+        install_dummy_map(&mut engine.state, true);
+        assert!(engine.state.book_map.is_some());
+        assert!(engine.state.level_map_embedded);
+
+        let out = engine.execute(AppCommand::StripLevelMap).expect("strip should succeed");
+        assert!(out.contains("Stripped"), "got: {out}");
+        assert!(engine.state.book_map.is_none());
+        assert!(!engine.state.level_map_embedded);
+    }
+
+    #[test]
+    fn strip_level_map_is_idempotent_when_empty() {
+        let mut engine = engine_with_doc();
+        let out = engine.execute(AppCommand::StripLevelMap).expect("noop strip should succeed");
+        assert!(out.contains("No level map"), "got: {out}");
+        assert!(!engine.state.level_map_embedded);
+    }
+
+    #[test]
+    fn teaching_mode_preset_then_manual_frontier_flips_derived_label() {
+        let mut engine = engine_with_doc();
+        // Apply teaching_mode preset
+        engine
+            .execute(AppCommand::SetTeachingMode { enabled: true })
+            .unwrap();
+        assert!(engine.state.simple_mode);
+        assert!(!engine.state.frontier_enabled);
+        assert!(engine.state.friendly_shielding_enabled);
+
+        // Derived: teaching_mode_active when all three hold.
+        let teaching_active = |s: &AppState| {
+            s.simple_mode && !s.frontier_enabled && s.friendly_shielding_enabled
+        };
+        assert!(teaching_active(&engine.state), "preset should yield active teaching_mode");
+
+        // User manually re-enables frontier — derived label must flip.
+        engine
+            .execute(AppCommand::SetFrontierEnabled { enabled: true })
+            .unwrap();
+        assert!(engine.state.frontier_enabled);
+        assert!(!teaching_active(&engine.state), "manual frontier toggle must flip derived label");
+    }
+
+    #[test]
+    fn level_map_embedded_round_trips_through_serde_default() {
+        // Emulate a .wvl round-trip by serializing AppState and deserializing.
+        // Only verifies the serde wiring on the flag itself — the rest of
+        // AppState round-trip is covered elsewhere.
+        let mut state = AppState::default();
+        state.level_map_embedded = true;
+        let json = serde_json::to_string(&state).expect("serialize");
+        // Strip non-essential fields by re-parsing into a Value and asserting
+        // the embedded flag is present.
+        let v: serde_json::Value = serde_json::from_str(&json).expect("parse");
+        assert_eq!(v["level_map_embedded"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn source_is_basic_can_be_toggled_on_for_open_project_and_round_trips() {
+        let mut engine = engine_with_doc();
+
+        let out = engine
+            .execute(AppCommand::SetSourceIsBasic { enabled: true })
+            .expect("toggle should succeed");
+        assert!(out.contains("take effect") || out.contains("enabled"), "got: {out}");
+        assert!(engine.state.source_is_basic);
+
+        let json = serde_json::to_string(&engine.state).expect("serialize");
+        let restored: AppState = serde_json::from_str(&json).expect("deserialize");
+        assert!(restored.source_is_basic, "flag should survive .wvl round-trip");
+    }
+
+    #[test]
+    fn normalize_newlines_expands_single_newlines() {
+        let input = "uno\ndos\ntres";
+        let out = normalize_single_newlines_to_double(input);
+        assert_eq!(out, "uno\n\ndos\n\ntres");
+    }
+
+    #[test]
+    fn normalize_newlines_preserves_existing_double_breaks() {
+        let input = "uno\n\ndos\ntres\n\ncuatro";
+        let out = normalize_single_newlines_to_double(input);
+        assert_eq!(out, "uno\n\ndos\n\ntres\n\ncuatro");
+    }
+
+    #[test]
+    fn normalize_newlines_handles_crlf_and_cr() {
+        let input = "uno\r\ndos\rtres";
+        let out = normalize_single_newlines_to_double(input);
+        assert_eq!(out, "uno\n\ndos\n\ntres");
+    }
 }

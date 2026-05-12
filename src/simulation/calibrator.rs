@@ -251,7 +251,16 @@ fn build_unified_avd_cache(
         let res = corpus_generator::generate_book_instance(
             nc, jc, dict, bas, v, v, 0.4, false,
         )?;
-        let avd = TextMetrics::new(&res.all_output_lemma_instances, res.total_base_words)
+        // Use the V2 lemma list (proper nouns excluded by ID via
+        // `corpus_generator`) and the V2 metrics (no 0.2% tally cap).
+        // V1 was a leaky workaround that depended on proper-noun lemma
+        // strings being missing from the master frequency list — once
+        // wlemma bucketing started stemming proper nouns to real
+        // buckets (`María` → `mari`, `Llorona` → `llor`, …) those
+        // tokens started slipping into the AVD calculation and pulling
+        // it down. V2 excludes them explicitly, which is what we
+        // wanted all along.
+        let avd = TextMetrics::new_v2(&res.all_output_lemma_instances_v2, res.total_base_words)
             .calculate_avd_score();
         cache.push((v, avd));
         if (i + 1) % 50 == 0 || (i + 1) == ladder.len() {

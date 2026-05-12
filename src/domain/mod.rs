@@ -12,4 +12,6 @@ pub mod token_stream;
 pub mod normalization;
 pub mod segmentation;
 pub mod standardize;
+pub mod stemmer;
 pub mod validation;
+pub mod wlemma;

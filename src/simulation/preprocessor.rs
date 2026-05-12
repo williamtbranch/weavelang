@@ -19,8 +19,12 @@ pub fn json_chapter_to_numerical(
         .iter()
         .filter_map(|block| match block {
             JsonContentBlock::Sentence(s) => {
-                // Skip placeholder or incomplete sentences that lack required tiers
-                let required = ["basic_base", "basic_target", "moderate_target", "advanced_target"];
+                // The basic branch is the minimum required by every recipe.
+                // advanced_target / moderate_target are optional in simple
+                // mode (recipes that don't pull from those tiers should
+                // still produce output). Missing optional tiers are
+                // synthesized as empty stubs by `json_sentence_to_numerical`.
+                let required = ["basic_base", "basic_target"];
                 let has_all = required.iter().all(|tid| s.tiers.iter().any(|t| t.tier_id == *tid));
                 if !has_all {
                     return None;
@@ -64,8 +68,21 @@ pub fn json_sentence_to_numerical(
     // let literary_base_tier = find_tier_or_panic(&s_sentence.tiers, "base", s_id);
     let basic_base_tier = find_tier_or_panic(&s_sentence.tiers, "basic_base", s_id);
     let basic_target_tier = find_tier_or_panic(&s_sentence.tiers, "basic_target", s_id);
-    let mod_target_tier = find_tier_or_panic(&s_sentence.tiers, "moderate_target", s_id);
-    let adv_target_tier = find_tier_or_panic(&s_sentence.tiers, "advanced_target", s_id);
+
+    // advanced_target / moderate_target are optional in simple mode. When
+    // absent, fall back to empty default tiers so downstream code (which
+    // only consults them for non-basic recipes) sees a well-formed shape.
+    let empty_tier = JsonTierV2::default();
+    let mod_target_tier = s_sentence
+        .tiers
+        .iter()
+        .find(|t| t.tier_id == "moderate_target")
+        .unwrap_or(&empty_tier);
+    let adv_target_tier = s_sentence
+        .tiers
+        .iter()
+        .find(|t| t.tier_id == "advanced_target")
+        .unwrap_or(&empty_tier);
 
     let adv_segment_bundles_numerical: Vec<NumericalAdvSegmentBundle> = adv_target_tier
         .segments

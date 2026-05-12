@@ -22,6 +22,7 @@ fn main() {
             "daemon" => handle_daemon(&args[2..]),
             "send" => handle_send(&args[2..]),
             "repl" => run_repl(),
+            "upgrade-wvl" => handle_upgrade_wvl(&args[2..]),
             "help" | "--help" | "-h" => print_usage(),
             _ => {
                 eprintln!("Unknown subcommand: {}. Use 'help' for usage.", args[1]);
@@ -43,6 +44,7 @@ fn print_usage() {
     println!("  weavelang_cli daemon list              List running servers");
     println!("  weavelang_cli daemon kill <name>       Shut down a named server");
     println!("  weavelang_cli send <target> <json>     Send a command to a server");
+    println!("  weavelang_cli upgrade-wvl <path> [--lang <code>] [--force]  Upgrade legacy .wvl files in-place");
     println!();
     println!("DAEMON OPTIONS:");
     println!("  --name <name>    Server name (default: 'default')");
@@ -397,6 +399,178 @@ fn init_state_with_services_opt(test_mode_dir: Option<&str>) -> AppState {
     }
 
     state
+}
+
+// --- Wlemma upgrade subcommand (T6.1) ---
+
+fn handle_upgrade_wvl(args: &[String]) {
+    if args.is_empty() {
+        eprintln!("Usage: weavelang_cli upgrade-wvl <path> [--lang <code>] [--force]");
+        eprintln!("  <path>   A .wvl file or a directory (recursively scanned for *.wvl).");
+        eprintln!("  --force  Re-compute wlemmas even on already-v2 files (use after a");
+        eprintln!("           wlemma-algorithm tweak to bring saved books in line).");
+        std::process::exit(1);
+    }
+    let mut target_lang = "es".to_string();
+    let mut path_str: Option<String> = None;
+    let mut force = false;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--lang" => {
+                i += 1;
+                if i < args.len() {
+                    target_lang = args[i].clone();
+                }
+            }
+            "--force" => {
+                force = true;
+            }
+            other => {
+                if path_str.is_none() {
+                    path_str = Some(other.to_string());
+                }
+            }
+        }
+        i += 1;
+    }
+    let path = match path_str {
+        Some(p) => PathBuf::from(p),
+        None => {
+            eprintln!("Error: <path> is required");
+            std::process::exit(1);
+        }
+    };
+
+    // Best-effort: load the master frequency list so wlemma rank lookups
+    // are populated. If it fails, the upgrade still runs but every
+    // wlemma falls back to the lemma-stem path.
+    if let Ok(tool_root_dir) = tool_root::resolve_tool_root(None) {
+        let freq_list_path = tool_root_dir
+            .join("assets/frequency_lists/es_master_frequency_list.txt");
+        if freq_list_path.exists() {
+            let _ = frequency_manager::load_master_frequency_list(&freq_list_path);
+        }
+    }
+
+    let files: Vec<PathBuf> = collect_wvl_files(&path);
+    if files.is_empty() {
+        eprintln!("No .wvl files found at {}", path.display());
+        std::process::exit(1);
+    }
+
+    let mut totals = UpgradeTotals::default();
+    for file in &files {
+        match upgrade_one_wvl(file, &target_lang, force) {
+            Ok(report) => {
+                if report.already_at_target && !force {
+                    println!(
+                        "[SKIP] {} (already at v{})",
+                        file.display(),
+                        report.to_version
+                    );
+                } else {
+                    let tag = if report.already_at_target {
+                        "[RECOMPUTED]"
+                    } else {
+                        "[UPGRADED]"
+                    };
+                    println!(
+                        "{} {} v{} -> v{} (words={}, segs={}, tiers={}, mappings={})",
+                        tag,
+                        file.display(),
+                        report.from_version,
+                        report.to_version,
+                        report.words_updated,
+                        report.segments_updated,
+                        report.tiers_updated,
+                        report.mapping_entries_updated,
+                    );
+                    totals.upgraded += 1;
+                    totals.words += report.words_updated;
+                    totals.segments += report.segments_updated;
+                    totals.tiers += report.tiers_updated;
+                    totals.mappings += report.mapping_entries_updated;
+                }
+                totals.processed += 1;
+            }
+            Err(e) => {
+                eprintln!("[ERROR] {}: {}", file.display(), e);
+                totals.errors += 1;
+            }
+        }
+    }
+
+    println!();
+    println!(
+        "Done. Processed {}, upgraded {}, errors {}.",
+        totals.processed, totals.upgraded, totals.errors
+    );
+    println!(
+        "Aggregate changes: words={}, segs={}, tiers={}, mappings={}",
+        totals.words, totals.segments, totals.tiers, totals.mappings
+    );
+    if totals.errors > 0 {
+        std::process::exit(1);
+    }
+}
+
+#[derive(Default)]
+struct UpgradeTotals {
+    processed: usize,
+    upgraded: usize,
+    errors: usize,
+    words: usize,
+    segments: usize,
+    tiers: usize,
+    mappings: usize,
+}
+
+fn collect_wvl_files(path: &std::path::Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if path.is_file() {
+        out.push(path.to_path_buf());
+        return out;
+    }
+    if path.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(path) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("wvl") {
+                    out.push(p);
+                } else if p.is_dir() {
+                    out.extend(collect_wvl_files(&p));
+                }
+            }
+        }
+    }
+    out
+}
+
+fn upgrade_one_wvl(
+    path: &std::path::Path,
+    target_lang: &str,
+    force: bool,
+) -> Result<weavelang_rust_gui::services::wlemma_upgrade::UpgradeReport, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("read failed: {}", e))?;
+    let mut state: AppState = serde_json::from_slice(&bytes)
+        .or_else(|_| bincode::deserialize::<AppState>(&bytes))
+        .map_err(|e| format!("deserialize failed: {}", e))?;
+
+    let report = weavelang_rust_gui::services::wlemma_upgrade::upgrade_app_state_force(
+        &mut state,
+        target_lang,
+        force,
+    );
+
+    let should_write = !report.already_at_target || force;
+    if should_write {
+        let new_bytes = serde_json::to_vec_pretty(&state)
+            .map_err(|e| format!("serialize failed: {}", e))?;
+        std::fs::write(path, new_bytes)
+            .map_err(|e| format!("write failed: {}", e))?;
+    }
+    Ok(report)
 }
 
 fn run_repl() {

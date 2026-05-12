@@ -21,6 +21,7 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 import tomllib
 from pathlib import Path
@@ -71,32 +72,68 @@ def load_ul0_text(tts_dir: Path, book_name: str, chapter_name: str) -> str:
     pattern = f"{book_name}_{chapter_name}_UL0.txt"
     ul0_path = tts_dir / pattern
     if not ul0_path.exists():
-        # Try finding any UL0 file in the directory
-        candidates = list(tts_dir.glob("*_UL0.txt"))
-        if candidates:
-            ul0_path = candidates[0]
-        else:
-            # Fall back to any UL file — narrative structure is the same across levels
-            any_ul = sorted(tts_dir.glob(f"{book_name}_{chapter_name}_UL*.txt"))
-            if not any_ul:
-                any_ul = sorted(tts_dir.glob("*_UL*.txt"))
-            if any_ul:
-                ul0_path = any_ul[0]
-                print(f"[INFO] UL0 not found, using fallback: {ul0_path.name}")
+        # Try chapter-matching UL files first, then any UL file.
+        # Prefer canonical names and avoid accidental " - Copy" edits unless
+        # they are the only available option.
+        any_ul = sorted(tts_dir.glob(f"{book_name}_{chapter_name}_UL*.txt"))
+        if not any_ul:
+            any_ul = sorted(tts_dir.glob("*_UL*.txt"))
+
+        def is_copy_like(path: Path) -> bool:
+            name = path.name.lower()
+            return (
+                " - copy" in name
+                or " copy" in name
+                or "(copy" in name
+                or "backup" in name
+                or name.endswith("~")
+            )
+
+        if any_ul:
+            ul0_candidates = [p for p in any_ul if p.name.upper().endswith("_UL0.TXT")]
+            preferred_ul0 = [p for p in ul0_candidates if not is_copy_like(p)]
+            preferred_any = [p for p in any_ul if not is_copy_like(p)]
+
+            if preferred_ul0:
+                ul0_path = preferred_ul0[0]
+            elif ul0_candidates:
+                ul0_path = ul0_candidates[0]
+            elif preferred_any:
+                ul0_path = preferred_any[0]
             else:
-                raise FileNotFoundError(
-                    f"No UL file found in {tts_dir}. Expected: {pattern}"
-                )
+                ul0_path = any_ul[0]
+
+            print(f"[INFO] UL0 not found, using fallback: {ul0_path.name}")
+        else:
+            raise FileNotFoundError(
+                f"No UL file found in {tts_dir}. Expected: {pattern}"
+            )
     return ul0_path.read_text(encoding="utf-8")
 
 
 def split_into_paragraphs(text: str) -> list[str]:
-    """Split weave text into paragraphs (one per sentence in the weave format)."""
-    paragraphs = []
-    for block in text.split("\n\n"):
-        stripped = block.strip()
-        if stripped:
-            paragraphs.append(stripped)
+    """Split weave text into paragraphs (one per sentence in the weave format).
+
+    Supports hand-edited files with either LF or CRLF endings.
+    Primary split is on blank lines; if that yields <=1 paragraph but the file
+    has many non-empty single lines, fall back to one-line-per-sentence mode.
+    """
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+
+    # Robust blank-line split: one or more empty/whitespace-only lines.
+    blocks = re.split(r"\n[ \t]*\n+", normalized)
+    paragraphs = [b.strip() for b in blocks if b.strip()]
+
+    # Fallback for hand-edited files where blank lines were collapsed.
+    if len(paragraphs) <= 1:
+        lines = [ln.strip() for ln in normalized.split("\n") if ln.strip()]
+        if len(lines) > len(paragraphs):
+            print(
+                "[WARN] Detected collapsed paragraph boundaries; "
+                "falling back to one-non-empty-line-per-sentence parsing."
+            )
+            paragraphs = lines
+
     return paragraphs
 
 
@@ -111,20 +148,24 @@ def compute_illustration_count(
 
 def segment_text_for_illustrations(
     paragraphs: list[str], num_illustrations: int
-) -> list[str]:
-    """Split paragraphs into num_illustrations roughly-equal segments."""
+) -> list[tuple[int, int, str]]:
+    """Split paragraphs into roughly-equal segments.
+
+    Returns tuples: (start_idx_inclusive, end_idx_exclusive, segment_text).
+    """
     if num_illustrations <= 0:
         return []
-    if num_illustrations >= len(paragraphs):
-        return [p for p in paragraphs]
+    if not paragraphs:
+        return []
 
-    segment_size = len(paragraphs) / num_illustrations
-    segments = []
-    for i in range(num_illustrations):
-        start = int(i * segment_size)
-        end = int((i + 1) * segment_size)
+    actual_count = min(num_illustrations, len(paragraphs))
+    segments: list[tuple[int, int, str]] = []
+    n = len(paragraphs)
+    for i in range(actual_count):
+        start = (i * n) // actual_count
+        end = ((i + 1) * n) // actual_count
         segment_text = "\n\n".join(paragraphs[start:end])
-        segments.append(segment_text)
+        segments.append((start, end, segment_text))
     return segments
 
 
@@ -270,6 +311,10 @@ def main():
         help="Output path for _prompts.toml (default: <chapter>/illustrations/_prompts.toml)"
     )
     parser.add_argument(
+        "--input-file", type=Path, default=None,
+        help="Explicit text file to segment for prompts/map (overrides UL0 lookup)."
+    )
+    parser.add_argument(
         "--characters", type=Path, default=None,
         help="Path to _characters.toml (default: auto-detect in illustrations dir)"
     )
@@ -308,14 +353,28 @@ def main():
             model_name = cfg["model"]
 
     # --- Load and parse text ---
-    print(f"Loading UL0 text from: {args.tts_dir}")
-    text = load_ul0_text(args.tts_dir, args.book_name, args.chapter_name)
+    if args.input_file is not None:
+        if not args.input_file.exists():
+            print(f"ERROR: input file not found: {args.input_file}")
+            sys.exit(1)
+        print(f"Loading text from explicit input file: {args.input_file}")
+        text = args.input_file.read_text(encoding="utf-8")
+    else:
+        print(f"Loading UL0 text from: {args.tts_dir}")
+        text = load_ul0_text(args.tts_dir, args.book_name, args.chapter_name)
     paragraphs = split_into_paragraphs(text)
 
     # First paragraph is usually the title — skip it for illustration purposes
     title = paragraphs[0] if paragraphs else "Untitled"
     story_paragraphs = paragraphs[1:] if len(paragraphs) > 1 else paragraphs
     sentence_count = len(story_paragraphs)
+
+    if sentence_count == 0:
+        print(
+            "ERROR: No story paragraphs detected after parsing. "
+            "Check line endings and sentence separators in the UL file."
+        )
+        sys.exit(1)
 
     # --- Compute count ---
     if count <= 0:
@@ -344,11 +403,17 @@ def main():
 
     # --- Segment text ---
     segments = segment_text_for_illustrations(story_paragraphs, count)
+    actual_count = len(segments)
+    if actual_count != count:
+        print(
+            f"[INFO] Requested {count} illustration(s), "
+            f"using {actual_count} based on available sentence segments."
+        )
 
     if args.dry_run:
-        for i, seg in enumerate(segments):
-            preview = seg[:200] + "..." if len(seg) > 200 else seg
-            print(f"  [{i + 1}/{count}] ({len(seg)} chars): {preview}")
+        for i, (_, _, seg_text) in enumerate(segments):
+            preview = seg_text[:200] + "..." if len(seg_text) > 200 else seg_text
+            print(f"  [{i + 1}/{actual_count}] ({len(seg_text)} chars): {preview}")
         if character_bible:
             print(f"\nCharacter bible:\n{character_bible}")
         print("\nDry run complete. No LLM calls made.")
@@ -360,17 +425,14 @@ def main():
 
     # --- Generate prompts ---
     prompts = []
-    seg_size = len(story_paragraphs) / count
-    for i, segment in enumerate(segments):
-        p_start = int(i * seg_size)      # 0-based index into story_paragraphs
-        p_end = int((i + 1) * seg_size)
+    for i, (p_start, p_end, segment) in enumerate(segments):
         # Derive a human-readable book title from the chapter name
         book_title = args.chapter_name.replace("_", " ")
         # Build surrounding scene context (~50 sentences)
         scene_context = build_scene_context(story_paragraphs, p_start, p_end)
-        print(f"  [{i + 1}/{count}] Generating prompt for paragraphs {p_start + 1}-{p_end}...")
+        print(f"  [{i + 1}/{actual_count}] Generating prompt for paragraphs {p_start + 1}-{p_end}...")
         prompt_text = generate_prompt_with_gemini(
-            genai, model_name, segment, style, i, count, book_title,
+            genai, model_name, segment, style, i, actual_count, book_title,
             character_bible=character_bible, scene_context=scene_context,
         )
         print(f"    -> {prompt_text[:100]}...")

@@ -42,6 +42,10 @@ fn resolve_target_dir(state: &AppState) -> Option<std::path::PathBuf> {
 
 /// Render the full Media tab content inside the central panel.
 pub fn render(ui: &mut egui::Ui, state: &mut AppState) {
+    let show_align = state.chapter_mode
+        && state.lesson_realign_enabled
+        && state.source_is_target();
+
     // Resolve statuses from filesystem on each frame (cheap — just directory listing)
     let (statuses, manifest_ok, illustrations, error_msg) = load_statuses(state);
 
@@ -107,6 +111,9 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState) {
                 }
                 ui.separator();
                 ui.add_enabled_ui(!job_running, |ui| {
+                    if show_align && ui.button("Gen Next Align").clicked() {
+                        state.pending_terminal_command = Some("av generate align next".to_string());
+                    }
                     if ui.button("Gen Next Audio").clicked() {
                         state.pending_terminal_command = Some("av generate audio next".to_string());
                     }
@@ -118,7 +125,7 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState) {
         });
 
     // ---- Remaining space: heading + summary + file table (fills everything) ----
-    render_main_panel(ui, state, &statuses, manifest_ok, illustrations, &error_msg);
+    render_main_panel(ui, state, &statuses, manifest_ok, illustrations, &error_msg, show_align);
 }
 
 // ---------------------------------------------------------------------------
@@ -157,6 +164,7 @@ fn render_main_panel(
     manifest_ok: bool,
     illustrations: usize,
     error_msg: &Option<String>,
+    show_align: bool,
 ) {
     ui.heading("Media — AV Production");
     ui.add_space(4.0);
@@ -173,12 +181,21 @@ fn render_main_panel(
     // --- Summary bar ---
     ui.horizontal(|ui| {
         let marked = statuses.iter().filter(|s| s.marked).count();
+        let align_done = statuses.iter().filter(|s| s.marked && s.has_aligned_text).count();
         let audio_done = statuses.iter().filter(|s| s.marked && s.has_audio).count();
         let video_done = statuses.iter().filter(|s| s.marked && s.has_video).count();
-        ui.label(format!(
-            "{} files | {} marked | Audio: {}/{} | Video: {}/{}",
-            statuses.len(), marked, audio_done, marked, video_done, marked
-        ));
+        let summary = if show_align {
+            format!(
+                "{} files | {} marked | Align: {}/{} | Audio: {}/{} | Video: {}/{}",
+                statuses.len(), marked, align_done, marked, audio_done, marked, video_done, marked
+            )
+        } else {
+            format!(
+                "{} files | {} marked | Audio: {}/{} | Video: {}/{}",
+                statuses.len(), marked, audio_done, marked, video_done, marked
+            )
+        };
+        ui.label(summary);
 
         ui.separator();
         ui.label(format!("Illustrations: {}", illustrations));
@@ -216,7 +233,7 @@ fn render_main_panel(
         let job_active = state.av_job.as_ref()
             .map(|j| !j.lock().unwrap().finished)
             .unwrap_or(false);
-        render_status_table(ui, state, statuses, illustrations, job_active);
+        render_status_table(ui, state, statuses, illustrations, job_active, show_align);
     }
 }
 
@@ -597,19 +614,23 @@ fn render_status_table(
     statuses: &[AvFileStatus],
     illustration_count: usize,
     job_running: bool,
+    show_align: bool,
 ) {
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
             egui::Grid::new("av_status_grid")
                 .striped(true)
-                .num_columns(6)
+                .num_columns(if show_align { 7 } else { 6 })
                 .min_col_width(40.0)
                 .show(ui, |ui| {
                     // Header
                     ui.strong("Mark");
                     ui.strong("File");
                     ui.strong("Text");
+                    if show_align {
+                        ui.strong("Align");
+                    }
                     ui.strong("Audio");
                     ui.strong("Video");
                     ui.strong("Action");
@@ -645,6 +666,10 @@ fn render_status_table(
 
                         // Text status
                         status_icon(ui, s.has_text, true);
+
+                        if show_align {
+                            status_icon(ui, s.has_aligned_text, s.marked && s.has_text);
+                        }
 
                         // Audio status — check for stale indicator + volume info
                         let chunk_stale = s.has_audio && {
@@ -683,7 +708,16 @@ fn render_status_table(
 
                         // Action button
                         if s.marked {
-                            if !s.has_audio {
+                            if show_align && !s.has_aligned_text {
+                                if !job_running && ui.small_button("Gen Align").clicked() {
+                                    state.pending_terminal_command = Some(format!(
+                                        "av generate align {}",
+                                        s.stem
+                                    ));
+                                } else if job_running {
+                                    ui.label("...");
+                                }
+                            } else if !s.has_audio {
                                 if !job_running && ui.small_button("Gen Audio").clicked() {
                                     state.pending_terminal_command = Some(format!(
                                         "av generate audio {}",

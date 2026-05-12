@@ -22,6 +22,11 @@ pub struct Tier {
     #[serde(default)]
     pub lemmas: Vec<String>,
 
+    /// Wlemma bucket keys for this tier (derived, deduplicated).
+    /// See `documentation/Wlemma_Migration_Plan.md`.
+    #[serde(default)]
+    pub wlemmas: Vec<String>,
+
     #[serde(default)]
     pub state: TierState,
 
@@ -42,6 +47,7 @@ impl Tier {
             id,
             segments: Vec::new(),
             lemmas: Vec::new(),
+            wlemmas: Vec::new(),
             state: TierState::Valid,
             input_text: None,
             llm_log: Vec::new(),

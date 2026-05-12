@@ -136,6 +136,7 @@ pub enum AppCommand {
     AvUnmark { stems: Vec<String> },
     AvMarkAll,
     AvClearMarks,
+    AvGenerateAlign { target: AvTarget },
     AvGenerateAudio { target: AvTarget },
     AvGenerateVideo { target: AvTarget },
     AvGenerateCharacters,
@@ -184,6 +185,31 @@ pub enum AppCommand {
     CopilotJournal { text: String },
     /// Clear copilot session history (start fresh).
     CopilotReset,
+
+    // Project flags (Phase F)
+    /// Print the read-only project flags pane.
+    ShowFlags,
+    /// Add a friendly lemma (case-insensitive de-dup).
+    SetFriendlyLemma { lemma: String },
+    /// Remove a friendly lemma (case-insensitive match).
+    UnsetFriendlyLemma { lemma: String },
+    /// Clear the friendly-lemmas list.
+    ClearFriendlyLemmas,
+    /// Toggle simple_mode.
+    SetSimpleMode { enabled: bool },
+    /// Toggle source_is_basic.
+    SetSourceIsBasic { enabled: bool },
+    /// Toggle lesson_realign post-processing for chapter lesson audio.
+    SetLessonRealign { enabled: bool },
+    /// Toggle friendly_shielding_enabled.
+    SetFriendlyShielding { enabled: bool },
+    /// Teaching-mode preset: on = simple_mode=on + frontier_enabled=off (and
+    /// asserts friendly_shielding_enabled=on); off is a no-op (does not
+    /// unset the underlying flags).
+    SetTeachingMode { enabled: bool },
+    /// Clear the loaded level map and the `level_map_embedded` flag.
+    /// Escape hatch for re-calibrating an imported lesson.
+    StripLevelMap,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -218,6 +244,9 @@ pub enum TerminalCommand {
     Exit,
     /// Show copilot server name and port.
     ServerInfo,
+    /// T7.1: Inspect the wlemma bucket for a given lemma. Shows the
+    /// bucket key (stem), its rank, and every member of the bucket.
+    WlemmaInspect { lemma: String },
     // Wrapper for AppCommand
     App(AppCommand),
 }

@@ -77,6 +77,12 @@ pub enum SimulationMode {
 
 #[derive(Serialize, Deserialize)]
 pub struct AppState {
+    /// Project schema version. Bumped whenever a non-backward-compatible
+    /// field semantics change. See `documentation/Wlemma_Migration_Plan.md`.
+    /// `1` = pre-wlemma. `2` = wlemmas populated everywhere.
+    /// Old `.wvl` files (no field) deserialize to `0` and are upgraded on load.
+    #[serde(default)]
+    pub schema_version: u32,
     #[serde(default)]
     pub document: Vec<Sentence>,
     #[serde(default)]
@@ -101,6 +107,39 @@ pub struct AppState {
     // --- NEW FIELD: Project Languages (Base, Target) ---
     #[serde(default = "default_languages")]
     pub project_languages: (String, String),
+
+    // --- Friendly Lemmas / Simple Mode / Embedded Level Map (Phase A) ---
+    /// Lemmas marked as "protective" by the author. When the lemmatizer
+    /// finalises a `MappingEntry.target_lemmas`, if any friendly lemma
+    /// appears in the candidate set, all non-friendly lemmas are dropped
+    /// and the lowest-rank friendly lemma becomes the sole gate.
+    #[serde(default)]
+    pub friendly_lemmas: Vec<String>,
+    /// Master toggle for the friendly-lemma shielding pass. Default on.
+    #[serde(default = "default_true")]
+    pub friendly_shielding_enabled: bool,
+    /// When on, only the basic branch (basic_base / basic_target) is
+    /// built, validated, and woven. Advanced + moderate tiers are
+    /// skipped end-to-end.
+    #[serde(default)]
+    pub simple_mode: bool,
+    /// When on, chapter lesson text gets an LLM realignment pass before
+    /// TTS so the emitted Spanish stays faithful to the original lesson.
+    #[serde(default)]
+    pub lesson_realign_enabled: bool,
+    /// Assertion that the source file is already authored at the basic
+    /// (simple-reader) level. When true (and `simple_mode` is on), the
+    /// in-source-language basic-tier generation stage bypasses the LLM
+    /// and copies `base` → that tier verbatim. The cross-language basic
+    /// tier is still generated normally. Set by
+    /// `%%META source_is_basic: on%%` at import.
+    #[serde(default)]
+    pub source_is_basic: bool,
+    /// True when the loaded level map came from `%%META lm_entry%%`
+    /// directives in the source text rather than `calibrate` or
+    /// `import level_map`. Blocks `calibrate` from overwriting it.
+    #[serde(default)]
+    pub level_map_embedded: bool,
 
     #[serde(default)]
     pub selected_sentence_idx: usize,
@@ -138,6 +177,12 @@ pub struct AppState {
     pub draft_config: Option<Config>,
     #[serde(skip)]
     pub show_project_settings: bool,
+    /// Project Flags pane visibility (Phase F).
+    #[serde(skip)]
+    pub show_project_flags: bool,
+    /// Draft buffer for adding a friendly lemma in the Project Flags pane.
+    #[serde(skip)]
+    pub project_flags_friendly_draft: String,
     #[serde(skip)]
     pub llm_results_receiver: Option<Receiver<Result<Vec<(usize, String, String, String)>, String>>>,
     pub last_log: String,
@@ -328,10 +373,14 @@ fn default_frontier_seed() -> u64 {
 fn default_frontier_familiar_lemma_exclude_count() -> usize {
     100
 }
+fn default_true() -> bool {
+    true
+}
 
 impl Default for AppState {
     fn default() -> Self {
         Self {
+            schema_version: 2, // New projects start at the post-wlemma schema.
             document: Vec::new(),
             selected_range: None,
             book_map: None,
@@ -343,6 +392,12 @@ impl Default for AppState {
             frontier_test_mode: false,
             frontier_familiar_lemma_exclude_count: 100,
             project_languages: ("en".to_string(), "es".to_string()), // Default
+            friendly_lemmas: Vec::new(),
+            friendly_shielding_enabled: true,
+            simple_mode: false,
+            lesson_realign_enabled: false,
+            source_is_basic: false,
+            level_map_embedded: false,
             selected_sentence_idx: 0,
             left_view: TierView::AdvancedTarget,
             right_view: DetailView::Tier(TierView::BasicBase),
@@ -362,6 +417,8 @@ impl Default for AppState {
             tool_root_dir: None,
             llm_results_receiver: None,
             show_project_settings: false,
+            show_project_flags: false,
+            project_flags_friendly_draft: String::new(),
             show_llm_settings: false,
             show_llm_run: false,
             llm_run_start: 0,
@@ -441,4 +498,149 @@ impl AppState {
             }
         }
     }
+
+    /// Derived: true when source language equals target language. Used to
+    /// flip the basic-branch dependency direction (Spanish-source mode).
+    pub fn source_is_target(&self) -> bool {
+        !self.project_languages.0.is_empty()
+            && self.project_languages.0 == self.project_languages.1
+    }
+
+    /// Stamp the current `source_is_target` value onto every sentence in
+    /// the document so dependency-aware staleness propagation works.
+    /// Call this after import, project load, or any change to
+    /// `project_languages`.
+    pub fn refresh_sentence_modes(&mut self) {
+        let sit = self.source_is_target();
+        let sm = self.simple_mode;
+        for s in &mut self.document {
+            s.set_source_is_target(sit);
+            s.set_simple_mode(sm);
+        }
+    }
+
+    /// Build a snapshot of the project-level flags for display in the
+    /// terminal `flags` command and the GUI Project Flags pane.
+    pub fn project_flags_summary(&self) -> ProjectFlagsSummary {
+        ProjectFlagsSummary {
+            source_language: self.project_languages.0.clone(),
+            target_language: self.project_languages.1.clone(),
+            source_is_target: self.source_is_target(),
+            book_name: self.book_name.clone(),
+            simple_mode: self.simple_mode,
+            lesson_realign_enabled: self.lesson_realign_enabled,
+            source_is_basic: self.source_is_basic,
+            friendly_shielding_enabled: self.friendly_shielding_enabled,
+            friendly_lemmas: self.friendly_lemmas.clone(),
+            frontier_enabled: self.frontier_enabled,
+            level_map_source: LevelMapSource::infer(self),
+            teaching_mode_active: self.simple_mode
+                && self.lesson_realign_enabled
+                && !self.frontier_enabled
+                && self.friendly_shielding_enabled,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ProjectFlagsSummary — read-only snapshot for the `flags` command + GUI pane
+// ---------------------------------------------------------------------------
+
+/// Source attribution for the currently-loaded level map.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LevelMapSource {
+    /// No level map loaded.
+    None,
+    /// Embedded in the source text via `%%META lm_entry%%` directives.
+    Embedded,
+    /// Produced by `calibrate` or `import level_map` — `level_map_embedded` is false.
+    Calibrated,
+}
+
+impl LevelMapSource {
+    fn infer(state: &AppState) -> Self {
+        if state.book_map.is_none() {
+            Self::None
+        } else if state.level_map_embedded {
+            Self::Embedded
+        } else {
+            Self::Calibrated
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Embedded => "embedded",
+            Self::Calibrated => "calibrated",
+        }
+    }
+}
+
+/// Snapshot of project-level flags. Cheap to construct; intended for
+/// printing or rendering, not for mutation.
+#[derive(Debug, Clone)]
+pub struct ProjectFlagsSummary {
+    pub source_language: String,
+    pub target_language: String,
+    pub source_is_target: bool,
+    pub book_name: String,
+    pub simple_mode: bool,
+    pub lesson_realign_enabled: bool,
+    pub source_is_basic: bool,
+    pub friendly_shielding_enabled: bool,
+    pub friendly_lemmas: Vec<String>,
+    pub frontier_enabled: bool,
+    pub level_map_source: LevelMapSource,
+    /// Derived: true when the underlying flags match the teaching_mode preset
+    /// (simple_mode + lesson_realign + friendly_shielding + !frontier_enabled).
+    pub teaching_mode_active: bool,
+}
+
+impl ProjectFlagsSummary {
+    /// Render as a multi-line string for the terminal `flags` command.
+    pub fn render(&self) -> String {
+        let mut out = String::new();
+        out.push_str("Project Flags\n");
+        out.push_str("─────────────\n");
+        out.push_str(&format!(
+            "  Source language : {}\n",
+            if self.source_language.is_empty() { "(unset)" } else { &self.source_language }
+        ));
+        out.push_str(&format!(
+            "  Target language : {}\n",
+            if self.target_language.is_empty() { "(unset)" } else { &self.target_language }
+        ));
+        out.push_str(&format!("  Source = Target : {}\n", self.source_is_target));
+        out.push_str(&format!(
+            "  Book name       : {}\n",
+            if self.book_name.is_empty() { "(unset)" } else { &self.book_name }
+        ));
+        out.push_str(&format!(
+            "  Teaching mode   : {}\n",
+            if self.teaching_mode_active { "on" } else { "off (custom)" }
+        ));
+        out.push_str(&format!("  Simple mode     : {}\n", on_off(self.simple_mode)));
+        out.push_str(&format!("  Lesson realign  : {}\n", on_off(self.lesson_realign_enabled)));
+        out.push_str(&format!("  Source is basic : {}\n", on_off(self.source_is_basic)));
+        out.push_str(&format!(
+            "  Friendly shield : {}\n",
+            on_off(self.friendly_shielding_enabled)
+        ));
+        out.push_str(&format!(
+            "  Friendly lemmas : {}\n",
+            if self.friendly_lemmas.is_empty() {
+                "(none)".to_string()
+            } else {
+                self.friendly_lemmas.join(", ")
+            }
+        ));
+        out.push_str(&format!("  Frontier        : {}\n", on_off(self.frontier_enabled)));
+        out.push_str(&format!("  Level map       : {}\n", self.level_map_source.as_str()));
+        out
+    }
+}
+
+fn on_off(b: bool) -> &'static str {
+    if b { "on" } else { "off" }
 }

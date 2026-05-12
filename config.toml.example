@@ -80,6 +80,11 @@ thinking_budget_tokens = 1024
     fallback_model = "sonnet"
     batch_size_in_items = 20
 
+    [stages.GenerateLessonRealign]
+    primary_model = "gemini-pro"
+    fallback_model = "sonnet"
+    batch_size_in_items = 1
+
     [stages.TranslateBasicTarget]
     primary_model = "gemini-pro"
     fallback_model = "sonnet"

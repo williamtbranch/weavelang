@@ -228,7 +228,7 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
                         word_idx += 1;
                         let (target, lemma_display) = if let Some(entry) = mapping_lookup.get(&w.id) {
                             let lemmas_str: Vec<String> = entry.target_lemmas.iter().map(|l| {
-                                match frequency_manager::get_rank_for_lemma(l) {
+                                match frequency_manager::rank_of_lemma_string(l) {
                                     Some(r) => format!("{}<{}>", l, r),
                                     None => format!("{}<?>", l),
                                 }
@@ -374,7 +374,7 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
                         // Lemma + rank display below the segment
                         if !seg_lemmas.is_empty() {
                             let lemma_display: Vec<String> = seg_lemmas.iter().map(|l| {
-                                match frequency_manager::get_rank_for_lemma(l) {
+                                match frequency_manager::rank_of_lemma_string(l) {
                                     Some(r) => format!("{} <{}>", l, r),
                                     None => format!("{} <?>", l),
                                 }

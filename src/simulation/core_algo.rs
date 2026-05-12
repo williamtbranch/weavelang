@@ -27,7 +27,7 @@ fn is_lemma_known_for_tier(
 
     dictionary
         .get_str(lemma_id)
-        .and_then(|lemma_str| frequency_manager::get_rank_for_lemma(lemma_str))
+        .and_then(|lemma_str| frequency_manager::rank_of_lemma_string(lemma_str))
         .unwrap_or(u32::MAX)
         <= tier_v_level
 }

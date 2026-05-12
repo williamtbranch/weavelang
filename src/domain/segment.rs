@@ -14,6 +14,11 @@ pub struct Segment {
     /// Lemmas specific to this segment (critical for L0 Engine logic).
     #[serde(default)]
     pub lemmas: Vec<String>,
+
+    /// Wlemma bucket keys for this segment (derived from member words).
+    /// See `documentation/Wlemma_Migration_Plan.md`.
+    #[serde(default)]
+    pub wlemmas: Vec<String>,
 }
 
 impl Segment {
@@ -22,11 +27,17 @@ impl Segment {
             id,
             stream: TokenStream::new(text),
             lemmas,
+            wlemmas: Vec::new(),
         }
     }
 
     pub fn from_stream(id: String, stream: TokenStream, lemmas: Vec<String>) -> Self {
-        Self { id, stream, lemmas }
+        Self {
+            id,
+            stream,
+            lemmas,
+            wlemmas: Vec::new(),
+        }
     }
 
     pub fn full_text(&self) -> String {

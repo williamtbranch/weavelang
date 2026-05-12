@@ -137,6 +137,10 @@ def main():
         "--output", type=Path, default=None,
         help="Output path for _characters.toml (default: <chapter>/illustrations/_characters.toml)"
     )
+    parser.add_argument(
+        "--input-file", type=Path, default=None,
+        help="Explicit text file to analyze (overrides UL0 lookup)."
+    )
     parser.add_argument("--dry-run", action="store_true", help="Show text stats without calling LLM")
     args = parser.parse_args()
 
@@ -154,8 +158,15 @@ def main():
         sys.exit(1)
 
     # --- Load text ---
-    print(f"Loading UL0 text from: {args.tts_dir}")
-    text = load_ul0_text(args.tts_dir, args.book_name, args.chapter_name)
+    if args.input_file is not None:
+        if not args.input_file.exists():
+            print(f"ERROR: input file not found: {args.input_file}")
+            sys.exit(1)
+        print(f"Loading text from explicit input file: {args.input_file}")
+        text = args.input_file.read_text(encoding="utf-8")
+    else:
+        print(f"Loading UL0 text from: {args.tts_dir}")
+        text = load_ul0_text(args.tts_dir, args.book_name, args.chapter_name)
     print(f"Text length: {len(text)} chars")
 
     if args.dry_run:

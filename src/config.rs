@@ -69,6 +69,14 @@ impl Config {
     pub fn get_model_config(&self, model_key: &str) -> Option<&ModelConfig> {
         self.models.get(model_key)
     }
+
+    /// Backfill required default stage entries for older workspace config files.
+    pub fn ensure_required_defaults(&mut self) {
+        let default_cfg = Config::default();
+        for (stage_name, stage_cfg) in default_cfg.stages {
+            self.stages.entry(stage_name).or_insert(stage_cfg);
+        }
+    }
 }
 // --- END NEW HELPER METHOD ---
 
@@ -101,6 +109,7 @@ impl Default for Config {
             ("GenerateBasicTarget",     20),
             ("GeneratePhraseMap",        5),
             ("GenerateInversePhraseMap", 5),
+            ("GenerateLessonRealign",    1),
         ] {
             stages.insert(name.to_string(), StageConfig {
                 primary_model: "gemini-pro".to_string(),
@@ -143,9 +152,10 @@ pub fn load_config_from_workspace_dir(workspace_path: &std::path::Path) -> Resul
 pub fn load_config_from_file(file_path: &str) -> Result<Config, String> {
     match fs::read_to_string(file_path) {
         Ok(contents) => match toml::from_str::<Config>(&contents) {
-            Ok(loaded_config) => {
+            Ok(mut loaded_config) => {
                 let path = PathBuf::from(&loaded_config.content_project_dir);
                 if path.is_dir() {
+                    loaded_config.ensure_required_defaults();
                     Ok(loaded_config)
                 } else {
                     Err(format!(

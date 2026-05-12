@@ -69,3 +69,126 @@ The ultimate goal is to create content where "User Level 20" for *Les Misérable
 *   **Phase 1 (Prompt Engineering): COMPLETE.** We have successfully engineered and validated three distinct, high-quality prompts for the Simple, Basic, and Moderate tiers.
 *   **Phase 2 (Python Pipeline Refactor): NEXT.** Refactor the `PoolManager` and `AssembleTiers` stage to produce the new data structure with all four simplification tiers. Refactor `FinalizeBook` for lean output.
 *   **Phase 3 (Rust Engine Refactor): PENDING.** Refactor `core_algo.rs` and the associated data types to implement the Per-Tier Vocabulary Sweep algorithm. Update the `weavetest` suite to validate the new multi-tier weaving logic.
+
+---
+
+## 8. Authoring & Studio Features (V8.1 — Friendly Lemmas, Simple Mode, Source Direction)
+
+This section documents the V8.1 layer added on top of the four-tier architecture above to support **author-driven lessons**: short Spanish-authored lesson files that drive the Studio without needing a literary corpus or an AVD calibration step.
+
+### 8.1 Source Direction (`source_is_target`)
+
+`AppState.project_languages` is a `(source, target)` pair. When `source == target` (e.g. both `es`), the Studio is in **Spanish-source mode**: the lesson is already authored in the target language, so the dependency graph reverses for the basic branch.
+
+| Stage                       | English-source (`en` → `es`)             | Spanish-source (`es` → `es`)                            |
+|-----------------------------|-------------------------------------------|---------------------------------------------------------|
+| `advanced_target` ← `base`  | LLM simplification (`advanced_target_*`) | Verbatim echo (`advanced_segment_es`, segmentation-only) |
+| `moderate_target` ← `advanced_target` | LLM simplification              | (unchanged)                                             |
+| `basic_target` ← `basic_base`         | LLM translation                  | source flips: `basic_target` ← `base` (`basic_target_simplify_es`) |
+| `basic_base` ← `base`       | (unchanged)                              | source flips: `basic_base` ← `basic_target` (`basic_base_translate`, es → en) |
+
+`state.source_is_target()` is **derived**, not persisted — the round-trip flag is `project_languages` itself. Stage dispatch is the single source of truth for `(prompt_name, target_tier, source_tier, segmentation_only)`; see [src/services/tier_graph.rs](../src/services/tier_graph.rs).
+
+> **Known gap (deferred):** Spanish-source `basic_base` is hardcoded to learner language `en`. A future `learner_lang` field on the project will lift that constraint.
+
+### 8.2 Friendly Lemmas + Shielding
+
+`AppState.friendly_lemmas: Vec<String>` is a project-scoped allow-list of target-language lemmas the author wants the learner to encounter literally — never substituted away by the L1 fallback. When `friendly_shielding_enabled = true` (default), the mapping pass applies this rule to the candidate lemma set on each `MappingEntry`:
+
+1. If the friendly list is empty, or no candidate lemma is friendly, the entry is unchanged.
+2. Otherwise, **drop every non-friendly lemma**. The friendly subset survives.
+3. If multiple friendly lemmas survive, keep the one with the lowest frequency rank (rarer = more pedagogically interesting); ties break by earliest index. Unranked lemmas use `u32::MAX`.
+
+Implementation: `domain::mapping_logic::apply_friendly_shielding`.
+
+### 8.3 Simple Mode
+
+`state.simple_mode = true` collapses the four-tier ladder to its bottom rung — only `basic_base` and `basic_target` are produced, lemmatized, and woven. This is the canonical mode for **author-driven lessons** (Spanish-source) where the author has already produced the simplified target text directly.
+
+Effects:
+
+- **`generate_weave`** — flat `m`/`a` modes are rejected; numeric levels with `mod_v>0` or `adv>0` are dropped (errors on single-level requests, silently skipped with an inline note in `all`).
+- **`run_drc`** — rules 1–3 skip `advanced_target` and `moderate_target` tiers entirely; rule 6 (adv/mod segment-count match) is skipped.
+- **`AvManifest::validate_for_simple_mode`** — flags any `ULm` / `ULa` marked stems.
+- **Title bar** — appends ` [simple mode]`.
+
+### 8.4 Teaching Mode (Preset)
+
+A convenience preset, not a persisted flag. `set teaching_mode on` applies:
+
+```
+simple_mode = on
+frontier_enabled = off
+friendly_shielding_enabled = on   (force-enabled with warning if it was off)
+```
+
+`set teaching_mode off` is a deliberate **no-op** — it does not unset the underlying flags. The Project Flags pane shows `teaching_mode: on` only when all three derived conditions hold (otherwise `custom/off`).
+
+### 8.5 Lesson Directive Syntax
+
+Lesson source files (the `.txt` consumed by `import source`) may begin with a `%%META%%` preamble. All directives are case-insensitive on the key. See [src/parsing/source_parser.rs](../src/parsing/source_parser.rs).
+
+```
+%%META source_language: es%%
+%%META target_language: es%%
+%%META book_name: Caballero%%
+%%META simple_mode: on%%
+%%META frontier_enabled: off%%
+%%META friendly_shielding: on%%
+%%META friendly_lemma: de%%
+%%META friendly_lemma: con%%
+%%META teaching_mode: on%%             # preset; expands to simple_mode=on + frontier=off
+%%META lm_entry: bas=10%%              # absolute embedded level-map entry, anchored to next sentence
+%%META lm_entry: bas=+1%%              # relative bump from previous entry
+%%META lm_entry: bas=15, from=S42%%    # explicit anchor sentence
+%%META lesson_progression: bas_start=1, step=1, per=lesson%%
+%%META lesson_marker%%                 # demarcates the start of a lesson within the body
+```
+
+`lm_entry` and `lesson_progression` require `simple_mode=on` (rejected with a warning otherwise) — embedded level maps assume the basic-only weave. They set `state.level_map_embedded = true`, which Phase H will use to reject `calibrate` and gate the future `strip_level_map` command.
+
+### 8.6 Project Flags Pane
+
+The Studio exposes all V8.1 flags via two equivalent surfaces:
+
+- **Terminal:** `flags` (read-only print) and `set …` / `set_friendly_lemma` / `unset_friendly_lemma` / `clear_friendly_lemmas` write commands.
+- **GUI:** Preferences → **Project Flags…** modal. Every checkbox / button issues the matching terminal command via `execute_terminal_command`, so behavior is identical across surfaces.
+
+The pane displays:
+
+| Field                  | Source                                   |
+|------------------------|------------------------------------------|
+| `source_language`      | `state.project_languages.0`              |
+| `target_language`      | `state.project_languages.1`              |
+| `source_is_target`     | derived: `project_languages.0 == .1`     |
+| `book_name`            | `state.book_name`                        |
+| `simple_mode`          | `state.simple_mode` (toggle)             |
+| `frontier_enabled`     | `state.frontier_enabled` (read-only when teaching_mode active) |
+| `friendly_shielding`   | `state.friendly_shielding_enabled` (toggle) |
+| `teaching_mode`        | derived (button to apply preset)         |
+| `friendly_lemmas`      | `state.friendly_lemmas` (add / remove / clear) |
+| `level_map`            | embedded / calibrated-imported / none    |
+
+### 8.7 Authoring a Lesson File — Quick Guide
+
+1. Pick a source-direction. For Spanish-authored lessons, set both languages to `es`.
+2. Write a short META preamble (see §8.5). The minimal Spanish-source teaching-mode preamble is:
+
+   ```
+   %%META source_language: es%%
+   %%META target_language: es%%
+   %%META teaching_mode: on%%
+   %%META lesson_progression: bas_start=1, step=1, per=lesson%%
+   %%META friendly_lemma: de%%
+   ```
+
+3. Author the lesson body as plain Spanish text. Use `%%META lesson_marker%%` on a line by itself to mark each new lesson boundary; the embedded level map will bump `bas` per the `lesson_progression` recipe at each marker.
+4. `import source <path>` in the Studio. The flags pane should now show `simple_mode: on`, `frontier_enabled: off`, `friendly_shielding: on`, `source_is_target: yes`, and `level_map: embedded`.
+5. Approve the basic tiers as usual. `generate_weave all` will produce only the basic-tier outputs; `generate_weave m` / `a` are rejected.
+
+### 8.8 Backward Compatibility
+
+- A lesson file with **no** META directives parses to a `SourceMeta` with all fields `None`/empty — the import flow leaves `state` defaults intact. English-source projects without directives behave exactly as in V7.
+- Persistence: `simple_mode`, `friendly_shielding_enabled`, `frontier_enabled`, `friendly_lemmas`, `level_map_embedded`, and `book_name` round-trip through `.wvl`. `source_is_target` is derived and never serialized.
+
+

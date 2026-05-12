@@ -20,10 +20,21 @@ pub struct WordData {
 
     /// The normalized lemmas (e.g., ["cat"]).
     pub lemmas: Vec<String>,
+
+    /// Wlemma bucket keys (stemmed, see `domain::wlemma`). Same length as
+    /// `lemmas` when populated. Empty on legacy projects loaded from a
+    /// pre-wlemma `.wvl`; the load path triggers an upgrade in that case.
+    #[serde(default)]
+    pub wlemmas: Vec<String>,
 }
 
 impl WordData {
     pub fn new(id: WordId, text: String, lemmas: Vec<String>) -> Self {
-        Self { id, text, lemmas }
+        Self {
+            id,
+            text,
+            lemmas,
+            wlemmas: Vec::new(),
+        }
     }
 }

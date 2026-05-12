@@ -21,7 +21,7 @@ pub fn generate_preview_text(sentence: &Sentence, recipe: &VLevelRecipe) -> Stri
         // 1. Bulk Check (Fastest)
         if !tier.lemmas.is_empty() {
             for lemma in &tier.lemmas {
-                if let Some(rank) = frequency_manager::get_rank_for_lemma(lemma) {
+                if let Some(rank) = frequency_manager::rank_of_lemma_string(lemma) {
                     if rank > limit {
                         return false;
                     }
@@ -41,14 +41,14 @@ pub fn generate_preview_text(sentence: &Sentence, recipe: &VLevelRecipe) -> Stri
                     let mut word_known = false;
                     if !w.lemmas.is_empty()
                         && w.lemmas.iter().all(|l| {
-                            frequency_manager::get_rank_for_lemma(l).is_some_and(|r| r <= limit)
+                            frequency_manager::rank_of_lemma_string(l).is_some_and(|r| r <= limit)
                         })
                     {
                         word_known = true;
                     }
                     if !word_known {
                         let norm = w.text.to_lowercase();
-                        if frequency_manager::get_rank_for_lemma(&norm).is_some_and(|r| r <= limit)
+                        if frequency_manager::rank_of_lemma_string(&norm).is_some_and(|r| r <= limit)
                         {
                             word_known = true;
                         }
@@ -110,7 +110,7 @@ pub fn generate_preview_text(sentence: &Sentence, recipe: &VLevelRecipe) -> Stri
                         if let Some(entry) = mapping_lookup.get(&w.id) {
                             if entry.is_viable {
                                 let target_known = entry.target_lemmas.iter().all(|l| {
-                                    frequency_manager::get_rank_for_lemma(l)
+                                    frequency_manager::rank_of_lemma_string(l)
                                         .is_some_and(|r| r <= recipe.bas)
                                 });
                                 if target_known || entry.is_proper_noun {

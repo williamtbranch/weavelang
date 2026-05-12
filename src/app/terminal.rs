@@ -11,8 +11,25 @@ use crate::domain::sentence::Sentence;
 use crate::simulation::frequency_manager;
 
 /// Format a lemma with its frequency rank: `viejo<453>` or `viejo<->` if not found.
+///
+/// Uses the stem-and-bucket-lookup path on the displayed lemma text. This
+/// is the legacy behavior, kept as a fallback for callers that don't have
+/// access to the parallel stored `wlemmas` slice.
 fn format_lemma_with_rank(lemma: &str) -> String {
-    match frequency_manager::get_rank_for_lemma(lemma) {
+    match frequency_manager::rank_of_lemma_string(lemma) {
+        Some(rank) => format!("{}<{}>", lemma, rank),
+        None => format!("{}<->", lemma),
+    }
+}
+
+/// Format a lemma using the rank of a *pre-computed* wlemma bucket key
+/// rather than re-stemming the lemma text. This is the right path
+/// whenever the caller has the parallel `wlemmas` field available
+/// (`Segment.wlemmas`, `MappingEntry.target_wlemmas`, …) — it picks up
+/// any wlemma-algorithm enrichment (clitic strip, diacritic fold, …)
+/// that re-stemming the displayed lemma would miss.
+fn format_lemma_with_wlemma_rank(lemma: &str, wlemma: &str) -> String {
+    match frequency_manager::rank_of_wlemma(wlemma) {
         Some(rank) => format!("{}<{}>", lemma, rank),
         None => format!("{}<->", lemma),
     }
@@ -68,6 +85,26 @@ fn is_roman_numeral(s: &str) -> bool {
 /// Format a slice of lemmas with ranks, joined by ", ".
 fn format_lemmas_with_ranks(lemmas: &[String]) -> String {
     lemmas.iter().map(|l| format_lemma_with_rank(l)).collect::<Vec<_>>().join(", ")
+}
+
+/// Like `format_lemmas_with_ranks`, but uses a parallel slice of stored
+/// wlemma bucket keys for rank lookup. Falls back to the re-stem path
+/// when the slices are not 1:1 aligned (which can happen if multiple
+/// lemmas in a word collapsed to a single wlemma during dedup, or if
+/// the wlemmas slice is empty because the file predates the wlemma
+/// migration). Always shows the lemma text — wlemmas are an
+/// implementation detail and not displayed.
+fn format_lemmas_with_wlemma_ranks(lemmas: &[String], wlemmas: &[String]) -> String {
+    if !wlemmas.is_empty() && lemmas.len() == wlemmas.len() {
+        lemmas
+            .iter()
+            .zip(wlemmas.iter())
+            .map(|(l, w)| format_lemma_with_wlemma_rank(l, w))
+            .collect::<Vec<_>>()
+            .join(", ")
+    } else {
+        format_lemmas_with_ranks(lemmas)
+    }
 }
 
 /// Resolve short tier aliases to canonical tier IDs.
@@ -173,7 +210,12 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
         "exit" | "quit" => Ok(TerminalCommand::Exit),
         "help" => Ok(TerminalCommand::Help),
         "clear" => Ok(TerminalCommand::Clear),
-        "list" => {
+        "wlemma" => {
+            if parts.len() < 2 {
+                return Err("Usage: wlemma <word>".to_string());
+            }
+            Ok(TerminalCommand::WlemmaInspect { lemma: parts[1..].join(" ") })
+        }        "list" => {
             if parts.len() > 1 && parts[1] == "nav" {
                 // list nav --around <N>
                 if parts.len() >= 4 && parts[2] == "--around" {
@@ -391,6 +433,27 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
         "status" => {
              Ok(TerminalCommand::App(AppCommand::CheckStatus))
         },
+        "flags" => {
+            Ok(TerminalCommand::App(AppCommand::ShowFlags))
+        },
+        "set_friendly_lemma" => {
+            if parts.len() < 2 {
+                return Err("Usage: set_friendly_lemma <lemma>".to_string());
+            }
+            Ok(TerminalCommand::App(AppCommand::SetFriendlyLemma { lemma: parts[1..].join(" ") }))
+        },
+        "unset_friendly_lemma" => {
+            if parts.len() < 2 {
+                return Err("Usage: unset_friendly_lemma <lemma>".to_string());
+            }
+            Ok(TerminalCommand::App(AppCommand::UnsetFriendlyLemma { lemma: parts[1..].join(" ") }))
+        },
+        "clear_friendly_lemmas" => {
+            Ok(TerminalCommand::App(AppCommand::ClearFriendlyLemmas))
+        },
+        "strip_level_map" => {
+            Ok(TerminalCommand::App(AppCommand::StripLevelMap))
+        },
         "set" => {
             if parts.len() > 2 && parts[1] == "right_view" {
                 Ok(TerminalCommand::App(AppCommand::SetRightView { view: parts[2].to_string() }))
@@ -428,8 +491,50 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
             } else if parts.len() > 2 && parts[1] == "frontier_seed" {
                 let seed = parts[2].parse::<u64>().map_err(|_| format!("Invalid seed '{}'. Use a number.", parts[2]))?;
                 Ok(TerminalCommand::App(AppCommand::SetFrontierSeed { seed }))
+            } else if parts.len() > 2 && parts[1] == "simple_mode" {
+                match parts[2] {
+                    "true" | "on" | "1" => Ok(TerminalCommand::App(AppCommand::SetSimpleMode { enabled: true })),
+                    "false" | "off" | "0" => Ok(TerminalCommand::App(AppCommand::SetSimpleMode { enabled: false })),
+                    _ => Err("Usage: set simple_mode on|off".to_string()),
+                }
+            } else if parts.len() > 2 && parts[1] == "source_is_basic" {
+                match parts[2] {
+                    "true" | "on" | "1" => Ok(TerminalCommand::App(AppCommand::SetSourceIsBasic { enabled: true })),
+                    "false" | "off" | "0" => Ok(TerminalCommand::App(AppCommand::SetSourceIsBasic { enabled: false })),
+                    _ => Err("Usage: set source_is_basic on|off".to_string()),
+                }
+            } else if parts.len() > 2 && parts[1] == "friendly_shielding" {
+                match parts[2] {
+                    "true" | "on" | "1" => Ok(TerminalCommand::App(AppCommand::SetFriendlyShielding { enabled: true })),
+                    "false" | "off" | "0" => Ok(TerminalCommand::App(AppCommand::SetFriendlyShielding { enabled: false })),
+                    _ => Err("Usage: set friendly_shielding on|off".to_string()),
+                }
+            } else if parts.len() > 2 && parts[1] == "lesson_realign" {
+                match parts[2] {
+                    "true" | "on" | "1" => Ok(TerminalCommand::App(AppCommand::SetLessonRealign { enabled: true })),
+                    "false" | "off" | "0" => Ok(TerminalCommand::App(AppCommand::SetLessonRealign { enabled: false })),
+                    _ => Err("Usage: set lesson_realign on|off".to_string()),
+                }
+            } else if parts.len() > 2 && parts[1] == "teaching_mode" {
+                match parts[2] {
+                    "true" | "on" | "1" => Ok(TerminalCommand::App(AppCommand::SetTeachingMode { enabled: true })),
+                    "false" | "off" | "0" => Ok(TerminalCommand::App(AppCommand::SetTeachingMode { enabled: false })),
+                    _ => Err("Usage: set teaching_mode on|off".to_string()),
+                }
+            } else if parts.len() > 2 && parts[1] == "source_language" {
+                // Update only the source language; target stays as-is.
+                // We synthesize a SetLanguages command — engine reads existing target.
+                Ok(TerminalCommand::App(AppCommand::SetLanguages {
+                    source: parts[2].to_string(),
+                    target: String::new(), // sentinel: keep existing
+                }))
+            } else if parts.len() > 2 && parts[1] == "target_language" {
+                Ok(TerminalCommand::App(AppCommand::SetLanguages {
+                    source: String::new(), // sentinel: keep existing
+                    target: parts[2].to_string(),
+                }))
             } else {
-                Err("Usage: set right_view <v> | set left_view <v> | set output_dir <p> | set key <anthropic|google> <value> | set languages <source> <target> | set book_name <name> | set chapter_mode true|false | set frontier on|off | set frontier_pct <n> | set frontier_seed <n>".to_string())
+                Err("Usage: set right_view <v> | set left_view <v> | set output_dir <p> | set key <anthropic|google> <value> | set languages <source> <target> | set source_language <code> | set target_language <code> | set book_name <name> | set chapter_mode true|false | set frontier on|off | set frontier_pct <n> | set frontier_seed <n> | set simple_mode on|off | set source_is_basic on|off | set friendly_shielding on|off | set lesson_realign on|off | set teaching_mode on|off".to_string())
             }
         },
         "show" => {
@@ -968,7 +1073,7 @@ fn parse_av_command(parts: &[&str]) -> Result<TerminalCommand, String> {
         "clear-marks" => Ok(TerminalCommand::App(AppCommand::AvClearMarks)),
         "generate" => {
             if parts.len() < 2 {
-                return Err("Usage: av generate audio|video|characters|prompts|illustrations [stem|next|all]".to_string());
+                return Err("Usage: av generate align|audio|video|characters|prompts|illustrations [stem|next|all]".to_string());
             }
             let target = if parts.len() >= 3 {
                 match parts[2] {
@@ -980,12 +1085,13 @@ fn parse_av_command(parts: &[&str]) -> Result<TerminalCommand, String> {
                 AvTarget::Next
             };
             match parts[1] {
+                "align" => Ok(TerminalCommand::App(AppCommand::AvGenerateAlign { target })),
                 "audio" => Ok(TerminalCommand::App(AppCommand::AvGenerateAudio { target })),
                 "video" => Ok(TerminalCommand::App(AppCommand::AvGenerateVideo { target })),
                 "characters" => Ok(TerminalCommand::App(AppCommand::AvGenerateCharacters)),
                 "prompts" => Ok(TerminalCommand::App(AppCommand::AvGeneratePrompts)),
                 "illustrations" => Ok(TerminalCommand::App(AppCommand::AvGenerateIllustrations)),
-                _ => Err("Usage: av generate audio|video|characters|prompts|illustrations [stem|next|all]".to_string()),
+                _ => Err("Usage: av generate align|audio|video|characters|prompts|illustrations [stem|next|all]".to_string()),
             }
         }
         "config" => {
@@ -1199,11 +1305,24 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  report sentence <N>-<M> - Detailed status for range N to M\n");
             out.push_str("  measure_avd <path>     - Measure AVD score of a plain text file\n");
             out.push_str("  measure_user_score <p> - Measure estimated user level of a plain text file\n");
+            out.push_str("  wlemma <word>          - Inspect a wlemma bucket (stem, rank, members)\n");
             out.push_str("  debug_dump <s> <e> [p] - Dump debug state for sentences s..e to file or stdout\n");
             out.push_str("  set key <p> <value>    - Store API key in OS keychain (anthropic|google)\n");
             out.push_str("  set frontier on|off    - Enable/disable frontier filter globally\n");
             out.push_str("  set frontier_pct <n>   - Set frontier target percentage\n");
             out.push_str("  set frontier_seed <n>  - Set frontier RNG seed\n");
+            out.push_str("  flags                  - Show project flags pane (read-only)\n");
+            out.push_str("  set simple_mode on|off - Toggle simple mode (basic-only weave)\n");
+            out.push_str("  set source_is_basic on|off - Mark open project source as already basic\n");
+            out.push_str("  set lesson_realign on|off - Toggle lesson realignment before TTS\n");
+            out.push_str("  set friendly_shielding on|off - Toggle friendly-lemma shielding\n");
+            out.push_str("  set teaching_mode on|off - Preset: simple_mode=on + frontier=off\n");
+            out.push_str("  set source_language <code>  - Update source language only\n");
+            out.push_str("  set target_language <code>  - Update target language only\n");
+            out.push_str("  set_friendly_lemma <lemma>   - Add a friendly lemma\n");
+            out.push_str("  unset_friendly_lemma <lemma> - Remove a friendly lemma\n");
+            out.push_str("  clear_friendly_lemmas        - Empty the friendly-lemmas list\n");
+            out.push_str("  strip_level_map        - Clear loaded level map (escape hatch for embedded maps)\n");
             out.push_str("  delete key <p>         - Remove key from OS keychain\n");
             out.push_str("  key status             - Show which API keys are configured\n");
             out.push_str("  watch_job              - Block until current LLM job completes\n");
@@ -1260,7 +1379,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  av mark/unmark <stem>  - Mark/unmark files for AV\n");
             out.push_str("  av mark-all            - Mark all woven text files\n");
             out.push_str("  av clear-marks         - Remove all marks\n");
-            out.push_str("  av generate audio|video|characters|prompts|illustrations - Generate media\n");
+            out.push_str("  av generate align|audio|video|characters|prompts|illustrations - Generate media\n");
             out.push_str("  av cancel              - Cancel running AV generation\n");
             out.push_str("  av log [N]             - Show AV job output (last N lines)\n");
             out.push_str("  av chunks <stem>       - Show chunk status for a stem\n");
@@ -1280,6 +1399,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  av unmark <stem> [stem2...] - Unmark files\n");
             out.push_str("  av mark-all                - Mark all woven text files\n");
             out.push_str("  av clear-marks             - Remove all marks\n");
+            out.push_str("  av generate align [stem|next|all] - Realign lesson text before TTS\n");
             out.push_str("  av generate audio [stem|next|all] - Generate audio\n");
             out.push_str("  av generate video [stem|next|all] - Generate video\n");
             out.push_str("  av generate characters          - Extract character bible from text\n");
@@ -1521,7 +1641,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
                                         .map(|e| e.target_text.as_str())
                                         .unwrap_or("—");
                                     let target_lemmas = entry_map.get(&wd.id)
-                                        .map(|e| format_lemmas_with_ranks(&e.target_lemmas))
+                                        .map(|e| format_lemmas_with_wlemma_ranks(&e.target_lemmas, &e.target_wlemmas))
                                         .unwrap_or_default();
                                     out.push_str(&format!("\n  {:>4}  {:<20} → {:<20} {}", one_idx, wd.text, target_text, target_lemmas));
                                 }
@@ -1606,7 +1726,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
                                 src_w = src_w.max(wd.text.len());
                                 if let Some(e) = entry_map.get(&wd.id) {
                                     tgt_w = tgt_w.max(e.target_text.len());
-                                    let lstr = format_lemmas_with_ranks(&e.target_lemmas);
+                                    let lstr = format_lemmas_with_wlemma_ranks(&e.target_lemmas, &e.target_wlemmas);
                                     lem_w = lem_w.max(lstr.len());
                                 }
                             }
@@ -1642,7 +1762,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
                                             .map(|e| e.target_text.as_str())
                                             .unwrap_or("—");
                                         let target_lemmas = entry_map.get(&wd.id)
-                                            .map(|e| format_lemmas_with_ranks(&e.target_lemmas))
+                                            .map(|e| format_lemmas_with_wlemma_ranks(&e.target_lemmas, &e.target_wlemmas))
                                             .unwrap_or_default();
                                         out.push_str(&format!("\n  {:>3}  {:<sw$} | {:<tw$} | {}",
                                             word_num, wd.text, target_text, target_lemmas,
@@ -1661,7 +1781,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
                             let lemma_str = if seg.lemmas.is_empty() {
                                 String::new()
                             } else {
-                                format!("  [{}]", format_lemmas_with_ranks(&seg.lemmas))
+                                format!("  [{}]", format_lemmas_with_wlemma_ranks(&seg.lemmas, &seg.wlemmas))
                             };
                             out.push_str(&format!("\n  [{}]: {}{}", seg.id, seg.full_text(), lemma_str));
                         }
@@ -1693,8 +1813,10 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
                                         &tier_id, &base_lang, &target_lang,
                                     );
                                     let bridge_ref = engine.state.bridge.as_ref();
+                                    let friendly_lemmas = engine.state.friendly_lemmas.clone();
+                                    let friendly_enabled = engine.state.friendly_shielding_enabled;
                                     if let Some(sent) = engine.state.document.get_mut(idx) {
-                                        apply_llm_result(sent, &tier_id, &text, bridge_ref, &lang, &target_lang);
+                                        apply_llm_result(sent, &tier_id, &text, bridge_ref, &lang, &target_lang, &friendly_lemmas, friendly_enabled);
                                     }
                                 }
                             }
@@ -1768,8 +1890,10 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
                                                     &tier_id, &base_lang, &target_lang,
                                                 );
                                                 let bridge_ref = engine.state.bridge.as_ref();
+                                                let friendly_lemmas = engine.state.friendly_lemmas.clone();
+                                                let friendly_enabled = engine.state.friendly_shielding_enabled;
                                                 if let Some(sent) = engine.state.document.get_mut(idx) {
-                                                    apply_llm_result(sent, &tier_id, &text, bridge_ref, &lang, &target_lang);
+                                                    apply_llm_result(sent, &tier_id, &text, bridge_ref, &lang, &target_lang, &friendly_lemmas, friendly_enabled);
                                                 }
                                             }
                                         }
@@ -1802,8 +1926,30 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
                 }
             }
         },
+        TerminalCommand::WlemmaInspect { lemma } => {
+            // T7.1: show the bucket key, rank, and members for this lemma.
+            match frequency_manager::inspect_bucket(lemma.as_str()) {
+                Some(insp) => {
+                    out.push_str(&format!(
+                        "wlemma '{}' rank={} members={}\n",
+                        insp.wlemma,
+                        insp.rank,
+                        insp.members.len()
+                    ));
+                    let cap = insp.members.len().min(20);
+                    for (l, r) in insp.members.iter().take(cap) {
+                        out.push_str(&format!("  {}<{}>\n", l, r));
+                    }
+                    if insp.members.len() > cap {
+                        out.push_str(&format!("  ... (+{} more)\n", insp.members.len() - cap));
+                    }
+                }
+                None => {
+                    out.push_str(&format!("wlemma '{}': not found in frequency list\n", lemma));
+                }
+            }
+        }
         TerminalCommand::JobStatus => {
-            // Non-blocking job status check — returns immediately with progress info.
             // Designed for copilot/agent polling instead of blocking watch_job.
             if engine.state.llm_results_receiver.is_some() {
                 let done = engine.state.llm_job_done;
@@ -1866,6 +2012,8 @@ pub fn apply_llm_result(
     bridge: Option<&crate::services::python_bridge::BridgeService>,
     lang_code: &str,
     target_lang_code: &str,
+    friendly_lemmas: &[String],
+    friendly_shielding_enabled: bool,
 ) {
     use crate::services::llm_worker::SEG_FAIL_PREFIX;
 
@@ -2033,7 +2181,7 @@ pub fn apply_llm_result(
             if let Err(e) = crate::app::engine::lemmatize_tier_segments(sent, tier_id, br, tier_lang) {
                 eprintln!("[Auto-lemmatize] segment lemmas failed for {}: {}", tier_id, e);
             }
-            if let Err(e) = crate::app::engine::lemmatize_mapping_targets(sent, tier_id, br, lang_code, target_lang_code) {
+            if let Err(e) = crate::app::engine::lemmatize_mapping_targets(sent, tier_id, br, lang_code, target_lang_code, friendly_lemmas, friendly_shielding_enabled) {
                 eprintln!("[Auto-lemmatize] mapping lemmas failed for {}: {}", tier_id, e);
             }
         }

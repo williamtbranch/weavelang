@@ -127,6 +127,26 @@ pub fn spawn_llm_job(
     let cancel_thread_flag = cancel_flag.clone();
 
     std::thread::spawn(move || {
+        // ── Passthrough short-circuit ─────────────────────────────────────
+        // When `prompt_name` is the passthrough sentinel, skip the LLM
+        // entirely: each item's source text is echoed as the generated
+        // text. Used when `source_is_basic: on` is asserted and the
+        // in-source-language basic tier is just a verbatim copy of `base`.
+        if prompt_name == crate::services::tier_graph::PROMPT_PASSTHROUGH_COPY {
+            let cancel_on_disconnect = cancel_thread_flag.clone();
+            // Send all items in one batch — there are no API calls and no
+            // fragility benefit to chunking, but downstream code expects
+            // batches so we still wrap once.
+            let mapped: Vec<(usize, String, String, String)> = items
+                .into_iter()
+                .map(|(idx, sid, src)| (idx, sid, target_tier_id.clone(), src))
+                .collect();
+            if tx.send(Ok(mapped)).is_err() {
+                cancel_on_disconnect.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+            return;
+        }
+
         let svc = LlmStageService::new(prompts.clone(), llm.clone(), logger.clone());
         let fb_ref = fallback_model.as_deref();
 

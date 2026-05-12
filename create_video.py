@@ -247,11 +247,19 @@ def create_video_from_audio(
             safe_path = str(timeline_entries[-1][0]).replace('\\', '/').replace("'", "\\'")
             cf.write(f"file '{safe_path}'\n")
 
+    # Use the fps filter (BEFORE scale) to materialize a constant-frame-rate
+    # video stream from the concat demuxer's still-image inputs. Without an
+    # explicit fps filter, libx264 + concat-of-stills drops frames at segment
+    # boundaries and the video ends short of the scheduled timeline (observed
+    # ~57s truncation on a 642s slideshow). The fps filter expands each PNG
+    # segment to `frame_rate` frames per second of duration, which preserves
+    # the full timeline. We then clamp output to the audio length via -t and
+    # drop -shortest (no longer needed; video stream already matches audio).
     command = [
         'ffmpeg', '-y',
         '-f', 'concat', '-safe', '0', '-i', str(concat_list_path),
         '-i', str(audio_file),
-        '-vf', 'scale=1280:-2,setsar=1',
+        '-vf', f'fps={frame_rate},scale=1280:-2,setsar=1',
         '-map', '0:v:0',
         '-map', '1:a:0',
         '-c:v', 'libx264',
@@ -260,9 +268,7 @@ def create_video_from_audio(
         '-c:a', 'aac',
         '-b:a', '192k',
         '-pix_fmt', 'yuv420p',
-        '-r', str(frame_rate),
         '-t', f'{audio_duration_seconds:.3f}',
-        '-shortest',
         str(output_video_path)
     ]
 

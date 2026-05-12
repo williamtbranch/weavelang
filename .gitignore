@@ -26,3 +26,12 @@ Metamorphosis_12.json
 config.toml
 *.wvl
 
+
+~*
+*.jsonl
+LLM_OUT
+*_err.txt
+lesson*.txt
+vocab.csv
+vocab.xlsx
+Flashcards

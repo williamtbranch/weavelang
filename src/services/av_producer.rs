@@ -252,6 +252,30 @@ impl AvManifest {
             }
         }
     }
+
+    /// Validate the manifest against simple-mode constraints.
+    ///
+    /// In simple mode, only basic-tier outputs exist (`ULb`, numeric levels
+    /// whose recipes are basic-only, raw `ULr`, and interlinear `ULi`).
+    /// The flat moderate (`ULm`) and advanced (`ULa`) stems must not be
+    /// marked, since their tiers aren't produced.
+    ///
+    /// Returns `Ok(())` if the manifest is consistent with simple mode, or
+    /// `Err(messages)` listing each offending stem.
+    pub fn validate_for_simple_mode(&self) -> Result<(), Vec<String>> {
+        let mut errs: Vec<String> = Vec::new();
+        for stem in &self.files.marked {
+            let suffix = stem.rsplit('_').next().unwrap_or(stem);
+            if suffix == "ULm" || suffix == "ULa" {
+                errs.push(format!(
+                    "marked stem '{}' targets the {} tier, which is unavailable in simple_mode",
+                    stem,
+                    if suffix == "ULm" { "moderate" } else { "advanced" }
+                ));
+            }
+        }
+        if errs.is_empty() { Ok(()) } else { Err(errs) }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -263,6 +287,7 @@ pub struct AvFileStatus {
     pub stem: String,
     pub marked: bool,
     pub has_text: bool,
+    pub has_aligned_text: bool,
     pub has_audio: bool,
     pub has_video: bool,
     /// Number of volume audio files detected (e.g. stem_V1.wav, stem_V2.wav).
@@ -307,7 +332,14 @@ impl AvProducer {
     /// Resolve a stem to its text file path, checking tts_files/ as fallback.
     /// Also checks the parent directory (book root) for backward compatibility
     /// with files created before the whole_book/ directory commitment.
-    fn resolve_text_file(&self, stem: &str) -> PathBuf {
+    fn resolve_text_file(&self, stem: &str, prefer_aligned: bool) -> PathBuf {
+        if prefer_aligned {
+            let aligned = self.aligned_text_path(stem);
+            if aligned.exists() {
+                return aligned;
+            }
+            return aligned;
+        }
         let direct = self.book_dir.join(format!("{}.txt", stem));
         if direct.exists() {
             return direct;
@@ -328,6 +360,18 @@ impl AvProducer {
             }
         }
         direct // fall back to direct path for error messages
+    }
+
+    pub fn text_file_path(&self, stem: &str) -> PathBuf {
+        self.resolve_text_file(stem, false)
+    }
+
+    pub fn aligned_text_dir(&self) -> PathBuf {
+        self.book_dir.join("tts_aligned")
+    }
+
+    pub fn aligned_text_path(&self, stem: &str) -> PathBuf {
+        self.aligned_text_dir().join(format!("{}.txt", stem))
     }
 
     /// Scan the book directory and return status for every woven text file found.
@@ -372,6 +416,7 @@ impl AvProducer {
             .map(|stem| {
                 let marked = self.manifest.files.marked.contains(&stem);
                 let has_text = true; // we found the .txt file
+                let has_aligned_text = self.aligned_text_path(&stem).exists();
                 let single_audio = audio_dir.join(format!("{}.{}", stem, audio_ext)).exists();
 
                 // Check for volume audio files: <stem>_V1.wav, <stem>_V2.wav, ...
@@ -399,6 +444,7 @@ impl AvProducer {
                     stem,
                     marked,
                     has_text,
+                    has_aligned_text,
                     has_audio,
                     has_video,
                     volume_count: vol_count,
@@ -517,6 +563,53 @@ impl AvProducer {
             .collect()
     }
 
+    /// Export the first illustration (alphabetically) from the illustrations
+    /// directory as a JPEG thumbnail one level up in the book directory.
+    /// Returns the destination path string on success.
+    pub fn export_thumbnail(&self) -> Result<String, String> {
+        let ill_dir = self.illustrations_dir();
+        if !ill_dir.exists() {
+            return Err(format!(
+                "Illustrations directory does not exist: {}",
+                ill_dir.display()
+            ));
+        }
+
+        // Collect image files, sort lexicographically so 001.png comes first.
+        let mut candidates: Vec<std::path::PathBuf> = fs::read_dir(&ill_dir)
+            .map_err(|e| format!("Cannot read illustrations dir: {}", e))?
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.extension()
+                    .map(|ext| {
+                        let ext = ext.to_string_lossy().to_lowercase();
+                        ext == "png" || ext == "jpg" || ext == "jpeg"
+                    })
+                    .unwrap_or(false)
+            })
+            .collect();
+        candidates.sort();
+
+        let first = candidates
+            .into_iter()
+            .next()
+            .ok_or_else(|| "No illustration images found.".to_string())?;
+
+        let dest = self.book_dir.join("thumbnail.jpg");
+
+        let img = image::open(&first)
+            .map_err(|e| format!("Failed to open '{}': {}", first.display(), e))?;
+        img.save_with_format(&dest, image::ImageFormat::Jpeg)
+            .map_err(|e| format!("Failed to write '{}': {}", dest.display(), e))?;
+
+        Ok(format!(
+            "Thumbnail exported: {} → {}",
+            first.file_name().unwrap_or_default().to_string_lossy(),
+            dest.display()
+        ))
+    }
+
     /// Count illustration files (png, jpg, jpeg) in the illustrations directory.
     pub fn count_illustrations(&self) -> usize {
         let dir = self.illustrations_dir();
@@ -542,11 +635,24 @@ impl AvProducer {
     }
 
     /// Find the next marked stem that lacks audio.
-    pub fn next_stem_needing_audio(&self) -> Option<String> {
+    pub fn next_stem_needing_alignment(&self) -> Option<String> {
         let statuses = self.scan();
         statuses
             .into_iter()
-            .find(|s| s.marked && s.has_text && !s.has_audio)
+            .find(|s| s.marked && s.has_text && !s.has_aligned_text)
+            .map(|s| s.stem)
+    }
+
+    pub fn next_stem_needing_audio(&self, require_alignment: bool) -> Option<String> {
+        let statuses = self.scan();
+        statuses
+            .into_iter()
+            .find(|s| {
+                s.marked
+                    && s.has_text
+                    && (!require_alignment || s.has_aligned_text)
+                    && !s.has_audio
+            })
             .map(|s| s.stem)
     }
 
@@ -560,11 +666,16 @@ impl AvProducer {
     }
 
     /// All marked stems that lack audio, in order.
-    pub fn all_stems_needing_audio(&self) -> Vec<String> {
+    pub fn all_stems_needing_audio(&self, require_alignment: bool) -> Vec<String> {
         let statuses = self.scan();
         statuses
             .into_iter()
-            .filter(|s| s.marked && s.has_text && !s.has_audio)
+            .filter(|s| {
+                s.marked
+                    && s.has_text
+                    && (!require_alignment || s.has_aligned_text)
+                    && !s.has_audio
+            })
             .map(|s| s.stem)
             .collect()
     }
@@ -589,8 +700,9 @@ impl AvProducer {
         stem: &str,
         project_root: &Path,
         api_key: &str,
+        prefer_aligned: bool,
     ) -> Result<String, String> {
-        let input_file = self.resolve_text_file(stem);
+        let input_file = self.resolve_text_file(stem, prefer_aligned);
         if !input_file.exists() {
             return Err(format!("Input text file not found: {}", input_file.display()));
         }
@@ -815,8 +927,9 @@ impl AvProducer {
         project_root: &Path,
         api_key: &str,
         gcloud_project_id: Option<&str>,
+        prefer_aligned: bool,
     ) -> Result<std::process::Child, String> {
-        let input_file = self.resolve_text_file(stem);
+        let input_file = self.resolve_text_file(stem, prefer_aligned);
         if !input_file.exists() {
             return Err(format!("Input text file not found: {}", input_file.display()));
         }
@@ -954,6 +1067,7 @@ impl AvProducer {
         book_name: &str,
         project_root: &Path,
         api_key: &str,
+        aligned_input_file: Option<&Path>,
     ) -> Result<std::process::Child, String> {
         let tts_dir = self.book_dir.join("tts_files");
         if !tts_dir.exists() {
@@ -988,6 +1102,9 @@ impl AvProducer {
             .arg("--style").arg(&ill.style_prefix)
             .arg("--model").arg(&ill.prompt_model)
             .arg("--output").arg(illustrations_dir.join("_prompts.toml"));
+        if let Some(input_file) = aligned_input_file {
+            cmd.arg("--input-file").arg(input_file);
+        }
         // Pass character bible if it exists
         let characters_path = illustrations_dir.join("_characters.toml");
         if characters_path.exists() {
@@ -1009,6 +1126,7 @@ impl AvProducer {
         book_name: &str,
         project_root: &Path,
         api_key: &str,
+        aligned_input_file: Option<&Path>,
     ) -> Result<std::process::Child, String> {
         let tts_dir = self.book_dir.join("tts_files");
         if !tts_dir.exists() {
@@ -1040,6 +1158,9 @@ impl AvProducer {
             .arg("--book-name").arg(book_name)
             .arg("--model").arg(&ill.prompt_model)
             .arg("--output").arg(illustrations_dir.join("_characters.toml"));
+        if let Some(input_file) = aligned_input_file {
+            cmd.arg("--input-file").arg(input_file);
+        }
         cmd.env("GOOGLE_API_KEY", api_key);
         cmd.env("PYTHONUTF8", "1");
         cmd.stdout(std::process::Stdio::piped());
@@ -1099,6 +1220,41 @@ impl AvProducer {
         self.illustrations_dir().join("_prompts.toml").exists()
     }
 
+    /// Pick the text file that should drive illustration sentence alignment.
+    ///
+    /// In lesson-realign mode, prefers aligned text for marked stems. If no
+    /// marked aligned file exists but marked stems exist, returns an error so
+    /// the user can run align first.
+    pub fn illustration_alignment_text_file(
+        &self,
+        prefer_aligned: bool,
+    ) -> Result<Option<PathBuf>, String> {
+        if !prefer_aligned {
+            return Ok(None);
+        }
+
+        let statuses = self.scan();
+        if let Some(st) = statuses.iter().find(|s| s.marked && s.has_aligned_text) {
+            return Ok(Some(self.aligned_text_path(&st.stem)));
+        }
+
+        if statuses.iter().any(|s| s.marked && s.has_text && !s.has_aligned_text) {
+            return Err(
+                "Lesson realign is active, but marked stems are missing aligned text. Run 'av generate align' first."
+                    .to_string(),
+            );
+        }
+
+        if let Some(st) = statuses.iter().find(|s| s.has_aligned_text) {
+            return Ok(Some(self.aligned_text_path(&st.stem)));
+        }
+
+        Err(
+            "Lesson realign is active, but no aligned lesson text was found. Run 'av generate align' first."
+                .to_string(),
+        )
+    }
+
     /// Rebuild final audio by concatenating all good chunks via `book_to_audio.py --concat-only`.
     ///
     /// This is a blocking call (concatenation is fast). No API key needed.
@@ -1122,7 +1278,7 @@ impl AvProducer {
             return Err(format!("No good audio chunks for '{}'. Nothing to concatenate.", stem));
         }
 
-        let input_file = self.resolve_text_file(stem);
+        let input_file = self.resolve_text_file(stem, false);
         if !input_file.exists() {
             return Err(format!("Input text file not found: {}", input_file.display()));
         }

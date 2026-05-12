@@ -674,6 +674,10 @@ impl WeaveLangApp {
                 }
                 ui.separator();
                 if ui.button("LLM Settings...").clicked() {
+                    if let Some(cfg) = &mut self.state.config {
+                        cfg.ensure_required_defaults();
+                    }
+                    self.state.draft_config = self.state.config.clone();
                     self.state.show_llm_settings = true;
                     ui.close_menu();
                 }
@@ -778,8 +782,15 @@ impl WeaveLangApp {
                     ui.close_menu();
                 }
                 if ui.button("LLM Settings...").clicked() {
+                    if let Some(cfg) = &mut self.state.config {
+                        cfg.ensure_required_defaults();
+                    }
                     self.state.draft_config = self.state.config.clone();
                     self.state.show_llm_settings = true;
+                    ui.close_menu();
+                }
+                if ui.button("Project Flags...").clicked() {
+                    self.state.show_project_flags = true;
                     ui.close_menu();
                 }
                 ui.separator();
@@ -1448,6 +1459,7 @@ impl App for WeaveLangApp {
 
         // Update Title dynamically
         let dirty_marker = if self.dirty { " *" } else { "" };
+        let simple_marker = if self.state.simple_mode { " [simple mode]" } else { "" };
         let expected_title = if let Some(cfg) = &self.state.config {
             let ws_name = if cfg.content_project_dir.is_empty() {
                 "Untitled".to_string()
@@ -1459,12 +1471,12 @@ impl App for WeaveLangApp {
                     .to_string()
             };
             if self.state.book_name.is_empty() {
-                format!("WeaveLang Studio ({}){}", ws_name, dirty_marker)
+                format!("WeaveLang Studio ({}){}{}", ws_name, simple_marker, dirty_marker)
             } else {
-                format!("WeaveLang Studio ({}) — {}{}", ws_name, self.state.book_name, dirty_marker)
+                format!("WeaveLang Studio ({}) — {}{}{}", ws_name, self.state.book_name, simple_marker, dirty_marker)
             }
         } else {
-            format!("WeaveLang Studio (Untitled){}", dirty_marker)
+            format!("WeaveLang Studio (Untitled){}{}", simple_marker, dirty_marker)
         };
 
         if self.current_title != expected_title {
@@ -1545,12 +1557,14 @@ impl App for WeaveLangApp {
 
                         let (base_lang, target_lang) = self.state.project_languages.clone();
                         let bridge_ref = self.state.bridge.as_ref();
+                        let friendly_lemmas = self.state.friendly_lemmas.clone();
+                        let friendly_enabled = self.state.friendly_shielding_enabled;
 
                         for (idx, _s_id, tier_id, text) in results {
                             if idx < self.state.document.len() {
                                 let lang = lang_for_tier(&tier_id, &base_lang, &target_lang);
                                 if let Some(sent) = self.state.document.get_mut(idx) {
-                                    apply_llm_result(sent, &tier_id, &text, bridge_ref, &lang, &target_lang);
+                                    apply_llm_result(sent, &tier_id, &text, bridge_ref, &lang, &target_lang, &friendly_lemmas, friendly_enabled);
                                     if idx == selected_idx {
                                          if tier_id.starts_with("MAPPING:") {
                                              last_applied_text = Some("Mapping Generated".to_string());
@@ -1817,6 +1831,157 @@ impl App for WeaveLangApp {
             if !open {
                 self.show_close_save_prompt = false;
                 self.pending_action_after_save = None;
+            }
+        }
+
+        // Project Flags Window (read-only with edit controls — Phase F)
+        if self.state.show_project_flags {
+            let mut open = true;
+            let mut pending_commands: Vec<String> = Vec::new();
+
+            let simple_mode = self.state.simple_mode;
+            let lesson_realign = self.state.lesson_realign_enabled;
+            let source_is_basic = self.state.source_is_basic;
+            let frontier_enabled = self.state.frontier_enabled;
+            let friendly_shielding = self.state.friendly_shielding_enabled;
+            let teaching_active = simple_mode && lesson_realign && !frontier_enabled && friendly_shielding;
+            let (src_lang, tgt_lang) = self.state.project_languages.clone();
+            let source_is_target = self.state.source_is_target();
+            let book_name = self.state.book_name.clone();
+            let level_map_src = if self.state.level_map_embedded {
+                "embedded (%%META lm_entry%%)"
+            } else if self.state.book_map.as_ref().map_or(false, |m| !m.is_empty()) {
+                "calibrated/imported"
+            } else {
+                "none"
+            };
+            let friendly_lemmas = self.state.friendly_lemmas.clone();
+
+            egui::Window::new("Project Flags").open(&mut open)
+                .default_width(420.0)
+                .show(ctx, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        ui.heading("Languages");
+                        egui::Grid::new("flags_lang_grid").num_columns(2).show(ui, |ui| {
+                            ui.label("Source language:");
+                            ui.label(if src_lang.is_empty() { "(unset)" } else { src_lang.as_str() });
+                            ui.end_row();
+                            ui.label("Target language:");
+                            ui.label(if tgt_lang.is_empty() { "(unset)" } else { tgt_lang.as_str() });
+                            ui.end_row();
+                            ui.label("source_is_target:");
+                            ui.label(if source_is_target { "yes (Spanish-source mode)" } else { "no" });
+                            ui.end_row();
+                            ui.label("Book name:");
+                            ui.label(if book_name.is_empty() { "(unset)" } else { book_name.as_str() });
+                            ui.end_row();
+                            ui.label("Level map:");
+                            ui.horizontal(|ui| {
+                                ui.label(level_map_src);
+                                let has_map = self.state.level_map_embedded
+                                    || self.state.book_map.as_ref().map_or(false, |m| !m.is_empty());
+                                if has_map {
+                                    if ui.button("Strip").on_hover_text("Clear the loaded level map (use before re-calibrating an embedded map).").clicked() {
+                                        pending_commands.push("strip_level_map".to_string());
+                                    }
+                                }
+                            });
+                            ui.end_row();
+                        });
+                        ui.label("(Use 'set languages <src> <tgt>' or 'set source_language' / 'set target_language' in the terminal.)")
+                            .on_hover_text("Languages are edited via terminal commands.");
+
+                        ui.separator();
+                        ui.heading("Modes");
+
+                        let mut sm = simple_mode;
+                        if ui.checkbox(&mut sm, "Simple mode").changed() {
+                            pending_commands.push(format!("set simple_mode {}", if sm { "on" } else { "off" }));
+                        }
+                        let mut lr = lesson_realign;
+                        if ui.checkbox(&mut lr, "Lesson realign").changed() {
+                            pending_commands.push(format!("set lesson_realign {}", if lr { "on" } else { "off" }));
+                        }
+                        let mut sib = source_is_basic;
+                        if ui.checkbox(&mut sib, "Source is already basic").changed() {
+                            pending_commands.push(format!("set source_is_basic {}", if sib { "on" } else { "off" }));
+                        }
+                        ui.label("When on, the same-language basic tier is copied from base verbatim. Requires simple mode for generation to use it.")
+                            .on_hover_text("Used for already-simple source text. en-es skips GenerateBasicBase; es-es skips GenerateBasicTarget.");
+                        let mut fs = friendly_shielding;
+                        if ui.checkbox(&mut fs, "Friendly shielding").changed() {
+                            pending_commands.push(format!("set friendly_shielding {}", if fs { "on" } else { "off" }));
+                        }
+
+                        ui.horizontal(|ui| {
+                            ui.label(format!(
+                                "Teaching mode (derived): {}",
+                                if teaching_active { "ON" } else { "custom/off" }
+                            ));
+                            if ui.button("Apply teaching_mode preset").on_hover_text(
+                                "Sets simple_mode=on, lesson_realign=on, frontier_enabled=off, friendly_shielding=on"
+                            ).clicked() {
+                                pending_commands.push("set teaching_mode on".to_string());
+                            }
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label(format!(
+                                "Frontier enabled: {}",
+                                if frontier_enabled { "on" } else { "off" }
+                            ));
+                            if teaching_active {
+                                ui.label("(read-only: teaching_mode active)");
+                            }
+                        });
+
+                        ui.separator();
+                        ui.heading(format!("Friendly lemmas ({})", friendly_lemmas.len()));
+
+                        ui.horizontal(|ui| {
+                            ui.label("Add:");
+                            let resp = ui.text_edit_singleline(&mut self.state.project_flags_friendly_draft);
+                            let submit = ui.button("+").clicked()
+                                || (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                            if submit {
+                                let v = self.state.project_flags_friendly_draft.trim().to_string();
+                                if !v.is_empty() {
+                                    pending_commands.push(format!("set_friendly_lemma {}", v));
+                                    self.state.project_flags_friendly_draft.clear();
+                                }
+                            }
+                        });
+
+                        if friendly_lemmas.is_empty() {
+                            ui.label("(none)");
+                        } else {
+                            for lemma in &friendly_lemmas {
+                                ui.horizontal(|ui| {
+                                    ui.label(lemma);
+                                    if ui.small_button("✕").on_hover_text("Remove").clicked() {
+                                        pending_commands.push(format!("unset_friendly_lemma {}", lemma));
+                                    }
+                                });
+                            }
+                            if ui.button("Clear all").clicked() {
+                                pending_commands.push("clear_friendly_lemmas".to_string());
+                            }
+                        }
+
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            if ui.button("Close").clicked() {
+                                self.state.show_project_flags = false;
+                            }
+                        });
+                    });
+                });
+
+            for cmd in pending_commands {
+                self.execute_terminal_command(&cmd);
+            }
+            if !open {
+                self.state.show_project_flags = false;
             }
         }
 

@@ -12,7 +12,7 @@ use crate::simulation::{
     preprocessor, text_generator,
 };
 use crate::{parsing::json_parser, types::json_types::JsonChapter, JsonContentBlock};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
@@ -30,12 +30,21 @@ pub enum SegmentType {
 #[derive(Debug, Clone, Default)]
 pub struct BookGenerationResult {
     pub all_output_lemma_instances: Vec<String>,
+    /// V2: lemma instances with proper nouns filtered out (for corrected AVD scoring)
+    pub all_output_lemma_instances_v2: Vec<String>,
     pub total_target_words: usize,
     pub total_base_words: usize,
     pub level_stats: HashMap<OutputLevel, usize>,
     pub segment_stats: HashMap<SegmentType, usize>,
     pub final_text_parts: Vec<String>,
+    pub sentence_lemma_snapshots: Vec<SentenceLemmaSnapshot>,
     pub frontier_diagnostics: Option<FrontierDiagnostics>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SentenceLemmaSnapshot {
+    pub sentence_text: String,
+    pub lemmas_v2: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -158,9 +167,17 @@ pub fn generate_book_instance_with_frontier(
             inverse_diglot_threshold,
             frontier_engine.as_mut(),
         );
+        let pn_set: std::collections::HashSet<u32> = n_sentence.proper_noun_lemma_ids.iter().copied().collect();
+        let mut sentence_lemmas_v2: Vec<String> = Vec::new();
+
         for &lemma_id in &output.lemma_ids {
             if let Some(lemma_str) = dictionary.get_str(lemma_id) {
                 result.all_output_lemma_instances.push(lemma_str.clone());
+                // V2: only add if not a proper noun
+                if !pn_set.contains(&lemma_id) {
+                    result.all_output_lemma_instances_v2.push(lemma_str.clone());
+                    sentence_lemmas_v2.push(lemma_str.clone());
+                }
             }
         }
 
@@ -182,6 +199,10 @@ pub fn generate_book_instance_with_frontier(
             debug_markers,
         )?;
 
+        result.sentence_lemma_snapshots.push(SentenceLemmaSnapshot {
+            sentence_text: generated_text.clone(),
+            lemmas_v2: sentence_lemmas_v2,
+        });
         result.final_text_parts.push(generated_text);
         *result.level_stats.entry(output.level).or_insert(0) += 1;
 
@@ -267,6 +288,7 @@ pub fn log_analysis_to_file(
     book_instance_unique_id: &str,
     result: &BookGenerationResult,
     avd_score: f64,
+    avd_score_v2: f64,
     start_v_recipe: Option<VLevelRecipe>,
     end_v_recipe: Option<VLevelRecipe>,
     start_l_recipe: Option<LLevelRecipe>,
@@ -322,6 +344,99 @@ pub fn log_analysis_to_file(
     // --- NEW SECTION END ---
 
     writeln!(file, "  AVD Score (Density-Weighted): {avd_score:.2}")?;
+    writeln!(file, "  AVD Score (V2-Corrected):     {avd_score_v2:.2}")?;
+
+    // Diagnostics to explain score behavior and sensitivity.
+    let metrics_v1_diag = TextMetrics::new(&result.all_output_lemma_instances, result.total_base_words);
+    let metrics_v2_diag = TextMetrics::new_v2(&result.all_output_lemma_instances_v2, result.total_base_words);
+    let (v1_p85, v1_p95) = metrics_v1_diag.calculate_avd_components();
+    let (v2_p85, v2_p95) = metrics_v2_diag.calculate_avd_components();
+    writeln!(file, "  AVD Components (V1 P85/P95):  {:.0} / {:.0}", v1_p85, v1_p95)?;
+    writeln!(file, "  AVD Components (V2 P85/P95):  {:.0} / {:.0}", v2_p85, v2_p95)?;
+
+    // Mean rank over all non-PN lemma instances (repetitions included).
+    let max_rank_plus_one = frequency_manager::get_max_rank().saturating_add(1) as u64;
+    let mean_rank_v2 = if result.all_output_lemma_instances_v2.is_empty() {
+        0.0
+    } else {
+        let rank_sum: u64 = result
+            .all_output_lemma_instances_v2
+            .iter()
+            .map(|lemma| {
+                frequency_manager::rank_of_lemma_string(lemma)
+                    .unwrap_or(max_rank_plus_one as u32) as u64
+            })
+            .sum();
+        rank_sum as f64 / result.all_output_lemma_instances_v2.len() as f64
+    };
+    writeln!(file, "  Mean Rank/Token (V2, non-PN): {:>8.2}", mean_rank_v2)?;
+    writeln!(file, "  Band Avg Rank V2 (95-96):     {:>8.2}", metrics_v2_diag.average_rank_in_percentile_band(95.0, 96.0))?;
+    writeln!(file, "  Band Avg Rank V2 (96-97):     {:>8.2}", metrics_v2_diag.average_rank_in_percentile_band(96.0, 97.0))?;
+    writeln!(file, "  Band Avg Rank V2 (97-98):     {:>8.2}", metrics_v2_diag.average_rank_in_percentile_band(97.0, 98.0))?;
+    writeln!(file, "  Band Avg Rank V2 (98-99):     {:>8.2}", metrics_v2_diag.average_rank_in_percentile_band(98.0, 99.0))?;
+    writeln!(file, "  Band Avg Rank V2 (99-100):    {:>8.2}", metrics_v2_diag.average_rank_in_percentile_band(99.0, 100.0))?;
+
+    writeln!(file, "  Tail Share V2 (>=400):        {:>5.2}%", metrics_v2_diag.tail_share_pct(400))?;
+    writeln!(file, "  Tail Share V2 (>=1000):       {:>5.2}%", metrics_v2_diag.tail_share_pct(1000))?;
+    writeln!(file, "  Tail Share V2 (>=3000):       {:>5.2}%", metrics_v2_diag.tail_share_pct(3000))?;
+    writeln!(file, "  Tail Share V2 (>=8000):       {:>5.2}%", metrics_v2_diag.tail_share_pct(8000))?;
+    writeln!(file, "  Mean log10(rank) V2:          {:>5.3}", metrics_v2_diag.weighted_log_rank_mean())?;
+
+    // Lonsdale-style vocabulary coverage: % of Spanish (non-anchor) tokens
+    // whose lemma falls within the first N lemmas of the frequency list.
+    // Excludes English anchor tokens (rank=0) from both numerator and denominator.
+    writeln!(file, "  Coverage <=1000  (V2):        {:>5.2}%", metrics_v2_diag.head_share_pct(1000))?;
+    writeln!(file, "  Coverage <=2000  (V2):        {:>5.2}%", metrics_v2_diag.head_share_pct(2000))?;
+    writeln!(file, "  Coverage <=3000  (V2):        {:>5.2}%", metrics_v2_diag.head_share_pct(3000))?;
+    writeln!(file, "  Coverage <=5000  (V2):        {:>5.2}%", metrics_v2_diag.head_share_pct(5000))?;
+
+    if !result.sentence_lemma_snapshots.is_empty() {
+        let mut lemma_to_sentence_idxs: HashMap<String, Vec<usize>> = HashMap::new();
+        for (idx, snap) in result.sentence_lemma_snapshots.iter().enumerate() {
+            let mut seen_in_sentence: HashSet<&str> = HashSet::new();
+            for lemma in &snap.lemmas_v2 {
+                if seen_in_sentence.insert(lemma.as_str()) {
+                    lemma_to_sentence_idxs
+                        .entry(lemma.clone())
+                        .or_default()
+                        .push(idx);
+                }
+            }
+        }
+
+        let max_rank_plus_one = frequency_manager::get_max_rank().saturating_add(1);
+        let mut ranked_lemmas: Vec<(String, u32)> = lemma_to_sentence_idxs
+            .keys()
+            .map(|lemma| {
+                let rank = frequency_manager::rank_of_lemma_string(lemma).unwrap_or(max_rank_plus_one);
+                (lemma.clone(), rank)
+            })
+            .collect();
+        ranked_lemmas.sort_unstable_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+        writeln!(file, "\n  Top 10 Ranked Lemmas (V2, non-PN) With Sentences:")?;
+        for (lemma, rank) in ranked_lemmas.into_iter().take(10) {
+            writeln!(file, "    {} (rank {}):", lemma, rank)?;
+            if let Some(sentence_idxs) = lemma_to_sentence_idxs.get(&lemma) {
+                for &sidx in sentence_idxs {
+                    if let Some(snap) = result.sentence_lemma_snapshots.get(sidx) {
+                        let normalized = snap
+                            .sentence_text
+                            .split_whitespace()
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        let preview = if normalized.len() > 240 {
+                            format!("{}...", &normalized[..240])
+                        } else {
+                            normalized
+                        };
+                        writeln!(file, "      S{:03}: {}", sidx + 1, preview)?;
+                    }
+                }
+            }
+        }
+    }
+
     writeln!(file, "  Output Word Count Summary:")?;
     writeln!(
         file,
@@ -676,6 +791,12 @@ pub fn run_corpus_generation(
         );
         let avd_score = metrics.calculate_avd_score();
 
+        let metrics_v2 = TextMetrics::new_v2(
+            &full_book_result.all_output_lemma_instances_v2,
+            full_book_result.total_base_words,
+        );
+        let avd_score_v2 = metrics_v2.calculate_avd_score();
+
         let final_raw_text = full_book_result.final_text_parts.join("\n\n");
         let final_cleaned_text = text_generator::clean_text_for_tts(&final_raw_text);
         fs::write(tts_output_dir.join(&filename), final_cleaned_text)?;
@@ -687,6 +808,7 @@ pub fn run_corpus_generation(
             &filename,
             &full_book_result,
             avd_score,
+            avd_score_v2,
             start_v_recipe,
             end_v_recipe,
             start_l_recipe,

@@ -53,6 +53,12 @@ opener = "0.7"
 # CLI line-editing with history
 rustyline = "14"
 
+# Snowball stemmers for wlemma bucket keys (see Wlemma_Migration_Plan.md)
+rust-stemmers = "1"
+
+# Image I/O: PNG→JPEG conversion for YouTube thumbnails
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
 [dev-dependencies]
 pest = "2.7"       
 pest_derive = "2.7" 

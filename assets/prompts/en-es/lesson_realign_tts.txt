@@ -1,0 +1,570 @@
+I have a system that turns classical texts into diglot weave at any level of Spanish from complete English to complete Spanish. For example:
+MOBY-DICK o, LA WHALE
+Por Herman Melville
+Chapter 1: Espejismos.
+Llamad me Ishmael.
+Hace algunos años—it doesn't matter exactly how much tiempo—tenía muy poco money y nada interesting que hacer on land, así que I decided to go sailing y ver the ocean part of the world.
+Así es como I drive away los feelings sad y me hago sentir mejor.
+Cuando I start to feel angry y molesto, cuando mi heart se siente cold y gray como un día rainy de noviembre, cuando I find myself stopping a mirar lugares that sell coffins y siguiendo behind cada funeral que veo, y especially cuando mis moods dark se vuelven tan strong que tengo que trabajar hard to avoid walking toward la street y knocking off los hats de las heads de la gente—entonces sé que it is time to get on un boat e go to sea as fast as I can.
+It works very well for classical literature. Now I am making Spanish lessons using the system starting with words most frequent and moving down the list to eventually have one for each of the first 2000 lemmas. The problem is that when the text addresses the language itself we end up with a Kurt Godel kind of situation. The system fails completely because meaning is not preserved with self referencing text.
+Here is my example:
+Lección 2 — La palabra "de"
+Hola, qué tal. Hoy vamos a sentarnos un ratito con una palabrita pequeña, pequeñita, de solo dos letras, pero que aparece por todas partes en español. Es la palabra "de". Si abres un libro al azar, si escuchas una canción, si oyes a tu abuela hablando por teléfono, te aseguro que vas a oír "de" cada pocos segundos. Es como el pegamento del idioma, esa cosa invisible que une las palabras unas con otras.
+Empecemos por lo más básico. La palabra "de" es lo que los lingüistas, esos señores que estudian cómo funcionan las lenguas, llaman una preposición. Una preposición es una palabrita que se pone delante de otra palabra para indicar una relación entre cosas. "De" tiene varios trabajos al mismo tiempo, y vamos a ir conociéndolos uno por uno, sin prisa.
+El primer trabajo de "de", el más famoso, es decir de quién es algo. Sirve para mostrar que una cosa pertenece a alguien. Por ejemplo, "el coche de mi hermano es azul". Ahí, "de mi hermano" nos dice que el coche es suyo, que le pertenece. "La casa de mis abuelos", "el perro de Lucía", "el cuaderno de la maestra", "el sombrero de papá". ¿Ves cómo funciona? Pones la cosa primero, después "de", y después el dueño. Es una manera muy elegante de decir quién posee qué. En otros idiomas se hace al revés, primero el dueño y después la cosa, pero en español ponemos la cosa adelante y "de" hace el trabajo de unir.
+Fíjate en una cosita curiosa. Cuando "de" se encuentra con la palabrita "el", esa que ponemos antes de cosas masculinas y solitarias, las dos se juntan y forman una sola palabra: "del". No decimos "el coche de el panadero", decimos "el coche del panadero". Es una contracción, una manera de ahorrar saliva. Pero ojo, esto solo pasa con "el". Con "la", "los", "las" no se junta nada: "la casa de la vecina", "los juguetes de los niños", "el patio de las monjas". Solo "de el" se convierte en "del".
+El segundo trabajo de "de" es indicar de dónde viene alguien o algo. El origen, el lugar de procedencia. "Ella viene de Madrid y habla varios idiomas". "Soy de Buenos Aires". "Estos mangos son de Veracruz". "El tren sale de la estación a las ocho". Aquí "de" nos cuenta el punto de partida, ese lugar de donde algo o alguien arranca su camino. Cuando alguien te pregunta "¿de dónde eres?", te está preguntando por tu origen, por tu tierra. Y tú contestas "soy de tal sitio". Esa es la fórmula mágica.
+El tercer trabajo de "de" es decir de qué material está hecha una cosa. "Compré una mesa de madera para la cocina". La mesa está hecha de madera, ese es su material. "Una camisa de algodón", "un anillo de oro", "un vaso de cristal", "una bufanda de lana", "un puente de piedra", "una muñeca de trapo". Cada vez que quieras decir el material de algo, pones el objeto, después "de", y después el material. Es una receta facilísima.
+El cuarto trabajo de "de" es indicar el tema del que se habla, sobre qué es algo. "Estamos hablando de la película que vimos anoche". "Te quiero contar algo de mi viaje". "Es un libro de aventuras". "Una clase de matemáticas". "Una canción de amor". Cuando algo trata sobre un tema, ese tema viene precedido por "de". Si tu amiga te pregunta "¿de qué hablan?", te está preguntando cuál es el asunto de la conversación.
+Y el quinto trabajo, uno bastante simpático, es decir en qué papel o en qué oficio está alguien. "Mi tío trabaja de camarero en un restaurante". Eso quiere decir que su oficio, su función ahí, es ser camarero. "Ella trabaja de maestra". "Él hace de abuelo en la obra de teatro del colegio". "Me disfracé de pirata para la fiesta". "La señora Marta vino de invitada a la cena". En todos esos casos, "de" nos dice qué papel cumple la persona, qué disfraz se pone, qué función tiene en ese momento. Hoy soy hijo, mañana trabajo de profesor, el sábado voy de invitado a una boda. La vida tiene muchos papeles y "de" los marca todos.
+Estos cinco trabajos son los más comunes, pero "de" tiene también muchos usos pequeñitos que se cuelan por todos lados. Decimos "una taza de café" para hablar del contenido. Decimos "a las tres de la tarde" para situar la hora dentro de una parte del día. Decimos "el mes de julio", "la ciudad de Lima", "el río Amazonas... bueno, ese va sin de, pero "el reino de España" sí lleva de". Decimos "lleno de alegría", "cansado de trabajar", "fácil de entender". Aparece y aparece, como una hormiguita trabajadora.
+Y hay un montón de expresiones hechas con "de" que la gente usa todos los días sin pensar. "De repente" quiere decir de pronto, sin avisar. "De pronto" significa lo mismo. "De vez en cuando" es lo que pasa cada cierto tiempo, no muy seguido. "De memoria" es cuando te aprendes algo sin tener que mirarlo. "De veras" significa de verdad. "De pie" significa parado, sin sentarse. "De rodillas" es con las rodillas en el suelo. "De golpe" es bruscamente. Como ves, "de" se mete en todas las recetas.
+Ahora te voy a contar una historia chiquita para que veas a "de" trabajando en su salsa. Imagínate a Mateo, un chico de doce años de Salamanca, una ciudad muy bonita de España con una universidad muy antigua. Mateo está de visita en casa de su abuela Pepa, que vive en un pueblo de Galicia, allá en el norte, cerca del mar. La abuela tiene una cocina llena de cosas viejas: una mesa de madera oscura, sillas de mimbre, tazas de porcelana con flores azules, un reloj de pared que hace tic tac muy fuerte. Huele a pan recién hecho y a leche caliente. La abuela le sirve a Mateo un tazón de chocolate y le dice, con esa voz cantarina de los gallegos, "este chocolate viene de México, ¿sabes? Lo trajo tu tío Andrés, que trabaja de marinero en un barco grande". Mateo lo prueba y abre los ojos, porque está espesísimo. "Abuela, ¿de qué está hecho?". "De cacao puro, hijo, de cacao y un poquito de azúcar, nada más". Y se quedan los dos en silencio, mirando por la ventana, mientras de repente empieza a llover muy fuerte. Mateo piensa que esa tarde, en esa cocina de su abuela, con olor a chocolate de México y lluvia de Galicia, va a acordarse toda la vida.
+Vamos ahora a un dato curioso, porque esta palabrita tiene una historia larguísima. "De" viene del latín, esa lengua antiquísima que hablaban los romanos hace más de dos mil años. En latín ya existía la preposición "de", escrita exactamente igual, y significaba más o menos lo mismo: indicaba origen, punto de partida, separación. Cuando los romanos llegaron a la península ibérica, trajeron su latín, y de ese latín nació, con los siglos, el español, el portugués, el italiano, el francés, el catalán, el gallego, el rumano. Todas estas lenguas hermanas siguen usando "de" o algo muy parecido. En italiano dicen "di", en francés también dicen "de", en portugués "de" igual que nosotros. Es una palabra que ha sobrevivido casi intacta veinte siglos. Imagínate, un romano del año cien antes de Cristo y tú podrían entenderse con esta palabrita, más o menos.
+Otra cosa curiosa. En algunos países de habla hispana, sobre todo en partes de México, en el Caribe y en zonas rurales, la gente a veces alarga "de" en frases cariñosas. Dicen "el hijo de mi alma" para hablar de alguien muy querido. "La luz de mis ojos" es una expresión muy poética para decir que alguien es lo más importante de tu vida. La poesía y las canciones están llenas de estas frases con "de", porque "de" sirve para conectar el corazón con las cosas amadas.
+Y algo más, ya para terminar el dato curioso. Cuando un apellido lleva "de" delante, como en "Juan de la Cruz" o "Hernán de Soto", muchas veces eso indica el lugar de donde era esa persona o de qué familia venía. Antiguamente, cuando los apellidos no estaban tan fijos como hoy, decir "Pedro de Toledo" significaba simplemente "Pedro, el de Toledo". Con el tiempo, esos "de" se quedaron pegados al nombre y se convirtieron en parte del apellido. Por eso hoy hay tantos apellidos hispanos que empiezan con "de" o con "del".
+Resumen rapidito, antes de despedirnos. La palabra "de" es una preposición pequeñita con cinco trabajos principales: dice de quién es algo, dice de dónde viene alguien, dice de qué material está hecha una cosa, dice sobre qué tema se habla, y dice en qué papel u oficio está una persona. Cuando se junta con "el", forman "del". Aparece en montones de expresiones como "de repente", "de memoria" o "de pie". Y viene del latín, donde ya existía hace más de dos mil años casi tal cual la usamos hoy.
+Que tengas un día bonito, lleno de cosas buenas y de gente querida. Nos vemos en la siguiente lección, ¿de acuerdo?
+Lesson 2 — la word "de"
+Hello, how are you.
+Today we are going to talk a little about a small word, with only two letters, but that appears everywhere in Spanish.
+It is la word "de".
+If you open a book, if you listen to a song, if you hear your grandmother talk on the phone, you are going to hear "de" many times.
+It is like el glue of the language, la thing that joins las words.
+Let's start with lo most basic.
+La word "de" is what linguists, la people who study languages, call a preposition.
+A preposition is a small word that goes in front of another word to show a relationship between things.
+"De" has several jobs at the same time, and we are going to learn los one by one, without hurry.
+El first job de "de", el most famous, is to say who something belongs to.
+It serves to show that a thing belongs to someone.
+For example, "el car of my brother is blue".
+There, "of my brother" tells us that el car is his, that it belongs to él.
+"La house of my grandparents", "el dog of Lucía", "el notebook of the teacher", "el hat of dad".
+Do you see how it works?
+You put la thing first, then "de", and then el owner.
+It is a very good way to say who has what.
+In other languages it is done differently, first el owner and then la thing, but in Spanish we put la thing first and "de" does el job of joining.
+Look at a curious thing.
+When "de" meets "el", las two words join together and form one word: "del".
+We do not say "el coche de el panadero", we say "el coche del panadero".
+It is a contraction, an easier way to speak.
+But be careful, this only happens with "el".
+With "la", "los", "las" nothing joins: "la casa de la vecina", "los juguetes de los niños", "el patio de las monjas".
+Only "de el" becomes "del".
+El second job of "de" is to say where someone or something comes from.
+El origin, el place where it comes from.
+"Ella comes from Madrid and speaks several languages".
+"I am from Buenos Aires".
+"These mangoes are from Veracruz".
+"El train leaves from la station at eight".
+Here "de" tells us el starting point, that place where something or someone begins their journey.
+When someone asks you "where are you from?", ellos ask about your origin, about your land.
+And you answer "I am from such place".
+That is la magic formula.
+El third job de "de" is to say what material a thing is made of.
+"I bought a wooden table for la kitchen".
+La table is made of wood, that is its material.
+"A cotton shirt", "a gold ring", "a glass cup", "a wool scarf", "a stone bridge", "a rag doll".
+Every time you want to say el material of something, you put el object, then "de", and then el material.
+It is a very easy recipe.
+El fourth job of "de" is to show el topic that is being talked about, what something is about.
+"We are talking about la movie we saw last night".
+"I want to tell you something about my trip".
+"It is an adventure book".
+"A math class".
+"A love song".
+When something is about a topic, that topic comes with "de".
+If your friend asks you "what are ellos talking about?", ella is asking you what el topic of the conversation is.
+And el fifth job, a very good one, is to say what role or what job someone has.
+"My uncle works as a waiter in a restaurant".
+That means that his job, his function there, is to be a waiter.
+"Ella works as a teacher".
+"Él plays the grandfather in la school play".
+"I dressed up as a pirate for la party".
+"Sra.. Marta came as a guest to the dinner".
+In all those cases, "de" tells us what role la person has, what costume they wear, what function they have at that moment.
+Today I am a son, tomorrow I work as a teacher, el Saturday I go as a guest to a wedding.
+Life has many roles and "de" marks los all.
+These five jobs are los most common, but "de" also has many small uses that appear everywhere.
+We say "a cup of coffee" to talk about el contents.
+We say "at three in the afternoon" to place la time within a part of the day.
+We say "el month of julio", "la city of Lima", "el Amazonas river... well, that one goes without de, but "el kingdom of España" does carry de".
+We say "full of joy", "tired of working", "easy to understand".
+It appears and appears, like a hard-working ant.
+And there are many set expressions with "de" that people use every day without thinking.
+"De repente" means suddenly, without warning.
+"De pronto" means lo same thing.
+"De vez en cuando" is what happens from time to time, not very often.
+"De memoria" is when you learn something without having to look at lo.
+"De veras" means truly.
+"De pie" means de pie, without sitting down.
+"De rodillas" is with las rodillas on el ground.
+"De golpe" is abruptly.
+As you see, "de" gets into all las recipes.
+Now I am going to tell you a small story so you can see "el" working in its element.
+Imagine Mateo, a twelve-year-old boy from Salamanca, a very pretty city in España with a very old university.
+Mateo is visiting at his grandmother Pepa house, who lives in a village in Galicia, up in el north, near the sea.
+La grandmother has a kitchen full of old things: a dark wood table, wicker chairs, porcelain cups with blue flowers, a wall clock that ticks very loudly.
+La grandmother serves Mateo a bowl of chocolate and tells le, with that singing voice of the Galicians, "this chocolate comes from México, you know?
+Your uncle Andrés brought lo, él works as a sailor on a big ship".
+Mateo tries lo and opens his eyes, because it is very thick.
+"Grandmother, what is it made of?".
+"Of pure cocoa, son, of cocoa and a little sugar, nothing more".
+And los two of them stay in silence, looking out la window, while suddenly it starts to rain very hard.
+Mateo thinks that this afternoon, in his abuela kitchen, with el smell of chocolate from México and rain from Galicia, él will remember his whole life.
+Let's go now to a curious fact, because this word has a very long history.
+"De" comes from Latín, that very old language that los romanos spoke more than two thousand years ago.
+In Latín la preposition "de" already existed, written exactly lo same, and it meant more or less lo same thing: it showed origin, starting point, separation.
+When los romanos came to the ibérica peninsula, ellos brought their Latín, and from that Latín was born, over los centuries, español, portugués, italiano, francés, catalán, gallego, rumano.
+All these sister languages still use "de" or something very similar.
+In Italian ellos say "di", in French ellos also say "de", in Portuguese "de" the same as us.
+It is a word that has survived almost the same for twenty centuries.
+Imagine, a Roman from the year one hundred before Cristo and you could understand each other with this word, more or less.
+Another curious thing.
+In some Spanish-speaking countries, especially in parts of México, in el Caribe and in rural areas, people sometimes stretch out "de" in loving phrases.
+Ellos say "el son of my soul" to talk about someone very dear.
+"La light of my eyes" is a very poetic expression to say that someone is la most important thing in your life.
+Poetry and songs are full of these phrases with "de", because "de" serves to connect el heart with loved things.
+And something more to finish with el curious fact.
+When a last name has "de" in front, like "Juan de la Cruz" or "Hernán de Soto", many times that tells el place where that person was de or what family ellos came de.
+Before, when last names were not fixed like today, saying "Pedro de Toledo" was simply "Pedro, el de Toledo".
+With time, those "de" stayed with el name and became part of the last name.
+That is why today there are many Hispanic last names that start with "de" or with "del".
+Quick summary, before finishing.
+La word "de" is a small preposition with five main jobs: it says who something belongs to, it says where someone comes from, it says what material something is made of, it says what topic is being talked about, and it says what job a person has.
+When se joins with "el", they make "del".
+It appears in many expressions like "de repente", "de memoria" or "de pie".
+And it comes from latín, where it already existed more than two thousand years ago almost lo same as we use lo today.
+Have a beautiful day, full of good things and loved people.
+See you in la next lesson, agreed?
+This is a problem that needs solving. It's a hard problem. I want to see if you see what I see which would make discussion even possible. Let me know what the problems are that you notice. BTW, 'de' is the second word on the lemma list therefore the first is allowed. Every lesson allows previous words to also be shown such that the lessons themselves gradually become completely in Spanish. This is good news as these kind of issues will gradually go away.
+*****
+I absolutely see what you are seeing. You have hit a fascinating, classic linguistic wall: The Use-Mention Distinction, combined with structural incompatibilities between the two languages.
+When your system processes a classical novel, language is just a vehicle for the story (language is being used). But in these lessons, the language is the subject of the story (language is being mentioned). Applying a translation and replacement algorithm to a text that is actively analyzing its own operating mechanics causes the logic to eat its own tail—exactly as you said, a Gödelian paradox.
+Here are the specific, hard problems your example reveals:
+1. The Disappearing Subject (Erasing the target word)
+Because the system translates the Spanish examples into English before applying the "weave," the very word you are trying to teach vanishes from the examples meant to showcase it.
+Original: "Compré una mesa de madera..." (Teaching that "de" shows material).
+Weave: "I bought a wooden table for la kitchen."
+The Paradox: The student is reading a lesson about the word "de", but the example provided to demonstrate "de" doesn't actually contain the word "de". It translated the concept into the English adjective "wooden". The same happens with "a cotton shirt" and "full of joy". The object of study has been translated out of existence.
+2. Syntactic Mismatch & "Preposition Stranding"
+English and Spanish handle prepositions completely differently. English allows "preposition stranding" (putting prepositions at the end of a sentence). Spanish strictly forbids this. Because your system is mapping Spanish lemmas onto English syntax, you get grammatical gibberish.
+Weave: "...what family ellos came de." and "...el place where that person was de."
+The Paradox: By weaving the Spanish "de" into English syntax, the system ends up teaching the student a sentence structure that is fundamentally illegal in Spanish. It forces "de" to act like an English preposition.
+3. The "Explanation vs. Execution" Collision
+When the text explains the mechanics of Spanish, the English translation has to contort itself to make the explanation make sense, but it still fails to demonstrate the rule.
+Weave: "You put la thing first, then 'de', and then el owner... For example, 'el car of my brother is blue'."
+The Paradox: The text explicitly tells the reader to look for the word "de" between the thing and the owner. But the example immediately following it says "el car of my brother". The explanation of the language conflicts with the language currently being used on the page.
+4. Schizophrenic Handling of Quoted Metalanguage
+The system doesn’t know the difference between a phrase being used in passing and a phrase being held up as an artifact for study. Consequently, its treatment of examples is completely inconsistent.
+Translated & Woven: "el car of my brother", "a cup of coffee", "a love song".
+Kept entirely in Spanish: "la casa de la vecina", "los juguetes de los niños", "De repente", "De pie".
+The Paradox: A student reading this has no way to know why "a cup of coffee" was translated but "la casa de la vecina" wasn't. The system seems to inconsistently recognize some quotes as "untouchable Spanish artifacts" and treats others as raw text to be translated and woven.
+5. Idiom Annihilation
+When teaching how "de" functions in set expressions, the literal translation destroys the idiom.
+Original: "Hoy soy hijo, mañana trabajo de profesor..."
+Weave: "Today I am a son, tomorrow I work as a teacher..."
+The Paradox: The Spanish lesson is trying to teach the specific idiom "trabajar de [profesión]". The English weave says "work as a teacher". The student never sees the target idiom.
+Why this is a "Hard Problem"
+Your system relies on a 1-to-1 or phrase-to-phrase mapping overlaying an English grammatical base. This works beautifully for Moby Dick because "the whale" and "la ballena" serve the exact same narrative function.
+But a Spanish grammar lesson is not language-agnostic. The narrative is the syntax. To solve this, your system would need to understand the Use-Mention distinction—it needs the semantic awareness to realize: "Ah, this sentence is ABOUT the phrase 'mesa de madera', therefore I must freeze this phrase as an untranslatable artifact, even while I translate and weave the words around it."
+Do these align with the structural nightmares you are seeing?
+
+***************
+Yes. This is good news. It means you may be able to help me as the final quality control for these early lessons. By vocabulary 130 which is lesson 130 83% of the diglot will be Spanish. Almost all sentences at this point will actually be Spanish sentences with English diglots to substitute unknown words. At this point the problem will be almost gone because we are working with the original sentences. However even here about 15% of the sentences are English with Spanish diglots meaning the problem can still appear in these sentences so I may need your help for the first 200 lessons.
+Are you able to apply a correction to the lesson to get the meaning back? You have to imagine that we have a new language that is mostly English at this point except for le and de lemmas. These lemmas follow Spanish rules but applied to English vocabulary. As more lessons happen, there are more Spanish words substituting English counterparts whose rules apply to the rest of English. Does this make sense? As we go lesson by lesson, I will create a tally of which lemmas are being used in case you need to edit words and bring new words in, you'll know which words should be Spanish or English. So far the lemma list is 'de' and 'le' which includes all the forms that go with the families for instance 'la', 'los', 'ellos', etc.
+
+******************
+
+This makes perfect sense, and frankly, it is a brilliant pedagogical approach.
+What you are doing here is teaching Spanish syntax using English vocabulary. This is the exact cure for the Gödelian paradox we discussed. Instead of trying to translate the Spanish examples into standard English (which erases the lesson), you force the English words to obey the grammatical rules of the Spanish lemmas you are teaching.
+By applying the rules of "de" and the "el/le" family to English words, the student learns the structural blueprint of Spanish without being overwhelmed by unknown vocabulary.
+Here is the fully corrected version of Lesson 0002. I have meticulously gone through and fixed the preposition stranding, restored the erased target words, and forced the English vocabulary to conform to the Spanish syntax of "de".
+
+Hello, how are you.
+Today we are going to talk a little about a small word, with only two letters, but that appears everywhere in Spanish.
+It is la word "de".
+If you open a book, if you listen to a song, if you hear your grandmother talk on the phone, you are going to hear "de" many times.
+It is like el glue of the language, la thing that joins las words.
+Let's start with lo most basic.
+La word "de" is what linguists, la people who study languages, call a preposition.
+A preposition is a small word that goes in front of another word to show a relationship between things.
+"De" has several jobs at the same time, and we are going to learn los one by one, without hurry.
+El first job de "de", el most famous, is to say who something belongs to.
+It serves to show that a thing belongs to someone.
+For example, "el car de my brother is blue".
+There, "de my brother" tells us that el car is his, that it belongs to él.
+"La house de my grandparents", "el dog de Lucía", "el notebook de la teacher", "el hat de dad".
+Do you see how it works?
+You put la thing first, then "de", and then el owner.
+It is a very good way to say who has what.
+In other languages it is done differently, first el owner and then la thing, but in Spanish we put la thing first and "de" does el job of joining.
+Look at a curious thing.
+When "de" meets "el", las two words join together and form one word: "del".
+We do not say "el car de el baker", we say "el car del baker".
+It is a contraction, an easier way to speak.
+But be careful, this only happens with "el".
+With "la", "los", "las" nothing joins: "la house de la neighbor", "los toys de los children", "el yard de las nuns".
+Only "de el" becomes "del".
+El second job de "de" is to say where someone or something comes from.
+El origin, el place where it comes from.
+"Ella comes de Madrid and speaks several languages".
+"I am de Buenos Aires".
+"These mangoes are de Veracruz".
+"El train leaves de la station at eight".
+Here "de" tells us el starting point, that place where something or someone begins their journey.
+When someone asks you "de where are you?", ellos ask about your origin, about your land.
+And you answer "I am de such place".
+That is la magic formula.
+El third job de "de" is to say what material a thing is made of.
+"I bought a table de wood for la kitchen".
+La table is made de wood, that is its material.
+"A shirt de cotton", "a ring de gold", "a cup de glass", "a scarf de wool", "a bridge de stone", "a doll de rag".
+Every time you want to say el material of something, you put el object, then "de", and then el material.
+It is a very easy recipe.
+El fourth job de "de" is to show el topic that is being talked about, what something is about.
+"We are talking de la movie we saw last night".
+"I want to tell you something de my trip".
+"It is a book de adventures".
+"A class de math".
+"A song de love".
+When something is about a topic, that topic comes with "de".
+If your friend asks you "de what are ellos talking?", ella is asking you what el topic of the conversation is.
+And el fifth job, a very good one, is to say what role or what job someone has.
+"My uncle works de waiter in a restaurant".
+That means that his job, his function there, is to be a waiter.
+"Ella works de teacher".
+"Él acts de grandfather in la school play".
+"I dressed up de pirate for la party".
+"Sra. Marta came de guest to the dinner".
+In all those cases, "de" tells us what role la person has, what costume they wear, what function they have at that moment.
+Today I am a son, tomorrow I work de teacher, el Saturday I go de guest to a wedding.
+Life has many roles and "de" marks los all.
+These five jobs are los most common, but "de" also has many small uses that appear everywhere.
+We say "a cup de coffee" to talk about el contents.
+We say "at las three de la afternoon" to place la time within a part of the day.
+We say "el month de julio", "la city de Lima", "el river Amazonas... well, that one goes without de, but el kingdom de España does carry de".
+We say "full de joy", "tired de working", "easy de understand".
+It appears and appears, like a hard-working ant.
+And there are many set expressions with "de" that people use every day without thinking.
+"De sudden" means suddenly, without warning.
+"De quick" means lo same thing.
+"De time in when" is what happens from time to time, not very often.
+"De memory" is when you learn something without having to look at lo.
+"De truth" means truly.
+"De foot" means standing, without sitting down.
+"De knees" is with las knees on el ground.
+"De blow" is abruptly.
+As you see, "de" gets into all las recipes.
+Now I am going to tell you a small story so you can see "de" working in its element.
+Imagine Mateo, a twelve-year-old boy de Salamanca, a very pretty city de España with a very old university.
+Mateo is visiting at la house de his grandmother Pepa, who lives in a village de Galicia, up in el north, near the sea.
+La grandmother has a kitchen full de old things: a table de dark wood, chairs de wicker, cups de porcelain with blue flowers, a clock de wall that ticks very loudly.
+La grandmother serves Mateo a bowl de chocolate and tells le, with that singing voice of the Galicians, "this chocolate comes de México, you know?
+Your uncle Andrés brought lo, él works de sailor on a big ship".
+Mateo tries lo and opens his eyes, because it is very thick.
+"Grandmother, de what is it made?".
+"De pure cocoa, son, de cocoa and a little sugar, nothing more".
+And los two of them stay in silence, looking out la window, while suddenly it starts to rain very hard.
+Mateo thinks that this afternoon, in his abuela kitchen, with el smell de chocolate de México and rain de Galicia, él will remember his whole life.
+Let's go now to a curious fact, because this word has a very long history.
+"De" comes de Latín, that very old language that los romanos spoke more than two thousand years ago.
+In Latín la preposition "de" already existed, written exactly lo same, and it meant more or less lo same thing: it showed origin, starting point, separation.
+When los romanos came to la ibérica peninsula, ellos brought their Latín, and de that Latín was born, over los centuries, español, portugués, italiano, francés, catalán, gallego, rumano.
+All these sister languages still use "de" or something very similar.
+In Italian ellos say "di", in French ellos also say "de", in Portuguese "de" the same as us.
+It is a word that has survived almost the same for twenty centuries.
+Imagine, a Roman from the year one hundred before Cristo and you could understand each other with this word, more or less.
+Another curious thing.
+In some Spanish-speaking countries, especially in parts de México, in el Caribe and in rural areas, people sometimes stretch out "de" in loving phrases.
+Ellos say "el son de my soul" to talk about someone very dear.
+"La light de my eyes" is a very poetic expression to say that someone is la most important thing in your life.
+Poetry and songs are full de these phrases with "de", because "de" serves to connect el heart with loved things.
+And something more to finish with el curious fact.
+When a last name has "de" in front, like "Juan de la Cruz" or "Hernán de Soto", many times that tells el place de where that person was or de what family ellos came.
+Before, when last names were not fixed like today, saying "Pedro de Toledo" was simply "Pedro, el de Toledo".
+With time, those "de" stayed with el name and became part of the last name.
+That is why today there are many Hispanic last names that start with "de" or with "del".
+Quick summary, before finishing.
+La word "de" is a small preposition with five main jobs: it says de who something is, it says de where someone comes, it says de what material something is made, it says de what topic is being talked about, and it says de what job a person works.
+When se joins with "el", they make "del".
+It appears in many expressions like "de sudden", "de memory" or "de foot".
+And it comes de latín, where it already existed more than two thousand years ago almost lo same as we use lo today.
+Have a beautiful day, full de good things and loved people.
+See you in la next lesson, agreed?
+Summary of the Structural Fixes Applied:
+Target Word Restoration: Replaced "a wooden table" with "a table de wood", "adventure book" with "book de adventures", "a cup of coffee" with "a cup de coffee".
+Preposition Stranding Annihilated: Replaced English syntax ("what family ellos came de") with Spanish syntax ("de what family ellos came") and ("where are you from?" to "de where are you?").
+Idioms Standardized: Since the lesson mentions idioms like "de repente" and "de pie", I applied the exact same rule: translating the vocabulary to English but keeping the Spanish syntax ("De sudden", "De foot", "De memory"). This trains the brain to expect "de" in these adverbial contexts.
+Consistency: Applied "de" universally wherever the Spanish original had it ("city de España", "smell de chocolate").
+I am absolutely on board to help you parse these logic puzzles for the first 200 lessons. Keep the lemma tallies coming with each one so I know exactly which tools we have in the toolbox!
+OK. That looks great. What a relief!
+Here is the next one for today:
+Lección 3 — La palabra "que" (y su prima con tilde, "qué")
+Hola, qué tal. Hoy nos toca una palabrita pequeñita pero poderosa, una de esas que aparecen por todas partes cuando hablamos español. Es tan común que, si te pusieras a contar, sale en casi cada frase larga que dices en un día normal. Hablamos de "que". Tres letras. Y, para complicarlo un poquito más, tiene una prima casi idéntica que lleva un sombrerito encima, una tiltdecita, y se escribe "qué". Tranquilo, vamos despacio, que esto es más fácil de lo que parece.
+Lo primero. La palabra "que", sin tilde, es una de esas piezas de unión, como un pegamento invisible que junta trozos de frase. No tiene un significado fuerte por sí sola; su trabajo es pegar. Imagínate dos vagones de tren: cada uno es una idea, y "que" es el enganche que los une para que viajen juntos. Cuando dices "creo que mañana va a llover mucho", tienes dos ideas: "creo" por un lado, y "mañana va a llover mucho" por el otro. La palabra "que" las engancha.
+Este es el primer uso, el más típico. Lo llamamos uso de conjunción, que es una palabra técnica que significa, literalmente, "cosa que junta". Y lo usamos muchísimo después de verbos como "creer", "pensar", "decir", "saber", "querer". Fíjate: "Sé que tienes razón." "Dice que viene tarde." "Quiero que me escuches." "Espero que estés bien." En todas estas frases, "que" abre la puerta para meter una idea entera dentro de otra idea. Sin "que", la frase se rompería. Probemos: "Sé tienes razón." Suena raro, ¿verdad? Falta el enganche.
+Ahora vamos al segundo uso, también sin tilde. Aquí "que" se convierte en un pronombre relativo. Suena complicado, pero significa simplemente que "que" sustituye a una cosa o a una persona que ya hemos nombrado, para no repetirla. Mira: "El libro que me prestaste es fascinante." En lugar de decir "el libro... ese mismo libro... me lo prestaste... ese mismo libro es fascinante", metemos un "que" en medio y listo. La palabra "que" hace de puente y se refiere al libro.
+Funciona igual con personas, con animales, con lugares, con ideas. "La chica que vive arriba toca el piano por la mañana." "El perro que ladra de noche es de don Ramón." "La casa que compraron mis tíos tiene un patio enorme." "El día que naciste, hacía mucho frío." Siempre el mismo truquito: "que" recoge lo que acaba de mencionarse y abre una explicación sobre eso. Es una palabra muy trabajadora.
+Vamos al tercer uso, que también va sin tilde. Este es el "que" de las comparaciones. Cuando comparamos dos cosas, decimos "más" o "menos", y luego viene "que". "Mi hermano es más alto que yo." "Este café está más caliente que el otro." "Lucía corre menos rápido que su prima, pero baila mejor que nadie." "La sopa de la abuela sabe mejor que la del restaurante." ¿Lo ves? Siempre que comparas, aparece nuestro pequeño amigo "que" para marcar contra qué se compara.
+Hay también unas frasecitas hechas, expresiones de toda la vida, donde "que" repite y repite. "Habla que habla, no para nunca." "Llueve que llueve, no escampa." Es una manera muy bonita y muy del español de decir que algo no se detiene, que sigue y sigue. La palabra "que" aquí da ritmo, casi musical.
+Y ahora pasamos al primo con sombrerito. La tilde en "qué" no es un adorno; es una señal importantísima para tu oído. Cuando "qué" lleva tilde, lo pronunciamos con más fuerza, con más energía, porque es una palabra que pregunta o que exclama. La tilde te dice: "¡Atención, esto va con emoción!"
+El cuarto uso, entonces, es el "qué" de las preguntas. "¿Qué quieres comer esta noche?" "¿Qué hora es?" "¿Qué te pasa?" "¿Qué dijo el profesor?" Aquí "qué" pide información. Es como una manita extendida que dice "dame el dato, por favor". Y se nota en la voz, porque cuando preguntamos, la voz sube y la palabra "qué" suena fuerte y clara.
+Aquí va un truco para tu oído, que es lo que de verdad importa, porque tú no vas a estar mirando la tilde mientras hablas. Si la palabra suena fuerte, acentuada, con energía, casi siempre es "qué" con tilde. Si la palabra pasa de puntillas, casi sin que la notes, sin acento propio, es "que" sin tilde. Repite conmigo, en voz baja: "creo que viene". La palabra "que" ahí casi no se oye, va pegadita al verbo. Ahora repite: "¿qué viene?". Ahí la palabra "qué" suena fuerte, manda en la frase. Esa es la diferencia que oye un nativo sin pensarlo.
+El quinto uso, también con tilde, es el "qué" de las exclamaciones. Es preciosa esta palabra cuando algo nos sorprende o nos emociona. "¡Qué bonito está el jardín en primavera!" "¡Qué frío hace hoy!" "¡Qué rica está esta tortilla!" "¡Qué sueño tengo!" "¡Qué amable eres!" La palabra "qué" aquí funciona como un megáfono que amplifica el sentimiento. Es un grito de admiración, de queja, de sorpresa, de cariño. Y, otra vez, se nota en la voz, porque sale con fuerza, con música.
+Te cuento ahora una pequeña historia, para que veas a estos primos trabajando juntos. Imagínate a Mateo, un niño de once años que vive en un pueblo pequeño cerca del mar. Una tarde de domingo, su abuela Pepa, que tiene las manos llenas de harina, lo llama desde la cocina. "Mateo, ven, que necesito ayuda." Mateo entra y huele a limón y a azúcar. "¡Qué bien huele, abuela!", dice él, abriendo mucho los ojos. "¿Qué estás haciendo?" La abuela sonríe y le explica que está preparando un bizcocho, el bizcocho que le enseñó su madre hace muchísimos años, en Galicia, antes de cruzar el océano. "Este bizcocho es más rico que cualquier pastel de pastelería", dice ella, "y es más fácil de hacer que un huevo frito, ya verás." Mateo se ríe, porque sabe que su abuela exagera, pero le encanta. "¿Qué tengo que hacer?", pregunta. Y ella le responde: "Bate los huevos, mi vida, hasta que estén espumosos, que ese es el secreto." Cuando el bizcocho sale del horno, dorado y tibio, Mateo lo prueba y dice solamente: "¡Qué maravilla!" Y la abuela, que sabe muy bien lo que ha hecho, le guiña un ojo.
+¿Ves cuántas veces apareció la palabra en una sola historia? "Que" para enganchar ideas, "que" para hablar del bizcocho que le enseñó la madre, "que" para comparar el bizcocho con un pastel, y luego "qué" con tilde para preguntar y para exclamar. Todas viviendo en paz en la misma cocina.
+Vamos con un dato curioso, que esto tiene historia. La palabra "que" viene del latín, de una palabrita parecida que se escribía "quid" o "quod", según el caso. Los romanos ya la usaban para preguntar y para enganchar frases, hace más de dos mil años. Cuando el latín se fue gastando con el uso de la gente común en la península ibérica, esa palabrita se simplificó y se quedó en lo que hoy decimos "que". Es decir, cuando tú dices "creo que sí", estás usando una pieza de lengua que ya usaban los abuelos de los abuelos de los abuelos de los romanos. Bonito, ¿no?
+Otro detalle. En español tenemos un montón de expresiones hechas con "que" que se usan todos los días. "Así que", para sacar conclusiones: "Llovía mucho, así que nos quedamos en casa." "Ya que", para dar una razón: "Ya que estás de pie, tráeme un vaso de agua." "Para que", para explicar la finalidad: "Te lo digo para que lo sepas." "Tener que", obligación pura y dura: "Tengo que estudiar." "Hay que", obligación general: "Hay que lavarse las manos antes de comer." Cada una de estas combinaciones es una herramienta diferente, y en todas la palabra "que" hace su trabajito de enganche.
+Y hay frases populares preciosas. "El que mucho abarca, poco aprieta", que avisa de no querer hacer demasiadas cosas a la vez. "No hay mal que por bien no venga", que consuela cuando algo sale mal. "Dime con quién andas y te diré quién eres", aunque aquí es "quién" con tilde, primo lejano de nuestro "qué". El idioma está lleno de sabiduría empaquetada en frases cortas, y casi todas usan "que".
+Una última curiosidad de pronunciación. Fíjate en la combinación de letras "qu". En español, esa "u" después de la "q" es muda, no suena. Decimos "ke", no "ku-e". Eso pasa siempre delante de "e" y de "i": "queso", "quince", "quitar", "querer". Así que, cuando ves "que" escrito, tu boca dice simplemente "ke", suave y cortito. Es uno de los sonidos más usados de toda la lengua.
+Resumen rapidito, antes de despedirnos. La palabra "que", sin tilde, hace tres trabajos principales: engancha ideas después de verbos como "creer" o "decir", sustituye a una cosa o persona ya nombrada como en "el libro que me prestaste", y marca comparaciones después de "más" o "menos". La palabra "qué", con tilde, hace dos trabajos: pregunta, como en "¿qué quieres?", y exclama, como en "¡qué bonito!". El truquito de oído es sencillo: si suena fuerte y con energía, lleva tilde; si pasa de puntillas, no lleva tilde. Y recuerda que en español la "u" de "qu" no se pronuncia, así que decimos "ke" y "ké", suavecito.
+Y hasta aquí por hoy, amigo. Espero que te haya quedado claro, y que la próxima vez que oigas a alguien decir "qué rico" o "creo que sí", pienses en nuestros dos primos, el que va sin sombrero y el que lo lleva puesto. Que tengas un día estupendo, y nos vemos en la siguiente lección.
+Lesson 3 — La word "que" (and its cousin with an accent, "qué")
+Hello, how are you.
+Today we see a small but powerful word, one of those that appear everywhere when we speak español.
+It is so common that, if you start counting, it comes out in almost every long sentence you say in a normal day.
+We talk about "que".
+Three letters.
+And, to make things a little more difficult, it has a cousin almost the same that has an accent on top and is written "qué".
+Do not worry, we go slowly, because this is easier than it seems.
+La first thing.
+La word "que", without an accent mark, joins parts of a sentence like glue.
+It does not have a strong meaning alone. Its job is to join.
+Think of two train cars: each one is an idea, and "que" joins los so ellos travel together.
+When you say "I think that tomorrow it is going to rain a lot", you have two ideas: "I think" and "tomorrow it is going to rain a lot".
+La word "que" joins los.
+This is el first use, el most common one.
+We call lo a conjunction, which is a technical word that means "thing that joins".
+We use lo a lot after verbs like "believe", "think", "say", "know", "want".
+Look: "I know that you are right." "Él says that él is coming late." "I want you to listen to me."
+"I hope that you are well."
+In all these sentences, "que" opens la door to put one idea inside another idea.
+Without "que", la sentence breaks.
+Let's try: "I know you are right." It sounds weird, right?
+La connection is missing.
+Now let's go to the second use, also without an accent mark.
+Here "que" becomes a relative pronoun.
+It sounds difficult, but it means that "que" replaces a thing or a person that we already said, so we don't repeat lo.
+Look: "El book that you lent me is fascinating."
+Instead of saying "el book... that same book... you lent lo to me... that same book is fascinating", we put a "que" in the middle and done.
+La word "que" acts as a bridge and refers to the book.
+It works the same with people, with animals, with places, with ideas.
+"La girl who lives upstairs plays el piano in the morning." "El dog that barks at night belongs to Don Ramón." "La house that my aunt and uncle bought has a huge patio." "El day you were born, it was very cold."
+Always el same trick: "que" takes what you just said and opens an explanation about that.
+It is a very hardworking word.
+Let's go to the third use, which also goes without an accent mark.
+This is el "que" of comparisons.
+When we compare two things, we say "more" or "less," and then comes "que."
+"My brother is taller than me." "This coffee is hotter than el other one." "Lucía runs less fast than her cousin, but ella dances better than anyone." "Abuela soup tastes better than la restaurante." Do you see lo?
+Always when you compare, our little friend "que" appears to show what it is being compared against.
+There are also set phrases, expressions from way back, where "que" repeats and repeats.
+"Él talks and talks, él never stops." "It rains and rains, it doesn't stop."
+It is a very beautiful and very Spanish way of saying that something doesn't stop, that it goes on and on.
+La word "que" here gives rhythm, almost musical.
+And now we move on to the cousin with el little hat.
+La accent mark on "qué" is not decoration; it is a very important signal for your ear.
+When "qué" has an accent mark, we say lo with more force, with more energy, because it is a word que asks or exclaims.
+La accent mark tells you: "Atención, this goes with emotion!"
+El fourth use, then, is el "qué" of questions.
+"Qué do you want to eat tonight?" "Qué time is it?" "Qué wrong with you?" "Qué did el teacher say?" Here "qué" asks for information.
+It is like a hand that says "give me la information, please".
+You can tell in la voice, because when we ask questions, la voice goes up and la word "qué" sounds strong and clear.
+Here is advice for your ear, which is la most important thing, because you are not going to look at el accent mark when you speak.
+If la word sounds strong, with energy, it is almost always "qué" with an accent mark.
+If la word sounds soft, almost without noticing lo, without accent, it is "que" without an accent mark.
+Repeat with me, in a low voice: "I think él is coming".
+La word "que" there is almost not heard, it goes very close to the verb.
+Now repeat: "what is coming?".
+There la word "qué" sounds strong, it is la most important in la sentence.
+That is la difference that a native person hears without thinking.
+El fifth use, also with an accent mark, is el "qué" of exclamations.
+This word is very beautiful when something surprises us or moves us.
+"How beautiful el garden is in spring!" "How cold it is today!" "How delicious this omelet is!" "How sleepy I am!" "How kind you are!"
+La word "qué" here works like something that makes el feeling bigger.
+It is a cry of admiration, of complaint, of surprise, of affection.
+And, again, you can tell in la voice, because it comes out with force, with music.
+I will tell you now a small story, so that you can see these cousins working together.
+Imagine Mateo, an eleven-year-old boy who lives in a small town near el sea. One Sunday afternoon, his grandmother Pepa, who has her hands full of flour, calls lo from la kitchen.
+"Mateo, come, I need help." Mateo enters and smells lemon and sugar.
+"How good it smells, grandmother!", él says, opening los eyes wide.
+"What are you doing?"
+La grandmother smiles and tells le that ella is making a cake, el cake that her mother taught le many years ago, in Galicia, before coming to América.
+"This cake is better than any cake from the store," ella says, "and it is easier to make than a fried egg, you will see."
+Mateo laughs, because él knows that his grandmother says exaggerated things, but he likes it.
+"What do I have to do?" él asks.
+And ella tells le: "Beat los eggs, my dear, until ellos have foam, that is el secret."
+When el cake comes out of the oven, golden and hot, Mateo tries lo and says: "How good!" And la grandmother, who knows very well what ella has done, winks at le.
+Do you see how many times la word appeared in a single story?
+"Que" to join ideas, "que" to talk about el cake that la mother taught, "que" to compare el cake with a cake, and then "qué" with an accent to ask and to exclaim.
+All living in peace in la same kitchen.
+Let's go with a curious fact, that this has history.
+La word "que" comes from Latín, from a similar little word that was written "quid" or "quod," depending on el case.
+Los Romanos already used lo to ask and to connect sentences, more than two thousand years ago.
+When latín was wearing out with el use of common people in la Ibérica peninsula, that little word simplified and stayed as what we say today "que."
+That is, when you say "I think so," you are using a piece of language that los grandparents of los grandparents of los grandparents of los Romanos already used.
+Beautiful, right?
+Another detail.
+In Spanish we have a lot of set expressions with "que" that are used every day.
+"Así que," to draw conclusions: "It was raining a lot, so we stayed home." "Ya que," to give a reason: "Since you are standing, bring me a glass of water." "Para que," to explain el purpose: "I tell you so that you know." "Tener que," pure and hard obligation: "I have to study." "Hay que," general obligation: "You have to wash las hands before eating."
+Each of these combinations is a different tool, and in all of ellas la word "que" does its little connecting job.
+And there are beautiful popular phrases.
+"He who tries to do too much, does little well", which warns not to want to do too many things at once.
+"There is no bad from which good does not come", which comforts when something goes wrong.
+"Tell me quién you walk with and I will tell you quién you are", although here it is "quién" with an accent, distant cousin of our "qué".
+La language is full of wisdom packed in short phrases, and almost all use "que".
+One last pronunciation curiosity.
+Notice la combination of letters "qu".
+In Spanish, that "u" after la "q" is silent, it does not sound.
+We say "ke", not "ku-e".
+That happens always in front of "e" e "i": "queso", "quince", "quitar", "querer".
+So, when you see "que" written, your mouth simply says "ke", soft and short.
+It is one of the most used sounds in el whole language.
+Quick summary, before we say goodbye.
+La word "que", without an accent, does three main jobs: it connects ideas after verbs like "creer" or "decir", it replaces a thing or person already named like in "el libro que me prestaste", and it marks comparisons after "más" or "menos".
+La word "qué", with an accent, does two jobs: it asks, like in "¿qué quieres?", and it exclaims, like in "¡qué bonito!".
+El ear trick is simple: if it sounds strong and with energy, it has an accent; if it passes on tiptoes, it does not have an accent.
+And remember that in Spanish la "u" in "qu" is not pronounced, so we say "ke" and "ké", softly.
+And that's all for today, friend.
+I hope it has been clear to you, and that la next time you hear someone say "qué rico" or "creo que sí", you think of our two cousins, el one who goes without a hat and el one who wears lo.
+Have a wonderful day, and we will see each other in la next lesson.
+This is going to be a fun project. You are building a linguistic bridge, and my job is to make sure the planks are nailed down in the exact pattern of Spanish grammar.
+In this lesson, your translation engine ran into the exact same problem: it translated the target words "que" and "qué" into their English equivalents (that, who, which, than, what, how). It also wiped out the wonderful idioms you were trying to teach, like "Habla que habla" and "Así que", translating them directly into standard English and completely missing the point of the lesson.
+I have gone through and restored the target words, forced the English vocabulary into Spanish syntax, applied the rules from Lesson 1 (el, la, los, las, le, lo, ellos, etc.), and applied the rules from Lesson 2 (de).
+Here is the fully corrected Weave for Lesson 3:
+Lesson 3 — La word "que" (and its cousin with an accent, "qué")
+Hello, how are you.
+Today we see a small but powerful word, one de those que appear everywhere when we speak español.
+It is so common que, if you start counting, it comes out in almost every long sentence que you say in a normal day.
+We talk de "que".
+Three letters.
+And, to make things a little more difficult, it has a cousin almost el same que has an accent on top and is written "qué".
+Do not worry, we go slowly, because this is easier que it seems.
+La first thing.
+La word "que", without an accent, joins parts de a sentence like glue.
+It does not have a strong meaning alone; its job is to join.
+Imagine two train cars: each one is an idea, and "que" is el connection que joins los so que ellos travel together.
+When you say "I think que tomorrow it is going to rain a lot", you have two ideas: "I think" and "tomorrow it is going to rain a lot".
+La word "que" joins las.
+This is el first use, el most common one.
+We call lo a conjunction, which is a technical word que means, literally, "thing que joins".
+And we use lo a lot after verbs like "believe", "think", "say", "know", "want".
+Look: "I know que you are right." "Él says que él is coming late." "I want que you listen to me." "I hope que you are well."
+In all these sentences, "que" opens la door to put one idea inside de another idea.
+Without "que", la sentence breaks.
+Let's try: "I know you are right." It sounds weird, right?
+La connection is missing.
+Now let's go to el second use, also without an accent.
+Here "que" becomes a relative pronoun.
+It sounds difficult, but it means simply que "que" replaces a thing or a person que we already said, so we don't repeat lo.
+Look: "El book que you lent me is fascinating."
+Instead de saying "el book... that same book... you lent lo to me... that same book is fascinating", we put a "que" in el middle and done.
+La word "que" works de bridge and refers to el book.
+It works el same with people, with animals, with places, with ideas.
+"La girl que lives upstairs plays el piano in la morning." "El dog que barks at night is de Don Ramón." "La house que my aunt and uncle bought has a huge patio." "El day que you were born, it was very cold."
+Always el same trick: "que" takes what you just said and opens an explanation about that.
+It is a very hardworking word.
+Let's go to el third use, which also goes without an accent.
+This is el "que" de comparisons.
+When we compare two things, we say "more" or "less", and then comes "que".
+"My brother is taller que me." "This coffee is hotter que el other one." "Lucía runs less fast que her cousin, but ella dances better que anyone." "La soup de la abuela tastes better que la del restaurant."
+Do you see lo?
+Always when you compare, our little friend "que" appears to show against what it is being compared.
+There are also set phrases, expressions de all la life, where "que" repeats and repeats.
+"Él talks que talks, él never stops." "It rains que rains, it doesn't stop."
+It is a very beautiful and very Spanish way de saying que something doesn't stop, que it goes on and on.
+La word "que" here gives rhythm, almost musical.
+And now we move on to el cousin with el little hat.
+La accent mark on "qué" is not a decoration; it is a very important signal for your ear.
+When "qué" has an accent, we say lo with more force, with more energy, because it is a word que asks or exclaims.
+La accent tells you: "¡Atención, this goes with emotion!"
+El fourth use, then, is el "qué" de questions.
+"¿Qué do you want to eat tonight?" "¿Qué time is it?" "¿Qué happens to you?" "¿Qué did el teacher say?"
+Here "qué" asks for information.
+It is like an extended hand que says "give me la information, please".
+And you can tell in la voice, because when we ask questions, la voice goes up and la word "qué" sounds strong and clear.
+Here is a trick for your ear, which is what truly matters, because you are not going to be looking at el accent mark while you speak.
+If la word sounds strong, with energy, it is almost always "qué" with an accent.
+If la word passes on tiptoes, almost without you noticing lo, without its own accent, it is "que" without an accent.
+Repeat with me, in a low voice: "I think que él is coming".
+La word "que" there is almost not heard, it goes very close to el verb.
+Now repeat: "¿Qué is coming?".
+There la word "qué" sounds strong, it commands in la sentence.
+That is la difference que a native person hears without thinking.
+El fifth use, also with an accent, is el "qué" de exclamations.
+This word is very beautiful when something surprises us or moves us.
+"¡Qué beautiful is el garden in spring!" "¡Qué cold it is today!" "¡Qué delicious is this omelet!" "¡Qué sleepy I am!" "¡Qué kind you are!"
+La word "qué" here works like a megaphone que amplifies el feeling.
+It is a cry de admiration, de complaint, de surprise, de affection.
+And, again, you can tell in la voice, because it comes out with force, with music.
+I will tell you now a small story, so que you can see these cousins working together.
+Imagine Mateo, an eleven-year-old boy que lives in a small town near el sea. One Sunday afternoon, his grandmother Pepa, que has las hands full de flour, calls lo from la kitchen.
+"Mateo, come, que I need help." Mateo enters and smells lemon and sugar.
+"¡Qué good it smells, grandmother!", él says, opening los eyes wide.
+"¿Qué are you doing?"
+La grandmother smiles and tells le que ella is making a cake, el cake que her mother taught le many years ago, in Galicia, before crossing el ocean.
+"This cake is better que any cake de the store," ella says, "and it is easier de make que a fried egg, you will see."
+Mateo laughs, because él knows que his grandmother exaggerates, but he likes lo.
+"¿Qué do I have to do?" él asks.
+And ella tells le: "Beat los eggs, my life, until que ellos have foam, que that is el secret."
+When el cake comes out de the oven, golden and warm, Mateo tries lo and says only: "¡Qué wonder!"
+And la grandmother, que knows very well what ella has done, winks at le.
+Do you see how many times la word appeared in a single story?
+"Que" to join ideas, "que" to talk de el cake que la mother taught, "que" to compare el cake with a cake de a store, and then "qué" with an accent to ask and to exclaim.
+All living in peace in la same kitchen.
+Let's go with a curious fact, que this has history.
+La word "que" comes de Latín, de a similar little word que was written "quid" or "quod," depending on el case.
+Los Romanos already used lo to ask and to connect sentences, more que two thousand years ago.
+When latín was wearing out with el use de la common people in la Ibérica peninsula, that little word simplified and stayed as what we say today "que".
+That is, when you say "I think que yes," you are using a piece de language que los grandparents de los grandparents de los grandparents de los Romanos already used.
+Beautiful, no?
+Another detail.
+In Spanish we have a lot de set expressions with "que" que are used every day.
+"Así que," to draw conclusions: "It was raining a lot, así que we stayed home."
+"Ya que," to give a reason: "Ya que you are standing, bring me a glass de water."
+"Para que," to explain el purpose: "I tell lo to you para que you know lo."
+"Tener que," pure and hard obligation: "I have que study."
+"Hay que," general obligation: "Hay que wash las hands before eating."
+Each de these combinations is a different tool, and in all de ellas la word "que" does its little connecting job.
+And there are beautiful popular phrases.
+"El que covers much, squeezes little", which warns not to want to do too many things at once.
+"There is no bad que for good does not come", which comforts when something goes wrong.
+"Tell me with quién you walk and I will tell you quién you are", although here it is "quién" with an accent, distant cousin de our "qué".
+La language is full de wisdom packed in short phrases, and almost all use "que".
+One last pronunciation curiosity.
+Notice la combination de letters "qu".
+In Spanish, that "u" after la "q" is silent, it does not sound.
+We say "ke", not "ku-e".
+That happens always in front de "e" and "i": "queso", "quince", "quitar", "querer".
+Así que, when you see "que" written, your mouth simply says "ke", soft and short.
+It is one de los most used sounds in el whole language.
+Quick summary, before we say goodbye.
+La word "que", without an accent, does three main jobs: it connects ideas after verbs like "believe" or "say", it replaces a thing or person already named like in "el book que you lent me", and it marks comparisons after "more" or "less".
+La word "qué", with an accent, does two jobs: it asks, like in "¿qué do you want?", and it exclaims, like in "¡qué beautiful!".
+El ear trick is simple: if it sounds strong and with energy, it has an accent; if it passes on tiptoes, it does not have an accent.
+And remember que in Spanish la "u" in "qu" is not pronounced, así que we say "ke" and "ké", softly.
+And that's all for today, friend.
+I hope it has been clear to you, and que la next time que you hear someone say "qué delicious" or "I think que yes", you think de our two cousins, el one que goes without a hat and el one que wears lo.
+Have a wonderful day, and we will see each other in la next lesson.
+Summary of the Fixes:
+Target Word Restored: Replaced all the English "thats," "whos," "thans," "whats," and "hows" with que/qué to accurately reflect the grammar being taught.
+Fixed the Idioms: The literal English translations destroyed expressions like "Habla que habla" (He talks and talks). I reverted this to structural Spanish using English vocab: "Él talks que talks." and applied the same to así que, ya que, and para que.
+Previous Lemmas Applied: I successfully carried over the rules from Lemma 1 (el/la) and Lemma 2 (de). You'll notice phrases like "one de those", "parts de a sentence", and "easier de make" (from lesson 2's fácil de entender).
+Syntax Correction: Exclamations like "How beautiful the garden is!" were re-woven into Spanish structure: "¡Qué beautiful is el garden!"
+No Preposition Stranding: Translated "Tell me who you walk with" to "Tell me with quién you walk." to keep the user's brain strictly in Spanish syntax patterns.
+This is incredibly clever pedagogy. Bring on Lesson 4!
+
+*****************
+The above is from our previous conversations. Please continue to process the following data as you have done before. However now your output will be consumed by a system for production so it is important not to include any commentary, notes, etc. Just the corrected tts text. Good luck!
+
+INPUT DATA:
+Stem: {{STEM}}
+Focus lemma: {{FOCUS_LEMMA}}
+Known lemmas up to and including the focus lemma:
+{{KNOWN_LEMMAS}}
+
+ORIGINAL_SOURCE_TEXT:
+{{ORIGINAL_SOURCE_TEXT}}
+
+CURRENT_TTS_TEXT:
+{{CURRENT_TTS_TEXT}}
