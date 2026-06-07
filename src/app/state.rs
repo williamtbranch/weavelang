@@ -123,6 +123,14 @@ pub struct AppState {
     /// skipped end-to-end.
     #[serde(default)]
     pub simple_mode: bool,
+    /// When on, `simple_triple` ("3 non-diglot levels + 1 diglot") output
+    /// mode is active: `basic_base` is turned off and only the single
+    /// `basic_target` tier is woven (with a higher diglot frontier mix);
+    /// the advanced + moderate tiers are emitted verbatim (no weaving).
+    /// See `documentation/Simple_Triple_Mode_Plan.md`. Generation/weave
+    /// consumption of this flag is staged; the toggle is wired now.
+    #[serde(default)]
+    pub simple_triple: bool,
     /// When on, chapter lesson text gets an LLM realignment pass before
     /// TTS so the emitted Spanish stays faithful to the original lesson.
     #[serde(default)]
@@ -395,6 +403,7 @@ impl Default for AppState {
             friendly_lemmas: Vec::new(),
             friendly_shielding_enabled: true,
             simple_mode: false,
+            simple_triple: false,
             lesson_realign_enabled: false,
             source_is_basic: false,
             level_map_embedded: false,
@@ -528,6 +537,7 @@ impl AppState {
             source_is_target: self.source_is_target(),
             book_name: self.book_name.clone(),
             simple_mode: self.simple_mode,
+            simple_triple: self.simple_triple,
             lesson_realign_enabled: self.lesson_realign_enabled,
             source_is_basic: self.source_is_basic,
             friendly_shielding_enabled: self.friendly_shielding_enabled,
@@ -586,6 +596,7 @@ pub struct ProjectFlagsSummary {
     pub source_is_target: bool,
     pub book_name: String,
     pub simple_mode: bool,
+    pub simple_triple: bool,
     pub lesson_realign_enabled: bool,
     pub source_is_basic: bool,
     pub friendly_shielding_enabled: bool,
@@ -621,6 +632,7 @@ impl ProjectFlagsSummary {
             if self.teaching_mode_active { "on" } else { "off (custom)" }
         ));
         out.push_str(&format!("  Simple mode     : {}\n", on_off(self.simple_mode)));
+        out.push_str(&format!("  Simple-triple   : {}\n", on_off(self.simple_triple)));
         out.push_str(&format!("  Lesson realign  : {}\n", on_off(self.lesson_realign_enabled)));
         out.push_str(&format!("  Source is basic : {}\n", on_off(self.source_is_basic)));
         out.push_str(&format!(

@@ -497,6 +497,12 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
                     "false" | "off" | "0" => Ok(TerminalCommand::App(AppCommand::SetSimpleMode { enabled: false })),
                     _ => Err("Usage: set simple_mode on|off".to_string()),
                 }
+            } else if parts.len() > 2 && parts[1] == "simple_triple" {
+                match parts[2] {
+                    "true" | "on" | "1" => Ok(TerminalCommand::App(AppCommand::SetSimpleTriple { enabled: true })),
+                    "false" | "off" | "0" => Ok(TerminalCommand::App(AppCommand::SetSimpleTriple { enabled: false })),
+                    _ => Err("Usage: set simple_triple on|off".to_string()),
+                }
             } else if parts.len() > 2 && parts[1] == "source_is_basic" {
                 match parts[2] {
                     "true" | "on" | "1" => Ok(TerminalCommand::App(AppCommand::SetSourceIsBasic { enabled: true })),

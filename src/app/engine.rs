@@ -4115,6 +4115,13 @@ impl Engine {
                 self.state.refresh_sentence_modes();
                 Ok(format!("Simple mode {}.", if enabled { "enabled" } else { "disabled" }))
             }
+            AppCommand::SetSimpleTriple { enabled } => {
+                self.state.simple_triple = enabled;
+                Ok(format!(
+                    "Simple-triple mode {}.",
+                    if enabled { "enabled" } else { "disabled" }
+                ))
+            }
             AppCommand::SetSourceIsBasic { enabled } => {
                 self.state.source_is_basic = enabled;
                 if enabled && !self.state.simple_mode {

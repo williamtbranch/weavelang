@@ -1840,6 +1840,7 @@ impl App for WeaveLangApp {
             let mut pending_commands: Vec<String> = Vec::new();
 
             let simple_mode = self.state.simple_mode;
+            let simple_triple = self.state.simple_triple;
             let lesson_realign = self.state.lesson_realign_enabled;
             let source_is_basic = self.state.source_is_basic;
             let frontier_enabled = self.state.frontier_enabled;
@@ -1898,6 +1899,12 @@ impl App for WeaveLangApp {
                         if ui.checkbox(&mut sm, "Simple mode").changed() {
                             pending_commands.push(format!("set simple_mode {}", if sm { "on" } else { "off" }));
                         }
+                        let mut st = simple_triple;
+                        if ui.checkbox(&mut st, "Simple-triple mode").changed() {
+                            pending_commands.push(format!("set simple_triple {}", if st { "on" } else { "off" }));
+                        }
+                        ui.label("Triple mode: basic_base off; only basic_target is woven (higher diglot mix). Advanced + moderate emitted verbatim.")
+                            .on_hover_text("Produces 4 outputs: advanced, moderate, basic, diglot.");
                         let mut lr = lesson_realign;
                         if ui.checkbox(&mut lr, "Lesson realign").changed() {
                             pending_commands.push(format!("set lesson_realign {}", if lr { "on" } else { "off" }));

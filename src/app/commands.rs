@@ -197,6 +197,8 @@ pub enum AppCommand {
     ClearFriendlyLemmas,
     /// Toggle simple_mode.
     SetSimpleMode { enabled: bool },
+    /// Toggle simple_triple output mode (basic_base off; only basic_target woven).
+    SetSimpleTriple { enabled: bool },
     /// Toggle source_is_basic.
     SetSourceIsBasic { enabled: bool },
     /// Toggle lesson_realign post-processing for chapter lesson audio.

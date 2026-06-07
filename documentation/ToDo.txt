@@ -43,6 +43,10 @@ COMPLETED (co-pilot testing session 2026-03)
 
 REMAINING / OPEN
 ════════════════
+- Simple-triple mode (4-video output) — Stage 1 toggle wired (set simple_triple on|off,
+  GUI checkbox, flags display). Behavioral stages 2-6 staged in
+  documentation/Simple_Triple_Mode_Plan.md (basic_base off, core_algo fails top 2 tiers,
+  verbatim adv/mod passthrough, diglot frontier bump 5%->15-20%).
 - No undo — edit_target mistakes require manual re-edit. Low priority.
 - Command parity: API-only queries (state dump, sentence JSON) have no terminal equivalents.
   Regular workflow should use focused terminal commands. API dumps are for export/analysis only.
