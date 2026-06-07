@@ -522,9 +522,11 @@ impl AppState {
     pub fn refresh_sentence_modes(&mut self) {
         let sit = self.source_is_target();
         let sm = self.simple_mode;
+        let st = self.simple_triple;
         for s in &mut self.document {
             s.set_source_is_target(sit);
             s.set_simple_mode(sm);
+            s.set_simple_triple(st);
         }
     }
 

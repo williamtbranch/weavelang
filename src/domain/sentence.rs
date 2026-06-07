@@ -48,6 +48,12 @@ pub struct Sentence {
     /// `moderate_target` are never produced and must not block weave-ready.
     #[serde(skip)]
     pub simple_mode: bool,
+    /// In-memory only: when true, the project is in *simple-triple* output
+    /// mode. Only `base` + `basic_target` are required; `basic_base` is OFF
+    /// (no forward diglot mapping). Weave-readiness needs the inverse diglot
+    /// mapping (for the diglot output). See `Simple_Triple_Mode_Plan.md`.
+    #[serde(skip)]
+    pub simple_triple: bool,
 }
 
 impl Sentence {
@@ -59,6 +65,7 @@ impl Sentence {
             proper_noun_lemmas: Vec::new(),
             source_is_target: false,
             simple_mode: false,
+            simple_triple: false,
         }
     }
 
@@ -74,6 +81,13 @@ impl Sentence {
     /// unused advanced/moderate tiers.
     pub fn set_simple_mode(&mut self, v: bool) {
         self.simple_mode = v;
+    }
+
+    /// Set the in-memory `simple_triple` flag. Engine calls this after
+    /// import/load and on flag toggles so weave-completeness drops the
+    /// `basic_base` tier and its forward mapping from the requirements.
+    pub fn set_simple_triple(&mut self, v: bool) {
+        self.simple_triple = v;
     }
 
     pub fn add_tier(&mut self, tier: Tier) {
@@ -454,8 +468,11 @@ impl Sentence {
 
         // In simple mode the project never produces advanced/moderate tiers,
         // so they must not gate weave readiness. Limit the required-tier
-        // set accordingly.
-        let required_tiers: &[&str] = if self.simple_mode {
+        // set accordingly. In simple-triple mode `basic_base` is also off, so
+        // only `base` + `basic_target` are required.
+        let required_tiers: &[&str] = if self.simple_triple {
+            &["base", "basic_target"]
+        } else if self.simple_mode {
             &["base", "basic_target", "basic_base"]
         } else {
             Self::WEAVE_TIERS
@@ -487,7 +504,16 @@ impl Sentence {
         }
 
         // All tiers complete — now check mappings
-        if self.has_diglot_mapping() && self.has_inverse_diglot_mapping() {
+        if self.simple_triple {
+            // basic_base is off; only the inverse diglot mapping
+            // (basic_target → basic_base substitutions) is needed for the
+            // diglot output. The forward mapping is not required.
+            if self.has_inverse_diglot_mapping() {
+                Completeness::Complete
+            } else {
+                Completeness::Incomplete
+            }
+        } else if self.has_diglot_mapping() && self.has_inverse_diglot_mapping() {
             Completeness::Complete
         } else if self.has_diglot_mapping() || self.has_inverse_diglot_mapping() {
             Completeness::Incomplete

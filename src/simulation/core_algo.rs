@@ -392,3 +392,65 @@ pub fn determine_and_annotate_sentence_expression_with_frontier(
         english_word_count: english_words,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::simulation::dictionary::GlobalLemmaDictionary;
+    use crate::simulation::numerical_types::{
+        NumericalAdvSegmentBundle, NumericalLearnerProfile, NumericalProcessedSentence, VLevelRecipe,
+    };
+
+    /// A sentence carrying one advanced/moderate weave bundle plus a
+    /// basic_target fallback. The lemma IDs are non-empty so the known-checks
+    /// actually consult the v-levels (an empty list is treated as "known").
+    fn sentence_with_advanced_bundle() -> NumericalProcessedSentence {
+        let mut s = NumericalProcessedSentence::default();
+        s.adv_segment_bundles_numerical
+            .push(NumericalAdvSegmentBundle {
+                a_id_str: "a1".to_string(),
+                adv_text_original: "texto avanzado".to_string(),
+                adv_lemma_ids: vec![1, 2],
+                mod_text_original: "texto moderado".to_string(),
+                mod_lemma_ids: vec![3],
+            });
+        s.basic_target_lemma_ids = vec![4];
+        s
+    }
+
+    /// simple_triple zeroes the moderate + advanced v-levels in the recipe.
+    /// With an empty dictionary nothing is "known" at level 0, so the advanced
+    /// weave fails and selection falls through to basic_target (bas = MAX makes
+    /// the basic_target tier trivially known). This is exactly the cascade the
+    /// recipe override relies on to emit only the basic_target tier.
+    #[test]
+    fn simple_triple_recipe_drops_to_basic_target() {
+        let dict = GlobalLemmaDictionary::new();
+        let profile = NumericalLearnerProfile::new();
+        let v = VLevelRecipe {
+            bas: u32::MAX,
+            mod_v: 0,
+            adv: 0,
+        };
+        let mut s = sentence_with_advanced_bundle();
+        let out = determine_and_annotate_sentence_expression(&mut s, &profile, &dict, &v, 0.5);
+        assert_eq!(out.level, OutputLevel::BasicTarget);
+    }
+
+    /// Control: with all v-levels at MAX every lemma is known, so the advanced
+    /// weave wins. This confirms it is the moderate/advanced v-levels (not some
+    /// unrelated gate) that the simple_triple override suppresses.
+    #[test]
+    fn full_recipe_uses_advanced_weave() {
+        let dict = GlobalLemmaDictionary::new();
+        let profile = NumericalLearnerProfile::new();
+        let v = VLevelRecipe {
+            bas: u32::MAX,
+            mod_v: u32::MAX,
+            adv: u32::MAX,
+        };
+        let mut s = sentence_with_advanced_bundle();
+        let out = determine_and_annotate_sentence_expression(&mut s, &profile, &dict, &v, 0.5);
+        assert_eq!(out.level, OutputLevel::AdvancedWeave);
+    }
+}

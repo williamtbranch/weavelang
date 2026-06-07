@@ -1,7 +1,8 @@
 # Simple-Triple Mode — Implementation Plan
 
-Status: **Stage 1 (toggle wiring) complete.** Stages 2+ (behavioral
-consumption) are staged below and NOT yet implemented.
+Status: **Stages 1–6 complete.** The mode is fully wired and consumed by the
+pipeline (toggle, DRC relaxation, recipe override, verbatim passthrough,
+frontier bump, and unit tests).
 
 ## Goal
 
@@ -41,39 +42,46 @@ unchanged (their TTS comes straight from `generate_weave a` / `m`).
 - GUI Project Flags pane: "Simple-triple mode" checkbox.
 - `flags` command / `ProjectFlagsSummary` shows `Simple-triple : on|off`.
 
-### Stage 2 — basic_base OFF in this mode  ⬜ TODO
-- When `simple_triple` is on, treat `basic_base` as disabled everywhere
-  `simple_mode` currently gates the basic branch (generation, DRC, weave).
-- `generate_weave` must be permitted even though `basic_base` is unpopulated
-  (relax the DRC rule that requires the forward/inverse basic_base mapping
-  when `simple_triple` is on).
-- Decide interaction with existing `simple_mode` (is `simple_triple` a
-  superset that implies `simple_mode`, or an independent toggle?).
+### Stage 2 — basic_base OFF in this mode  ✅ DONE
+- `Sentence.simple_triple` (`#[serde(skip)]`) + `set_simple_triple`; stamped
+  by `AppState::refresh_sentence_modes()`.
+- `weave_completeness()`: required tiers in simple_triple are just
+  `["base", "basic_target"]`; the forward (basic_base→basic_target) mapping
+  is NOT required, but the inverse-diglot mapping IS (needed for the diglot
+  output).
+- `run_drc` relaxed for simple_triple: skips the advanced/moderate/basic_base
+  tier checks (Rules 1–3), skips Rule 4 (forward mapping), and skips Rule 6
+  (advanced/moderate segment-count parity).
+- `simple_triple` is an **independent** toggle (it does NOT set `simple_mode`),
+  so `generate_weave a` / `m` remain permitted.
 
-### Stage 3 — core_algo fails top two tiers  ⬜ TODO
-- In `core_algo.rs`, when `simple_triple` is on, force advanced + moderate
-  tiers to "fail" for every sentence so selection drops to `basic_target`.
-- `basic_target` must never fail in this mode.
-- Verify the drop-down path produces basic_target output for all sentences.
+### Stage 3 — core_algo fails top two tiers  ✅ DONE
+- Implemented via **recipe override** rather than threading a bool through
+  `generate_book_instance*`: in `execute_generate_weave`, a `triple_levels`
+  helper zeroes `mod_v` and `adv` for the numeric-level recipe at all four
+  call sites (chapter prepass + gen, full-book prepass + gen).
+- With `adv = mod_v = 0`, `try_build_advanced_weave` returns `None` for every
+  sentence, so selection drops to `basic_target` (`bas` left untouched).
 
-### Stage 4 — Verbatim passthrough for advanced + moderate  ⬜ TODO
-- `generate_weave a` (advanced) and `generate_weave m` (moderate) emit the
-  tier text unchanged (no weaving) for TTS.
-- Confirm the level targets (~35–37 advanced, ~31–32 moderate) are produced
-  by existing generation, not altered here.
+### Stage 4 — Verbatim passthrough for advanced + moderate  ✅ DONE
+- No code change required: `simple_triple` ≠ `simple_mode`, so the existing
+  `generate_weave a` / `m` dispatch emits the advanced/moderate tiers verbatim.
+  The recipe override only applies to the numeric-level path.
 
-### Stage 5 — Diglot frontier bump  ⬜ TODO
-- Default frontier mix is 5%. For the diglot output, bump to **15–20%**
-  (user testing required to pick the exact value).
-- Target diglot level ~16 ≈ first 10–15 frequency-list words (~2k vocab).
-- Decide whether the bump is automatic when `simple_triple` is on, or a
-  separate `set frontier_pct` the operator applies for the diglot pass.
+### Stage 5 — Diglot frontier bump  ✅ DONE
+- Automatic on enable: `SetSimpleTriple` turns `frontier_enabled = true` and,
+  if `frontier_target_pct` is still at the 5.0 default, bumps it to 18.0%.
+- The operator can still override `frontier_target_pct` manually for tuning.
 
-### Stage 6 — Validation / tests  ⬜ TODO
-- tier_graph / core_algo unit tests for the fail-top-two-tiers behavior.
-- End-to-end: import → `set simple_triple on` → generate the 4 outputs.
+### Stage 6 — Validation / tests  ✅ DONE
+- `core_algo.rs` unit tests: `simple_triple_recipe_drops_to_basic_target`
+  (mod_v/adv = 0 → BasicTarget) and `full_recipe_uses_advanced_weave`
+  (all MAX → AdvancedWeave). Both pass.
 
 ## Notes
-- Toggle is reversible and consumed nowhere yet; setting it on/off has no
-  pipeline effect until Stages 2+ land.
+- `simple_triple` is an independent toggle: it does **not** imply `simple_mode`.
+- End-to-end usage: import → `set simple_triple on` → `generate_weave a`
+  (advanced verbatim), `generate_weave m` (moderate verbatim),
+  `generate_weave b`/`UL...` (woven basic_target), and the diglot pass which
+  uses the bumped frontier mix (~18% by default).
 - See `documentation/Prompt_Flow_and_Asset_Layout.md` for prompt/asset layout.

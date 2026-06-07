@@ -4117,10 +4117,24 @@ impl Engine {
             }
             AppCommand::SetSimpleTriple { enabled } => {
                 self.state.simple_triple = enabled;
-                Ok(format!(
-                    "Simple-triple mode {}.",
-                    if enabled { "enabled" } else { "disabled" }
-                ))
+                self.state.refresh_sentence_modes();
+                if enabled {
+                    // Diglot output uses a higher frontier mix than the 5%
+                    // default. Enable frontier and bump the target to 18%
+                    // (within the 15-20% band) unless the operator already
+                    // tuned it away from the default.
+                    self.state.frontier_enabled = true;
+                    let bumped = (self.state.frontier_target_pct - 5.0).abs() < f32::EPSILON;
+                    if bumped {
+                        self.state.frontier_target_pct = 18.0;
+                    }
+                    Ok(format!(
+                        "Simple-triple mode enabled (basic_base off; only basic_target woven). Frontier enabled at {:.0}% for the diglot mix.",
+                        self.state.frontier_target_pct
+                    ))
+                } else {
+                    Ok("Simple-triple mode disabled.".to_string())
+                }
             }
             AppCommand::SetSourceIsBasic { enabled } => {
                 self.state.source_is_basic = enabled;
@@ -5339,6 +5353,15 @@ impl Engine {
         // --- Dispatch: special modes b/m/a/i/r, or standard levels / all ---
         let is_all = level_arg == "all";
         let simple_mode = self.state.simple_mode;
+        let simple_triple = self.state.simple_triple;
+        // In simple-triple mode the advanced + moderate tiers are never woven
+        // into numeric-level output: force their v-levels to 0 so core_algo's
+        // advanced-weave path always fails and selection drops to basic_target
+        // (or the inverse diglot at low levels). The verbatim advanced/moderate
+        // outputs come from `generate_weave a` / `generate_weave m` instead.
+        let triple_levels = |bas: u32, mod_v: u32, adv: u32| -> (u32, u32, u32) {
+            if simple_triple { (bas, 0, 0) } else { (bas, mod_v, adv) }
+        };
 
         // In simple mode the moderate ('m') and advanced ('a') flat outputs are
         // unavailable because those tiers aren't produced. Reject explicitly.
@@ -5493,15 +5516,16 @@ impl Engine {
                     .find(|e| e.start_sentence_idx + 1 <= ch_start)
                     .unwrap_or(first_entry);
                 let recipe = &chapter_entry.recipe;
+                let (r_bas, r_mod, r_adv) = triple_levels(recipe.bas, recipe.mod_v, recipe.adv);
                 if frontier_config.enabled {
                     let (total_tokens, unknown_tokens) =
                         corpus_generator::compute_prepass_metrics_for_slice(
                             &numerical_chapter,
                             &json_chapter,
                             &dictionary,
-                            recipe.bas,
-                            recipe.mod_v,
-                            recipe.adv,
+                            r_bas,
+                            r_mod,
+                            r_adv,
                             0.5,
                         )
                         .map_err(|e| format!("Pre-pass failed for level {}: {}", level, e))?;
@@ -5534,9 +5558,9 @@ impl Engine {
                     &numerical_chapter,
                     &json_chapter,
                     &dictionary,
-                    recipe.bas,
-                    recipe.mod_v,
-                    recipe.adv,
+                    r_bas,
+                    r_mod,
+                    r_adv,
                     0.5,
                     false,
                     frontier_slice_cfg.as_ref(),
@@ -5601,15 +5625,17 @@ impl Engine {
                     })
                     .collect();
 
+                let (e_bas, e_mod, e_adv) =
+                    triple_levels(entry.recipe.bas, entry.recipe.mod_v, entry.recipe.adv);
                 if frontier_config.enabled {
                     let (total_tokens, unknown_tokens) =
                         corpus_generator::compute_prepass_metrics_for_slice(
                             &numerical_slice,
                             &json_slice,
                             &dictionary,
-                            entry.recipe.bas,
-                            entry.recipe.mod_v,
-                            entry.recipe.adv,
+                            e_bas,
+                            e_mod,
+                            e_adv,
                             0.5,
                         )
                         .map_err(|e| format!("Pre-pass failed for level {}: {}", level, e))?;
@@ -5645,9 +5671,9 @@ impl Engine {
                     &numerical_slice,
                     &json_slice,
                     &dictionary,
-                    entry.recipe.bas,
-                    entry.recipe.mod_v,
-                    entry.recipe.adv,
+                    e_bas,
+                    e_mod,
+                    e_adv,
                     0.5, // inverse_diglot_threshold
                     false, // debug_markers
                     frontier_slice_cfg.as_ref(),
@@ -5851,6 +5877,7 @@ impl Engine {
         }
 
         let simple_mode = self.state.simple_mode;
+        let simple_triple = self.state.simple_triple;
         let (range_start, range_end) = range.unwrap_or((0, self.state.document.len().saturating_sub(1)));
         for (i, sent) in self.state.document.iter().enumerate() {
             if i < range_start || i > range_end { continue; }
@@ -5862,6 +5889,13 @@ impl Engine {
             // are not produced and not consumed by the basic-only weave path.
             for &tid in Sentence::WEAVE_TIERS {
                 if simple_mode && (tid == "advanced_target" || tid == "moderate_target") {
+                    continue;
+                }
+                // In simple-triple mode the basic_base tier is off as well as
+                // the advanced/moderate tiers.
+                if simple_triple
+                    && (tid == "advanced_target" || tid == "moderate_target" || tid == "basic_base")
+                {
                     continue;
                 }
                 match sent.tiers.get(tid) {
@@ -5886,7 +5920,10 @@ impl Engine {
                 .find(|m| m.from_tier_id == "basic_target" && m.to_tier_id == "basic_base");
 
             // Rule 4: Forward mapping
+            // Skipped in simple-triple mode: basic_base is off, so there is no
+            // forward (basic_base→basic_target) mapping to require.
             match fwd {
+                _ if simple_triple => {}
                 None => {
                     violations.push(format!(
                         "S{} ({}): forward mapping (basic_base→basic_target) is missing",
@@ -5950,8 +5987,8 @@ impl Engine {
             }
 
             // Rule 6: Sentence-level — Advanced and Moderate segment counts must match.
-            // Skipped entirely in simple mode (those tiers aren't used).
-            if !simple_mode {
+            // Skipped entirely in simple mode / simple-triple (those tiers aren't used).
+            if !simple_mode && !simple_triple {
                 let adv_seg_count = sent.tiers.get("advanced_target").map(|t| t.segments.len());
                 let mod_seg_count = sent.tiers.get("moderate_target").map(|t| t.segments.len());
                 if let (Some(a), Some(m)) = (adv_seg_count, mod_seg_count) {
