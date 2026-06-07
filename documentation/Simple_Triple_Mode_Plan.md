@@ -67,6 +67,12 @@ unchanged (their TTS comes straight from `generate_weave a` / `m`).
 - No code change required: `simple_triple` ≠ `simple_mode`, so the existing
   `generate_weave a` / `m` dispatch emits the advanced/moderate tiers verbatim.
   The recipe override only applies to the numeric-level path.
+- **Segmentation skipped:** because the advanced/moderate tiers are never
+  woven, their segment boundaries are irrelevant. `spawn_llm_job` takes a
+  `skip_advanced_segmentation` flag (wired to `simple_triple`); when set, the
+  `advanced_target` result is emitted as a single segment and the per-sentence
+  segmentation LLM call is skipped entirely. Moderate is derived segment-level
+  from advanced, so it becomes single-segment automatically.
 
 ### Stage 5 — Diglot frontier bump  ✅ DONE
 - Automatic on enable: `SetSimpleTriple` turns `frontier_enabled = true` and,

@@ -121,6 +121,11 @@ pub fn spawn_llm_job(
     model: String,
     fallback_model: Option<String>,
     segment_level: bool,
+    // When true, the advanced_target tier is NOT segmented: each sentence is
+    // emitted as a single segment and the per-sentence segmentation LLM call
+    // is skipped entirely. Used by simple_triple mode, where the advanced and
+    // moderate tiers are never woven (so segment boundaries are irrelevant).
+    skip_advanced_segmentation: bool,
 ) -> (Receiver<Result<Vec<(usize, String, String, String)>, String>>, Arc<AtomicBool>) {
     let (tx, rx) = mpsc::channel();
     let cancel_flag = Arc::new(AtomicBool::new(false));
@@ -180,6 +185,13 @@ pub fn spawn_llm_job(
                     batch_results
                         .into_iter()
                         .map(|(idx, sid, gen)| {
+                            // simple_triple: the advanced/moderate tiers are
+                            // never woven, so segment boundaries don't matter.
+                            // Emit the whole sentence as a single segment and
+                            // skip the segmentation LLM call entirely.
+                            if skip_advanced_segmentation {
+                                return (idx, sid, target_tier_id.clone(), gen);
+                            }
                             let seg_result = crate::services::llm_segmenter::segment_sentence(
                                 &gen, &sid, &llm, &prompts, &logger, &config,
                                 // advanced_target text is always in the target

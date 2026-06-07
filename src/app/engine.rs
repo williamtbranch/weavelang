@@ -3008,6 +3008,7 @@ impl Engine {
                     model_alias.clone(),
                     fallback_alias,
                     segment_level,
+                    self.state.simple_triple,
                 );
 
                 self.state.llm_results_receiver = Some(rx);
