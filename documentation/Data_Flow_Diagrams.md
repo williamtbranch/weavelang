@@ -102,13 +102,13 @@ graph LR
     btgt[basic_target<br/>es]
     bbas[basic_base<br/>en]
 
-    base -->|advanced_target_*| adv
-    adv -->|moderate_target_*| mod
-    base -->|basic_base_*| bbas
-    bbas -->|basic_target_translate| btgt
+    base -->|advanced<br/>en-es| adv
+    adv -->|moderate<br/>es-es| mod
+    base -->|basic_base<br/>en-en| bbas
+    bbas -->|basic_target<br/>en-es| btgt
 
-    btgt -->|forward mapping| bbas
-    bbas -->|inverse mapping| btgt
+    btgt -->|basic_diglot<br/>en-es| bbas
+    bbas -->|inverse_diglot<br/>es-en| btgt
 ```
 
 ## 5. V8.1 Tier Dependency Graph — Spanish-Source (Author-Driven Lessons)
@@ -123,18 +123,20 @@ graph LR
     btgt[basic_target<br/>es]
     bbas[basic_base<br/>en]
 
-    base -->|advanced_segment_es| adv
+    base -->|advanced<br/>es-es echo| adv
     adv -. simple_mode skips .-> mod
-    base -->|basic_target_simplify_es| btgt
-    btgt -->|basic_base_translate<br/>es → en| bbas
+    base -->|basic_target<br/>es-es| btgt
+    btgt -->|basic_base<br/>es-en| bbas
 
-    btgt -->|forward mapping| bbas
-    bbas -->|inverse mapping| btgt
+    btgt -->|basic_diglot<br/>en-es| bbas
+    bbas -->|inverse_diglot<br/>es-en| btgt
 ```
+
+> See [Prompt_Flow_and_Asset_Layout.md](Prompt_Flow_and_Asset_Layout.md) for the full per-step prompt directory map and the 7 standardized prompt names.
 
 Notes:
 
-- `advanced_segment_es` is a verbatim-echo prompt; the downstream segmenter handles segment boundaries. The dispatch resolution carries `segmentation_only = true` so a future optimization can skip the LLM round-trip entirely.
+- The `advanced` prompt in `es-es` is a verbatim-echo prompt; the downstream segmenter (`es-es/segment.txt`) handles segment boundaries. The dispatch resolution carries `segmentation_only = true` so a future optimization can skip the LLM round-trip entirely.
 - In Spanish-source mode, `basic_base` is hardcoded to learner language `en` (see `tier_graph::lang_for_tier`). A future `learner_lang` field will lift this constraint.
 
 ## 6. Simple Mode + Friendly Shielding Flow

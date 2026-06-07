@@ -8,8 +8,8 @@ use std::collections::HashMap;
 pub fn render(ui: &mut egui::Ui, mode: DetailView, state: &mut AppState) {
     // 1. Determine Context
     let (source_tier_id, target_tier_id, _prompt_name) = match mode {
-        DetailView::MappingDiglot => ("basic_base", "basic_target", "generate_diglot_map"),
-        DetailView::MappingInverse => ("basic_target", "basic_base", "generate_inverse_phrase_map"),
+        DetailView::MappingDiglot => ("basic_base", "basic_target", "basic_diglot"),
+        DetailView::MappingInverse => ("basic_target", "basic_base", "inverse_diglot"),
         _ => return,
     };
 

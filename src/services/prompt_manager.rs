@@ -20,6 +20,11 @@ impl PromptManager {
     }
 
     /// Loads a prompt. Checks `assets/prompts/{base}-{target}/` first, then `_defaults`.
+    ///
+    /// `base_code`/`target_code` are the *per-step* input/output languages of
+    /// the operation (e.g. `es`-`es` for segmentation/simplification, `en`-`es`
+    /// for a translation), not necessarily the project's master language pair.
+    /// See `tier_graph::prompt_pair_for_stage`.
     pub fn get_prompt(
         &self,
         prompt_name: &str,
@@ -39,7 +44,7 @@ impl PromptManager {
             }
         }
 
-        // 1. Construct pair-specific path: e.g., "assets/prompts/en-es/simplify_segments_moderate.txt"
+        // 1. Construct pair-specific path: e.g., "assets/prompts/es-es/moderate.txt"
         let pair_dir = format!("{base_code}-{target_code}");
         let pair_path = self
             .root_dir

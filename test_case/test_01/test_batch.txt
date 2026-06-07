@@ -6,27 +6,27 @@
 # 1. Import the raw source text (bridge splits into sentences)
 import source source_input.txt
 
-# 2. GenerateBasicBase: base → basic_base  (prompt: simplify_to_basic_english)
+# 2. GenerateBasicBase: base → basic_base  (prompt: basic_base | en-en)
 run generate GenerateBasicBase 1 12
 watch_job
 
-# 3. GenerateAdvancedTarget: base → advanced_target  (prompt: translate_text)
+# 3. GenerateAdvancedTarget: base → advanced_target  (prompt: advanced | en-es, then segment | es-es)
 run generate GenerateAdvancedTarget 1 12
 watch_job
 
-# 4. GenerateBasicTarget: basic_base → basic_target  (prompt: translate_text_basic)
+# 4. GenerateBasicTarget: basic_base → basic_target  (prompt: basic_target | en-es)
 run generate GenerateBasicTarget 1 12
 watch_job
 
-# 5. GenerateModerateTarget: advanced_target → moderate_target  (prompt: simplify_segments, segment-level Sn_Sn)
+# 5. GenerateModerateTarget: advanced_target → moderate_target  (prompt: moderate | es-es, segment-level Sn_Sn)
 run generate GenerateModerateTarget 1 12
 watch_job
 
-# 6. GeneratePhraseMap: base → MAPPING:base:advanced_target  (prompt: generate_diglot_map)
+# 6. GeneratePhraseMap: basic_base → MAPPING:basic_base:basic_target  (prompt: basic_diglot | en-es)
 run generate GeneratePhraseMap 1 12
 watch_job
 
-# 7. GenerateInversePhraseMap: advanced_target → MAPPING:advanced_target:base
+# 7. GenerateInversePhraseMap: basic_target → MAPPING:basic_target:basic_base  (prompt: inverse_diglot | es-en)
 run generate GenerateInversePhraseMap 1 12
 watch_job
 

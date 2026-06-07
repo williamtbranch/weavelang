@@ -66,7 +66,7 @@ pub fn segment_sentence(
 
 /// Calls the LLM with the standard Sn:-label format and parses the response.
 ///
-/// 1. Loads the `segment_sentence_universal` system prompt template.
+/// 1. Loads the `segment` system prompt template.
 /// 2. Builds the user prompt as `Sn: <text>` (consistent with all other stages).
 /// 3. Calls the LLM.
 /// 4. Parses the response: finds the `Sn:` header and collects subsequent lines.
@@ -82,9 +82,11 @@ fn get_initial_segments_from_llm(
     base_lang: &str,
     target_lang: &str,
 ) -> Result<Vec<String>, String> {
-    // 1. Load system prompt (no substitution needed — it's a static template now)
+    // 1. Load system prompt (no substitution needed — it's a static template now).
+    //    `segment` lives in the text's own `{lang}-{lang}` directory
+    //    (e.g. es-es/segment.txt) with `_defaults/segment.txt` as fallback.
     let system_prompt = prompts
-        .get_prompt("segment_sentence_universal", base_lang, target_lang)
+        .get_prompt("segment", base_lang, target_lang)
         .map_err(|e| format!("Failed to load segmentation prompt: {e}"))?;
 
     // 2. Resolve models from config (primary + optional fallback)
@@ -94,7 +96,7 @@ fn get_initial_segments_from_llm(
     let user_prompt = format!("{}: {}", s_id, sentence_text);
 
     // 4. Set context so MockLlmProvider knows which canned file to read.
-    llm.set_context("segment_sentence_universal");
+    llm.set_context("segment");
 
     // 5. Call LLM — try primary, then fallback if configured
     let mut models_to_try: Vec<&str> = vec![&primary_model];

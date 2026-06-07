@@ -7,17 +7,24 @@
 //!
 //! ```text
 //! English-source:
-//!   advanced_target  ← base                 (translate_text)
-//!   moderate_target  ← advanced_target      (simplify_segments_moderate)
-//!   basic_base       ← base                 (simplify_to_basic_english)
-//!   basic_target     ← basic_base           (translate_text_basic)
+//!   advanced_target  ← base                 (advanced     | en-es)
+//!   moderate_target  ← advanced_target      (moderate      | es-es)
+//!   basic_base       ← base                 (basic_base    | en-en)
+//!   basic_target     ← basic_base           (basic_target  | en-es)
 //!
 //! Spanish-source (source_is_target):
-//!   advanced_target  ← base                 (advanced_segment_es, segmentation only)
-//!   moderate_target  ← advanced_target      (simplify_segments_moderate)
-//!   basic_target     ← base                 (basic_target_simplify_es)
-//!   basic_base       ← basic_target         (basic_base_translate)
+//!   advanced_target  ← base                 (advanced      | es-es, echo + segment)
+//!   moderate_target  ← advanced_target      (moderate      | es-es)
+//!   basic_target     ← base                 (basic_target  | es-es)
+//!   basic_base       ← basic_target         (basic_base    | es-en)
 //! ```
+//!
+//! Every prompt is one of seven standardized names — `advanced`, `segment`,
+//! `moderate`, `basic_base`, `basic_target`, `basic_diglot`, `inverse_diglot`.
+//! The *directory* (`{input_lang}-{output_lang}`, e.g. `en-es`, `es-es`) is
+//! computed per stage by [`prompt_pair_for_stage`] from the stage's tier
+//! wiring, so the same name in different directories denotes a different
+//! operation (e.g. `basic_base` in `en-en` simplifies, in `es-en` translates).
 //!
 //! The basic-branch direction flips between the two modes; the advanced
 //! branch only changes which prompt produces `advanced_target`.
@@ -81,42 +88,42 @@ pub fn stage_dispatch(
             copy_from_source_tier: true,
         },
         (STAGE_GENERATE_BASIC_BASE, false) => R {
-            prompt_name: "simplify_to_basic_english",
+            prompt_name: "basic_base",
             target_tier: "basic_base",
             source_tier: "base",
             segmentation_only: false,
             copy_from_source_tier: false,
         },
         (STAGE_GENERATE_BASIC_TARGET, false) => R {
-            prompt_name: "translate_text_basic",
+            prompt_name: "basic_target",
             target_tier: "basic_target",
             source_tier: "basic_base",
             segmentation_only: false,
             copy_from_source_tier: false,
         },
         (STAGE_GENERATE_ADVANCED_TARGET, false) => R {
-            prompt_name: "translate_text",
+            prompt_name: "advanced",
             target_tier: "advanced_target",
             source_tier: "base",
             segmentation_only: false,
             copy_from_source_tier: false,
         },
         (STAGE_GENERATE_MODERATE_TARGET, _) => R {
-            prompt_name: "simplify_segments_moderate",
+            prompt_name: "moderate",
             target_tier: "moderate_target",
             source_tier: "advanced_target",
             segmentation_only: false,
             copy_from_source_tier: false,
         },
         (STAGE_GENERATE_PHRASE_MAP, _) => R {
-            prompt_name: "generate_diglot_map",
+            prompt_name: "basic_diglot",
             target_tier: "MAPPING:basic_base:basic_target",
             source_tier: "basic_base",
             segmentation_only: false,
             copy_from_source_tier: false,
         },
         (STAGE_GENERATE_INVERSE_PHRASE_MAP, _) => R {
-            prompt_name: "generate_inverse_phrase_map",
+            prompt_name: "inverse_diglot",
             target_tier: "MAPPING:basic_target:basic_base",
             source_tier: "basic_target",
             segmentation_only: false,
@@ -126,9 +133,11 @@ pub fn stage_dispatch(
         // ── Spanish-source (source_is_target) ─────────────────────────────
         (STAGE_GENERATE_ADVANCED_TARGET, true) => R {
             // No translation needed: source IS already in target language.
-            // We still run a segmentation pass so advanced_target carries
-            // a clean segment structure for downstream moderate_target.
-            prompt_name: "advanced_segment_es",
+            // The `advanced` prompt in the same-language directory (es-es)
+            // echoes the source verbatim; the worker then runs a
+            // segmentation pass so advanced_target carries a clean segment
+            // structure for downstream moderate_target.
+            prompt_name: "advanced",
             target_tier: "advanced_target",
             source_tier: "base",
             segmentation_only: true,
@@ -145,7 +154,7 @@ pub fn stage_dispatch(
         },
         (STAGE_GENERATE_BASIC_TARGET, true) => R {
             // basic_target is built directly from the (target-language) base.
-            prompt_name: "basic_target_simplify_es",
+            prompt_name: "basic_target",
             target_tier: "basic_target",
             source_tier: "base",
             segmentation_only: false,
@@ -154,7 +163,7 @@ pub fn stage_dispatch(
         (STAGE_GENERATE_BASIC_BASE, true) => R {
             // basic_base is the base-language translation of basic_target.
             // Direction reversed vs English-source.
-            prompt_name: "basic_base_translate",
+            prompt_name: "basic_base",
             target_tier: "basic_base",
             source_tier: "basic_target",
             segmentation_only: false,
@@ -197,6 +206,35 @@ pub fn lang_for_tier(
     crate::services::tier_processor::lang_for_tier(tier_id, base_lang, target_lang)
 }
 
+/// Compute the `(input_lang, output_lang)` pair that selects the prompt
+/// directory for a stage, given its tier wiring. The prompt is loaded from
+/// `assets/prompts/{input_lang}-{output_lang}/{prompt_name}.txt`.
+///
+/// - `input_lang`  = language of `source_tier`.
+/// - `output_lang` = language of `target_tier`. For `MAPPING:a:b` stages
+///   (diglot / inverse-diglot) the effective output tier is `b`, so the
+///   directory follows the diglot's weave direction (e.g. `en-es` for the
+///   forward diglot, `es-en` for the inverse).
+///
+/// This is what makes the same standardized prompt name resolve to different
+/// operations in different directories (e.g. `basic_base` is a simplification
+/// in `en-en` but a translation in `es-en`).
+pub fn prompt_pair_for_stage(
+    source_tier: &str,
+    target_tier: &str,
+    base_lang: &str,
+    target_lang: &str,
+    source_is_target: bool,
+) -> (String, String) {
+    let input = lang_for_tier(source_tier, base_lang, target_lang, source_is_target);
+    let effective_target = target_tier
+        .strip_prefix("MAPPING:")
+        .and_then(|rest| rest.split(':').nth(1))
+        .unwrap_or(target_tier);
+    let output = lang_for_tier(effective_target, base_lang, target_lang, source_is_target);
+    (input, output)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,21 +244,21 @@ mod tests {
         let bb = stage_dispatch(STAGE_GENERATE_BASIC_BASE, false, false).unwrap();
         assert_eq!(bb.target_tier, "basic_base");
         assert_eq!(bb.source_tier, "base");
-        assert_eq!(bb.prompt_name, "simplify_to_basic_english");
+        assert_eq!(bb.prompt_name, "basic_base");
         assert!(!bb.segmentation_only);
         assert!(!bb.copy_from_source_tier);
 
         let bt = stage_dispatch(STAGE_GENERATE_BASIC_TARGET, false, false).unwrap();
         assert_eq!(bt.target_tier, "basic_target");
         assert_eq!(bt.source_tier, "basic_base");
-        assert_eq!(bt.prompt_name, "translate_text_basic");
+        assert_eq!(bt.prompt_name, "basic_target");
         assert!(!bt.copy_from_source_tier);
     }
 
     #[test]
     fn english_source_advanced_chain() {
         let adv = stage_dispatch(STAGE_GENERATE_ADVANCED_TARGET, false, false).unwrap();
-        assert_eq!(adv.prompt_name, "translate_text");
+        assert_eq!(adv.prompt_name, "advanced");
         assert_eq!(adv.source_tier, "base");
         assert!(!adv.segmentation_only);
     }
@@ -231,19 +269,19 @@ mod tests {
         // Spanish-source: basic_target ← base (NOT ← basic_base)
         assert_eq!(bt.target_tier, "basic_target");
         assert_eq!(bt.source_tier, "base");
-        assert_eq!(bt.prompt_name, "basic_target_simplify_es");
+        assert_eq!(bt.prompt_name, "basic_target");
 
         let bb = stage_dispatch(STAGE_GENERATE_BASIC_BASE, true, false).unwrap();
         // Spanish-source: basic_base ← basic_target
         assert_eq!(bb.target_tier, "basic_base");
         assert_eq!(bb.source_tier, "basic_target");
-        assert_eq!(bb.prompt_name, "basic_base_translate");
+        assert_eq!(bb.prompt_name, "basic_base");
     }
 
     #[test]
     fn spanish_source_advanced_is_segmentation_only() {
         let adv = stage_dispatch(STAGE_GENERATE_ADVANCED_TARGET, true, false).unwrap();
-        assert_eq!(adv.prompt_name, "advanced_segment_es");
+        assert_eq!(adv.prompt_name, "advanced");
         assert_eq!(adv.source_tier, "base");
         assert!(adv.segmentation_only);
     }
@@ -281,7 +319,7 @@ mod tests {
         // basic_target is unaffected — still goes through the LLM
         // (cross-language; passthrough doesn't apply).
         let bt = stage_dispatch(STAGE_GENERATE_BASIC_TARGET, false, true).unwrap();
-        assert_eq!(bt.prompt_name, "translate_text_basic");
+        assert_eq!(bt.prompt_name, "basic_target");
         assert!(!bt.copy_from_source_tier);
     }
 
@@ -296,7 +334,7 @@ mod tests {
 
         // basic_base is unaffected — still translated from basic_target.
         let bb = stage_dispatch(STAGE_GENERATE_BASIC_BASE, true, true).unwrap();
-        assert_eq!(bb.prompt_name, "basic_base_translate");
+        assert_eq!(bb.prompt_name, "basic_base");
         assert!(!bb.copy_from_source_tier);
     }
 
@@ -317,5 +355,35 @@ mod tests {
         assert_eq!(lang_for_tier("basic_target", "es", "es", true), "es");
         assert_eq!(lang_for_tier("advanced_target", "es", "es", true), "es");
         assert_eq!(lang_for_tier("moderate_target", "es", "es", true), "es");
+    }
+
+    /// Helper: resolve a stage to its `{input}-{output}` prompt directory.
+    fn dir_for(stage: &str, base: &str, target: &str, sit: bool) -> String {
+        let r = stage_dispatch(stage, sit, false).unwrap();
+        let (i, o) = prompt_pair_for_stage(r.source_tier, r.target_tier, base, target, sit);
+        format!("{i}-{o}")
+    }
+
+    #[test]
+    fn prompt_dirs_english_source() {
+        let (b, t) = ("en", "es");
+        assert_eq!(dir_for(STAGE_GENERATE_ADVANCED_TARGET, b, t, false), "en-es");
+        assert_eq!(dir_for(STAGE_GENERATE_MODERATE_TARGET, b, t, false), "es-es");
+        assert_eq!(dir_for(STAGE_GENERATE_BASIC_BASE, b, t, false), "en-en");
+        assert_eq!(dir_for(STAGE_GENERATE_BASIC_TARGET, b, t, false), "en-es");
+        assert_eq!(dir_for(STAGE_GENERATE_PHRASE_MAP, b, t, false), "en-es");
+        assert_eq!(dir_for(STAGE_GENERATE_INVERSE_PHRASE_MAP, b, t, false), "es-en");
+    }
+
+    #[test]
+    fn prompt_dirs_spanish_source() {
+        // project_languages = (es, es), source_is_target = true.
+        let (b, t) = ("es", "es");
+        assert_eq!(dir_for(STAGE_GENERATE_ADVANCED_TARGET, b, t, true), "es-es");
+        assert_eq!(dir_for(STAGE_GENERATE_MODERATE_TARGET, b, t, true), "es-es");
+        assert_eq!(dir_for(STAGE_GENERATE_BASIC_TARGET, b, t, true), "es-es");
+        assert_eq!(dir_for(STAGE_GENERATE_BASIC_BASE, b, t, true), "es-en");
+        assert_eq!(dir_for(STAGE_GENERATE_PHRASE_MAP, b, t, true), "en-es");
+        assert_eq!(dir_for(STAGE_GENERATE_INVERSE_PHRASE_MAP, b, t, true), "es-en");
     }
 }

@@ -6,8 +6,8 @@
 // ## How it works
 //
 // 1. At construction, the mock is given a directory path containing canned
-//    response files (one per LLM stage, named after the prompt, e.g.
-//    `simplify_to_basic_english.txt`, `segment_sentence_universal.txt`).
+//    response files (one per LLM stage, named after the standardized prompt,
+//    e.g. `basic_base.txt`, `segment.txt`).
 //
 // 2. Before each `complete()` call, the caller (LlmStageService or
 //    llm_segmenter) calls `set_context(prompt_name)`.  The mock stores
@@ -20,18 +20,17 @@
 //
 // ## Canned file formats
 //
-// **Single-line stages** (simplify_to_basic_english, translate_text_basic,
-// translate_text):
+// **Single-line stages** (basic_base, basic_target, advanced):
 //   S1: Capítulo 0
 //   S2: La metamorfosis
 //   ...
 //
-// **Segment-level stage** (simplify_segments):
+// **Segment-level stage** (moderate):
 //   S5_S1: Una mañana, cuando Gregor Samsa despertó
 //   S5_S2: de sueños malos, se encontró cambiado
 //   ...
 //
-// **Multi-line segmentation** (segment_sentence_universal):
+// **Multi-line segmentation** (segment):
 //   S1:
 //   Capítulo 0
 //
@@ -39,7 +38,7 @@
 //   La metamorfosis
 //   ...
 //
-// **Multi-line phrase maps** (generate_diglot_map, generate_inverse_phrase_map):
+// **Multi-line phrase maps** (basic_diglot, inverse_diglot):
 //   S1:
 //   MAPPINGS:
 //   Chapter -> Capítulo

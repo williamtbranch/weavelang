@@ -182,7 +182,11 @@ pub fn spawn_llm_job(
                         .map(|(idx, sid, gen)| {
                             let seg_result = crate::services::llm_segmenter::segment_sentence(
                                 &gen, &sid, &llm, &prompts, &logger, &config,
-                                &base_code, &target_code,
+                                // advanced_target text is always in the target
+                                // language, so segment from the `{target}-{target}`
+                                // directory (e.g. es-es/segment.txt) regardless of
+                                // the producing stage's translation direction.
+                                &target_code, &target_code,
                             );
                             let (segs, failed) = match seg_result {
                                 Ok(s) => (s, false),

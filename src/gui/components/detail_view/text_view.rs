@@ -82,7 +82,7 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
             "advanced_target",
             "es",
             Some("base"),
-            Some("translate_text"),
+            Some("advanced"),
         ),
 
         // Moderate depends on Advanced (Simplification)
@@ -90,7 +90,7 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
             "moderate_target",
             "es",
             Some("advanced_target"),
-            Some("simplify_segments_moderate"),
+            Some("moderate"),
         ),
 
         // Basic Target depends on Moderate (Simplification)
@@ -98,7 +98,7 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
             "basic_target",
             "es",
             Some("moderate_target"),
-            Some("simplify_segments_basic"),
+            Some("basic_target"),
         ),
 
         // --- FIXED: Basic Base depends on Base (Simplification of the original English) ---
@@ -106,7 +106,7 @@ pub fn render(ui: &mut egui::Ui, view: TierView, state: &mut AppState) {
             "basic_base",
             "en",
             Some("base"),
-            Some("simplify_to_basic_english"),
+            Some("basic_base"),
         ),
 
         TierView::Simulation => unreachable!(),

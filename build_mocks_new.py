@@ -78,11 +78,11 @@ def write_file(name, lines):
     with open(f"{out_dir}/{name}", "w", encoding='utf-8', newline='\n') as f:
         f.write("\n".join(lines) + "\n")
 
-write_file('translate_text.txt', translate_text)
-write_file('simplify_segments.txt', simplify_segments)
-write_file('translate_text_basic.txt', translate_text_basic)
-write_file('simplify_to_basic_english.txt', simplify_to_basic_english)
-write_file('generate_phrase_map.txt', generate_phrase_map)
-write_file('generate_inverse_phrase_map.txt', generate_inverse_phrase_map)
+write_file('advanced.txt', translate_text)
+write_file('moderate.txt', simplify_segments)
+write_file('basic_target.txt', translate_text_basic)
+write_file('basic_base.txt', simplify_to_basic_english)
+write_file('basic_diglot.txt', generate_phrase_map)
+write_file('inverse_diglot.txt', generate_inverse_phrase_map)
 
 print("Regenerated all LLM response files.")

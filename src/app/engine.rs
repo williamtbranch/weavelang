@@ -2977,18 +2977,21 @@ impl Engine {
                 let config_obj = self.state.config.clone().unwrap();
                 let (base_lang, target_lang) = self.state.project_languages.clone();
 
-                // In source_is_target mode the project's literal language pair
-                // is e.g. ("es","es"), but every prompt is conceptually keyed
-                // by `<learner_base>-<target>` (today: en-es). Remap the
-                // pair used for prompt lookup so we don't fall back to
-                // `_defaults/` for stages whose prose actually exists in the
-                // language-specific directory.
-                let (prompt_base_lang, prompt_target_lang) = if self.state.source_is_target() {
-                    // TODO: replace hardcoded "en" with a learner_lang config field.
-                    ("en".to_string(), target_lang.clone())
-                } else {
-                    (base_lang.clone(), target_lang.clone())
-                };
+                // Select the prompt directory per stage from its tier wiring.
+                // The directory is `{input_lang}-{output_lang}` where input is
+                // the source tier's language and output the target tier's (for
+                // MAPPING stages, the diglot's destination tier). This routes
+                // same-language operations (segment/moderate/simplify) to dirs
+                // like es-es/en-en and translations to en-es/es-en — without
+                // any hardcoded source-language special-casing.
+                let (prompt_base_lang, prompt_target_lang) =
+                    crate::services::tier_graph::prompt_pair_for_stage(
+                        source_tier,
+                        target_tier,
+                        &base_lang,
+                        &target_lang,
+                        self.state.source_is_target(),
+                    );
 
                 let item_count = items.len();
                 let (rx, cancel) = crate::services::llm_worker::spawn_llm_job(
