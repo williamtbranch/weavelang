@@ -134,7 +134,7 @@ pub fn run_unified_calibration(
     println!("  -> Phase A: Pre-computing unified AVD cache...");
     let ladder = generate_vocabulary_ladder();
     let avd_cache = build_unified_avd_cache(
-        &numerical_chapter, &json_chapter, &dictionary, &ladder,
+        &numerical_chapter, &json_chapter, &dictionary, &ladder, false,
     )?;
 
     println!("  -> Phase B: Walking U-Levels...");
@@ -183,11 +183,16 @@ pub fn run_unified_calibration(
 /// to be stored in `AppState::book_map`.
 ///
 /// This is the entry point used by the GUI / terminal `calibrate` command.
+///
+/// When `simple_triple` is set, the AVD curve is measured on basic_target-only
+/// output (moderate/advanced V-levels forced to 0), matching what simple_triple
+/// actually emits — see `build_unified_avd_cache`.
 pub fn calibrate_from_chapter(
     json_chapter: &JsonChapter,
     master_scale: &[u32],
     max_level: u32,
     total_sentences_hint: Option<usize>,
+    simple_triple: bool,
 ) -> Result<HashMap<String, JsonCurriculumMap>, Box<dyn Error>> {
     println!("[INFO] Starting in-memory calibration...");
 
@@ -199,7 +204,7 @@ pub fn calibrate_from_chapter(
     println!("  -> Phase A: Pre-computing unified AVD cache...");
     let ladder = generate_vocabulary_ladder();
     let avd_cache = build_unified_avd_cache(
-        &numerical_chapter, json_chapter, &dictionary, &ladder,
+        &numerical_chapter, json_chapter, &dictionary, &ladder, simple_triple,
     )?;
 
     println!("  -> Phase B: Walking U-Levels...");
@@ -239,17 +244,26 @@ pub fn parse_master_avd_scale(path: &Path) -> Result<Vec<u32>, Box<dyn Error>> {
 /// Phase A: Build a single unified AVD cache.
 /// For each vocabulary level `v` on the ladder, measure AVD with
 /// recipe { bas: ramp(v), mod_v: v, adv: v }.
+///
+/// When `simple_triple` is set, the moderate + advanced V-levels are forced
+/// to 0 so the cascade always drops to `basic_target` — measuring the AVD
+/// curve of the basic-only output that simple_triple actually emits, rather
+/// than the advanced-weave output it never produces.
 fn build_unified_avd_cache(
     nc: &NumericalChapter,
     jc: &JsonChapter,
     dict: &GlobalLemmaDictionary,
     ladder: &[u32],
+    simple_triple: bool,
 ) -> Result<Vec<(u32, f64)>, Box<dyn Error>> {
     let mut cache = Vec::with_capacity(ladder.len());
     for (i, &v) in ladder.iter().enumerate() {
         let bas = ramp_basic_v(v);
+        // simple_triple: zero the moderate/advanced V-levels so the cascade
+        // fails the top two tiers and selection drops to basic_target.
+        let (mod_v, adv) = if simple_triple { (0, 0) } else { (v, v) };
         let res = corpus_generator::generate_book_instance(
-            nc, jc, dict, bas, v, v, 0.4, false,
+            nc, jc, dict, bas, mod_v, adv, 0.4, false,
         )?;
         // Use the V2 lemma list (proper nouns excluded by ID via
         // `corpus_generator`) and the V2 metrics (no 0.2% tally cap).

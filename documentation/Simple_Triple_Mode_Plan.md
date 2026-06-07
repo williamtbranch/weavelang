@@ -89,6 +89,20 @@ unchanged (their TTS comes straight from `generate_weave a` / `m`).
   if `frontier_target_pct` is still at the 5.0 default, bumps it to 18.0%.
 - The operator can still override `frontier_target_pct` manually for tuning.
 
+### Stage 5b — simple_triple-aware calibration  ✅ DONE
+- Problem: `calibrate` built its level→AVD curve by simulating the full
+  cascade (`build_unified_avd_cache` ran `generate_book_instance` with
+  `mod_v = v, adv = v`), so the level map reflected advanced-weave difficulty —
+  text that simple_triple never emits. High levels were fictional and the
+  `bas` thresholds for the basic/diglot passes were tuned against the wrong
+  output.
+- Fix: `calibrate_from_chapter` and `build_unified_avd_cache` take a
+  `simple_triple` flag (wired to `state.simple_triple` in `execute_calibrate`);
+  when set, moderate/advanced V-levels are forced to 0 so the cascade always
+  drops to `basic_target`. The AVD curve is then measured on the basic-only
+  output simple_triple actually ships, and the level map plateaus at the basic
+  ceiling. The CLI `run_unified_calibration` path passes `false` (unchanged).
+
 ### Stage 6 — Validation / tests  ✅ DONE
 - `core_algo.rs` unit tests: `simple_triple_recipe_drops_to_basic_target`
   (mod_v/adv = 0 → BasicTarget) and `full_recipe_uses_advanced_weave`
