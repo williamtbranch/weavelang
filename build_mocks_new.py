@@ -78,10 +78,12 @@ def write_file(name, lines):
     with open(f"{out_dir}/{name}", "w", encoding='utf-8', newline='\n') as f:
         f.write("\n".join(lines) + "\n")
 
+# en-source flow: base→basic_base is a same-language simplify; basic_base→basic_target
+# is a translate. Fixtures are named by function (simplify / basic_translate).
 write_file('advanced.txt', translate_text)
 write_file('moderate.txt', simplify_segments)
-write_file('basic_target.txt', translate_text_basic)
-write_file('basic_base.txt', simplify_to_basic_english)
+write_file('basic_translate.txt', translate_text_basic)
+write_file('simplify.txt', simplify_to_basic_english)
 write_file('basic_diglot.txt', generate_phrase_map)
 write_file('inverse_diglot.txt', generate_inverse_phrase_map)
 

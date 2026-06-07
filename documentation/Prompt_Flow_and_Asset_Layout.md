@@ -9,7 +9,7 @@ directories**.
 
 ---
 
-## 1. The core idea: directory = the *operation*, name = the *role*
+## 1. The core idea: directory = language direction, name = function
 
 Every prompt is loaded from:
 
@@ -17,40 +17,51 @@ Every prompt is loaded from:
 assets/prompts/{input_lang}-{output_lang}/{prompt_name}.txt
 ```
 
-- **`{input_lang}-{output_lang}`** encodes the *actual per-step operation* — the
-  language the step reads versus the language it writes. It is **not** the master
+- **`{input_lang}-{output_lang}`** encodes the *language direction* of the step —
+  the language it reads versus the language it writes. It is **not** the master
   project language pair.
-- **`{prompt_name}`** is one of **7 standardized names** (below) that describes the
-  *role* the output plays in the tier ladder.
+- **`{prompt_name}`** names the step's **function (+ complexity level)**, not the
+  tier slot it happens to fill.
 
-The pair **(directory, name)** uniquely identifies an operation. The same name in
-two directories is a **different operation**:
+The pair **(directory, name)** uniquely identifies an operation. The directory
+decides whether a translation is bundled in:
 
-| Name         | `en-en`              | `es-en`            | `en-es`            | `es-es`              |
-|--------------|----------------------|--------------------|--------------------|----------------------|
-| `basic_base` | simplify English     | translate es → en  | —                  | —                    |
-| `basic_target`| —                   | —                  | translate en → es  | simplify Spanish     |
-| `advanced`   | —                    | —                  | translate en → es  | echo (segment only)  |
+- A `simplify` prompt in a **same-language** directory (`a-a`) only simplifies.
+- A `simplify` prompt in a **cross-language** directory (`a-b`) simplifies **and**
+  translates.
 
-So `basic_base` is a **simplification** in `en-en` but a **translation** in `es-en`.
-That ambiguity is intentional and is resolved entirely by the directory.
+| Name              | `en-en`          | `es-es`          | `en-es`               | `es-en`            |
+|-------------------|------------------|------------------|-----------------------|--------------------|
+| `simplify`        | simplify English | simplify Spanish | simplify + translate  | simplify + translate |
+| `basic_translate` | —                | —                | translate en → es     | translate es → en  |
+
+Naming by function (not tier role) removes duplicate-content files: e.g. the
+simplify-only English prompt is a single `en-en/simplify.txt`, whether it feeds
+`basic_base` (en-source) or `basic_target` (es→en learners with an English source).
 
 If a prompt is missing in its `{input}-{output}` directory, `PromptManager` falls
 back to `assets/prompts/_defaults/{prompt_name}.txt`.
 
 ---
 
-## 2. The 7 standardized prompt names
+## 2. The standardized prompt names
 
-| Name             | Role                                                                 |
-|------------------|---------------------------------------------------------------------|
-| `advanced`       | Produce the advanced (literary) target tier.                        |
-| `segment`        | Split text into study segments (universal segmenter).               |
-| `moderate`       | Simplify the advanced target into the moderate tier (segment-level).|
-| `basic_base`     | Produce the basic **base** (learner-language) tier.                 |
-| `basic_target`   | Produce the basic **target** tier.                                  |
-| `basic_diglot`   | Forward diglot phrase map (`basic_base` → `basic_target`).          |
-| `inverse_diglot` | Inverse diglot phrase map (`basic_target` → `basic_base`).          |
+Names encode **function + complexity level**; the directory encodes language
+direction. `moderate` and `simplify` are both same-language simplifications but stay
+distinct because they target different levels and I/O granularity.
+
+| Name              | Function                                                              |
+|-------------------|----------------------------------------------------------------------|
+| `advanced`        | Produce the advanced (literary) target tier.                         |
+| `segment`         | Split text into study segments (universal segmenter).                |
+| `moderate`        | Simplify the advanced target into the moderate tier (segment-level). |
+| `simplify`        | Simplify source → a **basic** tier (sentence-level). Translates too if dir is `a-b`. |
+| `basic_translate` | Translate one basic tier → the other (simplification already done).  |
+| `basic_diglot`    | Forward diglot phrase map (`basic_base` → `basic_target`).           |
+| `inverse_diglot`  | Inverse diglot phrase map (`basic_target` → `basic_base`).           |
+
+**Basic-branch dispatch rule** (direction-agnostic): a stage whose `source_tier`
+is `base` runs `simplify`; a stage between two basic tiers runs `basic_translate`.
 
 (`lesson_realign_tts` exists under `en-es/` but is out of the main generation flow.)
 
@@ -61,24 +72,28 @@ back to `assets/prompts/_defaults/{prompt_name}.txt`.
 ```
 assets/prompts/
 ├── en-en/
-│   ├── basic_base.txt        # simplify English
+│   ├── simplify.txt          # simplify English (same-language)
 │   └── segment.txt           # universal segmenter (copy)
 ├── en-es/
 │   ├── advanced.txt          # en → es literary translate
-│   ├── basic_target.txt      # en → es basic translate
+│   ├── basic_translate.txt   # en → es basic translate
 │   ├── basic_diglot.txt      # en → es forward diglot map
 │   └── lesson_realign_tts.txt# (out of flow)
 ├── es-en/
-│   ├── basic_base.txt        # es → en translate
+│   ├── basic_translate.txt   # es → en basic translate
 │   └── inverse_diglot.txt    # es → en inverse diglot map
 ├── es-es/
 │   ├── advanced.txt          # es echo (segmentation only)
-│   ├── basic_target.txt      # simplify Spanish
+│   ├── simplify.txt          # simplify Spanish (same-language)
 │   ├── moderate.txt          # es moderate simplify (segment-level)
 │   └── segment.txt           # Spanish segmentation
 └── _defaults/
     └── segment.txt           # universal fallback segmenter
 ```
+
+> Future: a third-language source (e.g. a French document for English learners of
+> Spanish) just adds `fr-es/simplify.txt` (simplify + translate) — no new prompt
+> *names* are needed.
 
 All previous prompt files were archived to `stashed/legacy_prompts/`.
 
@@ -110,20 +125,20 @@ graph LR
 
     base -->|advanced · en-es| adv
     adv  -->|moderate · es-es| mod
-    base -->|basic_base · en-en| bbas
-    bbas -->|basic_target · en-es| btgt
+    base -->|simplify · en-en| bbas
+    bbas -->|basic_translate · en-es| btgt
     bbas -->|basic_diglot · en-es| btgt
     btgt -->|inverse_diglot · es-en| bbas
 ```
 
-| Stage                       | name             | dir     |
-|-----------------------------|------------------|---------|
-| GenerateAdvancedTarget      | `advanced`       | `en-es` |
-| GenerateModerateTarget      | `moderate`       | `es-es` |
-| GenerateBasicBase           | `basic_base`     | `en-en` |
-| GenerateBasicTarget         | `basic_target`   | `en-es` |
-| GeneratePhraseMap           | `basic_diglot`   | `en-es` |
-| GenerateInversePhraseMap    | `inverse_diglot` | `es-en` |
+| Stage                       | name              | dir     |
+|-----------------------------|-------------------|---------|
+| GenerateAdvancedTarget      | `advanced`        | `en-es` |
+| GenerateModerateTarget      | `moderate`        | `es-es` |
+| GenerateBasicBase           | `simplify`        | `en-en` |
+| GenerateBasicTarget         | `basic_translate` | `en-es` |
+| GeneratePhraseMap           | `basic_diglot`    | `en-es` |
+| GenerateInversePhraseMap    | `inverse_diglot`  | `es-en` |
 
 ### Spanish-source — `project_languages = (es, es)` (author-driven lessons)
 
@@ -140,20 +155,20 @@ graph LR
 
     base -->|advanced · es-es echo| adv
     adv  -.->|segment · es-es| mod
-    base -->|basic_target · es-es| btgt
-    btgt -->|basic_base · es-en| bbas
+    base -->|simplify · es-es| btgt
+    btgt -->|basic_translate · es-en| bbas
     btgt -->|basic_diglot · en-es| bbas
     bbas -->|inverse_diglot · es-en| btgt
 ```
 
-| Stage                       | name             | dir     |
-|-----------------------------|------------------|---------|
-| GenerateAdvancedTarget      | `advanced`       | `es-es` |
-| GenerateModerateTarget      | `moderate`       | `es-es` |
-| GenerateBasicTarget         | `basic_target`   | `es-es` |
-| GenerateBasicBase           | `basic_base`     | `es-en` |
-| GeneratePhraseMap           | `basic_diglot`   | `en-es` |
-| GenerateInversePhraseMap    | `inverse_diglot` | `es-en` |
+| Stage                       | name              | dir     |
+|-----------------------------|-------------------|---------|
+| GenerateAdvancedTarget      | `advanced`        | `es-es` |
+| GenerateModerateTarget      | `moderate`        | `es-es` |
+| GenerateBasicTarget         | `simplify`        | `es-es` |
+| GenerateBasicBase           | `basic_translate` | `es-en` |
+| GeneratePhraseMap           | `basic_diglot`    | `en-es` |
+| GenerateInversePhraseMap    | `inverse_diglot`  | `es-en` |
 
 > Note: the diglot directories (`en-es` / `es-en`) are the **same** in both modes —
 > the phrase map always weaves learner-language (`en`) ↔ target (`es`).
@@ -169,19 +184,24 @@ are copies of the same universal segmenter for fallback.
 
 ---
 
-## 6. Simple mode (subset of the 7)
+## 6. Simple mode and simple_triple mode (subsets)
 
 In `simple_mode`, `moderate` is skipped and only the basic tiers are produced. When
-the output is **non-diglot**, only `basic_target` runs (no `basic_diglot` /
-`inverse_diglot`). All names and directories are unchanged — simple mode just runs a
+the output is **non-diglot**, only the `simplify` step runs (no `basic_translate` /
+diglot maps). All names and directories are unchanged — simple mode just runs a
 subset of the same stages.
+
+`simple_triple` mode (planned) turns `basic_base` off entirely and produces only a
+single basic tier via `simplify` (which simplifies-and-translates when the source
+language differs from the basic-tier language). See
+`documentation/Simple_Triple_Mode_Plan.md` for the full behavior.
 
 ---
 
 ## 7. Mocked test fixtures
 
 Canned LLM responses for integration tests live in
-`test_case/test_01/LLM_responses/` and are named after the **standardized prompt
-name** (`advanced.txt`, `basic_base.txt`, `basic_diglot.txt`, `basic_target.txt`,
+`test_case/test_01/LLM_responses/` and are named after the **prompt function**
+(`advanced.txt`, `simplify.txt`, `basic_translate.txt`, `basic_diglot.txt`,
 `inverse_diglot.txt`, `moderate.txt`, `segment.txt`). `MockLlmProvider` resolves a
 response by `<prompt_name>.txt`. Regenerate them with `build_mocks_new.py`.

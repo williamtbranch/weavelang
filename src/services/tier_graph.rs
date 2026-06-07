@@ -7,27 +7,31 @@
 //!
 //! ```text
 //! English-source:
-//!   advanced_target  ← base                 (advanced     | en-es)
-//!   moderate_target  ← advanced_target      (moderate      | es-es)
-//!   basic_base       ← base                 (basic_base    | en-en)
-//!   basic_target     ← basic_base           (basic_target  | en-es)
+//!   advanced_target  ← base                 (advanced        | en-es)
+//!   moderate_target  ← advanced_target      (moderate        | es-es)
+//!   basic_base       ← base                 (simplify        | en-en)
+//!   basic_target     ← basic_base           (basic_translate | en-es)
 //!
 //! Spanish-source (source_is_target):
-//!   advanced_target  ← base                 (advanced      | es-es, echo + segment)
-//!   moderate_target  ← advanced_target      (moderate      | es-es)
-//!   basic_target     ← base                 (basic_target  | es-es)
-//!   basic_base       ← basic_target         (basic_base    | es-en)
+//!   advanced_target  ← base                 (advanced        | es-es, echo + segment)
+//!   moderate_target  ← advanced_target      (moderate        | es-es)
+//!   basic_target     ← base                 (simplify        | es-es)
+//!   basic_base       ← basic_target         (basic_translate | es-en)
 //! ```
 //!
-//! Every prompt is one of seven standardized names — `advanced`, `segment`,
-//! `moderate`, `basic_base`, `basic_target`, `basic_diglot`, `inverse_diglot`.
-//! The *directory* (`{input_lang}-{output_lang}`, e.g. `en-es`, `es-es`) is
-//! computed per stage by [`prompt_pair_for_stage`] from the stage's tier
-//! wiring, so the same name in different directories denotes a different
-//! operation (e.g. `basic_base` in `en-en` simplifies, in `es-en` translates).
+//! Prompts are named by **function**, not tier role. The basic branch uses
+//! just two: `simplify` (source → a basic tier) and `basic_translate`
+//! (one basic tier → the other). The remaining names are `advanced`,
+//! `segment`, `moderate`, `basic_diglot`, `inverse_diglot`. The *directory*
+//! (`{input_lang}-{output_lang}`, e.g. `en-es`, `es-es`) is computed per
+//! stage by [`prompt_pair_for_stage`] from the stage's tier wiring, so the
+//! same name denotes a different operation per directory. In particular a
+//! `simplify` prompt in a same-language directory (`a-a`) only simplifies,
+//! while in a cross-language directory (`a-b`) it simplifies *and* translates.
 //!
-//! The basic-branch direction flips between the two modes; the advanced
-//! branch only changes which prompt produces `advanced_target`.
+//! The dispatch rule for the basic branch is direction-agnostic: a stage
+//! whose `source_tier` is `base` runs `simplify`; a stage between two basic
+//! tiers runs `basic_translate`.
 
 /// Stage-name keys used everywhere else in the codebase. These must
 /// stay stable — the GUI and CLI surface them directly.
@@ -88,14 +92,16 @@ pub fn stage_dispatch(
             copy_from_source_tier: true,
         },
         (STAGE_GENERATE_BASIC_BASE, false) => R {
-            prompt_name: "basic_base",
+            // base → basic_base, same language (en→en): simplify only.
+            prompt_name: "simplify",
             target_tier: "basic_base",
             source_tier: "base",
             segmentation_only: false,
             copy_from_source_tier: false,
         },
         (STAGE_GENERATE_BASIC_TARGET, false) => R {
-            prompt_name: "basic_target",
+            // basic_base → basic_target (en→es): translate already-simplified text.
+            prompt_name: "basic_translate",
             target_tier: "basic_target",
             source_tier: "basic_base",
             segmentation_only: false,
@@ -154,7 +160,8 @@ pub fn stage_dispatch(
         },
         (STAGE_GENERATE_BASIC_TARGET, true) => R {
             // basic_target is built directly from the (target-language) base.
-            prompt_name: "basic_target",
+            // Same language (es→es): simplify only.
+            prompt_name: "simplify",
             target_tier: "basic_target",
             source_tier: "base",
             segmentation_only: false,
@@ -162,8 +169,8 @@ pub fn stage_dispatch(
         },
         (STAGE_GENERATE_BASIC_BASE, true) => R {
             // basic_base is the base-language translation of basic_target.
-            // Direction reversed vs English-source.
-            prompt_name: "basic_base",
+            // Direction reversed vs English-source (es→en translate).
+            prompt_name: "basic_translate",
             target_tier: "basic_base",
             source_tier: "basic_target",
             segmentation_only: false,
@@ -244,14 +251,14 @@ mod tests {
         let bb = stage_dispatch(STAGE_GENERATE_BASIC_BASE, false, false).unwrap();
         assert_eq!(bb.target_tier, "basic_base");
         assert_eq!(bb.source_tier, "base");
-        assert_eq!(bb.prompt_name, "basic_base");
+        assert_eq!(bb.prompt_name, "simplify");
         assert!(!bb.segmentation_only);
         assert!(!bb.copy_from_source_tier);
 
         let bt = stage_dispatch(STAGE_GENERATE_BASIC_TARGET, false, false).unwrap();
         assert_eq!(bt.target_tier, "basic_target");
         assert_eq!(bt.source_tier, "basic_base");
-        assert_eq!(bt.prompt_name, "basic_target");
+        assert_eq!(bt.prompt_name, "basic_translate");
         assert!(!bt.copy_from_source_tier);
     }
 
@@ -269,13 +276,13 @@ mod tests {
         // Spanish-source: basic_target ← base (NOT ← basic_base)
         assert_eq!(bt.target_tier, "basic_target");
         assert_eq!(bt.source_tier, "base");
-        assert_eq!(bt.prompt_name, "basic_target");
+        assert_eq!(bt.prompt_name, "simplify");
 
         let bb = stage_dispatch(STAGE_GENERATE_BASIC_BASE, true, false).unwrap();
         // Spanish-source: basic_base ← basic_target
         assert_eq!(bb.target_tier, "basic_base");
         assert_eq!(bb.source_tier, "basic_target");
-        assert_eq!(bb.prompt_name, "basic_base");
+        assert_eq!(bb.prompt_name, "basic_translate");
     }
 
     #[test]
@@ -319,7 +326,7 @@ mod tests {
         // basic_target is unaffected — still goes through the LLM
         // (cross-language; passthrough doesn't apply).
         let bt = stage_dispatch(STAGE_GENERATE_BASIC_TARGET, false, true).unwrap();
-        assert_eq!(bt.prompt_name, "basic_target");
+        assert_eq!(bt.prompt_name, "basic_translate");
         assert!(!bt.copy_from_source_tier);
     }
 
@@ -334,7 +341,7 @@ mod tests {
 
         // basic_base is unaffected — still translated from basic_target.
         let bb = stage_dispatch(STAGE_GENERATE_BASIC_BASE, true, true).unwrap();
-        assert_eq!(bb.prompt_name, "basic_base");
+        assert_eq!(bb.prompt_name, "basic_translate");
         assert!(!bb.copy_from_source_tier);
     }
 

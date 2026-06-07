@@ -6,8 +6,8 @@
 // ## How it works
 //
 // 1. At construction, the mock is given a directory path containing canned
-//    response files (one per LLM stage, named after the standardized prompt,
-//    e.g. `basic_base.txt`, `segment.txt`).
+//    response files (one per LLM stage, named after the standardized prompt
+//    function, e.g. `simplify.txt`, `basic_translate.txt`, `segment.txt`).
 //
 // 2. Before each `complete()` call, the caller (LlmStageService or
 //    llm_segmenter) calls `set_context(prompt_name)`.  The mock stores
@@ -20,7 +20,7 @@
 //
 // ## Canned file formats
 //
-// **Single-line stages** (basic_base, basic_target, advanced):
+// **Single-line stages** (simplify, basic_translate, advanced):
 //   S1: Capítulo 0
 //   S2: La metamorfosis
 //   ...

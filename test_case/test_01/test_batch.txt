@@ -6,7 +6,7 @@
 # 1. Import the raw source text (bridge splits into sentences)
 import source source_input.txt
 
-# 2. GenerateBasicBase: base → basic_base  (prompt: basic_base | en-en)
+# 2. GenerateBasicBase: base → basic_base  (prompt: simplify | en-en)
 run generate GenerateBasicBase 1 12
 watch_job
 
@@ -14,7 +14,7 @@ watch_job
 run generate GenerateAdvancedTarget 1 12
 watch_job
 
-# 4. GenerateBasicTarget: basic_base → basic_target  (prompt: basic_target | en-es)
+# 4. GenerateBasicTarget: basic_base → basic_target  (prompt: basic_translate | en-es)
 run generate GenerateBasicTarget 1 12
 watch_job
 

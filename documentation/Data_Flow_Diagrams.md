@@ -104,8 +104,8 @@ graph LR
 
     base -->|advanced<br/>en-es| adv
     adv -->|moderate<br/>es-es| mod
-    base -->|basic_base<br/>en-en| bbas
-    bbas -->|basic_target<br/>en-es| btgt
+    base -->|simplify<br/>en-en| bbas
+    bbas -->|basic_translate<br/>en-es| btgt
 
     btgt -->|basic_diglot<br/>en-es| bbas
     bbas -->|inverse_diglot<br/>es-en| btgt
@@ -125,8 +125,8 @@ graph LR
 
     base -->|advanced<br/>es-es echo| adv
     adv -. simple_mode skips .-> mod
-    base -->|basic_target<br/>es-es| btgt
-    btgt -->|basic_base<br/>es-en| bbas
+    base -->|simplify<br/>es-es| btgt
+    btgt -->|basic_translate<br/>es-en| bbas
 
     btgt -->|basic_diglot<br/>en-es| bbas
     bbas -->|inverse_diglot<br/>es-en| btgt
