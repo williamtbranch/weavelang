@@ -74,6 +74,16 @@ unchanged (their TTS comes straight from `generate_weave a` / `m`).
   segmentation LLM call is skipped entirely. Moderate is derived segment-level
   from advanced, so it becomes single-segment automatically.
 
+### Stage 4b — basic_target built directly from English base  ✅ DONE
+- With `basic_base` off, `basic_target` can't be translated from it. Instead
+  `stage_dispatch` gains a `simple_triple` parameter; the English-source
+  `GenerateBasicTarget` stage routes to a single en→es `simplify` pass with
+  `source_tier: "base"` (one simplify-and-translate step) rather than
+  `basic_translate` from `basic_base`.
+- New prompt asset `assets/prompts/en-es/simplify.txt` (English advanced →
+  elemental Spanish), mirroring `es-es/simplify.txt` with English example
+  inputs and identical Spanish outputs.
+
 ### Stage 5 — Diglot frontier bump  ✅ DONE
 - Automatic on enable: `SetSimpleTriple` turns `frontier_enabled = true` and,
   if `frontier_target_pct` is still at the 5.0 default, bumps it to 18.0%.

@@ -2791,6 +2791,7 @@ impl Engine {
                     stage_name.as_str(),
                     self.state.source_is_target(),
                     self.state.source_is_basic && self.state.simple_mode,
+                    self.state.simple_triple,
                 )
                 .ok_or_else(|| format!("Unknown stage mapping for '{}'", stage_name))?;
                 let prompt_name = resolution.prompt_name;

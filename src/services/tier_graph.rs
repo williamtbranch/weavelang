@@ -73,11 +73,14 @@ pub const PROMPT_PASSTHROUGH_COPY: &str = "passthrough_copy";
 /// Returns `None` for unknown stage names. `source_is_basic` only
 /// affects the in-source-language basic tier (`GenerateBasicBase` in
 /// en-es mode, `GenerateBasicTarget` in es-es mode); all other stages
-/// are unaffected.
+/// are unaffected. `simple_triple` only affects the English-source
+/// `GenerateBasicTarget` stage, routing it through a single en→es
+/// `simplify` pass from `base` (because `basic_base` is off in that mode).
 pub fn stage_dispatch(
     stage_name: &str,
     source_is_target: bool,
     source_is_basic: bool,
+    simple_triple: bool,
 ) -> Option<StageResolution> {
     use StageResolution as R;
     let r = match (stage_name, source_is_target) {
@@ -95,6 +98,16 @@ pub fn stage_dispatch(
             // base → basic_base, same language (en→en): simplify only.
             prompt_name: "simplify",
             target_tier: "basic_base",
+            source_tier: "base",
+            segmentation_only: false,
+            copy_from_source_tier: false,
+        },
+        (STAGE_GENERATE_BASIC_TARGET, false) if simple_triple => R {
+            // simple_triple: basic_base is OFF, so basic_target is built
+            // directly from the English base in a single simplify-and-translate
+            // pass (en→es `simplify`) rather than translating basic_base.
+            prompt_name: "simplify",
+            target_tier: "basic_target",
             source_tier: "base",
             segmentation_only: false,
             copy_from_source_tier: false,
@@ -248,14 +261,14 @@ mod tests {
 
     #[test]
     fn english_source_basic_chain() {
-        let bb = stage_dispatch(STAGE_GENERATE_BASIC_BASE, false, false).unwrap();
+        let bb = stage_dispatch(STAGE_GENERATE_BASIC_BASE, false, false, false).unwrap();
         assert_eq!(bb.target_tier, "basic_base");
         assert_eq!(bb.source_tier, "base");
         assert_eq!(bb.prompt_name, "simplify");
         assert!(!bb.segmentation_only);
         assert!(!bb.copy_from_source_tier);
 
-        let bt = stage_dispatch(STAGE_GENERATE_BASIC_TARGET, false, false).unwrap();
+        let bt = stage_dispatch(STAGE_GENERATE_BASIC_TARGET, false, false, false).unwrap();
         assert_eq!(bt.target_tier, "basic_target");
         assert_eq!(bt.source_tier, "basic_base");
         assert_eq!(bt.prompt_name, "basic_translate");
@@ -263,8 +276,25 @@ mod tests {
     }
 
     #[test]
+    fn simple_triple_basic_target_simplifies_from_base() {
+        // simple_triple (English-source): basic_base is off, so basic_target
+        // is produced directly from `base` via a single en→es `simplify`
+        // pass instead of `basic_translate` from `basic_base`.
+        let bt = stage_dispatch(STAGE_GENERATE_BASIC_TARGET, false, false, true).unwrap();
+        assert_eq!(bt.target_tier, "basic_target");
+        assert_eq!(bt.source_tier, "base");
+        assert_eq!(bt.prompt_name, "simplify");
+        assert!(!bt.copy_from_source_tier);
+
+        // The prompt directory resolves to en-es (input base=en, output
+        // basic_target=es) — i.e. assets/prompts/en-es/simplify.txt.
+        let (i, o) = prompt_pair_for_stage(bt.source_tier, bt.target_tier, "en", "es", false);
+        assert_eq!((i.as_str(), o.as_str()), ("en", "es"));
+    }
+
+    #[test]
     fn english_source_advanced_chain() {
-        let adv = stage_dispatch(STAGE_GENERATE_ADVANCED_TARGET, false, false).unwrap();
+        let adv = stage_dispatch(STAGE_GENERATE_ADVANCED_TARGET, false, false, false).unwrap();
         assert_eq!(adv.prompt_name, "advanced");
         assert_eq!(adv.source_tier, "base");
         assert!(!adv.segmentation_only);
@@ -272,13 +302,13 @@ mod tests {
 
     #[test]
     fn spanish_source_basic_chain_reverses_direction() {
-        let bt = stage_dispatch(STAGE_GENERATE_BASIC_TARGET, true, false).unwrap();
+        let bt = stage_dispatch(STAGE_GENERATE_BASIC_TARGET, true, false, false).unwrap();
         // Spanish-source: basic_target ← base (NOT ← basic_base)
         assert_eq!(bt.target_tier, "basic_target");
         assert_eq!(bt.source_tier, "base");
         assert_eq!(bt.prompt_name, "simplify");
 
-        let bb = stage_dispatch(STAGE_GENERATE_BASIC_BASE, true, false).unwrap();
+        let bb = stage_dispatch(STAGE_GENERATE_BASIC_BASE, true, false, false).unwrap();
         // Spanish-source: basic_base ← basic_target
         assert_eq!(bb.target_tier, "basic_base");
         assert_eq!(bb.source_tier, "basic_target");
@@ -287,7 +317,7 @@ mod tests {
 
     #[test]
     fn spanish_source_advanced_is_segmentation_only() {
-        let adv = stage_dispatch(STAGE_GENERATE_ADVANCED_TARGET, true, false).unwrap();
+        let adv = stage_dispatch(STAGE_GENERATE_ADVANCED_TARGET, true, false, false).unwrap();
         assert_eq!(adv.prompt_name, "advanced");
         assert_eq!(adv.source_tier, "base");
         assert!(adv.segmentation_only);
@@ -296,28 +326,28 @@ mod tests {
     #[test]
     fn moderate_and_mapping_stages_are_mode_invariant() {
         for sit in [false, true] {
-            let m = stage_dispatch(STAGE_GENERATE_MODERATE_TARGET, sit, false).unwrap();
+            let m = stage_dispatch(STAGE_GENERATE_MODERATE_TARGET, sit, false, false).unwrap();
             assert_eq!(m.source_tier, "advanced_target");
 
-            let pm = stage_dispatch(STAGE_GENERATE_PHRASE_MAP, sit, false).unwrap();
+            let pm = stage_dispatch(STAGE_GENERATE_PHRASE_MAP, sit, false, false).unwrap();
             assert_eq!(pm.source_tier, "basic_base");
             assert_eq!(pm.target_tier, "MAPPING:basic_base:basic_target");
 
-            let ipm = stage_dispatch(STAGE_GENERATE_INVERSE_PHRASE_MAP, sit, false).unwrap();
+            let ipm = stage_dispatch(STAGE_GENERATE_INVERSE_PHRASE_MAP, sit, false, false).unwrap();
             assert_eq!(ipm.source_tier, "basic_target");
         }
     }
 
     #[test]
     fn unknown_stage_returns_none() {
-        assert!(stage_dispatch("Bogus", false, false).is_none());
-        assert!(stage_dispatch("Bogus", true, false).is_none());
+        assert!(stage_dispatch("Bogus", false, false, false).is_none());
+        assert!(stage_dispatch("Bogus", true, false, false).is_none());
     }
 
     #[test]
     fn english_source_basic_base_passthrough_when_source_is_basic() {
         // en-es + source_is_basic=true: basic_base copies from base verbatim.
-        let bb = stage_dispatch(STAGE_GENERATE_BASIC_BASE, false, true).unwrap();
+        let bb = stage_dispatch(STAGE_GENERATE_BASIC_BASE, false, true, false).unwrap();
         assert_eq!(bb.target_tier, "basic_base");
         assert_eq!(bb.source_tier, "base");
         assert_eq!(bb.prompt_name, PROMPT_PASSTHROUGH_COPY);
@@ -325,7 +355,7 @@ mod tests {
 
         // basic_target is unaffected — still goes through the LLM
         // (cross-language; passthrough doesn't apply).
-        let bt = stage_dispatch(STAGE_GENERATE_BASIC_TARGET, false, true).unwrap();
+        let bt = stage_dispatch(STAGE_GENERATE_BASIC_TARGET, false, true, false).unwrap();
         assert_eq!(bt.prompt_name, "basic_translate");
         assert!(!bt.copy_from_source_tier);
     }
@@ -333,14 +363,14 @@ mod tests {
     #[test]
     fn spanish_source_basic_target_passthrough_when_source_is_basic() {
         // es-es + source_is_basic=true: basic_target copies from base verbatim.
-        let bt = stage_dispatch(STAGE_GENERATE_BASIC_TARGET, true, true).unwrap();
+        let bt = stage_dispatch(STAGE_GENERATE_BASIC_TARGET, true, true, false).unwrap();
         assert_eq!(bt.target_tier, "basic_target");
         assert_eq!(bt.source_tier, "base");
         assert_eq!(bt.prompt_name, PROMPT_PASSTHROUGH_COPY);
         assert!(bt.copy_from_source_tier);
 
         // basic_base is unaffected — still translated from basic_target.
-        let bb = stage_dispatch(STAGE_GENERATE_BASIC_BASE, true, true).unwrap();
+        let bb = stage_dispatch(STAGE_GENERATE_BASIC_BASE, true, true, false).unwrap();
         assert_eq!(bb.prompt_name, "basic_translate");
         assert!(!bb.copy_from_source_tier);
     }
@@ -366,7 +396,7 @@ mod tests {
 
     /// Helper: resolve a stage to its `{input}-{output}` prompt directory.
     fn dir_for(stage: &str, base: &str, target: &str, sit: bool) -> String {
-        let r = stage_dispatch(stage, sit, false).unwrap();
+        let r = stage_dispatch(stage, sit, false, false).unwrap();
         let (i, o) = prompt_pair_for_stage(r.source_tier, r.target_tier, base, target, sit);
         format!("{i}-{o}")
     }
