@@ -287,7 +287,16 @@ pub fn determine_and_annotate_sentence_expression_with_frontier(
             1.0
         };
 
-        if known_ratio >= 0.5 {
+        // In simple_triple mode `basic_base` is OFF, so there is no forward
+        // basic_base -> basic_target diglot map. The BasicBaseDiglot fallback
+        // would then just echo the literary base tier (English-only output),
+        // which is wrong: we want the basic_target tier woven regardless of how
+        // few target words are known. When no forward map exists, skip the
+        // known-ratio floor so the inverse diglot ALWAYS renders (unknown
+        // target words fall back to their inline base-language subs; with zero
+        // known words this yields a full base-language diglot of basic_target).
+        let skip_known_ratio_floor = n_sentence.basic_diglot_map_numerical.is_empty();
+        if known_ratio >= 0.5 || skip_known_ratio_floor {
             let mut final_parts = Vec::new();
             let mut collected_lemmas = Vec::new();
             let mut spanish_words = 0;
@@ -452,5 +461,59 @@ mod tests {
         let mut s = sentence_with_advanced_bundle();
         let out = determine_and_annotate_sentence_expression(&mut s, &profile, &dict, &v, 0.5);
         assert_eq!(out.level, OutputLevel::AdvancedWeave);
+    }
+
+    /// Builds a basic_target tier of two words plus an inverse-diglot map that
+    /// substitutes each with an inline base-language word, and NO forward
+    /// basic-diglot map (the simple_triple shape).
+    fn sentence_with_inverse_diglot_only() -> NumericalProcessedSentence {
+        use crate::types::json_types::{JsonSegmentV2, JsonTokenType, JsonTokenV2};
+        let mut s = NumericalProcessedSentence::default();
+        // basic_target tier: "casa perro" (two target words).
+        s.basic_target_tier_tokenized = vec![JsonSegmentV2 {
+            seg_id: "s1".to_string(),
+            text: "casa perro".to_string(),
+            tokenized_text: vec![
+                JsonTokenV2 {
+                    token_type: JsonTokenType::Word,
+                    value: "casa".to_string(),
+                    ..Default::default()
+                },
+                JsonTokenV2 {
+                    token_type: JsonTokenType::Word,
+                    value: "perro".to_string(),
+                    ..Default::default()
+                },
+            ],
+            lemmas: vec![],
+        }];
+        s.basic_target_lemma_ids = vec![10, 11];
+        // Inverse diglot map: (orig_word_group, lemma_ids, base_sub, eng_wc, spa_wc)
+        s.basic_inverse_diglot_map_numerical = vec![
+            ("casa".to_string(), vec![10], "house".to_string(), 1, 1),
+            ("perro".to_string(), vec![11], "dog".to_string(), 1, 1),
+        ];
+        // No forward basic_diglot map and no basic_base tier -> simple_triple.
+        s
+    }
+
+    /// In simple_triple, with zero known words the inverse-diglot floor (0.5
+    /// known-ratio) must be skipped so the basic_target tier still renders as a
+    /// full base-language diglot rather than falling through to an empty
+    /// BasicBaseDiglot. Output level must be InverseDiglot, not BasicBaseDiglot.
+    #[test]
+    fn simple_triple_inverse_diglot_renders_with_zero_known() {
+        let dict = GlobalLemmaDictionary::new();
+        let profile = NumericalLearnerProfile::new();
+        let v = VLevelRecipe {
+            bas: 0,
+            mod_v: 0,
+            adv: 0,
+        };
+        let mut s = sentence_with_inverse_diglot_only();
+        let out = determine_and_annotate_sentence_expression(&mut s, &profile, &dict, &v, 0.5);
+        assert_eq!(out.level, OutputLevel::InverseDiglot);
+        // Nothing known -> both words substituted with their English subs.
+        assert_eq!(out.l1_final_text.as_deref(), Some("housedog"));
     }
 }

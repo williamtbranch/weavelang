@@ -52,6 +52,13 @@ unchanged (their TTS comes straight from `generate_weave a` / `m`).
 - `run_drc` relaxed for simple_triple: skips the advanced/moderate/basic_base
   tier checks (Rules 1–3), skips Rule 4 (forward mapping), and skips Rule 6
   (advanced/moderate segment-count parity).
+- **Numerical preprocessor relaxed too** (`src/simulation/preprocessor.rs`):
+  `json_chapter_to_numerical` now requires only `["basic_target"]` (was
+  `["basic_base","basic_target"]` — which silently filtered out every sentence
+  in simple_triple books and produced an EMPTY chapter → empty generation →
+  `calibrate` 0 maps). `json_sentence_to_numerical` no longer panics on a
+  missing `basic_base` tier; it falls back basic_base → `base` → empty stub, so
+  the BasicBaseDiglot floor renders the literary `base` English text.
 - `simple_triple` is an **independent** toggle (it does NOT set `simple_mode`),
   so `generate_weave a` / `m` remain permitted.
 

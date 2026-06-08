@@ -410,16 +410,25 @@ fn generate_curriculum_maps_from_scale(
         }
     );
 
-    // Count actual (non-placeholder) words and sentences in the input.
+    // Count actual (non-placeholder) words and sentences in the input. The
+    // English carrier is `basic_base` in normal mode but is OFF in
+    // simple_triple, where `base` is the source of truth — fall back to it so
+    // the counts aren't zero (a zero count later underflows the sentence
+    // cursor).
+    let carrier_text = |s: &crate::types::json_types::JsonSentenceBlock| -> Option<String> {
+        s.tiers
+            .iter()
+            .find(|t| t.tier_id == "basic_base")
+            .or_else(|| s.tiers.iter().find(|t| t.tier_id == "base"))
+            .map(|t| t.full_text.clone())
+    };
     let actual_words: f64 = json_chapter
         .content_blocks
         .iter()
         .map(|cb| match cb {
-            JsonContentBlock::Sentence(s) => s
-                .tiers
-                .iter()
-                .find(|t| t.tier_id == "basic_base")
-                .map_or(0, |t| t.full_text.split_whitespace().count()),
+            JsonContentBlock::Sentence(s) => {
+                carrier_text(s).map_or(0, |t| t.split_whitespace().count())
+            }
             _ => 0,
         })
         .sum::<usize>() as f64;
@@ -427,10 +436,9 @@ fn generate_curriculum_maps_from_scale(
         .content_blocks
         .iter()
         .filter(|cb| match cb {
-            JsonContentBlock::Sentence(s) => s
-                .tiers
-                .iter()
-                .any(|t| t.tier_id == "basic_base" && !t.full_text.trim().is_empty()),
+            JsonContentBlock::Sentence(s) => {
+                carrier_text(s).is_some_and(|t| !t.trim().is_empty())
+            }
             _ => false,
         })
         .count();
@@ -520,7 +528,7 @@ fn generate_curriculum_maps_from_scale(
                 + total_sentences_in_book as f64 * proportion_of_book)
                 .round() as usize;
             if sentence_cursor >= total_sentences_in_book {
-                sentence_cursor = total_sentences_in_book - 1;
+                sentence_cursor = total_sentences_in_book.saturating_sub(1);
             }
         }
 

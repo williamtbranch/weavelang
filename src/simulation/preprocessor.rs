@@ -19,12 +19,13 @@ pub fn json_chapter_to_numerical(
         .iter()
         .filter_map(|block| match block {
             JsonContentBlock::Sentence(s) => {
-                // The basic branch is the minimum required by every recipe.
-                // advanced_target / moderate_target are optional in simple
-                // mode (recipes that don't pull from those tiers should
-                // still produce output). Missing optional tiers are
-                // synthesized as empty stubs by `json_sentence_to_numerical`.
-                let required = ["basic_base", "basic_target"];
+                // `basic_target` is the only tier woven by every recipe and is
+                // always present. `basic_base` is OFF in simple_triple mode, so
+                // it must NOT be required here (the English carrier falls back
+                // to the `base` tier). advanced_target / moderate_target are
+                // optional too. Missing optional tiers are synthesized as empty
+                // stubs by `json_sentence_to_numerical`.
+                let required = ["basic_target"];
                 let has_all = required.iter().all(|tid| s.tiers.iter().any(|t| t.tier_id == *tid));
                 if !has_all {
                     return None;
@@ -64,15 +65,22 @@ pub fn json_sentence_to_numerical(
 
     let s_id = &s_sentence.s_id;
 
-    // We no longer need the original 'base' tier. 'basic_base' is now our source of truth for English.
-    // let literary_base_tier = find_tier_or_panic(&s_sentence.tiers, "base", s_id);
-    let basic_base_tier = find_tier_or_panic(&s_sentence.tiers, "basic_base", s_id);
+    // We no longer need the original 'base' tier as the primary carrier;
+    // 'basic_base' is the source of truth for English when present. In
+    // simple_triple mode `basic_base` is OFF, so fall back to the literary
+    // `base` tier (and finally an empty stub) so generation still works.
+    let empty_tier = JsonTierV2::default();
+    let basic_base_tier = s_sentence
+        .tiers
+        .iter()
+        .find(|t| t.tier_id == "basic_base")
+        .or_else(|| s_sentence.tiers.iter().find(|t| t.tier_id == "base"))
+        .unwrap_or(&empty_tier);
     let basic_target_tier = find_tier_or_panic(&s_sentence.tiers, "basic_target", s_id);
 
     // advanced_target / moderate_target are optional in simple mode. When
     // absent, fall back to empty default tiers so downstream code (which
     // only consults them for non-basic recipes) sees a well-formed shape.
-    let empty_tier = JsonTierV2::default();
     let mod_target_tier = s_sentence
         .tiers
         .iter()

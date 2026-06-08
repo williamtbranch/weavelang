@@ -131,15 +131,14 @@ pub fn generate_book_instance_with_frontier(
 ) -> Result<BookGenerationResult, Box<dyn Error>> {
     let mut result = BookGenerationResult::default();
 
-    let mut profile = NumericalLearnerProfile::new();
-    let ordered_lemmas = frequency_manager::get_ordered_lemmas();
-    if bas_v < u32::MAX {
-        for lemma_str in ordered_lemmas.iter().take(bas_v as usize) {
-            if let Some(lemma_id) = dictionary.get_id(lemma_str) {
-                profile.activate_lemma(lemma_id);
-            }
-        }
-    }
+    // NOTE: core_algo's known-checks are driven entirely by frequency rank vs.
+    // the v-level recipe (see `is_lemma_known_for_tier`); the learner profile is
+    // NOT consulted (it takes `_profile`). Building it here used to clone the
+    // entire ~3.5M-entry frequency vocabulary via `get_ordered_lemmas()` and
+    // activate up to `bas` lemmas on EVERY call — pure waste that dominated the
+    // calibrator's hot loop (~1.4k ladder points). Pass an empty profile; the
+    // generated output is bit-identical.
+    let profile = NumericalLearnerProfile::new();
 
     // MODIFIED: VLevelRecipe no longer includes 'sim'.
     let v_levels = VLevelRecipe {
@@ -425,8 +424,11 @@ pub fn log_analysis_to_file(
                             .split_whitespace()
                             .collect::<Vec<_>>()
                             .join(" ");
-                        let preview = if normalized.len() > 240 {
-                            format!("{}...", &normalized[..240])
+                        // Truncate on a char boundary (byte slicing panics on
+                        // multi-byte UTF-8 like 'á').
+                        let preview = if normalized.chars().count() > 240 {
+                            let truncated: String = normalized.chars().take(240).collect();
+                            format!("{truncated}...")
                         } else {
                             normalized
                         };
