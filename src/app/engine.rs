@@ -2136,8 +2136,15 @@ impl Engine {
                     ));
                 }
 
-                // Run DRC before generating (unless --force)
-                if !force {
+                // Recipe-flat outputs (flat/b/m/a/i/r) are raw recipe dumps that
+                // do NOT consult the calibrated level map, so they skip DRC
+                // (which would otherwise fail on "no level map loaded"). The
+                // 'audit' gate inside execute_generate_weave still applies.
+                let is_recipe_flat = matches!(level.as_str(), "b" | "m" | "a" | "i" | "r")
+                    || level.starts_with("flat");
+
+                // Run DRC before generating (unless --force or a recipe-flat dump)
+                if !force && !is_recipe_flat {
                     let drc_range = chapter_range.map(|(s, e)| (s - 1, e - 1));
                     let drc_violations = self.run_drc(drc_range);
                     if !drc_violations.is_empty() {
@@ -5126,10 +5133,11 @@ impl Engine {
                 .map_err(|e| format!("Failed to create output directory '{}': {}", tts_dir.display(), e))?;
         }
 
-        let book_map = self.state.book_map.as_ref()
-            .ok_or("No level map loaded. Use 'import level_map <path>' first.")?;
+        // The calibrated level map is only required for numeric levels and
+        // 'all'. The recipe-flat outputs (flat/b/m/a/i/r) use fixed recipes and
+        // run without a map, so resolve it lazily in the standard-level branch.
+        let book_map_opt = self.state.book_map.as_ref();
 
-        // Build JsonChapter from domain sentences.
         // In chapter mode, pass only the chapter's sentences so the numerical
         // chapter has a 1:1 index alignment with the chapter range.
         let (base_lang, target_lang) = &self.state.project_languages;
@@ -5390,8 +5398,26 @@ impl Engine {
             "r" => {
                 generate_raw_source(&mut generated_files)?;
             }
+            s if s.starts_with("flat:") => {
+                // generate_weave flat <adv> <mod> <bas> — parsed upstream into
+                // "flat:ADV:MOD:BAS". A raw recipe dump with no level map.
+                let nums: Vec<&str> = s["flat:".len()..].split(':').collect();
+                if nums.len() != 3 {
+                    return Err("Internal error: malformed 'flat' recipe args.".to_string());
+                }
+                let adv = nums[0].parse::<u32>()
+                    .map_err(|_| "Invalid 'adv' number for 'flat'.".to_string())?;
+                let mod_v = nums[1].parse::<u32>()
+                    .map_err(|_| "Invalid 'mod' number for 'flat'.".to_string())?;
+                let bas = nums[2].parse::<u32>()
+                    .map_err(|_| "Invalid 'bas' number for 'flat'.".to_string())?;
+                let suffix = format!("flat_a{}_m{}_b{}", adv, mod_v, bas);
+                generate_flat(bas, mod_v, adv, &suffix, &mut generated_files)?;
+            }
             _ => {
                 // Standard level modes: numeric level or 'all'
+                let book_map = book_map_opt
+                    .ok_or("No level map loaded. Use 'calibrate' or 'import level_map <path>' first.")?;
                 let levels: Vec<u32> = if is_all {
                     let mut lvls: Vec<u32> = book_map.keys()
                         .filter_map(|k| k.parse::<u32>().ok())

@@ -614,7 +614,7 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
         },
         "generate_weave" => {
             if parts.len() <= 1 {
-                return Err("Usage: generate_weave <level|all|b|m|a|i|r|sf> [--force] [--frontier|--no-frontier] [--frontier-pct N] [--frontier-seed N] [--frontier-test|--no-frontier-test] [--frontier-familiar-n N] [--sf-step N] [--sf-start N]".to_string());
+                return Err("Usage: generate_weave <level|all|b|m|a|i|r|sf|flat> [--force] [--frontier|--no-frontier] [--frontier-pct N] [--frontier-seed N] [--frontier-test|--no-frontier-test] [--frontier-familiar-n N] [--sf-step N] [--sf-start N]".to_string());
             }
 
             let mut level: Option<String> = None;
@@ -710,8 +710,26 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
                     }
                     arg => {
                         if level.is_none() {
-                            level = Some(arg.to_string());
-                            i += 1;
+                            if arg == "flat" {
+                                // generate_weave flat <adv> <mod> <bas>
+                                // Three raw vocabulary numbers (a recipe), in the
+                                // same adv/mod/bas order shown in a level map.
+                                // Encoded as "flat:ADV:MOD:BAS" for the engine.
+                                if i + 3 >= parts.len() {
+                                    return Err("Usage: generate_weave flat <adv> <mod> <bas> (three vocabulary numbers, in adv mod bas order)".to_string());
+                                }
+                                let adv = parts[i + 1].parse::<u32>()
+                                    .map_err(|_| "Invalid 'adv' number for 'flat' (expected integer).".to_string())?;
+                                let mod_v = parts[i + 2].parse::<u32>()
+                                    .map_err(|_| "Invalid 'mod' number for 'flat' (expected integer).".to_string())?;
+                                let bas = parts[i + 3].parse::<u32>()
+                                    .map_err(|_| "Invalid 'bas' number for 'flat' (expected integer).".to_string())?;
+                                level = Some(format!("flat:{}:{}:{}", adv, mod_v, bas));
+                                i += 4;
+                            } else {
+                                level = Some(arg.to_string());
+                                i += 1;
+                            }
                         } else {
                             return Err(format!("Unexpected argument '{}'.", arg));
                         }
@@ -720,7 +738,7 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
             }
 
             let level = level.ok_or_else(|| {
-                "Missing level argument. Usage: generate_weave <level|all|b|m|a|i|r|sf> [flags]"
+                "Missing level argument. Usage: generate_weave <level|all|b|m|a|i|r|sf|flat> [flags]"
                     .to_string()
             })?;
 
@@ -1336,6 +1354,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  import level_map <p>   - Import a .lm level map file\n");
             out.push_str("  set output_dir <p>     - Set output directory for weave files\n");
             out.push_str("  generate_weave <N|all|b|m|a|i|r|sf> - Generate weave text file(s); r=raw source, sf=study format\n");
+            out.push_str("  generate_weave flat <adv> <mod> <bas> - Raw recipe dump from 3 vocab numbers (adv mod bas order); no level map / DRC needed\n");
             out.push_str("  generate_weave <N|all> --force - Generate weave, skip DRC\n");
             out.push_str("  generate_weave ... [--frontier|--no-frontier] [--frontier-pct N] [--frontier-seed N]\n");
             out.push_str("                    [--frontier-test|--no-frontier-test] [--frontier-familiar-n N]\n");
