@@ -6233,7 +6233,6 @@ impl Engine {
             &master_scale,
             max_level,
             total_sentences_hint,
-            self.state.simple_triple,
         ).map_err(|e| format!("Calibration failed: {}", e))?;
 
         let level_count = curriculum_maps.len();
