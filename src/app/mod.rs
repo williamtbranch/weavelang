@@ -1,3 +1,4 @@
+pub mod adapt;
 pub mod backup;
 pub mod state;
 pub mod commands;

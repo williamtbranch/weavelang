@@ -376,6 +376,20 @@ mod tests {
     }
 
     #[test]
+    fn spanish_source_basic_target_passthrough_holds_in_single_and_triple() {
+        // es-es + source_is_basic=true must still passthrough even when the
+        // single_simple / simple_triple output mode is active (the fourth
+        // `simple_triple` arg is true). The source_is_basic arm precedes any
+        // simple-mode routing for Spanish-source basic_target, so the
+        // verbatim copy wins and no `simplify` LLM call is emitted.
+        let bt = stage_dispatch(STAGE_GENERATE_BASIC_TARGET, true, true, true).unwrap();
+        assert_eq!(bt.target_tier, "basic_target");
+        assert_eq!(bt.source_tier, "base");
+        assert_eq!(bt.prompt_name, PROMPT_PASSTHROUGH_COPY);
+        assert!(bt.copy_from_source_tier);
+    }
+
+    #[test]
     fn lang_for_tier_english_source_unchanged() {
         assert_eq!(lang_for_tier("base", "en", "es", false), "en");
         assert_eq!(lang_for_tier("basic_base", "en", "es", false), "en");

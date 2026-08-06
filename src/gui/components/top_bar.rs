@@ -28,6 +28,20 @@ pub fn render(ui: &mut egui::Ui, state: &mut AppState) {
             .clicked()
         {
             state.show_media_tab = !state.show_media_tab;
+            if state.show_media_tab {
+                state.show_raw_source_tab = false;
+            }
+        }
+
+        if ui
+            .selectable_label(state.show_raw_source_tab, "Raw Source")
+            .on_hover_text("Adapt raw text to a target level, then promote it to Source")
+            .clicked()
+        {
+            state.show_raw_source_tab = !state.show_raw_source_tab;
+            if state.show_raw_source_tab {
+                state.show_media_tab = false;
+            }
         }
 
         ui.separator();

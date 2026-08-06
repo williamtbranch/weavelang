@@ -1,0 +1,32 @@
+TASK: One squeeze pass
+
+You are performing step 6 of the SPEC workflow above — exactly one pass.
+
+Below are the current draft and the DRC report for it, including the
+worst-offenders table.
+
+Rules — strict:
+1. Edit ONLY lemmas listed in the offender table, plus known lemmatizer
+   traps (imperatives, subjunctive quotes, diminutives, all-caps blocks).
+2. Substitute rarest-first, weighting by rank x count. The report names the
+   offenders but never prescribes a replacement — choose one that fits the
+   sentence and the story's voice.
+3. Payload lemmas and approved domain vocabulary are EXEMPT — do not touch
+   them to game the score.
+4. Do NOT rewrite, "improve", or restyle any passing text. Minimal diffs.
+5. If the length gate failed for being too SHORT, add restatement built from
+   common words already in the text — never new vocabulary.
+6. If the offender table is already dominated by payload and common
+   vocabulary, the floor is reached: output the draft UNCHANGED except for
+   genuine lemmatizer traps, and add one final line:
+   FLOOR REACHED — no productive substitutions remain.
+
+{{PART_NOTE}}
+If the current draft begins with a chapter title line, keep it exactly as it is
+unless it is itself an offender. If it does not, do not add one.
+
+OUTPUT RULES — strict:
+- Output the FULL revised text, keeping the same opening as the current draft
+  (title line and blank line if it has them, prose straight away if it does not).
+- No %%META tags, no illustration markers, no metadata of any kind.
+- No commentary, no diff, no English, no code fences.

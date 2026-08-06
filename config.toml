@@ -122,3 +122,10 @@ thinking_budget_tokens = 2048
     batch_size_in_items = 1
     # thinking_budget_tokens = 1024  # Omit for dynamic thinking
     thinking_on_first_attempt = true
+
+    # Raw-source adaptation (Raw Source tab: draft / squeeze under the DRC).
+    # One whole chapter per call, so the batch size stays at 1.
+    [stages.AdaptRawSource]
+    primary_model = "gemini-pro"
+    fallback_model = "sonnet"
+    batch_size_in_items = 1

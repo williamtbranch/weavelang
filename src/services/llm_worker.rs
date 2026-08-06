@@ -117,6 +117,10 @@ pub fn spawn_llm_job(
     prompt_name: String,
     target_tier_id: String,
     items: Vec<(usize, String, String)>,
+    // Optional per-document sentence texts (indexed by document index) used
+    // to prepend a read-only CONTEXT block of the sentences preceding each
+    // batch. Enables pro-drop pronoun/gender resolution in mapping stages.
+    context_texts: Option<Vec<String>>,
     batch_size: usize,
     model: String,
     fallback_model: Option<String>,
@@ -174,6 +178,7 @@ pub fn spawn_llm_job(
             &target_code,
             &prompt_name,
             chunks,
+            context_texts,
             &model,
             fb_ref,
             Some(cancel_thread_flag.as_ref()),

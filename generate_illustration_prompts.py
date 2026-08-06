@@ -38,6 +38,11 @@ DEFAULT_SENTENCES_PER_ILLUSTRATION = 50
 DEFAULT_MINIMUM_COUNT = 3
 DEFAULT_STYLE = "fairy tale watercolor, storybook illustration, warm lighting"
 DEFAULT_MODEL = "gemini-2.5-flash"
+# Tried in order when a segment is blocked or a model fails.
+DEFAULT_FALLBACK_MODELS = [
+    "gemini-2.5-flash-lite-preview-06-17",
+    "gemini-1.5-flash",
+]
 ILLUSTRATION_MAP_FILENAME = "_illustration_map.json"
 
 SYSTEM_PROMPT = """\
@@ -216,6 +221,60 @@ def build_scene_context(paragraphs: list[str], seg_start: int, seg_end: int,
     return "\n\n".join(parts)
 
 
+def soften_sensitive_language(text: str) -> str:
+    """Lightly soften high-risk wording to reduce safety blocking.
+
+    Keeps narrative tone while replacing explicit self-harm/violent phrasing
+    that can trigger upstream model safety classifiers.
+    """
+    replacements = [
+        (r"\bkill(?:s|ed|ing)?\s+themselves\b", "lose all hope"),
+        (r"\bkill(?:s|ed|ing)?\s+himself\b", "is consumed by despair"),
+        (r"\bkill(?:s|ed|ing)?\s+herself\b", "is consumed by despair"),
+        (r"\bcommit(?:ted|s)?\s+suicide\b", "fall into despair"),
+        (r"\bsuicide\b", "despair"),
+        (r"\bse\s+matan\b", "se pierden"),
+    ]
+    out = text
+    for pattern, repl in replacements:
+        out = re.sub(pattern, repl, out, flags=re.IGNORECASE)
+    return out
+
+
+def extract_response_text(response) -> str:
+    """Extract text from Gemini response with graceful blocked-response errors."""
+    try:
+        text = response.text
+        if text:
+            return text.strip()
+    except Exception:
+        pass
+
+    # Fallback when quick accessors are unavailable (often blocked responses).
+    texts: list[str] = []
+    candidates = getattr(response, "candidates", None) or []
+    for cand in candidates:
+        content = getattr(cand, "content", None)
+        parts = getattr(content, "parts", None) if content is not None else None
+        if not parts:
+            continue
+        for part in parts:
+            part_text = getattr(part, "text", None)
+            if part_text:
+                texts.append(part_text)
+
+    if texts:
+        return "\n".join(t.strip() for t in texts if t and t.strip()).strip()
+
+    feedback = getattr(response, "prompt_feedback", None)
+    block_reason = getattr(feedback, "block_reason", None)
+    finish_reasons = [getattr(c, "finish_reason", None) for c in candidates]
+    raise RuntimeError(
+        "No text candidates returned"
+        f" (block_reason={block_reason}, finish_reasons={finish_reasons})"
+    )
+
+
 def generate_prompt_with_gemini(
     genai_module, model_name: str, segment_text: str, style_prefix: str,
     index: int, total: int, book_title: str = "",
@@ -246,7 +305,34 @@ def generate_prompt_with_gemini(
             {"role": "user", "parts": [{"text": SYSTEM_PROMPT + "\n\n" + user_msg}]},
         ],
     )
-    return response.text.strip()
+    return extract_response_text(response)
+
+
+def fallback_prompt_from_segment(segment_text: str, style_prefix: str) -> str:
+    """Generate a safe deterministic fallback prompt when LLM calls fail."""
+    lines = [ln.strip() for ln in segment_text.splitlines() if ln.strip()]
+    excerpt = " ".join(lines[:2])
+    excerpt = soften_sensitive_language(excerpt)
+    excerpt = re.sub(r"\s+", " ", excerpt).strip()
+    if len(excerpt) > 280:
+        excerpt = excerpt[:277].rstrip() + "..."
+
+    return (
+        f"{style_prefix}. A single cinematic scene inspired by this passage: "
+        f"{excerpt}. Focus on atmosphere, setting, and character emotion; "
+        f"no text in image."
+    )
+
+
+def parse_fallback_models(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    out: list[str] = []
+    for m in raw.split(","):
+        name = m.strip()
+        if name and name not in out:
+            out.append(name)
+    return out
 
 
 def save_prompts_toml(prompts: list[dict], output_path: Path):
@@ -303,6 +389,10 @@ def main():
         help=f"Gemini model name (default: {DEFAULT_MODEL})"
     )
     parser.add_argument(
+        "--fallback-models", default=",".join(DEFAULT_FALLBACK_MODELS),
+        help="Comma-separated Gemini fallback models used if the primary model is blocked or fails"
+    )
+    parser.add_argument(
         "--manifest", type=Path, default=None,
         help="Path to _av_manifest.toml (overrides --count, --style, etc.)"
     )
@@ -339,6 +429,7 @@ def main():
     sentences_per = args.sentences_per
     minimum = args.minimum
     model_name = args.model
+    fallback_models = parse_fallback_models(args.fallback_models)
     count = args.count
 
     if args.manifest:
@@ -385,6 +476,8 @@ def main():
     print(f"Illustrations to generate: {count}")
     print(f"Style: {style}")
     print(f"Model: {model_name}")
+    if fallback_models:
+        print(f"Fallback models: {', '.join(fallback_models)}")
     print()
 
     # --- Load character bible ---
@@ -431,10 +524,47 @@ def main():
         # Build surrounding scene context (~50 sentences)
         scene_context = build_scene_context(story_paragraphs, p_start, p_end)
         print(f"  [{i + 1}/{actual_count}] Generating prompt for paragraphs {p_start + 1}-{p_end}...")
-        prompt_text = generate_prompt_with_gemini(
-            genai, model_name, segment, style, i, actual_count, book_title,
-            character_bible=character_bible, scene_context=scene_context,
-        )
+        models_to_try = [model_name] + [m for m in fallback_models if m != model_name]
+        prompt_text = None
+        errors: list[str] = []
+
+        # First pass: original text with model fallbacks.
+        for m in models_to_try:
+            try:
+                prompt_text = generate_prompt_with_gemini(
+                    genai, m, segment, style, i, actual_count, book_title,
+                    character_bible=character_bible, scene_context=scene_context,
+                )
+                if m != model_name:
+                    print(f"    [INFO] Used fallback model: {m}")
+                break
+            except Exception as e:
+                errors.append(f"{m}: {e}")
+
+        # Second pass: softened text/context, then model fallbacks again.
+        if not prompt_text:
+            softened_segment = soften_sensitive_language(segment)
+            softened_context = soften_sensitive_language(scene_context)
+            if softened_segment != segment or softened_context != scene_context:
+                print("    [WARN] Primary attempts blocked; retrying with softened wording...")
+                for m in models_to_try:
+                    try:
+                        prompt_text = generate_prompt_with_gemini(
+                            genai, m, softened_segment, style, i, actual_count, book_title,
+                            character_bible=character_bible, scene_context=softened_context,
+                        )
+                        if m != model_name:
+                            print(f"    [INFO] Used fallback model after softening: {m}")
+                        break
+                    except Exception as e:
+                        errors.append(f"{m} (softened): {e}")
+
+        if not prompt_text:
+            print("    [WARN] All model attempts failed; using deterministic fallback prompt.")
+            if errors:
+                print(f"    [WARN] Last error: {errors[-1]}")
+            prompt_text = fallback_prompt_from_segment(segment, style)
+
         print(f"    -> {prompt_text[:100]}...")
         prompts.append({
             "index": i + 1,

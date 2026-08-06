@@ -110,6 +110,7 @@ impl Default for Config {
             ("GeneratePhraseMap",        5),
             ("GenerateInversePhraseMap", 5),
             ("GenerateLessonRealign",    1),
+            ("AdaptRawSource",           1),
         ] {
             stages.insert(name.to_string(), StageConfig {
                 primary_model: "gemini-pro".to_string(),

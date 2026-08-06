@@ -4,6 +4,7 @@ pub mod bridge;
 pub mod mapping;
 pub mod mapping_logic;
 pub mod primitives;
+pub mod raw_source;
 pub mod segment; // <--- NEW
 pub mod sentence;
 pub mod llm_log;

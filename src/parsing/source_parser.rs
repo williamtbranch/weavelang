@@ -242,12 +242,15 @@ pub fn resolve_directives(directives: &[RawDirective], document: &[Sentence]) ->
 
     meta.lm_entries.sort_by_key(|e| e.start_sentence_idx);
 
-    // source_is_basic only meaningful when simple_mode is on. Don't
-    // unset the user's flag — keep it for telemetry — but warn so the
-    // contradiction surfaces in the import log.
+    // source_is_basic only takes effect when a simple output mode is on
+    // (simple_mode via meta, or simple_triple / single_simple set by
+    // toggle). Don't unset the user's flag — keep it for telemetry — but
+    // warn so the contradiction surfaces in the import log. We can only
+    // see `simple_mode` here; the toggle-only modes are checked at dispatch.
     if meta.source_is_basic == Some(true) && meta.simple_mode != Some(true) {
         meta.warnings.push(
-            "source_is_basic: on requires simple_mode: on; flag will be ignored at stage dispatch"
+            "source_is_basic: on takes effect only in a simple mode (simple_mode / simple_triple / single_simple); \
+             enable one or the flag is ignored at stage dispatch"
                 .to_string(),
         );
     }

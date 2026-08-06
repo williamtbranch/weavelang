@@ -2,6 +2,7 @@ pub mod avd_hunter;
 pub mod calibrator;
 pub mod core_algo;
 pub mod dictionary;
+pub mod escore;
 pub mod frequency_manager;
 pub mod global_settings;
 pub mod metrics;

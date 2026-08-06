@@ -1,0 +1,24 @@
+TASK: First draft
+
+You are performing steps 1-4 of the SPEC workflow above, in one pass.
+
+1. Beat-map the source below privately — do not output the map. Mark
+   rare-lemma-heavy digressions CUT where they add little.
+2. Choose 3-5 payload ("+1") lemmas and use each DIRECTLY in clear context.
+   Do NOT define or gloss them inline.
+3. Compose the adaptation DIRECTLY IN {{TARGET_LANGUAGE_NAME}} per the SPEC:
+   i-level <= {{I_LEVEL_MAX}} at {{COVERAGE_PCT}}% coverage, roughly top-1000
+   lemmas, A2 grammar with a B1 bridge.
+4. Length: {{MIN_PERCENT}}%-{{MAX_PERCENT}}% of the source word count
+   (the source is {{SOURCE_WORDS}} words).
+
+CHAPTER: {{CHAPTER_NAME}}
+{{PART_NOTE}}
+
+{{CHAPTER_TITLE_RULE}}
+
+OUTPUT RULES — strict:
+- Output ONLY the finished story prose (plus the title line, if one is required
+  of you above).
+- No %%META tags, no illustration markers, no metadata of any kind.
+- No commentary, no explanation, no English, no code fences.

@@ -1,11 +1,13 @@
 // src/services/llm_client.rs
 
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use sha2::{Sha256, Digest};
 use hex;
 
@@ -13,6 +15,15 @@ use crate::config::ModelConfig;
 
 const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
+
+/// Cap on tokens Anthropic may *generate* (unrelated to `max_input_tokens` in
+/// `[models]`, which sizes the prompt). Billing is per token actually emitted,
+/// so a generous cap costs nothing and only prevents mid-answer truncation —
+/// which matters because reasoning tokens are charged against this same cap.
+///
+/// Older models have lower ceilings and reject anything above them, so this is
+/// only a starting point; the real limit is learned per model at runtime.
+const ANTHROPIC_MAX_OUTPUT_TOKENS: u32 = 16384;
 
 
 // ---------------------------------------------------------------------------
@@ -231,17 +242,55 @@ struct AnthropicRequest {
     max_tokens: u32,
     system: String,
     messages: Vec<AnthropicMessage>,
-    temperature: f32,
+    /// Omitted entirely for models that reject it (see `supports_temperature`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
 }
 
+/// An Anthropic call that failed, plus the details the retry logic can act on:
+/// whether the request was rejected *because of* `temperature`, and the real
+/// output ceiling if it was rejected for exceeding `max_tokens`.
+struct AnthropicError {
+    message: String,
+    temperature_rejected: bool,
+    max_tokens_cap: Option<u32>,
+}
+
+/// Pull the true ceiling out of "max_tokens: 16384 > 8192, which is the
+/// maximum allowed...". Model names contain digits, so anchor on the `>`
+/// rather than scanning for any number.
+static MAX_TOKENS_CAP_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"max_tokens:\s*\d+\s*>\s*(\d+)").expect("valid regex"));
+
+fn parse_max_tokens_cap(detail: &str) -> Option<u32> {
+    MAX_TOKENS_CAP_RE
+        .captures(detail)?
+        .get(1)?
+        .as_str()
+        .parse()
+        .ok()
+}
+
+/// One block of an Anthropic response.
+///
+/// A response is a *list* of blocks and only some of them carry prose. Newer
+/// models interleave `thinking` blocks (which hold `thinking`, not `text`) and
+/// may emit `tool_use` blocks, so every field is optional: an unknown or
+/// text-less block must be skipped, never a deserialization failure.
 #[derive(Deserialize, Debug)]
 struct AnthropicContent {
-    text: String,
+    #[serde(rename = "type", default)]
+    block_type: String,
+    #[serde(default)]
+    text: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
 struct AnthropicResponse {
     content: Vec<AnthropicContent>,
+    /// `"max_tokens"` here means the answer was cut off mid-flight.
+    #[serde(default)]
+    stop_reason: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -257,6 +306,15 @@ struct AnthropicErrorDetail {
 pub struct AnthropicClient {
     client: reqwest::blocking::Client,
     cache_dir: Option<PathBuf>,
+    /// Models observed to reject `temperature`. Newer Claude generations
+    /// deprecated the parameter and answer `HTTP 400` when it is present, so
+    /// the first such rejection is remembered and the parameter is dropped for
+    /// every later call to that model. Learning this at runtime beats
+    /// hard-coding model names, which silently rots as new models ship.
+    no_temperature: Mutex<HashSet<String>>,
+    /// Real output ceiling per model, learned from rejections. Absent means
+    /// `ANTHROPIC_MAX_OUTPUT_TOKENS` has not been contradicted yet.
+    max_output: Mutex<HashMap<String, u32>>,
 }
 
 impl AnthropicClient {
@@ -270,7 +328,12 @@ impl AnthropicClient {
             let _ = fs::create_dir_all(&dir);
             dir
         });
-        Self { client, cache_dir }
+        Self {
+            client,
+            cache_dir,
+            no_temperature: Mutex::new(HashSet::new()),
+            max_output: Mutex::new(HashMap::new()),
+        }
     }
 
     pub fn complete(
@@ -286,21 +349,84 @@ impl AnthropicClient {
             return Ok(cached);
         }
 
+        let mut with_temperature = !self
+            .no_temperature
+            .lock()
+            .map(|set| set.contains(model))
+            .unwrap_or(false);
+        let mut max_tokens = self
+            .max_output
+            .lock()
+            .ok()
+            .and_then(|caps| caps.get(model).copied())
+            .unwrap_or(ANTHROPIC_MAX_OUTPUT_TOKENS);
+
+        // At most two corrections (temperature, then output cap), each of which
+        // is remembered so it costs one round trip per model per session rather
+        // than falling back to a weaker model.
+        for _ in 0..2 {
+            match self.send(&api_key, model, system_prompt, user_prompt, with_temperature, max_tokens) {
+                Ok(result) => {
+                    write_cache(&self.cache_dir, model, system_prompt, user_prompt, &result);
+                    return Ok(result);
+                }
+                Err(err) if err.temperature_rejected && with_temperature => {
+                    if let Ok(mut set) = self.no_temperature.lock() {
+                        set.insert(model.to_string());
+                    }
+                    with_temperature = false;
+                }
+                Err(err) if err.max_tokens_cap.is_some_and(|cap| cap < max_tokens) => {
+                    let cap = err.max_tokens_cap.unwrap_or(max_tokens);
+                    if let Ok(mut caps) = self.max_output.lock() {
+                        caps.insert(model.to_string(), cap);
+                    }
+                    max_tokens = cap;
+                }
+                Err(err) => return Err(err.message),
+            }
+        }
+
+        self.send(&api_key, model, system_prompt, user_prompt, with_temperature, max_tokens)
+            .map(|result| {
+                write_cache(&self.cache_dir, model, system_prompt, user_prompt, &result);
+                result
+            })
+            .map_err(|e| e.message)
+    }
+
+    /// One HTTP round trip. `with_temperature` controls whether the deprecated
+    /// sampling parameter is included at all.
+    fn send(
+        &self,
+        api_key: &str,
+        model: &str,
+        system_prompt: &str,
+        user_prompt: &str,
+        with_temperature: bool,
+        max_tokens: u32,
+    ) -> Result<String, AnthropicError> {
+        let fail = |message: String| AnthropicError {
+            message,
+            temperature_rejected: false,
+            max_tokens_cap: None,
+        };
+
         let request_body = AnthropicRequest {
             model: model.to_string(),
-            max_tokens: 4096,
+            max_tokens,
             system: system_prompt.to_string(),
             messages: vec![AnthropicMessage {
                 role: "user".to_string(),
                 content: user_prompt.to_string(),
             }],
-            temperature: 0.0,
+            temperature: with_temperature.then_some(0.0),
         };
 
         let mut headers = HeaderMap::new();
         headers.insert(
             "x-api-key",
-            HeaderValue::from_str(&api_key).map_err(|e| e.to_string())?,
+            HeaderValue::from_str(api_key).map_err(|e| fail(e.to_string()))?,
         );
         headers.insert(
             "anthropic-version",
@@ -314,7 +440,7 @@ impl AnthropicClient {
             .headers(headers)
             .json(&request_body)
             .send()
-            .map_err(|e| format!("Anthropic request failed (network): {e}"))?;
+            .map_err(|e| fail(format!("Anthropic request failed (network): {e}")))?;
 
         let status = response.status();
         if !status.is_success() {
@@ -333,27 +459,59 @@ impl AnthropicClient {
                 404 => " (model not found — check the model name in config.toml)",
                 _ => "",
             };
-            return Err(format!(
-                "Anthropic API Error (HTTP {}): {}{} [model: {}]",
-                status_code, detail, hint, model
-            ));
+            return Err(AnthropicError {
+                temperature_rejected: status_code == 400
+                    && detail.to_ascii_lowercase().contains("temperature"),
+                max_tokens_cap: (status_code == 400)
+                    .then(|| parse_max_tokens_cap(&detail))
+                    .flatten(),
+                message: format!(
+                    "Anthropic API Error (HTTP {}): {}{} [model: {}]",
+                    status_code, detail, hint, model
+                ),
+            });
         }
 
         let response_text = response
             .text_with_charset("utf-8")
-            .map_err(|e| format!("Failed to read Anthropic response: {e}"))?;
+            .map_err(|e| fail(format!("Failed to read Anthropic response: {e}")))?;
 
         let response_body: AnthropicResponse = serde_json::from_str(&response_text)
-            .map_err(|e| format!("Failed to parse Anthropic JSON: {e}"))?;
+            .map_err(|e| fail(format!("Failed to parse Anthropic JSON: {e}")))?;
 
-        let result_text = if let Some(first_block) = response_body.content.first() {
-            first_block.text.clone()
-        } else {
-            return Err("Anthropic response contained no content blocks".to_string());
-        };
+        // Join every text block; thinking/tool blocks are dropped so reasoning
+        // never leaks into the prose handed to the caller.
+        let answer: String = response_body
+            .content
+            .iter()
+            .filter_map(|block| block.text.as_deref())
+            .collect::<Vec<_>>()
+            .join("");
 
-        write_cache(&self.cache_dir, model, system_prompt, user_prompt, &result_text);
-        Ok(result_text)
+        if answer.trim().is_empty() {
+            let kinds: Vec<&str> = response_body
+                .content
+                .iter()
+                .map(|b| b.block_type.as_str())
+                .collect();
+            return Err(fail(format!(
+                "Anthropic response contained no text (stop_reason: {}, blocks: [{}], model: {})",
+                response_body.stop_reason.as_deref().unwrap_or("none"),
+                kinds.join(", "),
+                model
+            )));
+        }
+
+        if response_body.stop_reason.as_deref() == Some("max_tokens") {
+            return Err(fail(format!(
+                "Anthropic response was truncated at the {}-token output cap \
+                 (stop_reason: max_tokens, model: {}). Reduce the batch size \
+                 for this stage, or shorten the unit.",
+                max_tokens, model
+            )));
+        }
+
+        Ok(answer)
     }
 }
 

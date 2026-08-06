@@ -199,6 +199,7 @@ impl LlmStageService {
         target_code: &str,
         prompt_name: &str,
         chunks: Vec<Vec<(usize, String, String)>>,
+        context_texts: Option<Vec<String>>,
         model: &str,
         fallback_model: Option<&str>,
         cancel_flag: Option<&AtomicBool>,
@@ -227,7 +228,8 @@ impl LlmStageService {
             }
 
             let user_prompt = format!(
-                "STRICT REQUIREMENT: Provide exactly one line for each ID provided below. Do not merge sentences. Do not skip IDs.\n\n{}",
+                "STRICT REQUIREMENT: Provide exactly one line for each ID provided below. Do not merge sentences. Do not skip IDs.\n\n{}{}",
+                build_context_block(context_texts.as_deref(), chunk),
                 chunk
                     .iter()
                     .map(|(_, s_id, text)| format!("{}: {}", s_id, text))
@@ -342,6 +344,49 @@ impl LlmStageService {
 
         Ok(())
     }
+}
+
+/// Number of preceding sentences included in a mapping batch's read-only
+/// CONTEXT block. Spanish is pro-drop, so the gender/person of an omitted
+/// subject usually has to be recovered from a nearby earlier sentence. A
+/// window of 15 covers virtually all narrative cases; input tokens are cheap.
+const CONTEXT_WINDOW: usize = 15;
+
+/// Build a read-only `CONTEXT` block containing up to `CONTEXT_WINDOW`
+/// sentences immediately preceding the batch (clamped to the document start).
+///
+/// `context_texts` is indexed by document index; `chunk` items carry their
+/// document index in field `.0`. Returns an empty string when no context is
+/// available (e.g. non-mapping stages, or the batch starts at index 0).
+fn build_context_block(
+    context_texts: Option<&[String]>,
+    chunk: &[(usize, String, String)],
+) -> String {
+    let texts = match context_texts {
+        Some(t) => t,
+        None => return String::new(),
+    };
+    let first_idx = match chunk.iter().map(|(idx, _, _)| *idx).min() {
+        Some(i) => i,
+        None => return String::new(),
+    };
+    if first_idx == 0 {
+        return String::new();
+    }
+    let start = first_idx.saturating_sub(CONTEXT_WINDOW);
+    let lines: Vec<String> = texts[start..first_idx]
+        .iter()
+        .filter(|t| !t.trim().is_empty())
+        .map(|t| format!("- {}", t.trim()))
+        .collect();
+    if lines.is_empty() {
+        return String::new();
+    }
+    format!(
+        "CONTEXT (preceding sentences, for reference only — DO NOT map or output these; \
+use them to resolve the gender and person of any omitted/dropped subjects):\n{}\n\n",
+        lines.join("\n")
+    )
 }
 
 // ------------ Test helper & unit tests ------------

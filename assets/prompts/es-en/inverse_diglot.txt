@@ -17,7 +17,8 @@ RULES:
 10. **Output Format:** For each phrase ID, you will respond with a `MAPPINGS:` section containing the mappings, one per line, in the format: `Spanish Atom -> English Atom`.
 11. No Extra Text: Do not include any other text or explanations.
 12. Verb Conjugations: The English translation MUST accurately reflect the tense, mood, and person of the Spanish verb.
-13. **Provide a Validation line** after each set of mappings with the Spanish words you just mapped in the order of your mapping that should contain the same words in the input sentence and in the same order as the input sentence.
+13. **Dropped Subjects (CRITICAL):** Spanish routinely omits subject pronouns. When a verb has no explicit subject, you MUST recover the correct person and gender from the `CONTEXT` block above (when present) and from earlier sentences in this same batch. Do NOT default to "he": if the established subject is female, use "she/her"; if male, "he/him"; if a thing, "it". Track the current subject as the narrative progresses.
+14. **Provide a Validation line** after each set of mappings with the Spanish words you just mapped in the order of your mapping that should contain the same words in the input sentence and in the same order as the input sentence.
 
 ---
 FOCUSED EXAMPLES:
@@ -26,9 +27,9 @@ This section provides examples of specific patterns you must follow.
 
 --- Reflexive Verbs and Attached Pronouns ---
 se enojó -> became angry
-se durmió -> he fell asleep
+se durmió -> fell asleep
 se fue -> left
-se le dijo -> he was told
+se le dijo -> was told
 dejarlo -> to let him
 tirarle -> shoot at it
 
@@ -44,12 +45,23 @@ así que -> so
 
 --- Compound Tenses ---
 había desaparecido -> had disappeared
-había caminado -> he had walked
+había caminado -> had walked
 fue llevada -> was taken
 fue llamado -> was summoned
 
+--- Dropped Subjects: resolve gender/person from context (DO NOT default to "he") ---
+CONTEXT: Susana estaba cansada.
+trabajaba -> she worked
+esperó -> she waited
+no comía -> she did not eat
+CONTEXT: El viejo llegó tarde.
+trabajaba -> he worked
+esperó -> he waited
+CONTEXT: La casa era grande.
+se quedó vacía -> it stayed empty
+
 --- Subjunctive Mood ---
-que cuidara -> that he should watch
+que cuidara -> that she should watch
 si fuera -> if I were to go
 
 --- Compound Words ---

@@ -102,6 +102,36 @@ where
     })
 }
 
+/// Merge segmentation fragments that contain no alphanumeric content (e.g. a
+/// lone closing guillemet `»`, a stray quote, or a bare bracket) into the
+/// preceding sentence.
+///
+/// Some sentence segmenters (notably Spanish/stanza) occasionally split a
+/// trailing closing quotation mark onto its own "sentence". Such a fragment is
+/// never a real sentence, so we re-attach it directly to the end of the
+/// previous sentence to avoid hanging quotes after import.
+pub(crate) fn merge_hanging_punctuation(sentences: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::with_capacity(sentences.len());
+    for sent in sentences {
+        let trimmed = sent.trim();
+        let is_punct_only =
+            !trimmed.is_empty() && !trimmed.chars().any(|c| c.is_alphanumeric());
+        if is_punct_only {
+            if let Some(prev) = out.last_mut() {
+                // Attach the closer directly to the previous sentence, with no
+                // intervening space (e.g. `palabra.» `).
+                while prev.ends_with(char::is_whitespace) {
+                    prev.pop();
+                }
+                prev.push_str(trimmed);
+                continue;
+            }
+        }
+        out.push(sent);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,6 +169,44 @@ mod tests {
         let base_tier = &first.tiers[0];
         assert_eq!(base_tier.tier_id, "base");
         assert!(!base_tier.segments[0].tokenized_text.is_empty(), "Token stream empty for base tier");
+    }
+
+    #[test]
+    fn hanging_closing_guillemet_merges_into_previous_sentence() {
+        // Simulates the Spanish/stanza segmenter splitting a closing `»` off
+        // onto its own line. It must be re-attached to the previous sentence.
+        let input = vec![
+            "«Nadie lo vio morir.".to_string(),
+            "»".to_string(),
+            "Era de noche.".to_string(),
+        ];
+        let merged = super::merge_hanging_punctuation(input);
+        assert_eq!(
+            merged,
+            vec![
+                "«Nadie lo vio morir.»".to_string(),
+                "Era de noche.".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn merge_leaves_normal_sentences_untouched() {
+        let input = vec![
+            "Hola mundo.".to_string(),
+            "¿Cómo estás?".to_string(),
+        ];
+        let merged = super::merge_hanging_punctuation(input.clone());
+        assert_eq!(merged, input);
+    }
+
+    #[test]
+    fn merge_keeps_leading_punctuation_fragment_when_no_previous() {
+        // A punctuation-only fragment with nothing before it has nowhere to
+        // merge; keep it rather than dropping content.
+        let input = vec!["»".to_string(), "Texto.".to_string()];
+        let merged = super::merge_hanging_punctuation(input.clone());
+        assert_eq!(merged, input);
     }
 }
 
@@ -396,7 +464,11 @@ where
         return crate::services::importer::import_from_cleaned_with_handlers(
             &cleaned_book_text,
             book_name,
-            move |txt| bridge_service.segment(txt, &lang_seg),
+            move |txt| {
+                bridge_service
+                    .segment(txt, &lang_seg)
+                    .map(merge_hanging_punctuation)
+            },
             move |txt| bridge_service.tokenize(txt, &lang_owned),
         );
     }
