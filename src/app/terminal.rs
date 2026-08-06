@@ -199,6 +199,110 @@ fn parse_new_chapter_command(input: &str) -> Result<TerminalCommand, String> {
     Ok(TerminalCommand::App(AppCommand::NewChapter { name, start, end }))
 }
 
+fn parse_append_source_command(input: &str) -> Result<TerminalCommand, String> {
+    let trimmed = input.trim();
+    let prefix = "append source";
+    let Some(rest) = trimmed.strip_prefix(prefix) else {
+        return Err("Usage: append source <path> [--chapter \"<name>\"]".to_string());
+    };
+
+    let rest = rest.trim();
+    if rest.is_empty() {
+        return Err("Usage: append source <path> [--chapter \"<name>\"]".to_string());
+    }
+
+    let (path, chapter_name) = if let Some(idx) = rest.find(" --chapter ") {
+        let path = rest[..idx].trim().to_string();
+        let raw_name = rest[idx + " --chapter ".len()..].trim();
+        let name = if raw_name.starts_with('"') {
+            if let Some(end) = raw_name[1..].find('"') {
+                raw_name[1..1 + end].to_string()
+            } else {
+                return Err("Unclosed quote in chapter name.".to_string());
+            }
+        } else {
+            raw_name.to_string()
+        };
+        (path, Some(name))
+    } else {
+        (rest.to_string(), None)
+    };
+
+    if path.is_empty() {
+        return Err("Usage: append source <path> [--chapter \"<name>\"]".to_string());
+    }
+    if chapter_name.as_ref().is_some_and(|name| name.trim().is_empty()) {
+        return Err("Chapter name cannot be empty.".to_string());
+    }
+
+    Ok(TerminalCommand::App(AppCommand::AppendSource { path, chapter_name }))
+}
+
+const ADAPT_USAGE: &str = "Usage: adapt draft|squeeze|run|score|report|revert [<unit>] \
+| adapt status | adapt cancel | adapt domain <path> | adapt set <key> <value> \
+| adapt checkpoint | adapt restore [<path>] | adapt promote [--force]";
+
+/// Parse the `adapt ...` command family (raw-source adaptation loop).
+///
+/// `<unit>` is a 1-based unit number, a case-insensitive prefix of the unit
+/// name, or `all` / omitted for every unit.
+fn parse_adapt_command(parts: &[&str]) -> Result<TerminalCommand, String> {
+    if parts.len() < 2 {
+        return Err(ADAPT_USAGE.to_string());
+    }
+
+    // `all` and an empty tail both mean "every unit".
+    let unit_arg = |from: usize| -> Option<String> {
+        if parts.len() <= from {
+            return None;
+        }
+        let joined = parts[from..].join(" ");
+        if joined.eq_ignore_ascii_case("all") {
+            None
+        } else {
+            Some(joined)
+        }
+    };
+
+    let cmd = match parts[1] {
+        "draft" => AppCommand::AdaptDraft { unit: unit_arg(2) },
+        "squeeze" => AppCommand::AdaptSqueeze { unit: unit_arg(2) },
+        "run" => AppCommand::AdaptRun { unit: unit_arg(2) },
+        "score" => AppCommand::AdaptScore { unit: unit_arg(2) },
+        "report" => AppCommand::AdaptReport { unit: unit_arg(2) },
+        "revert" => AppCommand::AdaptRevert { unit: unit_arg(2) },
+        "status" => AppCommand::AdaptStatusReport,
+        "cancel" => AppCommand::AdaptCancel,
+        "checkpoint" => AppCommand::AdaptCheckpoint,
+        "restore" => AppCommand::AdaptRestore {
+            path: (parts.len() > 2).then(|| parts[2..].join(" ")),
+        },
+        "domain" => {
+            if parts.len() < 3 {
+                return Err("Usage: adapt domain <path>".to_string());
+            }
+            AppCommand::AdaptDomain { path: parts[2..].join(" ") }
+        }
+        "set" => {
+            if parts.len() < 4 {
+                return Err(
+                    "Usage: adapt set <coverage|ilevel|min|max|passes|gain|chunk> <value>".to_string(),
+                );
+            }
+            AppCommand::AdaptSet {
+                key: parts[2].to_string(),
+                value: parts[3].to_string(),
+            }
+        }
+        "promote" => {
+            let force = parts[2..].iter().any(|p| *p == "--force");
+            AppCommand::AdaptPromote { force }
+        }
+        other => return Err(format!("Unknown adapt subcommand '{other}'. {ADAPT_USAGE}")),
+    };
+    Ok(TerminalCommand::App(cmd))
+}
+
 /// Parse a raw terminal input line into a TerminalCommand.
 pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
     let parts: Vec<&str> = input.split_whitespace().collect();
@@ -210,6 +314,13 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
         "exit" | "quit" => Ok(TerminalCommand::Exit),
         "help" => Ok(TerminalCommand::Help),
         "clear" => Ok(TerminalCommand::Clear),
+        "append" => {
+            if parts.len() > 1 && parts[1] == "source" {
+                parse_append_source_command(input)
+            } else {
+                Err("Usage: append source <path> [--chapter \"<name>\"]".to_string())
+            }
+        }
         "wlemma" => {
             if parts.len() < 2 {
                 return Err("Usage: wlemma <word>".to_string());
@@ -312,6 +423,40 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
             if parts.len() > 2 && parts[1] == "source" {
                 let path = parts[2..].join(" ");
                 Ok(TerminalCommand::App(AppCommand::ImportSource { path }))
+            } else if parts.len() > 2 && parts[1] == "raw" {
+                // import raw <path> [--chunk N] [--fresh]
+                let mut chunk = None;
+                let mut fresh = false;
+                let mut path_parts: Vec<&str> = Vec::new();
+                let mut i = 2;
+                while i < parts.len() {
+                    if parts[i] == "--chunk" || parts[i] == "-c" {
+                        let value = parts.get(i + 1).ok_or_else(|| {
+                            "Usage: import raw <path> [--chunk N] [--fresh]".to_string()
+                        })?;
+                        chunk = Some(
+                            value
+                                .parse::<usize>()
+                                .map_err(|_| "--chunk expects an integer".to_string())?,
+                        );
+                        i += 2;
+                    } else if parts[i] == "--fresh" {
+                        fresh = true;
+                        i += 1;
+                    } else {
+                        path_parts.push(parts[i]);
+                        i += 1;
+                    }
+                }
+                if path_parts.is_empty() {
+                    return Err("Usage: import raw <path> [--chunk N] [--fresh]".to_string());
+                }
+                let path = path_parts.join(" ");
+                Ok(TerminalCommand::App(AppCommand::ImportRaw {
+                    path,
+                    chunk,
+                    fresh,
+                }))
             } else if parts.len() > 2 && parts[1] == "json" {
                 let path = parts[2..].join(" ");
                 Ok(TerminalCommand::App(AppCommand::ImportJson { path }))
@@ -319,9 +464,10 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
                 let path = parts[2..].join(" ");
                 Ok(TerminalCommand::App(AppCommand::ImportLevelMap { path }))
             } else {
-                Err("Usage: import source <path> | import json <path> | import level_map <path>".to_string())
+                Err("Usage: import source <path> | import raw <path> | import json <path> | import level_map <path>".to_string())
             }
         },
+        "adapt" => parse_adapt_command(&parts),
         "save" => {
             if parts.len() > 1 && parts[1] == "project" {
                 let path = if parts.len() > 2 { Some(parts[2..].join(" ")) } else { None };
@@ -473,6 +619,9 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
             } else if parts.len() > 2 && parts[1] == "book_name" {
                 let name = parts[2..].join(" ");
                 Ok(TerminalCommand::App(AppCommand::SetBookName { name }))
+            } else if parts.len() > 2 && (parts[1] == "title" || parts[1] == "story_title") {
+                let title = parts[2..].join(" ");
+                Ok(TerminalCommand::App(AppCommand::SetStoryTitle { title }))
             } else if parts.len() > 2 && parts[1] == "chapter_mode" {
                 match parts[2] {
                     "true" | "on" | "1" => Ok(TerminalCommand::App(AppCommand::SetChapterMode { enabled: true })),
@@ -502,6 +651,12 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
                     "true" | "on" | "1" => Ok(TerminalCommand::App(AppCommand::SetSimpleTriple { enabled: true })),
                     "false" | "off" | "0" => Ok(TerminalCommand::App(AppCommand::SetSimpleTriple { enabled: false })),
                     _ => Err("Usage: set simple_triple on|off".to_string()),
+                }
+            } else if parts.len() > 2 && parts[1] == "single_simple" {
+                match parts[2] {
+                    "true" | "on" | "1" => Ok(TerminalCommand::App(AppCommand::SetSingleSimple { enabled: true })),
+                    "false" | "off" | "0" => Ok(TerminalCommand::App(AppCommand::SetSingleSimple { enabled: false })),
+                    _ => Err("Usage: set single_simple on|off".to_string()),
                 }
             } else if parts.len() > 2 && parts[1] == "source_is_basic" {
                 match parts[2] {
@@ -540,7 +695,7 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
                     target: parts[2].to_string(),
                 }))
             } else {
-                Err("Usage: set right_view <v> | set left_view <v> | set output_dir <p> | set key <anthropic|google> <value> | set languages <source> <target> | set source_language <code> | set target_language <code> | set book_name <name> | set chapter_mode true|false | set frontier on|off | set frontier_pct <n> | set frontier_seed <n> | set simple_mode on|off | set source_is_basic on|off | set friendly_shielding on|off | set lesson_realign on|off | set teaching_mode on|off".to_string())
+                Err("Usage: set right_view <v> | set left_view <v> | set output_dir <p> | set key <anthropic|google> <value> | set languages <source> <target> | set source_language <code> | set target_language <code> | set book_name <name> | set chapter_mode true|false | set frontier on|off | set frontier_pct <n> | set frontier_seed <n> | set simple_mode on|off | set simple_triple on|off | set single_simple on|off | set source_is_basic on|off | set friendly_shielding on|off | set lesson_realign on|off | set teaching_mode on|off".to_string())
             }
         },
         "show" => {
@@ -614,7 +769,7 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
         },
         "generate_weave" => {
             if parts.len() <= 1 {
-                return Err("Usage: generate_weave <level|all|b|m|a|i|r|sf|flat> [--force] [--frontier|--no-frontier] [--frontier-pct N] [--frontier-seed N] [--frontier-test|--no-frontier-test] [--frontier-familiar-n N] [--sf-step N] [--sf-start N]".to_string());
+                return Err("Usage: generate_weave <level|all|b|m|a|i|r|dg|sf|flat> [--force] [--frontier|--no-frontier] [--frontier-pct N] [--frontier-seed N] [--frontier-test|--no-frontier-test] [--frontier-familiar-n N] [--sf-step N] [--sf-start N]".to_string());
             }
 
             let mut level: Option<String> = None;
@@ -738,7 +893,7 @@ pub fn parse_command(input: &str) -> Result<TerminalCommand, String> {
             }
 
             let level = level.ok_or_else(|| {
-                "Missing level argument. Usage: generate_weave <level|all|b|m|a|i|r|sf|flat> [flags]"
+                "Missing level argument. Usage: generate_weave <level|all|b|m|a|i|r|dg|sf|flat> [flags]"
                     .to_string()
             })?;
 
@@ -1099,6 +1254,11 @@ fn parse_av_command(parts: &[&str]) -> Result<TerminalCommand, String> {
             if parts.len() < 2 {
                 return Err("Usage: av generate align|audio|video|characters|prompts|illustrations [stem|next|all]".to_string());
             }
+            // 'force' rebuilds the character bible and re-plans every scene
+            // instead of reusing cached artifacts.
+            let force = parts[2..]
+                .iter()
+                .any(|p| *p == "force" || *p == "--force");
             let target = if parts.len() >= 3 {
                 match parts[2] {
                     "next" => AvTarget::Next,
@@ -1112,8 +1272,8 @@ fn parse_av_command(parts: &[&str]) -> Result<TerminalCommand, String> {
                 "align" => Ok(TerminalCommand::App(AppCommand::AvGenerateAlign { target })),
                 "audio" => Ok(TerminalCommand::App(AppCommand::AvGenerateAudio { target })),
                 "video" => Ok(TerminalCommand::App(AppCommand::AvGenerateVideo { target })),
-                "characters" => Ok(TerminalCommand::App(AppCommand::AvGenerateCharacters)),
-                "prompts" => Ok(TerminalCommand::App(AppCommand::AvGeneratePrompts)),
+                "characters" => Ok(TerminalCommand::App(AppCommand::AvGenerateCharacters { force })),
+                "prompts" => Ok(TerminalCommand::App(AppCommand::AvGeneratePrompts { force })),
                 "illustrations" => Ok(TerminalCommand::App(AppCommand::AvGenerateIllustrations)),
                 _ => Err("Usage: av generate align|audio|video|characters|prompts|illustrations [stem|next|all]".to_string()),
             }
@@ -1303,6 +1463,21 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  edit <text>            - Replace selected sentence/tier text\n");
             out.push_str("  update text <N> <tier> <text> - Directly update tier text for sentence N\n");
             out.push_str("  import source <path>   - Import source text file\n");
+            out.push_str("  append source <path> [--chapter \"Name\"] - Append source text as a new chapter\n");
+            out.push_str("  import raw <path> [--chunk N] [--fresh] - Import raw (English) text into the Raw Source tab\n");
+            out.push_str("  adapt run [unit|all]   - Draft + squeeze until the DRC passes or hits the floor\n");
+            out.push_str("  adapt draft [unit|all] - One draft pass\n");
+            out.push_str("  adapt squeeze [unit]   - One squeeze pass against the offender table\n");
+            out.push_str("  adapt score [unit|all] - Re-run the DRC without calling the LLM\n");
+            out.push_str("  adapt report [unit]    - Show the full DRC report for a unit\n");
+            out.push_str("  adapt status           - Show per-unit adaptation status\n");
+            out.push_str("  adapt revert [unit]    - Roll a draft back one version\n");
+            out.push_str("  adapt cancel           - Cancel the running adapt job\n");
+            out.push_str("  adapt checkpoint       - Force-save the resume checkpoint now\n");
+            out.push_str("  adapt restore [path]   - Reload the resume checkpoint after a crash\n");
+            out.push_str("  adapt domain <path>    - Load the approved domain-vocabulary policy\n");
+            out.push_str("  adapt set <k> <v>      - Set a gate: coverage|ilevel|min|max|passes|gain, or chunk (sentences per unit)\n");
+            out.push_str("  adapt promote [--force] - Turn passing drafts into the Spanish source text\n");
             out.push_str("  import json <path>     - Import a WeaveLang JSON file\n");
             out.push_str("  open workspace <path>  - Open (or create) a workspace directory\n");
             out.push_str("  load project <path>    - Load a .wvl file\n");
@@ -1337,6 +1512,8 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  set frontier_seed <n>  - Set frontier RNG seed\n");
             out.push_str("  flags                  - Show project flags pane (read-only)\n");
             out.push_str("  set simple_mode on|off - Toggle simple mode (basic-only weave)\n");
+            out.push_str("  set simple_triple on|off - Toggle simple-triple mode (basic_base off; adv/mod verbatim)\n");
+            out.push_str("  set single_simple on|off - Toggle single-simple mode (only basic_target; default 'dg' V24 output)\n");
             out.push_str("  set source_is_basic on|off - Mark open project source as already basic\n");
             out.push_str("  set lesson_realign on|off - Toggle lesson realignment before TTS\n");
             out.push_str("  set friendly_shielding on|off - Toggle friendly-lemma shielding\n");
@@ -1354,6 +1531,7 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("  import level_map <p>   - Import a .lm level map file\n");
             out.push_str("  set output_dir <p>     - Set output directory for weave files\n");
             out.push_str("  generate_weave <N|all|b|m|a|i|r|sf> - Generate weave text file(s); r=raw source, sf=study format\n");
+            out.push_str("  generate_weave dg - Single-simple diglot output (recipe V24, frontier 15%); writes <book>_dg.txt\n");
             out.push_str("  generate_weave flat <adv> <mod> <bas> - Raw recipe dump from 3 vocab numbers (adv mod bas order); no level map / DRC needed\n");
             out.push_str("  generate_weave <N|all> --force - Generate weave, skip DRC\n");
             out.push_str("  generate_weave ... [--frontier|--no-frontier] [--frontier-pct N] [--frontier-seed N]\n");
@@ -1465,6 +1643,8 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
             out.push_str("\nPrerequisites:\n");
             out.push_str("  Audio:  Python + Google API key (set key google AIza...)\n");
             out.push_str("  Video:  Python + ffmpeg on PATH + illustrations in book dir\n");
+            out.push_str("  Interlinear CC: faster-whisper (pip) + <stem>_cc.json from 'generate_weave b'\n");
+            out.push_str("  Reader PDF: reportlab (pip); 'generate_weave b' also typesets <stem>_reader.pdf\n");
             out.push_str("  Illustrations: Python + Google API key (for Gemini + Imagen)\n");
             out.push_str("  YouTube: Python + google-api-python-client + OAuth client secret\n");
         },
@@ -2021,7 +2201,24 @@ pub fn execute_command(engine: &mut Engine, cmd: TerminalCommand) -> Option<Stri
 /// Returns None for Exit.
 pub fn run_terminal_command(engine: &mut Engine, input: &str) -> Result<Option<String>, String> {
     let cmd = parse_command(input)?;
-    Ok(execute_command(engine, cmd))
+    // Fold in anything a background adaptation job finished since the last
+    // command, so `adapt status` and friends see up-to-date drafts.
+    let (job_lines, job_done) = engine.poll_adapt_job();
+    let output = execute_command(engine, cmd);
+    if job_lines.is_empty() && job_done.is_none() {
+        return Ok(output);
+    }
+    let mut prefix = job_lines.join("\n");
+    if let Some(msg) = job_done {
+        if !prefix.is_empty() {
+            prefix.push('\n');
+        }
+        prefix.push_str(&msg);
+    }
+    Ok(match output {
+        Some(text) => Some(format!("{}\n{}", prefix, text)),
+        None => None,
+    })
 }
 
 /// Apply an LLM result to a sentence.

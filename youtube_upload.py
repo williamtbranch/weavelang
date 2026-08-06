@@ -155,12 +155,24 @@ def find_video_file(video_dir: Path, stem: str) -> Path:
     raise FileNotFoundError(f"No video file found for stem '{stem}' in {video_dir}")
 
 
-def find_thumbnail(illustrations_dir: Path) -> Path | None:
-    """Find the first illustration to use as thumbnail."""
+def find_thumbnail(illustrations_dir: Path, diglot: bool = False) -> Path | None:
+    """Pick the thumbnail image.
+
+    Prefers the purpose-built key art produced by `av generate prompts`, which
+    carries the story title and is already sized for YouTube. Falls back to the
+    first illustration for books generated before key art existed.
+    """
     if not illustrations_dir.exists():
         return None
+
+    preferred = ["_thumbnail_diglot.jpg", "_thumbnail.jpg"] if diglot else ["_thumbnail.jpg"]
+    for name in preferred:
+        candidate = illustrations_dir / name
+        if candidate.exists():
+            return candidate
+
     for ext in ["*.png", "*.jpg", "*.jpeg"]:
-        files = sorted(illustrations_dir.glob(ext))
+        files = sorted(p for p in illustrations_dir.glob(ext) if not p.name.startswith("_"))
         if files:
             return files[0]
     return None
@@ -319,9 +331,10 @@ def main():
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Find thumbnail
+    # Find thumbnail. Diglot renderings get the badged variant.
     ill_dir = args.illustrations_dir or book_dir / "illustrations"
-    thumbnail = find_thumbnail(ill_dir)
+    is_diglot = "_dg" in args.stem.lower()
+    thumbnail = find_thumbnail(ill_dir, diglot=is_diglot)
 
     # Dry run
     if args.dry_run:

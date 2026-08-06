@@ -84,10 +84,112 @@ pub struct IllustrationsConfig {
     pub image_aspect_ratio: String,
     pub sentences_per_illustration: u32,
     pub minimum_count: u32,
+    #[serde(default = "default_illustration_concurrent_requests")]
+    pub concurrent_requests: u32,
+
+    // --- consistency system (see documentation/Illustration_Consistency_Plan.md) ---
+    /// "sentences" (default, preserves tuned image counts) or "duration"
+    /// (segments by estimated narration time so long prose does not dwell).
+    #[serde(default = "default_segment_by")]
+    pub segment_by: String,
+    /// Safety net only. Density is set per book via `sentences_per_illustration`.
+    #[serde(default)]
+    pub max_illustrations: u32,
+    /// Full bible entries; the remainder become one-clause minor cast.
+    #[serde(default = "default_max_bible_characters")]
+    pub max_bible_characters: u32,
+    /// Concurrent scene-planning calls.
+    #[serde(default = "default_prompt_concurrency")]
+    pub prompt_concurrency: u32,
+    /// "blend" (name two real people), "fallback" (physiognomy only), or "off".
+    #[serde(default = "default_face_blend_mode")]
+    pub face_blend_mode: String,
+    /// Characters rendered with a full identity card; the rest get one clause.
+    #[serde(default = "default_max_focal_cards")]
+    pub max_focal_cards: u32,
+    #[serde(default = "default_max_prompt_chars")]
+    pub max_prompt_chars: u32,
+    #[serde(default = "default_camera_repeat_limit")]
+    pub camera_repeat_limit: u32,
+    #[serde(default = "default_context_radius")]
+    pub context_radius: u32,
+    /// Composition modifiers appended to `style_prefix` for tableau scenes,
+    /// keyed by tableau kind. The art style itself is never replaced.
+    #[serde(default)]
+    pub tableau_style: std::collections::HashMap<String, String>,
+
+    // --- YouTube thumbnails ---
+    /// Emit the two extra key-art prompts (plain + diglot badge).
+    #[serde(default = "default_true")]
+    pub thumbnails: bool,
+    /// `WIDTHxHEIGHT` the thumbnails are resized to after generation.
+    #[serde(default = "default_thumbnail_size")]
+    pub thumbnail_size: String,
+    /// The word on the badge in the second thumbnail.
+    #[serde(default = "default_diglot_label")]
+    pub diglot_label: String,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_thumbnail_size() -> String {
+    crate::services::illustration::thumbnail::DEFAULT_SIZE.to_string()
+}
+
+fn default_diglot_label() -> String {
+    crate::services::illustration::thumbnail::DEFAULT_LABEL.to_string()
+}
+
+/// The printable chapter name, derived from the chapter directory. `whole_book`
+/// is the non-chapter sentinel and yields no chapter title at all.
+fn chapter_title_from(dir_name: &str) -> String {
+    let d = dir_name.trim();
+    if d.is_empty() || d.eq_ignore_ascii_case("whole_book") {
+        return String::new();
+    }
+    d.replace(['_', '-'], " ").split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn default_image_aspect_ratio() -> String {
     "16:9".to_string()
+}
+
+fn default_illustration_concurrent_requests() -> u32 {
+    1
+}
+
+fn default_segment_by() -> String {
+    "sentences".to_string()
+}
+
+fn default_max_bible_characters() -> u32 {
+    40
+}
+
+fn default_prompt_concurrency() -> u32 {
+    8
+}
+
+fn default_face_blend_mode() -> String {
+    "blend".to_string()
+}
+
+fn default_max_focal_cards() -> u32 {
+    2
+}
+
+fn default_max_prompt_chars() -> u32 {
+    1200
+}
+
+fn default_camera_repeat_limit() -> u32 {
+    3
+}
+
+fn default_context_radius() -> u32 {
+    25
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,6 +244,20 @@ impl Default for IllustrationsConfig {
             image_aspect_ratio: "16:9".to_string(),
             sentences_per_illustration: 50,
             minimum_count: 3,
+            concurrent_requests: 1,
+            segment_by: default_segment_by(),
+            max_illustrations: 0,
+            max_bible_characters: default_max_bible_characters(),
+            prompt_concurrency: default_prompt_concurrency(),
+            face_blend_mode: default_face_blend_mode(),
+            max_focal_cards: default_max_focal_cards(),
+            max_prompt_chars: default_max_prompt_chars(),
+            camera_repeat_limit: default_camera_repeat_limit(),
+            context_radius: default_context_radius(),
+            tableau_style: std::collections::HashMap::new(),
+            thumbnails: true,
+            thumbnail_size: default_thumbnail_size(),
+            diglot_label: default_diglot_label(),
         }
     }
 }
@@ -525,6 +641,18 @@ impl AvProducer {
         self.audio_dir().join("chunks").join(stem)
     }
 
+    /// Resolve the interlinear CC map JSON (`<stem>_cc.json`) for a stem, if
+    /// present. Exported by `generate_weave b` alongside the pure-target text;
+    /// its presence triggers word-synced interlinear captions in the video.
+    pub fn cc_map_path(&self, stem: &str) -> Option<PathBuf> {
+        let name = format!("{}_cc.json", stem);
+        let candidates = [
+            self.book_dir.join("tts_files").join(&name),
+            self.book_dir.join(&name),
+        ];
+        candidates.into_iter().find(|p| p.exists())
+    }
+
     /// Scan the chunks directory for a stem and return status of each chunk.
     /// Returns empty Vec if the chunks directory does not exist.
     pub fn scan_chunks(&self, stem: &str) -> Vec<ChunkStatus> {
@@ -563,9 +691,10 @@ impl AvProducer {
             .collect()
     }
 
-    /// Export the first illustration (alphabetically) from the illustrations
-    /// directory as a JPEG thumbnail one level up in the book directory.
-    /// Returns the destination path string on success.
+    /// Export the YouTube thumbnail to `thumbnail.jpg` in the book directory.
+    /// Prefers the purpose-built key art (`_thumbnail.jpg`) and falls back to
+    /// the first illustration alphabetically for books generated before key art
+    /// existed. Returns the destination path string on success.
     pub fn export_thumbnail(&self) -> Result<String, String> {
         let ill_dir = self.illustrations_dir();
         if !ill_dir.exists() {
@@ -575,26 +704,30 @@ impl AvProducer {
             ));
         }
 
-        // Collect image files, sort lexicographically so 001.png comes first.
-        let mut candidates: Vec<std::path::PathBuf> = fs::read_dir(&ill_dir)
-            .map_err(|e| format!("Cannot read illustrations dir: {}", e))?
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| {
-                p.extension()
-                    .map(|ext| {
-                        let ext = ext.to_string_lossy().to_lowercase();
-                        ext == "png" || ext == "jpg" || ext == "jpeg"
-                    })
-                    .unwrap_or(false)
-            })
-            .collect();
-        candidates.sort();
-
-        let first = candidates
-            .into_iter()
-            .next()
-            .ok_or_else(|| "No illustration images found.".to_string())?;
+        let key_art = ill_dir.join(crate::services::illustration::thumbnail::DEFAULT_FILE);
+        let first = if key_art.exists() {
+            key_art
+        } else {
+            // Collect image files, sort lexicographically so 001.png comes first.
+            let mut candidates: Vec<std::path::PathBuf> = fs::read_dir(&ill_dir)
+                .map_err(|e| format!("Cannot read illustrations dir: {}", e))?
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.extension()
+                        .map(|ext| {
+                            let ext = ext.to_string_lossy().to_lowercase();
+                            ext == "png" || ext == "jpg" || ext == "jpeg"
+                        })
+                        .unwrap_or(false)
+                })
+                .collect();
+            candidates.sort();
+            candidates
+                .into_iter()
+                .next()
+                .ok_or_else(|| "No illustration images found.".to_string())?
+        };
 
         let dest = self.book_dir.join("thumbnail.jpg");
 
@@ -880,6 +1013,9 @@ impl AvProducer {
         if chunks_dir.exists() {
             cmd.arg("--chunks-dir").arg(&chunks_dir);
         }
+        if let Some(cc_map) = self.cc_map_path(stem) {
+            cmd.arg("--cc-map").arg(&cc_map);
+        }
         let output = cmd
             .env("PYTHONUTF8", "1")
             .output()
@@ -1052,12 +1188,99 @@ impl AvProducer {
         if chunks_dir.exists() {
             cmd.arg("--chunks-dir").arg(&chunks_dir);
         }
+        if let Some(cc_map) = self.cc_map_path(output_stem) {
+            cmd.arg("--cc-map").arg(&cc_map);
+        }
         cmd.env("PYTHONUTF8", "1");
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
 
         cmd.spawn()
             .map_err(|e| format!("Failed to spawn create_video.py ({}): {}", python_exe, e))
+    }
+
+    /// Frozen character/location bible for this chapter.
+    pub fn bible_dir(&self) -> PathBuf {
+        self.book_dir.join("_bible")
+    }
+
+    /// Build the in-process illustration job config from the manifest.
+    /// Replaces the `generate_illustration_prompts.py` child process; character
+    /// appearance is rendered deterministically from the bible instead of being
+    /// re-described by the model for every segment.
+    pub fn illustration_job_config(
+        &self,
+        book_name: &str,
+        story_title: &str,
+        project_root: &Path,
+        aligned_input_file: Option<&Path>,
+        force: bool,
+    ) -> Result<crate::services::illustration::orchestrator::JobConfig, String> {
+        use crate::services::illustration::orchestrator::JobConfig;
+        use crate::services::illustration::render::{FaceBlendMode, RenderConfig};
+        use crate::services::illustration::segment::SegmentBy;
+        use crate::services::illustration::thumbnail::ThumbnailConfig;
+
+        let tts_dir = self.book_dir.join("tts_files");
+        if !tts_dir.exists() {
+            return Err(format!("tts_files directory not found: {}", tts_dir.display()));
+        }
+        let chapter_name = self
+            .book_dir
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .ok_or("Cannot determine chapter name from book directory.")?;
+        let chapter_title = chapter_title_from(&chapter_name);
+
+        let illustrations_dir = self.illustrations_dir();
+        fs::create_dir_all(&illustrations_dir)
+            .map_err(|e| format!("Failed to create illustrations directory: {}", e))?;
+
+        let ill = &self.manifest.illustrations;
+        let mut tableau_style =
+            crate::services::illustration::render::default_tableau_style();
+        for (k, v) in &ill.tableau_style {
+            tableau_style.insert(k.clone(), v.clone());
+        }
+
+        Ok(JobConfig {
+            tts_dir,
+            illustrations_dir,
+            bible_dir: self.bible_dir(),
+            cache_root: Some(project_root.to_path_buf()),
+            book_name: book_name.to_string(),
+            chapter_name,
+            input_file: aligned_input_file.map(|p| p.to_path_buf()),
+
+            sentences_per_illustration: ill.sentences_per_illustration.max(1) as usize,
+            minimum_count: ill.minimum_count as usize,
+            max_illustrations: ill.max_illustrations as usize,
+            segment_by: SegmentBy::parse(&ill.segment_by),
+            context_radius: ill.context_radius as usize,
+
+            prompt_model: ill.prompt_model.clone(),
+            fallback_models: Vec::new(),
+            prompt_concurrency: ill.prompt_concurrency.max(1) as usize,
+            max_bible_characters: ill.max_bible_characters.max(1) as usize,
+
+            render: RenderConfig {
+                style_prefix: ill.style_prefix.clone(),
+                face_blend_mode: FaceBlendMode::parse(&ill.face_blend_mode),
+                max_focal_cards: ill.max_focal_cards as usize,
+                camera_repeat_limit: ill.camera_repeat_limit.max(1) as usize,
+                tableau_style,
+            },
+            max_prompt_chars: ill.max_prompt_chars as usize,
+            thumbnail: ThumbnailConfig {
+                enabled: ill.thumbnails,
+                story_title: story_title.trim().to_string(),
+                chapter_title,
+                size: ill.thumbnail_size.clone(),
+                diglot_label: ill.diglot_label.clone(),
+                ..ThumbnailConfig::default()
+            },
+            force,
+        })
     }
 
     /// Spawn illustration prompt generation as a child process.
@@ -1200,6 +1423,7 @@ impl AvProducer {
             .arg("--size").arg(&ill.image_size)
             .arg("--aspect-ratio").arg(&ill.image_aspect_ratio)
             .arg("--model").arg(&ill.image_model)
+            .arg("--concurrent-requests").arg(ill.concurrent_requests.to_string())
             .arg("--output-dir").arg(self.illustrations_dir());
         // Pass character bible if it exists
         let characters_path = self.illustrations_dir().join("_characters.toml");

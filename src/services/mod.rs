@@ -1,4 +1,6 @@
+pub mod adapt_worker;
 pub mod av_producer;
+pub mod cc_map;
 pub mod copilot;
 pub mod llm_client;
 pub mod llm_logger;
@@ -13,6 +15,7 @@ pub mod tier_graph;
 pub mod token_counter;
 pub mod importer;
 pub mod gutenberg_cleaner;
+pub mod illustration;
 pub mod llm_stage;
 pub mod llm_worker;
 pub mod wlemma_upgrade;

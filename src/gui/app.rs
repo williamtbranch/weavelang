@@ -48,6 +48,10 @@ pub struct WeaveLangApp {
     show_exit_save_prompt: bool,
     show_close_save_prompt: bool,
     pending_action_after_save: Option<String>,
+    show_append_source_prompt: bool,
+    pending_append_source_path: Option<PathBuf>,
+    append_source_chapter_name: String,
+    append_source_prompt_error: String,
     // AV job output tracking
     av_job_lines_seen: usize,
     // Auto-backup / crash-recovery
@@ -137,6 +141,10 @@ impl WeaveLangApp {
             show_exit_save_prompt: false,
             show_close_save_prompt: false,
             pending_action_after_save: None,
+            show_append_source_prompt: false,
+            pending_append_source_path: None,
+            append_source_chapter_name: String::new(),
+            append_source_prompt_error: String::new(),
             av_job_lines_seen: 0,
             last_backup_time: Instant::now(),
             show_restore_prompt: false,
@@ -268,10 +276,15 @@ impl WeaveLangApp {
                 self.check_copilot_goal();
             } else if cmd_lower.starts_with("new project") || cmd_lower.starts_with("close project") {
                 self.dirty = false;
-            } else if cmd_lower.starts_with("import json") || cmd_lower.starts_with("import source") {
+            } else if cmd_lower.starts_with("import json")
+                || cmd_lower.starts_with("import source")
+                || cmd_lower.starts_with("append source")
+            {
                 // Imports are treated as unsaved new data
                 self.dirty = true;
-                self.current_file_path = None;
+                if !cmd_lower.starts_with("append source") {
+                    self.current_file_path = None;
+                }
             } else if Self::is_state_changing_command(&cmd_lower) {
                 self.dirty = true;
             }
@@ -325,6 +338,12 @@ impl WeaveLangApp {
                 }
                 "__import_source__" => {
                     self.import_source_text();
+                }
+                "__import_raw__" => {
+                    self.import_raw_text();
+                }
+                "__append_source__" => {
+                    self.append_source_text();
                 }
                 "__open_binary__" => {
                     self.open_binary();
@@ -573,6 +592,25 @@ impl WeaveLangApp {
                     }
                     ui.close_menu();
                 }
+                if ui.button("Append Source...").clicked() {
+                    if self.dirty {
+                        self.pending_action_after_save = Some("__append_source__".to_string());
+                        self.show_close_save_prompt = true;
+                    } else {
+                        self.append_source_text();
+                    }
+                    ui.close_menu();
+                }
+                ui.separator();
+                if ui.button("Import Raw...").clicked() {
+                    if self.dirty {
+                        self.pending_action_after_save = Some("__import_raw__".to_string());
+                        self.show_close_save_prompt = true;
+                    } else {
+                        self.import_raw_text();
+                    }
+                    ui.close_menu();
+                }
                 ui.separator();
                 if ui.button("Open .wvl...").clicked() {
                     if self.dirty {
@@ -776,6 +814,11 @@ impl WeaveLangApp {
             });
 
             ui.menu_button("Preferences", |ui| {
+                if ui.button("Story Metadata...").clicked() {
+                    self.state.metadata_title_draft = self.state.story_title.clone();
+                    self.state.show_metadata = true;
+                    ui.close_menu();
+                }
                 if ui.button("Project Settings...").clicked() {
                     self.state.draft_config = self.state.config.clone();
                     self.state.show_project_settings = true;
@@ -999,6 +1042,79 @@ impl WeaveLangApp {
             let cmd = format!("import source {}", path.to_string_lossy());
             self.execute_terminal_command(&cmd);
         }
+    }
+
+    /// Import raw (usually English) text into the Raw Source tab.
+    ///
+    /// This does not touch the document — it seeds the adaptation workspace.
+    fn import_raw_text(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Text File", &["txt", "md"])
+            .pick_file()
+        {
+            let cmd = format!("import raw {}", path.to_string_lossy());
+            self.execute_terminal_command(&cmd);
+        }
+    }
+
+    fn append_source_text(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Text File", &["txt"])
+            .pick_file()
+        {
+            self.begin_append_source(path);
+        }
+    }
+
+    fn begin_append_source(&mut self, path: PathBuf) {
+        let content = match std::fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(err) => {
+                self.status_message = format!("Failed to read source file: {}", err);
+                return;
+            }
+        };
+
+        let (_cleaned, directives) = crate::parsing::source_parser::extract_directives(&content);
+        let meta = crate::parsing::source_parser::resolve_directives(&directives, &[]);
+
+        if meta.chapters.is_empty() {
+            self.pending_append_source_path = Some(path);
+            self.append_source_chapter_name.clear();
+            self.append_source_prompt_error.clear();
+            self.show_append_source_prompt = true;
+            return;
+        }
+
+        let cmd = format!("append source {}", path.to_string_lossy());
+        self.execute_terminal_command(&cmd);
+    }
+
+    fn submit_append_source_prompt(&mut self) {
+        let Some(path) = self.pending_append_source_path.clone() else {
+            self.show_append_source_prompt = false;
+            return;
+        };
+
+        let chapter_name = self.append_source_chapter_name.trim();
+        if chapter_name.is_empty() {
+            self.append_source_prompt_error = "Chapter name is required.".to_string();
+            return;
+        }
+        if chapter_name.contains('"') {
+            self.append_source_prompt_error = "Chapter name cannot contain double quotes.".to_string();
+            return;
+        }
+
+        let cmd = format!(
+            "append source {} --chapter \"{}\"",
+            path.to_string_lossy(),
+            chapter_name
+        );
+        self.show_append_source_prompt = false;
+        self.pending_append_source_path = None;
+        self.append_source_prompt_error.clear();
+        self.execute_terminal_command(&cmd);
     }
 
     fn save_binary(&mut self) {
@@ -1492,6 +1608,29 @@ impl App for WeaveLangApp {
         // Poll copilot LLM background channel
         self.poll_copilot_llm();
 
+        // Poll the background raw-source adaptation job
+        if self.state.adapt_job.is_some() {
+            let mut engine = crate::app::engine::Engine::new(std::mem::take(&mut self.state));
+            let (lines, done) = engine.poll_adapt_job();
+            self.state = engine.state;
+
+            // Progress on disk is only half the job — mark the project dirty
+            // so the periodic full-state backup covers a long run too.
+            if !lines.is_empty() {
+                self.dirty = true;
+            }
+            for line in lines {
+                self.terminal_history.push(line);
+            }
+            if let Some(msg) = done {
+                self.state.last_log = msg.clone();
+                self.status_message = msg.clone();
+                self.terminal_history.push(msg);
+                self.dirty = true;
+            }
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        }
+
         // Poll background AV job for new output lines
         if let Some(ref job) = self.state.av_job {
             let j = job.lock().unwrap();
@@ -1834,6 +1973,45 @@ impl App for WeaveLangApp {
             }
         }
 
+        if self.show_append_source_prompt {
+            let mut open = true;
+            egui::Window::new("Append Source Chapter")
+                .collapsible(false)
+                .resizable(false)
+                .open(&mut open)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .id(egui::Id::new("append_source_prompt"))
+                .show(ctx, |ui| {
+                    ui.label("The selected file has no embedded chapter tag.");
+                    ui.label("Enter the chapter name to append:");
+                    let response = ui.add(
+                        egui::TextEdit::singleline(&mut self.append_source_chapter_name)
+                            .desired_width(280.0)
+                            .hint_text("Chapter name"),
+                    );
+                    if !self.append_source_prompt_error.is_empty() {
+                        ui.colored_label(egui::Color32::from_rgb(220, 80, 80), &self.append_source_prompt_error);
+                    }
+                    let submit = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if ui.button("Append").clicked() || submit {
+                            self.submit_append_source_prompt();
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.show_append_source_prompt = false;
+                            self.pending_append_source_path = None;
+                            self.append_source_prompt_error.clear();
+                        }
+                    });
+                });
+            if !open {
+                self.show_append_source_prompt = false;
+                self.pending_append_source_path = None;
+                self.append_source_prompt_error.clear();
+            }
+        }
+
         // Project Flags Window (read-only with edit controls — Phase F)
         if self.state.show_project_flags {
             let mut open = true;
@@ -1841,6 +2019,7 @@ impl App for WeaveLangApp {
 
             let simple_mode = self.state.simple_mode;
             let simple_triple = self.state.simple_triple;
+            let single_simple = self.state.single_simple;
             let lesson_realign = self.state.lesson_realign_enabled;
             let source_is_basic = self.state.source_is_basic;
             let frontier_enabled = self.state.frontier_enabled;
@@ -1905,6 +2084,12 @@ impl App for WeaveLangApp {
                         }
                         ui.label("Triple mode: basic_base off; only basic_target is woven (higher diglot mix). Advanced + moderate emitted verbatim.")
                             .on_hover_text("Produces 4 outputs: advanced, moderate, basic, diglot.");
+                        let mut ss = single_simple;
+                        if ui.checkbox(&mut ss, "Single-simple mode").changed() {
+                            pending_commands.push(format!("set single_simple {}", if ss { "on" } else { "off" }));
+                        }
+                        ui.label("Single-simple: only basic_target produced; no calibration needed. Default output 'generate_weave dg' (recipe V24, 15% frontier) → <book>_dg.txt. 'b' gives pure target text.")
+                            .on_hover_text("Mutually exclusive with simple mode and simple-triple mode.");
                         let mut lr = lesson_realign;
                         if ui.checkbox(&mut lr, "Lesson realign").changed() {
                             pending_commands.push(format!("set lesson_realign {}", if lr { "on" } else { "off" }));
@@ -1989,6 +2174,59 @@ impl App for WeaveLangApp {
             }
             if !open {
                 self.state.show_project_flags = false;
+            }
+        }
+
+        // Story Metadata Window
+        //
+        // `book_name` is a filename slug, so it cannot be printed on a
+        // thumbnail. The title lives here and `av generate prompts` refuses to
+        // run until it is set.
+        if self.state.show_metadata {
+            let mut pending: Option<String> = None;
+
+            egui::Window::new("Story Metadata")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.label("Title of the work, exactly as it should be printed:");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.state.metadata_title_draft)
+                            .desired_width(360.0)
+                            .hint_text("The Willow Wren and the Bear"),
+                    );
+                    ui.small(
+                        "Used on the YouTube thumbnail. Illustration prompt generation \
+                         will not run until this is filled in.",
+                    );
+                    ui.add_space(6.0);
+                    ui.label(format!(
+                        "Project (file) name: {}",
+                        if self.state.book_name.is_empty() {
+                            "(unset)"
+                        } else {
+                            &self.state.book_name
+                        }
+                    ));
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        let filled = !self.state.metadata_title_draft.trim().is_empty();
+                        if ui.add_enabled(filled, egui::Button::new("Apply")).clicked() {
+                            pending = Some(format!(
+                                "set title {}",
+                                self.state.metadata_title_draft.trim()
+                            ));
+                            self.state.show_metadata = false;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.state.show_metadata = false;
+                        }
+                    });
+                });
+
+            if let Some(cmd) = pending {
+                self.execute_terminal_command(&cmd);
             }
         }
 
@@ -2554,7 +2792,9 @@ impl App for WeaveLangApp {
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            if self.state.show_media_tab {
+            if self.state.show_raw_source_tab {
+                components::raw_source_view::render(ui, &mut self.state);
+            } else if self.state.show_media_tab {
                 components::media_view::render(ui, &mut self.state);
             } else if self.state.document.is_empty() {
                 ui.vertical_centered(|ui| {
@@ -2562,6 +2802,7 @@ impl App for WeaveLangApp {
                     ui.heading("No Document Open");
                     ui.add_space(8.0);
                     ui.label("Use File › Open .wvl... or File › Import Source Text...");
+                    ui.label("To adapt raw text first, use File › Import Raw...");
                 });
             } else {
                 components::detail_view::render(ui, &mut self.state);

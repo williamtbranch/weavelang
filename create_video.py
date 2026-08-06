@@ -10,6 +10,34 @@ from pydub import AudioSegment
 # --- Configuration (unchanged) ---
 DEFAULT_FRAME_RATE = 1
 DEFAULT_IMAGE_DURATION_SECONDS = 60
+# Minimum frame rate when burning word-synced CC (highlight needs smooth updates)
+CC_MIN_FRAME_RATE = 24
+
+
+def compute_video_height(illustration_files: list[Path], width: int = 1280) -> int:
+    """Predict the output video height for scale=<width>:-2 from the first
+    illustration's aspect ratio. Falls back to 16:9."""
+    try:
+        from PIL import Image
+        with Image.open(illustration_files[0]) as im:
+            iw, ih = im.size
+        return max(2, round(width * ih / iw / 2) * 2)
+    except Exception:
+        return round(width * 9 / 16 / 2) * 2
+
+
+def is_scene_image(path: Path) -> bool:
+    """True for illustrations that belong in the video timeline.
+
+    Underscore-prefixed files are generator artifacts — `_thumbnail.jpg`,
+    `_thumbnail_diglot.jpg` — and carry title text, so they must never be
+    cycled into the video itself.
+    """
+    return (
+        path.is_file()
+        and not path.name.startswith("_")
+        and path.suffix.lower() in ['.png', '.jpg', '.jpeg']
+    )
 
 
 def compute_illustration_durations_proportional(
@@ -165,7 +193,10 @@ def create_video_from_audio(
     frame_rate: int,
     image_duration: int,
     chunks_dir: Path | None = None,
-    illustrations_dir: Path | None = None
+    illustrations_dir: Path | None = None,
+    cc_map: Path | None = None,
+    whisper_model: str = "small",
+    force_align: bool = False
 ):
     """
     Creates a video for a single audio file using illustrations.
@@ -174,6 +205,10 @@ def create_video_from_audio(
     files (_chunk_map.json / _illustration_map.json), variable per-image
     durations are computed from actual chunk audio lengths. Otherwise, falls
     back to fixed image_duration cycling.
+
+    If cc_map is provided (a *_cc.json interlinear CC map exported by the
+    Rust app), word-synchronized interlinear captions are burned into the
+    video via an ASS subtitle track (see cc_subtitles.py).
     """
     if not illustration_files:
         print(f"  [ERROR] No illustrations found. Cannot create video for '{audio_file.name}'.")
@@ -229,6 +264,29 @@ def create_video_from_audio(
         print("  [ERROR] No timeline entries with positive duration. Skipping.")
         return
 
+    # 2b. Optional interlinear CC subtitles (word-synced, burned in).
+    ass_path = None
+    effective_frame_rate = frame_rate
+    if cc_map is not None:
+        if not cc_map.exists():
+            print(f"  -> [CC] CC map not found: {cc_map}. Producing video without captions.")
+        else:
+            video_w = 1280
+            video_h = compute_video_height(illustration_files, video_w)
+            from cc_subtitles import build_cc_ass
+            ass_path = build_cc_ass(
+                audio_file, cc_map, output_dir,
+                video_w, video_h, audio_duration_seconds,
+                whisper_model=whisper_model, chunks_dir=chunks_dir,
+                force_align=force_align,
+            )
+            if ass_path is not None:
+                effective_frame_rate = max(frame_rate, CC_MIN_FRAME_RATE)
+                if effective_frame_rate != frame_rate:
+                    print(f"  -> [CC] Raising frame rate {frame_rate} -> {effective_frame_rate} for caption sync.")
+            else:
+                print("  -> [CC] Caption build failed; producing video without captions.")
+
     # 3. Construct and run the FFmpeg command.
     output_video_path = output_dir / f"{audio_file.stem}.mp4"
 
@@ -255,12 +313,35 @@ def create_video_from_audio(
     # segment to `frame_rate` frames per second of duration, which preserves
     # the full timeline. We then clamp output to the audio length via -t and
     # drop -shortest (no longer needed; video stream already matches audio).
+    base_vf = f'fps={effective_frame_rate},scale=1280:-2,setsar=1'
+    if ass_path is not None:
+        # Frosted-glass backdrop behind the caption band: crop the bottom
+        # strip, blur + slightly darken/desaturate it, overlay it back, then
+        # burn the ASS captions on top. Smooths out noisy illustrations so
+        # the text stays readable.
+        # The .ass is referenced by relative filename and ffmpeg runs with
+        # cwd=output_dir to sidestep Windows drive-colon escaping in filters.
+        from cc_subtitles import cc_band_height
+        band_h = cc_band_height(compute_video_height(illustration_files, 1280))
+        filter_graph = (
+            f'[0:v]{base_vf}[v0];'
+            f'[v0]split[va][vb];'
+            f'[vb]crop=iw:{band_h}:0:ih-{band_h},'
+            f'gblur=sigma=12,eq=brightness=-0.08:saturation=0.75[fog];'
+            f'[va][fog]overlay=0:main_h-overlay_h[vfog];'
+            f'[vfog]ass={ass_path.name}[vout]'
+        )
+        video_filter_args = ['-filter_complex', filter_graph]
+        video_map = '[vout]'
+    else:
+        video_filter_args = ['-vf', base_vf]
+        video_map = '0:v:0'
     command = [
         'ffmpeg', '-y',
         '-f', 'concat', '-safe', '0', '-i', str(concat_list_path),
         '-i', str(audio_file),
-        '-vf', f'fps={frame_rate},scale=1280:-2,setsar=1',
-        '-map', '0:v:0',
+        *video_filter_args,
+        '-map', video_map,
         '-map', '1:a:0',
         '-c:v', 'libx264',
         '-tune', 'stillimage',
@@ -273,7 +354,7 @@ def create_video_from_audio(
     ]
 
     print(f"  -> Running FFmpeg command (concat demuxer, {len(timeline_entries)} entries)...")
-    result = subprocess.run(command, capture_output=True, text=True)
+    result = subprocess.run(command, capture_output=True, text=True, cwd=str(output_dir))
 
     # Remove the temporary concat list regardless of outcome
     try:
@@ -296,6 +377,9 @@ def main():
     parser.add_argument("--illustrations-dir", type=Path, default=None, help="Full path to the illustrations directory.")
     parser.add_argument("--output-dir", type=Path, default=None, help="Full path to the video output directory.")
     parser.add_argument("--chunks-dir", type=Path, default=None, help="Path to TTS chunks directory (for sentence-synchronized durations).")
+    parser.add_argument("--cc-map", type=Path, default=None, help="Path to *_cc.json interlinear CC map; burns word-synced captions into the video.")
+    parser.add_argument("--whisper-model", type=str, default="small", help="faster-whisper model size for CC word timing (tiny/base/small/medium).")
+    parser.add_argument("--force-align", action="store_true", help="Ignore cached CC word timings and re-run alignment.")
     parser.add_argument("--frame-rate", type=int, default=DEFAULT_FRAME_RATE, help="Output video frame rate.")
     parser.add_argument("--image-duration", type=int, default=DEFAULT_IMAGE_DURATION_SECONDS, help="Seconds per illustration.")
     args = parser.parse_args()
@@ -309,7 +393,7 @@ def main():
 
         args.output_dir.mkdir(parents=True, exist_ok=True)
 
-        illustration_files = sorted([p for p in args.illustrations_dir.iterdir() if p.is_file() and p.suffix.lower() in ['.png', '.jpg', '.jpeg']])
+        illustration_files = sorted([p for p in args.illustrations_dir.iterdir() if is_scene_image(p)])
         if not illustration_files:
             print(f"No illustrations found in '{args.illustrations_dir}'. Cannot create video."); return
 
@@ -323,7 +407,10 @@ def main():
             args.frame_rate,
             args.image_duration,
             chunks_dir=args.chunks_dir,
-            illustrations_dir=args.illustrations_dir
+            illustrations_dir=args.illustrations_dir,
+            cc_map=args.cc_map,
+            whisper_model=args.whisper_model,
+            force_align=args.force_align
         )
         print("\n--- Video processed. ---")
 
@@ -350,7 +437,7 @@ def main():
         output_dir.mkdir(exist_ok=True)
 
         audio_files = sorted([p for p in audio_dir.iterdir() if p.is_file() and p.suffix.lower() in ['.wav', '.mp3', '.flac']])
-        illustration_files = sorted([p for p in illustrations_dir.iterdir() if p.is_file() and p.suffix.lower() in ['.png', '.jpg', '.jpeg']])
+        illustration_files = sorted([p for p in illustrations_dir.iterdir() if is_scene_image(p)])
 
         if not audio_files: print(f"No audio files found in '{audio_dir}'. Nothing to do."); return
         if not illustration_files: print(f"No illustrations found in '{illustrations_dir}'. Cannot create videos."); return

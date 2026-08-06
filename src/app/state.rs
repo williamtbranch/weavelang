@@ -1,6 +1,8 @@
 // src/gui/state.rs
 
+use crate::domain::raw_source::RawSource;
 use crate::domain::sentence::Sentence;
+use crate::services::adapt_worker::AdaptJobState;
 use crate::services::llm_client::LlmService;
 use crate::services::llm_logger::LlmLogger;
 use crate::services::prompt_manager::PromptManager;
@@ -12,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{Receiver};
 use std::sync::{Arc, Mutex};
 
@@ -91,6 +94,11 @@ pub struct AppState {
     pub calibration_sentence_count: Option<usize>,
     #[serde(default)]
     pub book_name: String,
+    /// The human-readable title of the work, as it should appear to a reader.
+    /// `book_name` is a slug used to build filenames, so it is unfit to print
+    /// on a thumbnail; this is the field an illustration title is drawn from.
+    #[serde(default)]
+    pub story_title: String,
 
     // Frontier (context diffusion) settings persisted in .wvl
     #[serde(default)]
@@ -131,12 +139,22 @@ pub struct AppState {
     /// consumption of this flag is staged; the toggle is wired now.
     #[serde(default)]
     pub simple_triple: bool,
+    /// When on, `single_simple` output mode is active. Like `simple_triple`
+    /// (`basic_base` off; only `basic_target` is woven) but the advanced +
+    /// moderate tiers are never produced at all. No calibration is required:
+    /// the default `dg` (diglot) output uses a fixed recipe of V24 (the first
+    /// 24 wlemmas by frequency) at a 15% frontier and is written as
+    /// `<book_name>_dg.txt`. Mutually exclusive with `simple_mode` and
+    /// `simple_triple`.
+    #[serde(default)]
+    pub single_simple: bool,
     /// When on, chapter lesson text gets an LLM realignment pass before
     /// TTS so the emitted Spanish stays faithful to the original lesson.
     #[serde(default)]
     pub lesson_realign_enabled: bool,
     /// Assertion that the source file is already authored at the basic
-    /// (simple-reader) level. When true (and `simple_mode` is on), the
+    /// (simple-reader) level. When true (and a simple output mode is on —
+    /// `simple_mode`, `simple_triple`, or `single_simple`), the
     /// in-source-language basic-tier generation stage bypasses the LLM
     /// and copies `base` → that tier verbatim. The cross-language basic
     /// tier is still generated normally. Set by
@@ -185,6 +203,12 @@ pub struct AppState {
     pub draft_config: Option<Config>,
     #[serde(skip)]
     pub show_project_settings: bool,
+    /// Story Metadata dialog visibility.
+    #[serde(skip)]
+    pub show_metadata: bool,
+    /// Edit buffer for the Story Metadata dialog, committed on Apply.
+    #[serde(skip)]
+    pub metadata_title_draft: String,
     /// Project Flags pane visibility (Phase F).
     #[serde(skip)]
     pub show_project_flags: bool,
@@ -280,7 +304,10 @@ pub struct AppState {
 
     // Active tier for token-level commands (split/merge/insert/delete/edit_b).
     // Set via `select tier <tier>` command. Used by Bas B / Bas T editing.
-    #[serde(skip)]
+    // `skip` keeps it out of the serialized project, but we supply an explicit
+    // default so a loaded project starts on a real tier instead of "" (which
+    // made edit_target fail with "Tier '' not found.").
+    #[serde(skip, default = "default_selected_tier")]
     pub selected_tier_id: String,
 
     // Follow-up command queue: when a basic tier is generated, mapping
@@ -355,6 +382,24 @@ pub struct AppState {
     pub chapters: Vec<Chapter>,
     #[serde(skip)]
     pub selected_chapter_idx: Option<usize>,
+
+    // --- Raw Source (ESCore-style adaptation) ---
+    /// Imported raw text (usually English) plus its adaptation state.
+    /// Persisted in the `.wvl` so drafts and DRC reports survive a reload.
+    #[serde(default)]
+    pub raw_source: Option<RawSource>,
+    /// Raw Source tab visibility.
+    #[serde(skip)]
+    pub show_raw_source_tab: bool,
+    /// Background draft/squeeze job.
+    #[serde(skip)]
+    pub adapt_job: Option<Arc<Mutex<AdaptJobState>>>,
+    /// Cancel flag handed to the running adapt job.
+    #[serde(skip)]
+    pub adapt_cancel: Option<Arc<AtomicBool>>,
+    /// How many lines of the running adapt job's log have been surfaced.
+    #[serde(skip)]
+    pub adapt_log_seen: usize,
 }
 
 fn default_languages() -> (String, String) {
@@ -384,6 +429,9 @@ fn default_frontier_familiar_lemma_exclude_count() -> usize {
 fn default_true() -> bool {
     true
 }
+fn default_selected_tier() -> String {
+    "basic_target".to_string()
+}
 
 impl Default for AppState {
     fn default() -> Self {
@@ -394,6 +442,7 @@ impl Default for AppState {
             book_map: None,
             calibration_sentence_count: None,
             book_name: String::new(),
+            story_title: String::new(),
             frontier_enabled: true,
             frontier_target_pct: 5.0,
             frontier_seed: 777,
@@ -404,6 +453,7 @@ impl Default for AppState {
             friendly_shielding_enabled: true,
             simple_mode: false,
             simple_triple: false,
+            single_simple: false,
             lesson_realign_enabled: false,
             source_is_basic: false,
             level_map_embedded: false,
@@ -426,6 +476,8 @@ impl Default for AppState {
             tool_root_dir: None,
             llm_results_receiver: None,
             show_project_settings: false,
+            show_metadata: false,
+            metadata_title_draft: String::new(),
             show_project_flags: false,
             project_flags_friendly_draft: String::new(),
             show_llm_settings: false,
@@ -478,6 +530,11 @@ impl Default for AppState {
             chapter_mode: false,
             chapters: Vec::new(),
             selected_chapter_idx: None,
+            raw_source: None,
+            show_raw_source_tab: false,
+            adapt_job: None,
+            adapt_cancel: None,
+            adapt_log_seen: 0,
         }
     }
 }
@@ -523,10 +580,12 @@ impl AppState {
         let sit = self.source_is_target();
         let sm = self.simple_mode;
         let st = self.simple_triple;
+        let ss = self.single_simple;
         for s in &mut self.document {
             s.set_source_is_target(sit);
             s.set_simple_mode(sm);
             s.set_simple_triple(st);
+            s.set_single_simple(ss);
         }
     }
 
@@ -538,8 +597,10 @@ impl AppState {
             target_language: self.project_languages.1.clone(),
             source_is_target: self.source_is_target(),
             book_name: self.book_name.clone(),
+            story_title: self.story_title.clone(),
             simple_mode: self.simple_mode,
             simple_triple: self.simple_triple,
+            single_simple: self.single_simple,
             lesson_realign_enabled: self.lesson_realign_enabled,
             source_is_basic: self.source_is_basic,
             friendly_shielding_enabled: self.friendly_shielding_enabled,
@@ -597,8 +658,10 @@ pub struct ProjectFlagsSummary {
     pub target_language: String,
     pub source_is_target: bool,
     pub book_name: String,
+    pub story_title: String,
     pub simple_mode: bool,
     pub simple_triple: bool,
+    pub single_simple: bool,
     pub lesson_realign_enabled: bool,
     pub source_is_basic: bool,
     pub friendly_shielding_enabled: bool,
@@ -630,11 +693,16 @@ impl ProjectFlagsSummary {
             if self.book_name.is_empty() { "(unset)" } else { &self.book_name }
         ));
         out.push_str(&format!(
+            "  Story title     : {}\n",
+            if self.story_title.is_empty() { "(unset)" } else { &self.story_title }
+        ));
+        out.push_str(&format!(
             "  Teaching mode   : {}\n",
             if self.teaching_mode_active { "on" } else { "off (custom)" }
         ));
         out.push_str(&format!("  Simple mode     : {}\n", on_off(self.simple_mode)));
         out.push_str(&format!("  Simple-triple   : {}\n", on_off(self.simple_triple)));
+        out.push_str(&format!("  Single-simple   : {}\n", on_off(self.single_simple)));
         out.push_str(&format!("  Lesson realign  : {}\n", on_off(self.lesson_realign_enabled)));
         out.push_str(&format!("  Source is basic : {}\n", on_off(self.source_is_basic)));
         out.push_str(&format!(

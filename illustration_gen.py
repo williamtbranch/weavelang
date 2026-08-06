@@ -20,6 +20,7 @@ import os
 import sys
 import time
 import tomllib
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 try:
@@ -35,7 +36,11 @@ DEFAULT_IMAGE_SIZE = "2K"
 DEFAULT_MODEL = "gemini-3.1-flash-image-preview"
 MAX_RETRIES = 3
 RETRY_DELAY = 10
+DEFAULT_CONCURRENT_REQUESTS = 1
 CHAR_REFS_DIR_NAME = "_char_refs"
+# YouTube rejects thumbnails over 2 MB, so JPEG quality is stepped down until
+# the encoded image fits rather than failing at upload time.
+MAX_THUMBNAIL_BYTES = 2_000_000
 
 # ---------------------------------------------------------------------------
 # Character reference helpers
@@ -114,7 +119,9 @@ def load_ref_images(characters: list[dict], refs_dir: Path) -> dict:
         safe_name = name.lower().replace(" ", "_").replace("'", "")
         ref_path = refs_dir / f"{safe_name}.png"
         if ref_path.exists():
-            ref_images[name] = Image.open(ref_path)
+            img = Image.open(ref_path)
+            img.load()  # Fully decode now so the image is safe to share across threads
+            ref_images[name] = img
     return ref_images
 
 
@@ -185,6 +192,64 @@ def _ensure_png(image_bytes: bytes) -> bytes:
     return buf.getvalue()
 
 
+def _parse_size(spec: str) -> tuple[int, int] | None:
+    """Parse a 'WIDTHxHEIGHT' resize spec. Returns None if absent or malformed."""
+    if not spec:
+        return None
+    try:
+        w, h = spec.lower().split("x", 1)
+        w, h = int(w), int(h)
+    except (ValueError, AttributeError):
+        print(f"    Warning: ignoring unparseable resize '{spec}'")
+        return None
+    return (w, h) if w > 0 and h > 0 else None
+
+
+def _finalise(image_bytes: bytes, resize: str, suffix: str) -> bytes:
+    """Apply the per-prompt resize and container format.
+
+    Thumbnails need exact pixel dimensions and a size ceiling; ordinary scene
+    illustrations are left exactly as the model produced them.
+    """
+    target = _parse_size(resize)
+    want_jpeg = suffix.lower() in (".jpg", ".jpeg")
+    if target is None and not want_jpeg:
+        return _ensure_png(image_bytes)
+
+    from PIL import Image
+    img = Image.open(io.BytesIO(image_bytes))
+
+    if target is not None:
+        tw, th = target
+        # Cover-crop to the target aspect before scaling, so the image is never
+        # squashed. Gemini is asked for 16:9 already, so this usually trims a
+        # few pixels at most.
+        src_ratio = img.width / img.height
+        dst_ratio = tw / th
+        if abs(src_ratio - dst_ratio) > 0.001:
+            if src_ratio > dst_ratio:
+                new_w = int(round(img.height * dst_ratio))
+                left = (img.width - new_w) // 2
+                img = img.crop((left, 0, left + new_w, img.height))
+            else:
+                new_h = int(round(img.width / dst_ratio))
+                top = (img.height - new_h) // 2
+                img = img.crop((0, top, img.width, top + new_h))
+        img = img.resize((tw, th), Image.LANCZOS)
+
+    buf = io.BytesIO()
+    if want_jpeg:
+        img = img.convert("RGB")
+        for quality in (92, 85, 78, 70, 60):
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=quality, optimize=True)
+            if buf.tell() <= MAX_THUMBNAIL_BYTES:
+                break
+    else:
+        img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def load_prompts(prompts_path: Path) -> list[dict]:
     """Load prompts from a _prompts.toml file."""
     with open(prompts_path, "rb") as f:
@@ -215,6 +280,10 @@ def main():
     parser.add_argument(
         "--model", default=DEFAULT_MODEL,
         help=f"Gemini image model (default: {DEFAULT_MODEL})"
+    )
+    parser.add_argument(
+        "--concurrent-requests", type=int, default=DEFAULT_CONCURRENT_REQUESTS,
+        help=f"Number of images to generate in parallel (default: {DEFAULT_CONCURRENT_REQUESTS})"
     )
     parser.add_argument(
         "--output-dir", type=Path, default=None,
@@ -275,6 +344,7 @@ def main():
     print(f"Aspect ratio: {args.aspect_ratio}")
     print(f"Image size: {args.size}")
     print(f"Characters: {len(characters)} loaded")
+    print(f"Concurrent requests: {args.concurrent_requests}")
     print(f"Output: {output_dir}")
     print()
 
@@ -283,9 +353,14 @@ def main():
             idx = p.get("index", "?")
             text = p.get("text", "")
             style = p.get("style", "")
+            filename = p.get("file") or (f"{idx:03d}.png" if isinstance(idx, int) else "?.png")
             chars_in = find_characters_in_prompt(text, characters)
-            print(f"  [{idx}] style: {style[:60]}...")
+            print(f"  [{idx}] {filename}  style: {style[:60]}...")
             print(f"       prompt: {text[:120]}...")
+            if p.get("resize"):
+                print(f"       resize: {p['resize']}")
+            if p.get("ref_files"):
+                print(f"       refs:   {', '.join(p['ref_files'])}")
             if chars_in:
                 print(f"       characters: {', '.join(chars_in)}")
             print()
@@ -310,31 +385,66 @@ def main():
         print(f"  Loaded {len(ref_images_map)} character reference images.\n")
 
     # --- Generate scene illustrations ---
-    for p in prompts:
+    def generate_one(p: dict):
         idx = p.get("index", 0)
         text = p.get("text", "")
         style = p.get("style", "")
-        filename = f"{idx:03d}.png"
+        filename = p.get("file") or f"{idx:03d}.png"
         output_path = output_dir / filename
+        output_path.parent.mkdir(parents=True, exist_ok=True)
 
         if output_path.exists():
             print(f"  [{idx}] SKIP (already exists): {filename}")
-            continue
+            return
 
-        # Find which character refs to include (max 4 per Gemini limit)
+        # Explicit references come first: the diglot thumbnail is generated
+        # from the plain thumbnail so it is the same picture with a badge
+        # added, not a second interpretation of the same brief.
+        from PIL import Image
+        scene_refs = []
+        for rel in p.get("ref_files", []):
+            ref_path = output_dir / rel
+            if not ref_path.exists():
+                print(f"  [{idx}] Warning: reference image not found: {rel}")
+                continue
+            ref = Image.open(ref_path)
+            ref.load()
+            scene_refs.append(ref)
+
+        # Then character refs, up to the Gemini limit of 4 images.
         chars_in = find_characters_in_prompt(text, characters)
-        scene_refs = [ref_images_map[name] for name in chars_in if name in ref_images_map]
-        scene_refs = scene_refs[:4]  # Gemini limit: up to 4 character refs
+        scene_refs += [ref_images_map[name] for name in chars_in if name in ref_images_map]
+        scene_refs = scene_refs[:4]
 
-        ref_info = f" + {len(scene_refs)} ref(s): {', '.join(chars_in[:4])}" if scene_refs else ""
+        ref_info = f" + {len(scene_refs)} ref(s)" if scene_refs else ""
         print(f"  [{idx}] Generating: {filename}{ref_info}...")
         image_bytes = generate_image(
             client, args.model, text, style,
             args.aspect_ratio, args.size,
             ref_images=scene_refs if scene_refs else None,
         )
+        image_bytes = _finalise(image_bytes, p.get("resize", ""), output_path.suffix)
         output_path.write_bytes(image_bytes)
         print(f"  [{idx}] Saved: {output_path} ({len(image_bytes)} bytes)")
+
+    # Prompts that reference an image produced by another prompt must run
+    # afterwards, and in order.
+    independent = [p for p in prompts if not p.get("ref_files")]
+    dependent = [p for p in prompts if p.get("ref_files")]
+
+    concurrency = max(1, args.concurrent_requests)
+    if concurrency == 1:
+        for p in independent:
+            generate_one(p)
+    else:
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = {executor.submit(generate_one, p): p for p in independent}
+            for future in as_completed(futures):
+                # Re-raise any exception from a worker so the process exits non-zero
+                future.result()
+
+    for p in dependent:
+        generate_one(p)
 
     print(f"\nDone. Generated illustrations in: {output_dir}")
 

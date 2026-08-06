@@ -285,6 +285,12 @@ pub struct Engine {
     pub current_file_path: Option<PathBuf>,
 }
 
+struct ImportedSourceData {
+    document: Vec<crate::domain::sentence::Sentence>,
+    source_meta: source_parser::SourceMeta,
+    default_book_name: String,
+}
+
 impl Engine {
     pub fn new(state: AppState) -> Self {
         Self {
@@ -308,7 +314,7 @@ impl Engine {
     /// Absolute paths are returned as-is; relative paths are resolved
     /// relative to `content_project_dir` (the open workspace) and
     /// canonicalized to prevent `..` traversal outside the workspace.
-    fn resolve_path(&self, path: &str) -> PathBuf {
+    pub(crate) fn resolve_path(&self, path: &str) -> PathBuf {
         let p = PathBuf::from(path);
         if p.is_absolute() {
             p
@@ -343,6 +349,459 @@ impl Engine {
         }
     }
 
+    fn load_source_import(
+        &self,
+        resolved_path: &PathBuf,
+        content: &str,
+    ) -> Result<ImportedSourceData, String> {
+        let (cleaned_content, mut raw_directives) = source_parser::extract_directives(content);
+
+        let early_meta = source_parser::resolve_directives(&raw_directives, &[]);
+        let mut project_languages = self.state.project_languages.clone();
+        if let Some(src) = &early_meta.source_language {
+            project_languages.0 = src.clone();
+        }
+        if let Some(tgt) = &early_meta.target_language {
+            project_languages.1 = tgt.clone();
+        }
+
+        let import_lang = if !project_languages.0.is_empty() {
+            project_languages.0.clone()
+        } else {
+            "en".to_string()
+        };
+
+        let (sentences, _meta_unused) =
+            source_parser::parse_source_file(&cleaned_content).map_err(|e| e.to_string())?;
+
+        let chapter_directives: Vec<(String, usize)> = raw_directives
+            .iter()
+            .filter(|d| d.key == "chapter" && !d.value.is_empty())
+            .map(|d| (d.value.clone(), d.cleaned_offset))
+            .collect();
+
+        let mut document: Vec<crate::domain::sentence::Sentence> = Vec::new();
+        let mut bridge_chunked_chapters: Option<Vec<source_parser::EmbeddedChapter>> = None;
+
+        if !sentences.is_empty() {
+            document = sentences;
+        } else if let Some(bridge) = &self.state.bridge {
+            let book_name = resolved_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("Unnamed");
+
+            if chapter_directives.is_empty() {
+                let chap = crate::services::importer::BookImporter::import_from_text_with_service(
+                    &cleaned_content,
+                    book_name,
+                    bridge,
+                    &import_lang,
+                )?;
+                for block in chap.content_blocks {
+                    if let crate::types::json_types::JsonContentBlock::Sentence(json_sentence) = block {
+                        match crate::domain::bridge::json_to_domain_sentence(&json_sentence) {
+                            Ok(domain_sentence) => document.push(domain_sentence),
+                            Err(e) => eprintln!("Skipping invalid sentence: {e}"),
+                        }
+                    }
+                }
+            } else {
+                let mut split_points: Vec<usize> = chapter_directives
+                    .iter()
+                    .map(|(_, off)| (*off).min(cleaned_content.len()))
+                    .collect();
+                split_points.sort_unstable();
+
+                let mut chunks: Vec<&str> = Vec::with_capacity(split_points.len() + 1);
+                let mut prev = 0usize;
+                for &sp in &split_points {
+                    let sp = clamp_to_char_boundary(&cleaned_content, sp).max(prev);
+                    chunks.push(&cleaned_content[prev..sp]);
+                    prev = sp;
+                }
+                chunks.push(&cleaned_content[prev..]);
+
+                let mut chapter_starts: Vec<usize> = Vec::with_capacity(chapter_directives.len());
+                let mut cumulative_at_split: Vec<usize> = Vec::with_capacity(split_points.len());
+
+                for (i, chunk) in chunks.iter().enumerate() {
+                    if i >= 1 {
+                        chapter_starts.push(document.len() + 1);
+                        cumulative_at_split.push(document.len());
+                    }
+                    if chunk.trim().is_empty() {
+                        continue;
+                    }
+                    let chap = crate::services::importer::BookImporter::import_from_text_with_service(
+                        chunk,
+                        book_name,
+                        bridge,
+                        &import_lang,
+                    )?;
+                    for block in chap.content_blocks {
+                        if let crate::types::json_types::JsonContentBlock::Sentence(json_sentence) = block {
+                            match crate::domain::bridge::json_to_domain_sentence(&json_sentence) {
+                                Ok(domain_sentence) => document.push(domain_sentence),
+                                Err(e) => eprintln!("Skipping invalid sentence: {e}"),
+                            }
+                        }
+                    }
+                }
+
+                for d in raw_directives.iter_mut() {
+                    let mut anchor = 0usize;
+                    for (i, &sp) in split_points.iter().enumerate() {
+                        if sp <= d.cleaned_offset {
+                            anchor = cumulative_at_split[i];
+                        } else {
+                            break;
+                        }
+                    }
+                    d.anchor_idx = anchor;
+                }
+
+                let doc_len = document.len();
+                let n = chapter_directives.len();
+                let mut built: Vec<source_parser::EmbeddedChapter> = Vec::with_capacity(n);
+                for i in 0..n {
+                    let start = chapter_starts[i];
+                    let end = if i + 1 < n {
+                        chapter_starts[i + 1].saturating_sub(1)
+                    } else {
+                        doc_len
+                    };
+                    if start >= 1 && end >= start && end <= doc_len {
+                        built.push(source_parser::EmbeddedChapter {
+                            name: chapter_directives[i].0.clone(),
+                            start,
+                            end,
+                        });
+                    }
+                }
+                bridge_chunked_chapters = Some(built);
+            }
+        } else {
+            return Err("No recognizable sentence markup and Python bridge not configured.".to_string());
+        }
+
+        let mut source_meta = source_parser::resolve_directives(&raw_directives, &document);
+        if let Some(built) = bridge_chunked_chapters {
+            source_meta.chapters = built;
+        }
+
+        let default_book_name = resolved_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Unnamed")
+            .to_string();
+
+        Ok(ImportedSourceData {
+            document,
+            source_meta,
+            default_book_name,
+        })
+    }
+
+    fn renumber_sentences(sentences: &mut [crate::domain::sentence::Sentence], start_index: usize) {
+        for (offset, sentence) in sentences.iter_mut().enumerate() {
+            sentence.id = format!("S{}", start_index + offset + 1);
+        }
+    }
+
+    pub(crate) fn execute_import_source(&mut self, path: String) -> Result<String, String> {
+        let resolved_path = self.resolve_path(&path);
+        let content = fs::read_to_string(&resolved_path).map_err(|e| e.to_string())?;
+
+        self.state.document.clear();
+        self.state.book_map = None;
+        self.state.calibration_sentence_count = None;
+        self.state.chapters.clear();
+        self.state.chapter_mode = false;
+        self.state.selected_chapter_idx = None;
+        self.state.level_map_embedded = false;
+        self.state.simple_mode = false;
+        self.state.single_simple = false;
+        self.state.lesson_realign_enabled = false;
+        self.state.source_is_basic = false;
+        self.state.frontier_enabled = true;
+        self.state.frontier_target_pct = 5.0;
+        self.state.frontier_seed = 777;
+        self.state.frontier_test_mode = false;
+        self.state.frontier_familiar_lemma_exclude_count = 100;
+        self.state.friendly_lemmas.clear();
+        self.state.friendly_shielding_enabled = true;
+        self.state.project_languages = ("en".to_string(), "es".to_string());
+        self.state.selected_sentence_idx = 0;
+        self.state.selected_range = None;
+        self.state.audit_passed = false;
+        self.state.book_name.clear();
+        self.state.llm_followup_queue.clear();
+        self.current_file_path = None;
+        self.save_chapters();
+
+        let imported = self.load_source_import(&resolved_path, &content)?;
+        self.state.document = imported.document;
+        self.state.book_map = None;
+        self.state.book_name = imported.default_book_name;
+        self.state.selected_sentence_idx = 0;
+        self.state.selected_range = None;
+        self.current_file_path = None;
+        self.state.llm_followup_queue.clear();
+
+        let source_meta = imported.source_meta;
+
+        let mut applied_notes: Vec<String> = Vec::new();
+        if let Some(name) = &source_meta.book_name {
+            self.state.book_name = name.clone();
+        }
+        if let Some(src) = &source_meta.source_language {
+            self.state.project_languages.0 = src.clone();
+        }
+        if let Some(tgt) = &source_meta.target_language {
+            self.state.project_languages.1 = tgt.clone();
+        }
+        if let Some(b) = source_meta.simple_mode {
+            self.state.simple_mode = b;
+        }
+        if let Some(b) = source_meta.lesson_realign_enabled {
+            self.state.lesson_realign_enabled = b;
+        }
+        if let Some(b) = source_meta.source_is_basic {
+            self.state.source_is_basic = b;
+            if b && (self.state.simple_mode || self.state.simple_triple || self.state.single_simple) {
+                applied_notes.push(
+                    "source_is_basic: on — in-source-language basic tier will be copied from base verbatim"
+                        .to_string(),
+                );
+            }
+        }
+        if let Some(b) = source_meta.frontier_enabled {
+            self.state.frontier_enabled = b;
+        }
+        if let Some(b) = source_meta.friendly_shielding_enabled {
+            self.state.friendly_shielding_enabled = b;
+        }
+        if !source_meta.friendly_lemmas.is_empty() {
+            self.state.friendly_lemmas = source_meta.friendly_lemmas.clone();
+        }
+        if source_meta.teaching_mode_requested {
+            applied_notes.push("teaching_mode preset applied".to_string());
+        }
+
+        if !source_meta.chapters.is_empty() {
+            self.state.chapters.clear();
+            for ch in &source_meta.chapters {
+                self.state.chapters.push(crate::app::state::Chapter {
+                    name: ch.name.clone(),
+                    start: ch.start,
+                    end: ch.end,
+                });
+            }
+            self.state.chapters.sort_by_key(|c| c.start);
+            self.state.chapter_mode = true;
+            self.state.selected_chapter_idx = None;
+            self.save_chapters();
+            applied_notes.push(format!(
+                "embedded {} chapter(s); chapter_mode enabled",
+                source_meta.chapters.len()
+            ));
+        }
+
+        self.state.level_map_embedded = false;
+        if !source_meta.lm_entries.is_empty() && self.state.simple_mode {
+            use crate::simulation::numerical_types::{LLevelRecipe, VLevelRecipe};
+            use crate::types::json_types::{JsonCurriculumMap, JsonCurriculumMapEntry};
+
+            let mut entries: Vec<JsonCurriculumMapEntry> = source_meta
+                .lm_entries
+                .iter()
+                .map(|e| JsonCurriculumMapEntry {
+                    level: 1.0,
+                    start_sentence_idx: e.start_sentence_idx,
+                    recipe: VLevelRecipe {
+                        bas: e.bas,
+                        mod_v: 0,
+                        adv: 0,
+                    },
+                    l_level_recipe: LLevelRecipe::default(),
+                    target_avd: 0.0,
+                    actual_avd: 0.0,
+                })
+                .collect();
+            entries.sort_by_key(|e| e.start_sentence_idx);
+            let map = JsonCurriculumMap {
+                end_level: 1.0,
+                map: entries,
+            };
+            let mut levels = std::collections::HashMap::new();
+            levels.insert("1".to_string(), map);
+            self.state.book_map = Some(levels);
+            self.state.level_map_embedded = true;
+            applied_notes.push(format!(
+                "embedded level map built from {} lm_entry record(s)",
+                source_meta.lm_entries.len()
+            ));
+        }
+
+        let mut summary = format!(
+            "Imported {} sentences from source",
+            self.state.document.len()
+        );
+        for note in &applied_notes {
+            summary.push_str("\n  ");
+            summary.push_str(note);
+        }
+        for w in &source_meta.warnings {
+            summary.push_str("\n  warning: ");
+            summary.push_str(w);
+        }
+        self.state.refresh_sentence_modes();
+        Ok(summary)
+    }
+
+    fn execute_append_source(
+        &mut self,
+        path: String,
+        chapter_name: Option<String>,
+    ) -> Result<String, String> {
+        let resolved_path = self.resolve_path(&path);
+        let content = fs::read_to_string(&resolved_path).map_err(|e| e.to_string())?;
+        let mut imported = self.load_source_import(&resolved_path, &content)?;
+
+        if imported.document.is_empty() {
+            return Err("Source file did not produce any sentences to append.".to_string());
+        }
+
+        if imported.source_meta.chapters.len() > 1 {
+            return Err(format!(
+                "Append source expects exactly one chapter. Found {} embedded chapters.",
+                imported.source_meta.chapters.len()
+            ));
+        }
+
+        let fallback_name = chapter_name
+            .as_ref()
+            .map(|name| name.trim().to_string())
+            .filter(|name| !name.is_empty());
+
+        let new_chapter_name = if let Some(ch) = imported.source_meta.chapters.first() {
+            ch.name.clone()
+        } else if let Some(name) = fallback_name {
+            name
+        } else {
+            return Err(
+                "Appended source needs a %%META chapter: <name>%% tag or an explicit chapter name."
+                    .to_string(),
+            );
+        };
+
+        if self.state.chapters.iter().any(|ch| ch.name == new_chapter_name) {
+            return Err(format!(
+                "A chapter named '{}' already exists.",
+                new_chapter_name
+            ));
+        }
+
+        let appended_count = imported.document.len();
+        let existing_len = self.state.document.len();
+        Self::renumber_sentences(&mut imported.document, existing_len);
+
+        let chapter_start = existing_len + 1;
+        let chapter_end = existing_len + appended_count;
+
+        self.state.document.extend(imported.document);
+        self.state.book_map = None;
+        self.state.calibration_sentence_count = None;
+        self.state.level_map_embedded = false;
+        self.state.llm_followup_queue.clear();
+        self.state.selected_sentence_idx = existing_len;
+        self.state.selected_range = None;
+
+        self.state.chapters.push(crate::app::state::Chapter {
+            name: new_chapter_name.clone(),
+            start: chapter_start,
+            end: chapter_end,
+        });
+        self.state.chapters.sort_by_key(|ch| ch.start);
+        self.state.chapter_mode = true;
+        self.state.selected_chapter_idx = self
+            .state
+            .chapters
+            .iter()
+            .position(|ch| ch.name == new_chapter_name);
+        self.save_chapters();
+
+        let mut notes: Vec<String> = Vec::new();
+        if existing_len == 0 {
+            if let Some(name) = &imported.source_meta.book_name {
+                self.state.book_name = name.clone();
+            } else if self.state.book_name.is_empty() {
+                self.state.book_name = imported.default_book_name.clone();
+            }
+            if let Some(src) = &imported.source_meta.source_language {
+                self.state.project_languages.0 = src.clone();
+            }
+            if let Some(tgt) = &imported.source_meta.target_language {
+                self.state.project_languages.1 = tgt.clone();
+            }
+            if let Some(b) = imported.source_meta.simple_mode {
+                self.state.simple_mode = b;
+            }
+            if let Some(b) = imported.source_meta.lesson_realign_enabled {
+                self.state.lesson_realign_enabled = b;
+            }
+            if let Some(b) = imported.source_meta.source_is_basic {
+                self.state.source_is_basic = b;
+            }
+            if let Some(b) = imported.source_meta.frontier_enabled {
+                self.state.frontier_enabled = b;
+            }
+            if let Some(b) = imported.source_meta.friendly_shielding_enabled {
+                self.state.friendly_shielding_enabled = b;
+            }
+            if !imported.source_meta.friendly_lemmas.is_empty() {
+                self.state.friendly_lemmas = imported.source_meta.friendly_lemmas.clone();
+            }
+        } else {
+            if imported.source_meta.book_name.is_some()
+                || imported.source_meta.source_language.is_some()
+                || imported.source_meta.target_language.is_some()
+                || imported.source_meta.simple_mode.is_some()
+                || imported.source_meta.lesson_realign_enabled.is_some()
+                || imported.source_meta.source_is_basic.is_some()
+                || imported.source_meta.frontier_enabled.is_some()
+                || imported.source_meta.friendly_shielding_enabled.is_some()
+                || !imported.source_meta.friendly_lemmas.is_empty()
+            {
+                notes.push(
+                    "project-level META directives were ignored while appending to an existing book"
+                        .to_string(),
+                );
+            }
+        }
+
+        if !imported.source_meta.lm_entries.is_empty() {
+            notes.push("level-map directives were not merged; recalibration is required".to_string());
+        }
+
+        self.state.refresh_sentence_modes();
+
+        let mut summary = format!(
+            "Appended {} sentences as chapter '{}' ({}-{}).",
+            appended_count, new_chapter_name, chapter_start, chapter_end
+        );
+        for note in &notes {
+            summary.push_str("\n  ");
+            summary.push_str(note);
+        }
+        for w in &imported.source_meta.warnings {
+            summary.push_str("\n  warning: ");
+            summary.push_str(w);
+        }
+        Ok(summary)
+    }
+
     pub fn execute(&mut self, command: AppCommand) -> Result<String, String> {
         // Only commands that mutate sentence/tier/mapping content should
         // invalidate audit. Non-content operations (AV, weave export,
@@ -360,7 +819,10 @@ impl Engine {
             | AppCommand::GenerateStage { .. }
             | AppCommand::SetLanguages { .. }
             | AppCommand::SetBookName { .. }
+            | AppCommand::SetStoryTitle { .. }
             | AppCommand::ImportSource { .. }
+            | AppCommand::AppendSource { .. }
+            | AppCommand::AdaptPromote { .. }
             | AppCommand::ImportJson { .. }
             | AppCommand::AddPnLemma { .. }
             | AppCommand::RemovePnLemma { .. }
@@ -442,7 +904,19 @@ impl Engine {
                         };
                         self.state.selected_tier_id = tid.to_string();
                     }
-                    _ => {} // mapping/pn views don't map to a single tier
+                    // Mapping panels edit a diglot mapping via its SOURCE tier,
+                    // so point selected_tier_id at that source. Inverse diglot
+                    // (basic_target → basic_base) is edited on basic_target;
+                    // forward diglot (basic_base → basic_target) on basic_base.
+                    // Without this, edit_target from the mapping panel ran
+                    // against an unset tier and reverted the user's edit.
+                    DetailView::MappingInverse => {
+                        self.state.selected_tier_id = "basic_target".to_string();
+                    }
+                    DetailView::MappingDiglot => {
+                        self.state.selected_tier_id = "basic_base".to_string();
+                    }
+                    _ => {} // other views don't map to a single tier
                 }
                 Ok(format!("Right view set to {}", view))
             }
@@ -575,6 +1049,14 @@ impl Engine {
             AppCommand::SetBookName { name } => {
                 self.state.book_name = name.clone();
                 Ok(format!("Book name set to '{}'", name))
+            }
+            AppCommand::SetStoryTitle { title } => {
+                let t = title.trim().trim_matches('"').trim().to_string();
+                if t.is_empty() {
+                    return Err("Usage: set title <the printable title of the work>".to_string());
+                }
+                self.state.story_title = t.clone();
+                Ok(format!("Story title set to '{}'", t))
             }
             AppCommand::UpdateText { sentence_id, index, tier_id, new_text } => {
                 let idx = if let Some(i) = index {
@@ -1629,371 +2111,37 @@ impl Engine {
                 }
                 Err("Failed to serialize project".to_string())
             }
-            AppCommand::ImportSource { path } => {
-                let resolved_path = self.resolve_path(&path);
-                let content = fs::read_to_string(&resolved_path).map_err(|e| e.to_string())?;
-
-                // Reset all project-scoped state to defaults so leftover
-                // chapters / level maps / friendly lemmas / language pairs
-                // from a previously-loaded book can never leak into the
-                // newly-imported one. Workspace-scoped state (output_dir,
-                // config, services, UI prefs) is preserved.
-                self.state.document.clear();
-                self.state.book_map = None;
-                self.state.calibration_sentence_count = None;
-                self.state.chapters.clear();
-                self.state.chapter_mode = false;
-                self.state.selected_chapter_idx = None;
-                self.state.level_map_embedded = false;
-                self.state.simple_mode = false;
-                self.state.lesson_realign_enabled = false;
-                self.state.source_is_basic = false;
-                self.state.frontier_enabled = true;
-                self.state.frontier_target_pct = 5.0;
-                self.state.frontier_seed = 777;
-                self.state.frontier_test_mode = false;
-                self.state.frontier_familiar_lemma_exclude_count = 100;
-                self.state.friendly_lemmas.clear();
-                self.state.friendly_shielding_enabled = true;
-                self.state.project_languages = ("en".to_string(), "es".to_string());
-                self.state.selected_sentence_idx = 0;
-                self.state.selected_range = None;
-                self.state.audit_passed = false;
-                self.state.book_name.clear();
-                self.state.llm_followup_queue.clear();
-                self.current_file_path = None;
-                self.save_chapters();
-
-                // Phase 1: extract directives (work on raw content). This
-                // strips %%META...%%/%%CHAPTER_MARKER%% lines so the bridge
-                // doesn't ingest them as prose. We resolve them again at the
-                // end against the final document for index-anchored entries.
-                let (cleaned_content, mut raw_directives) =
-                    source_parser::extract_directives(&content);
-
-                // Pre-resolve language directives so the bridge can use them
-                // when tokenising/segmenting prose.
-                let early_meta =
-                    source_parser::resolve_directives(&raw_directives, &[]);
-                if let Some(src) = &early_meta.source_language {
-                    self.state.project_languages.0 = src.clone();
-                }
-                if let Some(tgt) = &early_meta.target_language {
-                    self.state.project_languages.1 = tgt.clone();
-                }
-                // Language used for tokenisation/segmentation: the source
-                // language of the imported text.
-                let import_lang = if !self.state.project_languages.0.is_empty() {
-                    self.state.project_languages.0.clone()
-                } else {
-                    "en".to_string()
-                };
-
-                // Phase 2: try {Sn:} markup parse first; fall back to bridge.
-                let (sentences, _meta_unused) =
-                    source_parser::parse_source_file(&cleaned_content)
-                        .map_err(|e| e.to_string())?;
-
-                // Chapter directives in source order. Used by the bridge
-                // path below to split content per chapter so each chapter
-                // gets its true sentence range. For the {Sn:} markup path
-                // this is unused (anchor_idx works correctly there).
-                // Owned (name, cleaned_offset) pairs so we can also mutate
-                // raw_directives below for anchor remapping.
-                let chapter_directives: Vec<(String, usize)> = raw_directives
-                    .iter()
-                    .filter(|d| d.key == "chapter" && !d.value.is_empty())
-                    .map(|d| (d.value.clone(), d.cleaned_offset))
-                    .collect();
-
-                // Sentences-imported-via-bridge chapters, computed below
-                // when we go through the bridge branch with chapter
-                // directives present. Replaces source_meta.chapters for
-                // that case (the parser's chapter resolver can't compute
-                // correct starts in the prose path because there are no
-                // {Sn:} markers to count).
-                let mut bridge_chunked_chapters: Option<Vec<source_parser::EmbeddedChapter>> = None;
-
-                if !sentences.is_empty() {
-                    self.state.document = sentences;
-                } else if let Some(bridge) = &self.state.bridge {
-                    let path_buf = resolved_path.clone();
-                    let book_name = path_buf.file_name().and_then(|s| s.to_str()).unwrap_or("Unnamed");
-
-                    if chapter_directives.is_empty() {
-                        // No chapters — original single-shot path.
-                        let chap = crate::services::importer::BookImporter::import_from_text_with_service(
-                            &cleaned_content,
-                            book_name,
-                            bridge,
-                            &import_lang,
-                        )?;
-                        self.state.document.clear();
-                        for block in chap.content_blocks {
-                            if let crate::types::json_types::JsonContentBlock::Sentence(json_sentence) = block {
-                                match crate::domain::bridge::json_to_domain_sentence(&json_sentence) {
-                                    Ok(domain_sentence) => self.state.document.push(domain_sentence),
-                                    Err(e) => eprintln!("Skipping invalid sentence: {e}"),
-                                }
-                            }
-                        }
-                    } else {
-                        // Chunked import: split cleaned_content at each
-                        // chapter directive's cleaned_offset and bridge-
-                        // process each chunk separately so we know
-                        // exactly how many sentences each chapter
-                        // contributes.
-                        let mut split_points: Vec<usize> = chapter_directives
-                            .iter()
-                            .map(|(_, off)| (*off).min(cleaned_content.len()))
-                            .collect();
-                        split_points.sort_unstable();
-
-                        // Build chunks: chunk 0 = [0..first_split] (preamble),
-                        // chunk i+1 = [split_points[i]..split_points[i+1]] (or end).
-                        let mut chunks: Vec<&str> = Vec::with_capacity(split_points.len() + 1);
-                        let mut prev = 0usize;
-                        for &sp in &split_points {
-                            // Clamp sp to a UTF-8 char boundary just in case.
-                            let sp = clamp_to_char_boundary(&cleaned_content, sp).max(prev);
-                            chunks.push(&cleaned_content[prev..sp]);
-                            prev = sp;
-                        }
-                        chunks.push(&cleaned_content[prev..]);
-
-                        self.state.document.clear();
-                        let mut chapter_starts: Vec<usize> = Vec::with_capacity(chapter_directives.len());
-
-                        // Track cumulative sentence count after each split
-                        // point (i.e. after each chunks[0..=i] is ingested).
-                        // Indexed parallel to split_points: cumulative[i]
-                        // = total sentences from chunks[0..=i] (which means
-                        // sentences whose 0-based index < cumulative[i] all
-                        // sit BEFORE the directive at split_points[i]).
-                        // After the last chunk, cumulative_after_all =
-                        // self.state.document.len().
-                        let mut cumulative_at_split: Vec<usize> = Vec::with_capacity(split_points.len());
-
-                        for (i, chunk) in chunks.iter().enumerate() {
-                            // chunks[0] is the preamble (before first chapter
-                            // directive); chunks[1..] are per-chapter prose.
-                            // Record the chapter's start sentence index BEFORE
-                            // ingesting that chunk.
-                            if i >= 1 {
-                                chapter_starts.push(self.state.document.len() + 1);
-                                cumulative_at_split.push(self.state.document.len());
-                            }
-                            if chunk.trim().is_empty() {
-                                continue;
-                            }
-                            let chap = crate::services::importer::BookImporter::import_from_text_with_service(
-                                chunk,
-                                book_name,
-                                bridge,
-                                &import_lang,
-                            )?;
-                            for block in chap.content_blocks {
-                                if let crate::types::json_types::JsonContentBlock::Sentence(json_sentence) = block {
-                                    match crate::domain::bridge::json_to_domain_sentence(&json_sentence) {
-                                        Ok(domain_sentence) => self.state.document.push(domain_sentence),
-                                        Err(e) => eprintln!("Skipping invalid sentence: {e}"),
-                                    }
-                                }
-                            }
-                        }
-
-                        // Remap every directive's anchor_idx based on its
-                        // cleaned_offset so lm_entry / lesson_marker get
-                        // correct sentence anchors. Mapping: for offset
-                        // equal to split_points[i], anchor = cumulative_at_split[i].
-                        // For offsets <= 0 (preamble), anchor = 0. For
-                        // offsets > all split points (none in practice
-                        // because directives always sit before prose),
-                        // anchor = doc len.
-                        for d in raw_directives.iter_mut() {
-                            // Find the split-point matching this directive's offset.
-                            // Cleaned-offset equals one of the split_points
-                            // exactly because each directive appended one to
-                            // split_points list logic (their offset is
-                            // recorded at line strip-time).
-                            let mut anchor = 0usize;
-                            for (i, &sp) in split_points.iter().enumerate() {
-                                if sp <= d.cleaned_offset {
-                                    anchor = cumulative_at_split[i];
-                                } else {
-                                    break;
-                                }
-                            }
-                            d.anchor_idx = anchor;
-                        }
-
-                        // Now build EmbeddedChapter list with correct ranges.
-                        // chapter_directives is in source order, which equals
-                        // split_points order (we sorted both by cleaned_offset).
-                        let doc_len = self.state.document.len();
-                        let n = chapter_directives.len();
-                        let mut built: Vec<source_parser::EmbeddedChapter> = Vec::with_capacity(n);
-                        for i in 0..n {
-                            let start = chapter_starts[i];
-                            let end = if i + 1 < n {
-                                chapter_starts[i + 1].saturating_sub(1)
-                            } else {
-                                doc_len
-                            };
-                            if start >= 1 && end >= start && end <= doc_len {
-                                built.push(source_parser::EmbeddedChapter {
-                                    name: chapter_directives[i].0.clone(),
-                                    start,
-                                    end,
-                                });
-                            }
-                        }
-                        bridge_chunked_chapters = Some(built);
-                    }
-                } else {
-                    return Err("No recognizable sentence markup and Python bridge not configured.".to_string());
-                }
-
-                self.state.book_map = None;
-                self.state.book_name = resolved_path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("Unnamed")
-                    .to_string();
-                self.state.selected_sentence_idx = 0;
-                self.state.selected_range = None;
-                // Import is not a saved project — clear file path
-                self.current_file_path = None;
-                self.state.llm_followup_queue.clear();
-                // Phase 3: now resolve all directives against the final
-                // document so lm_entry/lesson_marker get correct indices.
-                let mut source_meta =
-                    source_parser::resolve_directives(&raw_directives, &self.state.document);
-
-                // If we used the chunked-bridge path, the parser's chapter
-                // resolver couldn't compute correct starts (no {Sn:} markers
-                // to count). Replace with the chapters we built per-chunk.
-                if let Some(built) = bridge_chunked_chapters {
-                    source_meta.chapters = built;
-                }
-
-                // Apply directives from %%META ...%% lines.
-                let mut applied_notes: Vec<String> = Vec::new();
-                if let Some(name) = &source_meta.book_name {
-                    self.state.book_name = name.clone();
-                }
-                if let Some(src) = &source_meta.source_language {
-                    self.state.project_languages.0 = src.clone();
-                }
-                if let Some(tgt) = &source_meta.target_language {
-                    self.state.project_languages.1 = tgt.clone();
-                }
-                if let Some(b) = source_meta.simple_mode {
-                    self.state.simple_mode = b;
-                }
-                if let Some(b) = source_meta.lesson_realign_enabled {
-                    self.state.lesson_realign_enabled = b;
-                }
-                // source_is_basic only takes effect when simple_mode is
-                // also on. The parser already warned if not; we honour
-                // the user's flag in state regardless for telemetry.
-                if let Some(b) = source_meta.source_is_basic {
-                    self.state.source_is_basic = b;
-                    if b && self.state.simple_mode {
-                        applied_notes.push(
-                            "source_is_basic: on — in-source-language basic tier will be copied from base verbatim"
-                                .to_string(),
-                        );
-                    }
-                }
-                if let Some(b) = source_meta.frontier_enabled {
-                    self.state.frontier_enabled = b;
-                }
-                if let Some(b) = source_meta.friendly_shielding_enabled {
-                    self.state.friendly_shielding_enabled = b;
-                }
-                if !source_meta.friendly_lemmas.is_empty() {
-                    self.state.friendly_lemmas = source_meta.friendly_lemmas.clone();
-                }
-                if source_meta.teaching_mode_requested {
-                    applied_notes.push("teaching_mode preset applied".to_string());
-                }
-
-                // Apply embedded chapter directives, if any.
-                if !source_meta.chapters.is_empty() {
-                    self.state.chapters.clear();
-                    for ch in &source_meta.chapters {
-                        self.state.chapters.push(crate::app::state::Chapter {
-                            name: ch.name.clone(),
-                            start: ch.start,
-                            end: ch.end,
-                        });
-                    }
-                    self.state.chapters.sort_by_key(|c| c.start);
-                    self.state.chapter_mode = true;
-                    self.state.selected_chapter_idx = None;
-                    self.save_chapters();
-                    applied_notes.push(format!(
-                        "embedded {} chapter(s); chapter_mode enabled",
-                        source_meta.chapters.len()
-                    ));
-                }
-
-                // Build embedded level map from lm_entries (simple-mode only).
-                self.state.level_map_embedded = false;
-                if !source_meta.lm_entries.is_empty() && self.state.simple_mode {
-                    use crate::simulation::numerical_types::{LLevelRecipe, VLevelRecipe};
-                    use crate::types::json_types::{
-                        JsonCurriculumMap, JsonCurriculumMapEntry,
-                    };
-                    let mut entries: Vec<JsonCurriculumMapEntry> = source_meta
-                        .lm_entries
-                        .iter()
-                        .map(|e| JsonCurriculumMapEntry {
-                            level: 1.0,
-                            start_sentence_idx: e.start_sentence_idx,
-                            recipe: VLevelRecipe {
-                                bas: e.bas,
-                                mod_v: 0,
-                                adv: 0,
-                            },
-                            l_level_recipe: LLevelRecipe::default(),
-                            target_avd: 0.0,
-                            actual_avd: 0.0,
-                        })
-                        .collect();
-                    entries.sort_by_key(|e| e.start_sentence_idx);
-                    let map = JsonCurriculumMap {
-                        end_level: 1.0,
-                        map: entries,
-                    };
-                    let mut levels = std::collections::HashMap::new();
-                    levels.insert("1".to_string(), map);
-                    self.state.book_map = Some(levels);
-                    self.state.level_map_embedded = true;
-                    applied_notes.push(format!(
-                        "embedded level map built from {} lm_entry record(s)",
-                        source_meta.lm_entries.len()
-                    ));
-                }
-
-                let mut summary = format!(
-                    "Imported {} sentences from source",
-                    self.state.document.len()
-                );
-                for note in &applied_notes {
-                    summary.push_str("\n  ");
-                    summary.push_str(note);
-                }
-                for w in &source_meta.warnings {
-                    summary.push_str("\n  warning: ");
-                    summary.push_str(w);
-                }
-                // Stamp source_is_target onto sentences now that
-                // project_languages is final.
-                self.state.refresh_sentence_modes();
-                Ok(summary)
+            AppCommand::ImportSource { path } => self.execute_import_source(path),
+            AppCommand::AppendSource { path, chapter_name } => {
+                self.execute_append_source(path, chapter_name)
             }
+
+            // ----- Raw source adaptation (ESCore-style) -----
+            AppCommand::ImportRaw { path, chunk, fresh } => {
+                self.execute_import_raw(path, chunk, fresh)
+            }
+            AppCommand::AdaptDomain { path } => self.execute_adapt_domain(path),
+            AppCommand::AdaptSet { key, value } => self.execute_adapt_set(key, value),
+            AppCommand::AdaptScore { unit } => self.execute_adapt_score(unit),
+            AppCommand::AdaptDraft { unit } => self.execute_adapt_job(
+                crate::services::adapt_worker::AdaptMode::Draft,
+                unit,
+            ),
+            AppCommand::AdaptSqueeze { unit } => self.execute_adapt_job(
+                crate::services::adapt_worker::AdaptMode::Squeeze,
+                unit,
+            ),
+            AppCommand::AdaptRun { unit } => {
+                self.execute_adapt_job(crate::services::adapt_worker::AdaptMode::Run, unit)
+            }
+            AppCommand::AdaptStatusReport => self.execute_adapt_status_report(),
+            AppCommand::AdaptReport { unit } => self.execute_adapt_report(unit),
+            AppCommand::AdaptRevert { unit } => self.execute_adapt_revert(unit),
+            AppCommand::AdaptCancel => self.execute_adapt_cancel(),
+            AppCommand::AdaptCheckpoint => self.execute_adapt_checkpoint(),
+            AppCommand::AdaptRestore { path } => self.execute_adapt_restore(path),
+            AppCommand::AdaptPromote { force } => self.execute_adapt_promote(force),
+
             AppCommand::ImportJson { path } => {
                 let resolved_path = self.resolve_path(&path);
                 let content = fs::read_to_string(&resolved_path).map_err(|e| e.to_string())?;
@@ -2140,7 +2288,7 @@ impl Engine {
                 // do NOT consult the calibrated level map, so they skip DRC
                 // (which would otherwise fail on "no level map loaded"). The
                 // 'audit' gate inside execute_generate_weave still applies.
-                let is_recipe_flat = matches!(level.as_str(), "b" | "m" | "a" | "i" | "r")
+                let is_recipe_flat = matches!(level.as_str(), "b" | "m" | "a" | "i" | "r" | "dg")
                     || level.starts_with("flat");
 
                 // Run DRC before generating (unless --force or a recipe-flat dump)
@@ -2797,8 +2945,11 @@ impl Engine {
                 let resolution = crate::services::tier_graph::stage_dispatch(
                     stage_name.as_str(),
                     self.state.source_is_target(),
-                    self.state.source_is_basic && self.state.simple_mode,
-                    self.state.simple_triple,
+                    self.state.source_is_basic
+                        && (self.state.simple_mode
+                            || self.state.simple_triple
+                            || self.state.single_simple),
+                    self.state.simple_triple || self.state.single_simple,
                 )
                 .ok_or_else(|| format!("Unknown stage mapping for '{}'", stage_name))?;
                 let prompt_name = resolution.prompt_name;
@@ -3002,6 +3153,27 @@ impl Engine {
                     );
 
                 let item_count = items.len();
+
+                // Rolling context for pro-drop pronoun resolution (inverse
+                // diglot only): the sentences preceding each batch are sent as
+                // a read-only CONTEXT block so the LLM can resolve the gender
+                // and person of dropped Spanish subjects (e.g. "Trabajaba" →
+                // "She worked" when a female character is the established
+                // subject). Texts are indexed by document index; the window is
+                // applied per-batch in llm_stage::build_context_block.
+                let context_texts: Option<Vec<String>> =
+                    if stage_name.as_str() == "GenerateInversePhraseMap" {
+                        Some(
+                            self.state.document.iter()
+                                .map(|sent| sent.get_tier(source_tier)
+                                    .map(|t| t.full_text().replace("--", " — "))
+                                    .unwrap_or_default())
+                                .collect(),
+                        )
+                    } else {
+                        None
+                    };
+
                 let (rx, cancel) = crate::services::llm_worker::spawn_llm_job(
                     prompts,
                     llm,
@@ -3012,11 +3184,12 @@ impl Engine {
                     prompt_name.to_string(),
                     target_tier.to_string(),
                     items,
+                    context_texts,
                     batch_size,
                     model_alias.clone(),
                     fallback_alias,
                     segment_level,
-                    self.state.simple_triple,
+                    self.state.simple_triple || self.state.single_simple,
                 );
 
                 self.state.llm_results_receiver = Some(rx);
@@ -3135,6 +3308,7 @@ impl Engine {
                     out.push_str(&format!("  image_aspect_ratio:        {}\n", m.illustrations.image_aspect_ratio));
                     out.push_str(&format!("  sentences_per_illustration: {}\n", m.illustrations.sentences_per_illustration));
                     out.push_str(&format!("  minimum_count:             {}\n", m.illustrations.minimum_count));
+                    out.push_str(&format!("  concurrent_requests:       {}\n", m.illustrations.concurrent_requests));
                     Ok(out)
                 })
             }
@@ -3189,7 +3363,8 @@ impl Engine {
                         "image_aspect_ratio" => ill.image_aspect_ratio = value.clone(),
                         "sentences_per_illustration" => ill.sentences_per_illustration = value.parse().map_err(|_| "Expected a number".to_string())?,
                         "minimum_count" => ill.minimum_count = value.parse().map_err(|_| "Expected a number".to_string())?,
-                        _ => return Err(format!("Unknown illustrations config key: '{}'. Valid keys: style_prefix, prompt_model, image_model, image_size, image_aspect_ratio, sentences_per_illustration, minimum_count", key)),
+                        "concurrent_requests" => ill.concurrent_requests = value.parse().map_err(|_| "Expected a number".to_string())?,
+                        _ => return Err(format!("Unknown illustrations config key: '{}'. Valid keys: style_prefix, prompt_model, image_model, image_size, image_aspect_ratio, sentences_per_illustration, minimum_count, concurrent_requests", key)),
                     }
                     producer.manifest.save(&producer.book_dir)?;
                     Ok(format!("Illustrations config '{}' set to '{}'", key, value))
@@ -3514,7 +3689,7 @@ impl Engine {
                 self.state.av_job = Some(job_state);
                 Ok(format!("Started: {} (pid {}). Use 'av cancel' to stop.", label, pid))
             }
-            AppCommand::AvGenerateCharacters => {
+            AppCommand::AvGenerateCharacters { force } => {
                 // Reject if a job is already running
                 if let Some(ref job) = self.state.av_job {
                     let j = job.lock().unwrap();
@@ -3535,13 +3710,13 @@ impl Engine {
                 let book_name = self.state.book_name.clone();
                 let aligned_input = producer.illustration_alignment_text_file(require_alignment)?;
 
-                let child = producer.spawn_extract_characters(
+                let cfg = producer.illustration_job_config(
                     &book_name,
+                    &self.state.story_title,
                     &project_root,
-                    &api_key,
                     aligned_input.as_deref(),
+                    force,
                 )?;
-                let pid = child.id();
                 let label = "Extracting character bible".to_string();
 
                 let job_state = std::sync::Arc::new(std::sync::Mutex::new(
@@ -3550,20 +3725,16 @@ impl Engine {
                         cancel_requested: false,
                         finished: false,
                         result_message: None,
-                        child_pid: Some(pid),
+                        child_pid: None,
                         label: label.clone(),
                     },
                 ));
 
-                let job_clone = job_state.clone();
-                std::thread::spawn(move || {
-                    av_job_reader(child, job_clone);
-                });
-
+                spawn_illustration_job(cfg, job_state.clone(), true);
                 self.state.av_job = Some(job_state);
-                Ok(format!("Started: {} (pid {}). Use 'av cancel' to stop.", label, pid))
+                Ok(format!("Started: {}. Use 'av log' to follow.", label))
             }
-            AppCommand::AvGeneratePrompts => {
+            AppCommand::AvGeneratePrompts { force } => {
                 // Reject if a job is already running
                 if let Some(ref job) = self.state.av_job {
                     let j = job.lock().unwrap();
@@ -3582,15 +3753,27 @@ impl Engine {
                 let require_alignment = self.lesson_realign_active();
 
                 let book_name = self.state.book_name.clone();
+                if self.state.story_title.trim().is_empty() {
+                    return Err(
+                        "No story title set. The YouTube thumbnail prints it, and it \
+                         cannot be derived from the project filename.\n  \u{2192} Preferences \u{2192} \
+                         Story Metadata..., or: set title <the printable title of the work>"
+                            .to_string(),
+                    );
+                }
                 let aligned_input = producer.illustration_alignment_text_file(require_alignment)?;
 
-                let child = producer.spawn_prompts(
+                // Runs in-process: prompts are rendered deterministically from
+                // the frozen bible rather than re-described by the model per
+                // segment, which is what keeps a character looking the same
+                // across every image.
+                let cfg = producer.illustration_job_config(
                     &book_name,
+                    &self.state.story_title,
                     &project_root,
-                    &api_key,
                     aligned_input.as_deref(),
+                    force,
                 )?;
-                let pid = child.id();
                 let label = "Generating illustration prompts".to_string();
 
                 let job_state = std::sync::Arc::new(std::sync::Mutex::new(
@@ -3599,18 +3782,14 @@ impl Engine {
                         cancel_requested: false,
                         finished: false,
                         result_message: None,
-                        child_pid: Some(pid),
+                        child_pid: None,
                         label: label.clone(),
                     },
                 ));
 
-                let job_clone = job_state.clone();
-                std::thread::spawn(move || {
-                    av_job_reader(child, job_clone);
-                });
-
+                spawn_illustration_job(cfg, job_state.clone(), false);
                 self.state.av_job = Some(job_state);
-                Ok(format!("Started: {} (pid {}). Use 'av cancel' to stop.", label, pid))
+                Ok(format!("Started: {}. Use 'av cancel' to stop, 'av log' to follow.", label))
             }
             AppCommand::AvGenerateIllustrations => {
                 // Reject if a job is already running
@@ -4121,6 +4300,11 @@ impl Engine {
             }
             AppCommand::SetSimpleMode { enabled } => {
                 self.state.simple_mode = enabled;
+                if enabled {
+                    // The three reading modes are mutually exclusive.
+                    self.state.simple_triple = false;
+                    self.state.single_simple = false;
+                }
                 self.state.refresh_sentence_modes();
                 Ok(format!("Simple mode {}.", if enabled { "enabled" } else { "disabled" }))
             }
@@ -4128,6 +4312,9 @@ impl Engine {
                 self.state.simple_triple = enabled;
                 self.state.refresh_sentence_modes();
                 if enabled {
+                    // The three reading modes are mutually exclusive.
+                    self.state.simple_mode = false;
+                    self.state.single_simple = false;
                     // Diglot output uses a higher frontier mix than the 5%
                     // default. Enable frontier and bump the target to 18%
                     // (within the 15-20% band) unless the operator already
@@ -4143,6 +4330,29 @@ impl Engine {
                     ))
                 } else {
                     Ok("Simple-triple mode disabled.".to_string())
+                }
+            }
+            AppCommand::SetSingleSimple { enabled } => {
+                self.state.single_simple = enabled;
+                self.state.refresh_sentence_modes();
+                if enabled {
+                    // The three reading modes are mutually exclusive.
+                    self.state.simple_mode = false;
+                    self.state.simple_triple = false;
+                    // The default `dg` diglot output uses a 15% frontier.
+                    // Enable frontier and set the target to 15% unless the
+                    // operator already tuned it away from the 5% default.
+                    self.state.frontier_enabled = true;
+                    let bumped = (self.state.frontier_target_pct - 5.0).abs() < f32::EPSILON;
+                    if bumped {
+                        self.state.frontier_target_pct = 15.0;
+                    }
+                    Ok(format!(
+                        "Single-simple mode enabled (only basic_target produced; no calibration needed). Default output: 'generate_weave dg' (recipe V24) at {:.0}% frontier → <book>_dg.txt.",
+                        self.state.frontier_target_pct
+                    ))
+                } else {
+                    Ok("Single-simple mode disabled.".to_string())
                 }
             }
             AppCommand::SetSourceIsBasic { enabled } => {
@@ -5199,8 +5409,9 @@ impl Engine {
         };
 
         // --- Helper: generate a flat-recipe output file ---
+        // Returns the output file stem (file name without `.txt`).
         let generate_flat = |bas: u32, mod_v: u32, adv: u32, suffix: &str,
-                             generated: &mut Vec<String>| -> Result<(), String> {
+                             generated: &mut Vec<String>| -> Result<String, String> {
             use crate::simulation::calibrator;
 
             let result = corpus_generator::generate_book_instance(
@@ -5262,7 +5473,7 @@ impl Engine {
             ).map_err(|e| format!("Failed to write analysis: {}", e))?;
 
             generated.push(format!("{} ({} sentences)", actual_suffix, result.final_text_parts.len()));
-            Ok(())
+            Ok(file_name.trim_end_matches(".txt").to_string())
         };
 
         // --- Helper: generate interlinear output file ---
@@ -5360,31 +5571,173 @@ impl Engine {
             Ok(())
         };
 
-        // --- Dispatch: special modes b/m/a/i/r, or standard levels / all ---
+        // --- Helper: generate the single-simple diglot output (`dg`) ---
+        // Fixed recipe V24 (the first 24 wlemmas by frequency: bas=24, mod=0,
+        // adv=0) applied across the whole book with the configured frontier
+        // (15% default in single_simple). Diglot crutches come from the inverse
+        // mapping driven by the frontier pass. Written as `<book>_dg.txt`. No
+        // level map / calibration needed.
+        let generate_dg = |generated: &mut Vec<String>| -> Result<(), String> {
+            const DG_BAS: u32 = 24;
+            let (bas, mod_v, adv) = (DG_BAS, 0u32, 0u32);
+
+            let frontier_slice_cfg = if frontier_config.enabled {
+                let (total_tokens, unknown_tokens) =
+                    corpus_generator::compute_prepass_metrics_for_slice(
+                        &numerical_chapter,
+                        &json_chapter,
+                        &dictionary,
+                        bas, mod_v, adv,
+                        0.5,
+                    )
+                    .map_err(|e| format!("Pre-pass failed for 'dg': {}", e))?;
+                let m = corpus_generator::BoundaryPrepassMetrics {
+                    boundary_index: 1,
+                    sentence_start_1_based: 1,
+                    sentence_end_1_based_inclusive: numerical_chapter.sentences_numerical.len(),
+                    total_tokens,
+                    unknown_tokens,
+                };
+                Some(corpus_generator::FrontierSliceConfig {
+                    target_pct: frontier_config.target_pct,
+                    expected_unknown_pct: m.expected_unknown_pct(),
+                    total_tokens: m.total_tokens,
+                    seed: compose_frontier_seed(0, 1),
+                })
+            } else {
+                None
+            };
+
+            let result = corpus_generator::generate_book_instance_with_frontier(
+                &numerical_chapter,
+                &json_chapter,
+                &dictionary,
+                bas, mod_v, adv,
+                0.5,
+                false,
+                frontier_slice_cfg.as_ref(),
+            ).map_err(|e| format!("Generation failed for 'dg': {}", e))?;
+
+            let cleaned_parts: Vec<String> = result.final_text_parts
+                .iter()
+                .map(|p| text_generator::clean_text_for_tts(p))
+                .collect();
+            let output_text = cleaned_parts.join("\n\n");
+
+            let file_name = build_file_name("dg");
+            let file_path = tts_dir.join(&file_name);
+            fs::write(&file_path, &output_text)
+                .map_err(|e| format!("Failed to write '{}': {}", file_path.display(), e))?;
+
+            let metrics = TextMetrics::new(
+                &result.all_output_lemma_instances,
+                result.total_base_words,
+            );
+            let avd_score = metrics.calculate_avd_score();
+            let metrics_v2 = TextMetrics::new_v2(
+                &result.all_output_lemma_instances_v2,
+                result.total_base_words,
+            );
+            let avd_score_v2 = metrics_v2.calculate_avd_score();
+
+            let recipe_obj = crate::simulation::numerical_types::VLevelRecipe { bas, mod_v, adv };
+            corpus_generator::log_analysis_to_file(
+                &analysis_path,
+                &file_name,
+                &result,
+                avd_score,
+                avd_score_v2,
+                Some(recipe_obj.clone()),
+                Some(recipe_obj),
+                None,
+                None,
+                Some(&frontier_config),
+                None,
+                None,
+            ).map_err(|e| format!("Failed to write analysis: {}", e))?;
+
+            generated.push(format!(
+                "dg ({} sentences, recipe V{})",
+                result.final_text_parts.len(),
+                DG_BAS
+            ));
+            Ok(())
+        };
+
+        // --- Dispatch: special modes b/m/a/i/r/dg, or standard levels / all ---
         let is_all = level_arg == "all";
         let simple_mode = self.state.simple_mode;
         let simple_triple = self.state.simple_triple;
-        // In simple-triple mode the advanced + moderate tiers are never woven
-        // into numeric-level output: force their v-levels to 0 so core_algo's
-        // advanced-weave path always fails and selection drops to basic_target
-        // (or the inverse diglot at low levels). The verbatim advanced/moderate
-        // outputs come from `generate_weave a` / `generate_weave m` instead.
+        let single_simple = self.state.single_simple;
+        // In simple-triple and single-simple modes the advanced + moderate tiers
+        // are never woven into numeric-level output: force their v-levels to 0 so
+        // core_algo's advanced-weave path always fails and selection drops to
+        // basic_target (or the inverse diglot at low levels). The verbatim
+        // advanced/moderate outputs (simple_triple only) come from
+        // `generate_weave a` / `generate_weave m` instead.
         let triple_levels = |bas: u32, mod_v: u32, adv: u32| -> (u32, u32, u32) {
-            if simple_triple { (bas, 0, 0) } else { (bas, mod_v, adv) }
+            if simple_triple || single_simple { (bas, 0, 0) } else { (bas, mod_v, adv) }
         };
 
-        // In simple mode the moderate ('m') and advanced ('a') flat outputs are
-        // unavailable because those tiers aren't produced. Reject explicitly.
-        if simple_mode && (level_arg == "m" || level_arg == "a") {
+        // In simple mode and single-simple mode the moderate ('m') and advanced
+        // ('a') flat outputs are unavailable because those tiers aren't produced.
+        // Reject explicitly. (simple_triple keeps them as verbatim outputs.)
+        if (simple_mode || single_simple) && (level_arg == "m" || level_arg == "a") {
+            let mode_name = if simple_mode { "simple_mode" } else { "single_simple" };
             return Err(format!(
-                "Cannot generate '{}' output: project is in simple_mode (only basic-tier levels are available).",
-                level_arg
+                "Cannot generate '{}' output: project is in {} (only basic-tier levels are available).",
+                level_arg, mode_name
             ));
         }
 
         match level_arg {
             "b" => {
-                generate_flat(u32::MAX, 0, 0, "ULb", &mut generated_files)?;
+                let file_stem = generate_flat(u32::MAX, 0, 0, "ULb", &mut generated_files)?;
+                // Export the interlinear CC map alongside the pure-target text
+                // so video generation can burn word-synced captions.
+                let cc_path = tts_dir.join(format!("{}_cc.json", file_stem));
+                match crate::services::cc_map::export_cc_map(
+                    sentences_for_chapter,
+                    target_lang,
+                    base_lang,
+                    &cc_path,
+                ) {
+                    Ok(n) => {
+                        generated_files.push(format!(
+                            "cc_map ({} mapped sentences) -> {}_cc.json",
+                            n, file_stem
+                        ));
+                        // Typeset the interlinear read-along PDF from the CC
+                        // map (offline study companion to the captioned video).
+                        let pdf_title = if self.state.book_name.is_empty() {
+                            None
+                        } else {
+                            Some(self.state.book_name.replace('_', " "))
+                        };
+                        let pdf_chapter = chapter_name_sanitized
+                            .as_ref()
+                            .map(|ch| ch.replace('_', " "));
+                        match self.tool_root().and_then(|root| {
+                            crate::services::cc_map::export_reader_pdf(
+                                &cc_path,
+                                &root,
+                                pdf_title.as_deref(),
+                                pdf_chapter.as_deref(),
+                            )
+                        }) {
+                            Ok(pdf) => {
+                                let name = std::path::Path::new(&pdf)
+                                    .file_name()
+                                    .map(|n| n.to_string_lossy().into_owned())
+                                    .unwrap_or(pdf);
+                                generated_files.push(format!("reader pdf -> {}", name));
+                            }
+                            Err(e) => generated_files
+                                .push(format!("[warn] reader pdf failed: {}", e)),
+                        }
+                    }
+                    Err(e) => generated_files.push(format!("[warn] cc_map export failed: {}", e)),
+                }
             }
             "m" => {
                 generate_flat(u32::MAX, u32::MAX, 0, "ULm", &mut generated_files)?;
@@ -5397,6 +5750,9 @@ impl Engine {
             }
             "r" => {
                 generate_raw_source(&mut generated_files)?;
+            }
+            "dg" => {
+                generate_dg(&mut generated_files)?;
             }
             s if s.starts_with("flat:") => {
                 // generate_weave flat <adv> <mod> <bas> — parsed upstream into
@@ -5872,6 +6228,8 @@ impl Engine {
         out.push_str(&format!("  source_is_target    : {}\n", s.source_is_target()));
         out.push_str(&format!("  book_name           : {}\n", book_disp));
         out.push_str(&format!("  simple_mode         : {}\n", onoff(s.simple_mode)));
+        out.push_str(&format!("  simple_triple       : {}\n", onoff(s.simple_triple)));
+        out.push_str(&format!("  single_simple       : {}\n", onoff(s.single_simple)));
         out.push_str(&format!("  lesson_realign      : {}\n", onoff(s.lesson_realign_enabled)));
         out.push_str(&format!("  source_is_basic     : {}\n", onoff(s.source_is_basic)));
         out.push_str(&format!("  frontier_enabled    : {}\n", onoff(s.frontier_enabled)));
@@ -5905,7 +6263,9 @@ impl Engine {
         }
 
         let simple_mode = self.state.simple_mode;
-        let simple_triple = self.state.simple_triple;
+        // single_simple has the same tier/mapping shape as simple_triple
+        // (basic_base off; advanced/moderate not produced).
+        let simple_triple = self.state.simple_triple || self.state.single_simple;
         let (range_start, range_end) = range.unwrap_or((0, self.state.document.len().saturating_sub(1)));
         for (i, sent) in self.state.document.iter().enumerate() {
             if i < range_start || i > range_end { continue; }
@@ -6794,6 +7154,58 @@ fn run_lesson_realign_job(
     }
 }
 
+/// Run illustration prompt generation on a worker thread, streaming progress
+/// into the shared AV job state so `av log`, `job_status` and `av cancel`
+/// behave exactly as they do for child-process jobs.
+fn spawn_illustration_job(
+    cfg: crate::services::illustration::orchestrator::JobConfig,
+    job: std::sync::Arc<std::sync::Mutex<crate::app::state::AvJobState>>,
+    bible_only: bool,
+) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let cancel = std::sync::Arc::new(AtomicBool::new(false));
+
+    // `av cancel` only flips a flag on the job state; mirror it into an atomic
+    // the orchestrator can poll between LLM calls.
+    let monitor_cancel = cancel.clone();
+    let monitor_job = job.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        let Ok(j) = monitor_job.lock() else { return };
+        if j.finished {
+            return;
+        }
+        if j.cancel_requested {
+            monitor_cancel.store(true, Ordering::SeqCst);
+            return;
+        }
+    });
+
+    std::thread::spawn(move || {
+        let log_job = job.clone();
+        let log = move |line: String| av_job_push_line(&log_job, line);
+        let result = if bible_only {
+            crate::services::illustration::orchestrator::build_bible(&cfg, &log)
+        } else {
+            crate::services::illustration::orchestrator::run(&cfg, &log, cancel.as_ref())
+        };
+        match result {
+            Ok(msg) => {
+                av_job_push_line(&job, msg.clone());
+                finish_custom_av_job(&job, true, msg);
+            }
+            Err(e) if cancel.load(Ordering::SeqCst) => {
+                finish_custom_av_job(&job, false, format!("Illustration job cancelled. {}", e));
+            }
+            Err(e) => {
+                av_job_push_line(&job, e.clone());
+                finish_custom_av_job(&job, false, format!("Illustration job failed: {}", e));
+            }
+        }
+    });
+}
+
 fn av_job_reader(
     mut child: std::process::Child,
     job: std::sync::Arc<std::sync::Mutex<crate::app::state::AvJobState>>,
@@ -6886,10 +7298,13 @@ mod phase_h_tests {
     use super::*;
     use crate::app::commands::AppCommand;
     use crate::app::state::AppState;
+    use crate::app::state::Chapter;
     use crate::domain::sentence::Sentence;
     use crate::types::json_types::{JsonCurriculumMap, JsonCurriculumMapEntry};
     use crate::simulation::numerical_types::{LLevelRecipe, VLevelRecipe};
     use std::collections::HashMap;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn engine_with_doc() -> Engine {
         let mut state = AppState::default();
@@ -6911,6 +7326,16 @@ mod phase_h_tests {
         levels.insert("1".to_string(), map);
         state.book_map = Some(levels);
         state.level_map_embedded = embedded;
+    }
+
+    fn write_temp_source_file(content: &str) -> std::path::PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("weavelang_append_source_{unique}.txt"));
+        fs::write(&path, content).expect("write temp source file");
+        path
     }
 
     #[test]
@@ -7002,6 +7427,41 @@ mod phase_h_tests {
     }
 
     #[test]
+    fn reading_modes_are_mutually_exclusive() {
+        let mut engine = engine_with_doc();
+
+        // Turn on simple_triple, then single_simple — only single_simple stays.
+        engine.execute(AppCommand::SetSimpleTriple { enabled: true }).unwrap();
+        assert!(engine.state.simple_triple);
+        engine.execute(AppCommand::SetSingleSimple { enabled: true }).unwrap();
+        assert!(engine.state.single_simple);
+        assert!(!engine.state.simple_triple, "single_simple must clear simple_triple");
+        assert!(!engine.state.simple_mode, "single_simple must clear simple_mode");
+
+        // Now turn on simple_mode — single_simple must clear.
+        engine.execute(AppCommand::SetSimpleMode { enabled: true }).unwrap();
+        assert!(engine.state.simple_mode);
+        assert!(!engine.state.single_simple, "simple_mode must clear single_simple");
+        assert!(!engine.state.simple_triple);
+    }
+
+    #[test]
+    fn single_simple_enables_frontier_at_15_pct_and_round_trips() {
+        let mut engine = engine_with_doc();
+        let out = engine
+            .execute(AppCommand::SetSingleSimple { enabled: true })
+            .expect("toggle should succeed");
+        assert!(out.contains("dg"), "message should mention the dg output: {out}");
+        assert!(engine.state.single_simple);
+        assert!(engine.state.frontier_enabled);
+        assert!((engine.state.frontier_target_pct - 15.0).abs() < f32::EPSILON);
+
+        let json = serde_json::to_string(&engine.state).expect("serialize");
+        let restored: AppState = serde_json::from_str(&json).expect("deserialize");
+        assert!(restored.single_simple, "flag should survive .wvl round-trip");
+    }
+
+    #[test]
     fn normalize_newlines_expands_single_newlines() {
         let input = "uno\ndos\ntres";
         let out = normalize_single_newlines_to_double(input);
@@ -7020,5 +7480,54 @@ mod phase_h_tests {
         let input = "uno\r\ndos\rtres";
         let out = normalize_single_newlines_to_double(input);
         assert_eq!(out, "uno\n\ndos\n\ntres");
+    }
+
+    #[test]
+    fn append_source_renumbers_sentences_and_adds_chapter() {
+        let path = write_temp_source_file("%%META chapter: Two%%\n{S1: Hola.}\n{S2: Adios.}\n");
+
+        let mut engine = engine_with_doc();
+        engine.state.chapters.push(Chapter {
+            name: "One".to_string(),
+            start: 1,
+            end: 1,
+        });
+
+        let out = engine
+            .execute(AppCommand::AppendSource {
+                path: path.to_string_lossy().to_string(),
+                chapter_name: None,
+            })
+            .expect("append source should succeed");
+
+        assert!(out.contains("Appended 2 sentences as chapter 'Two'"), "got: {out}");
+        assert_eq!(engine.state.document.len(), 3);
+        assert_eq!(engine.state.document[0].id, "S1");
+        assert_eq!(engine.state.document[1].id, "S2");
+        assert_eq!(engine.state.document[2].id, "S3");
+        assert_eq!(engine.state.chapters.len(), 2);
+        assert_eq!(engine.state.chapters[1].name, "Two");
+        assert_eq!(engine.state.chapters[1].start, 2);
+        assert_eq!(engine.state.chapters[1].end, 3);
+        assert_eq!(engine.state.selected_chapter_idx, Some(1));
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn append_source_requires_chapter_name_when_meta_missing() {
+        let path = write_temp_source_file("{S1: Hola.}\n");
+
+        let mut engine = Engine::new(AppState::default());
+        let err = engine
+            .execute(AppCommand::AppendSource {
+                path: path.to_string_lossy().to_string(),
+                chapter_name: None,
+            })
+            .expect_err("append source should require a chapter name");
+
+        assert!(err.contains("%%META chapter: <name>%%") || err.contains("explicit chapter name"), "got: {err}");
+
+        let _ = fs::remove_file(path);
     }
 }

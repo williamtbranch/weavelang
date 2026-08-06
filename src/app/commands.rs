@@ -33,11 +33,46 @@ pub enum AppCommand {
     CloseProject,
     SetLanguages { source: String, target: String },
     SetBookName { name: String },
+    /// The printable title of the work. Required before illustration prompts
+    /// can be generated, because the thumbnail carries it.
+    SetStoryTitle { title: String },
     OpenWorkspace { path: String },
     LoadProject { path: String },
     SaveProject { path: Option<String> },
     ImportSource { path: String },
+    AppendSource { path: String, chapter_name: Option<String> },
     ImportJson { path: String },
+
+    // Raw Source (ESCore-style adaptation)
+    /// Import raw (usually English) text into the Raw Source tab.
+    ImportRaw { path: String, chunk: Option<usize>, fresh: bool },
+    /// Load the book-level approved-vocabulary policy file.
+    AdaptDomain { path: String },
+    /// Set an adaptation gate: coverage / ilevel / min / max / passes / gain.
+    AdaptSet { key: String, value: String },
+    /// Score the current draft(s) against the DRC without calling the LLM.
+    AdaptScore { unit: Option<String> },
+    /// One draft pass.
+    AdaptDraft { unit: Option<String> },
+    /// One squeeze pass.
+    AdaptSqueeze { unit: Option<String> },
+    /// Draft, then squeeze until PASS, floor, or the anti-churn ceiling.
+    AdaptRun { unit: Option<String> },
+    /// Show adaptation status for every unit.
+    AdaptStatusReport,
+    /// Show the full DRC report for one unit.
+    AdaptReport { unit: Option<String> },
+    /// Roll a unit's draft back one version.
+    AdaptRevert { unit: Option<String> },
+    /// Cancel the running adapt job.
+    AdaptCancel,
+    /// Force-write the resume checkpoint.
+    AdaptCheckpoint,
+    /// Reload a resume checkpoint after an interruption.
+    AdaptRestore { path: Option<String> },
+    /// Assemble the passing drafts into source text and import it.
+    AdaptPromote { force: bool },
+
     ExportJson { path: String },
     ExportLevelMap { path: String },
     
@@ -139,8 +174,8 @@ pub enum AppCommand {
     AvGenerateAlign { target: AvTarget },
     AvGenerateAudio { target: AvTarget },
     AvGenerateVideo { target: AvTarget },
-    AvGenerateCharacters,
-    AvGeneratePrompts,
+    AvGenerateCharacters { force: bool },
+    AvGeneratePrompts { force: bool },
     AvGenerateIllustrations,
     AvConfigShow,
     AvConfigTts { key: String, value: String },
@@ -199,6 +234,9 @@ pub enum AppCommand {
     SetSimpleMode { enabled: bool },
     /// Toggle simple_triple output mode (basic_base off; only basic_target woven).
     SetSimpleTriple { enabled: bool },
+    /// Toggle single_simple output mode (basic_base off; only basic_target
+    /// woven; advanced/moderate never produced; default `dg` V24 output).
+    SetSingleSimple { enabled: bool },
     /// Toggle source_is_basic.
     SetSourceIsBasic { enabled: bool },
     /// Toggle lesson_realign post-processing for chapter lesson audio.
